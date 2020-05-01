@@ -1,7 +1,8 @@
 package unit.kafka.server
 
-import kafka.server.{KafkaConfig, QuotaFactory, QuotaType, ReplicationQuotaManagerConfig}
+import kafka.server.{BrokerBackpressureConfig, KafkaConfig, QuotaFactory, QuotaType, ReplicationQuotaManagerConfig}
 import kafka.utils.TestUtils
+import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.junit.Test
 import org.junit.Assert._
 
@@ -47,5 +48,39 @@ class QuotaFactoryTest {
 
     assertFalse("Expected no log dir replicas to be throttled", config.allReplicasThrottled)
     assertEquals(ReplicationQuotaManagerConfig.QuotaBytesPerSecondDefault, config.quotaBytesPerSecond)
+  }
+
+  @Test
+  def testClientRequestConfigSetsCorrectBackpressureConfigs(): Unit = {
+    val props = TestUtils.createBrokerConfig(0, "localhost:2181")
+    props.put(KafkaConfig.QueuedMaxRequestsProp, "500")
+    props.put(ConfluentConfigs.BACKPRESSURE_TYPES_CONFIG, "request")
+    props.put(ConfluentConfigs.MULTITENANT_LISTENER_NAMES_CONFIG, "PLAINTEXT")
+
+    val config = QuotaFactory.clientRequestConfig(KafkaConfig.fromProps(props))
+
+    // backpressure is disabled because there is no tenant callback class
+    assertFalse("Expected request backpressure disabled", config.backpressureConfig.backpressureEnabledInConfig)
+    assertEquals(Seq("PLAINTEXT"), config.backpressureConfig.tenantEndpointListenerNames)
+    assertEquals(500, config.backpressureConfig.maxQueueSize, 0.0)
+    assertEquals(ConfluentConfigs.BACKPRESSURE_REQUEST_MIN_BROKER_LIMIT_DEFAULT.toDouble, config.backpressureConfig.minBrokerRequestQuota, 0.0)
+    assertEquals(ConfluentConfigs.BACKPRESSURE_REQUEST_QUEUE_SIZE_PERCENTILE_DEFAULT, config.backpressureConfig.queueSizePercentile)
+
+    // set non-default request backpressure configs
+    props.put(ConfluentConfigs.BACKPRESSURE_REQUEST_MIN_BROKER_LIMIT_CONFIG, "100")
+    props.put(ConfluentConfigs.BACKPRESSURE_REQUEST_QUEUE_SIZE_PERCENTILE_CONFIG, "p99")
+
+    val config2 = QuotaFactory.clientRequestConfig(KafkaConfig.fromProps(props))
+    assertEquals(100.0, config2.backpressureConfig.minBrokerRequestQuota, 0.0)
+    assertEquals("p99", config2.backpressureConfig.queueSizePercentile)
+
+    // setting an invalid value for min broker quota will set it to BrokerBackpressureConfig.MinBrokerRequestQuota
+    // and setting invalid value for queue size percentile will set it back to the default
+    props.put(ConfluentConfigs.BACKPRESSURE_REQUEST_MIN_BROKER_LIMIT_CONFIG, "0")
+    props.put(ConfluentConfigs.BACKPRESSURE_REQUEST_QUEUE_SIZE_PERCENTILE_CONFIG, "p105")
+
+    val config3 = QuotaFactory.clientRequestConfig(KafkaConfig.fromProps(props))
+    assertEquals(BrokerBackpressureConfig.MinBrokerRequestQuota, config3.backpressureConfig.minBrokerRequestQuota, 0.0)
+    assertEquals(ConfluentConfigs.BACKPRESSURE_REQUEST_QUEUE_SIZE_PERCENTILE_DEFAULT, config3.backpressureConfig.queueSizePercentile)
   }
 }

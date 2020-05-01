@@ -192,7 +192,20 @@ object QuotaFactory extends Logging {
     BrokerBackpressureConfig(
       backpressureEnabledInConfig = backpressureEnabled,
       tenantEndpointListenerNames = tenantListenerNames,
-      maxQueueSize = cfg.queuedMaxRequests.toDouble
+      maxQueueSize = cfg.queuedMaxRequests.toDouble,
+      minBrokerRequestQuota = {
+        val minRequestQuota = cfg.getLong(ConfluentConfigs.BACKPRESSURE_REQUEST_MIN_BROKER_LIMIT_CONFIG).toDouble
+        math.max(minRequestQuota, BrokerBackpressureConfig.MinBrokerRequestQuota)
+      },
+      queueSizePercentile = {
+        val percentileStr = cfg.getString(ConfluentConfigs.BACKPRESSURE_REQUEST_QUEUE_SIZE_PERCENTILE_CONFIG)
+        if (RequestQueueSizePercentiles.valid(percentileStr))
+          percentileStr
+        else {
+          warn(s"Invalid ${ConfluentConfigs.BACKPRESSURE_REQUEST_QUEUE_SIZE_PERCENTILE_CONFIG}=`$percentileStr`. Using default `${ConfluentConfigs.BACKPRESSURE_REQUEST_QUEUE_SIZE_PERCENTILE_DEFAULT}`.")
+          ConfluentConfigs.BACKPRESSURE_REQUEST_QUEUE_SIZE_PERCENTILE_DEFAULT
+        }
+      }
     )
   }
 

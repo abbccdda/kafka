@@ -833,6 +833,8 @@ class KafkaConfigTest {
         case ConfluentConfigs.MULTITENANT_TENANT_DELETE_DELAY_MS_CONFIG => // ignore
         case ConfluentConfigs.MULTITENANT_TENANT_DELETE_BATCH_SIZE_CONFIG => // ignore
         case ConfluentConfigs.BACKPRESSURE_TYPES_CONFIG => // ignore
+        case ConfluentConfigs.BACKPRESSURE_REQUEST_MIN_BROKER_LIMIT_CONFIG => // ignore
+        case ConfluentConfigs.BACKPRESSURE_REQUEST_QUEUE_SIZE_PERCENTILE_CONFIG => // ignore
         case ConfluentConfigs.MULTITENANT_LISTENER_NAMES_CONFIG => // ignore
 
         case ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG =>

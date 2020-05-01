@@ -50,7 +50,9 @@ class ClientRequestQuotaManagerTest {
       backpressureEnabledInConfig = true,
       backpressureCheckFrequencyMs = 10 * TimeUnit.HOURS.toMillis(1),
       tenantEndpointListenerNames = Seq(testListener.value),
-      maxQueueSize = maxQueueSize
+      maxQueueSize = maxQueueSize,
+      minBrokerRequestQuota = 110.0,
+      queueSizePercentile = "p99"
     )
   )
   private val twoTenantEndpointsConfig = ClientQuotaManagerConfig(
@@ -482,7 +484,7 @@ class ClientRequestQuotaManagerTest {
   @Test
   def testUpdateAdjustedCapacityDecreasesLimitDuringRequestOverloadAndBacksOffDuringUnderload(): Unit = {
     val mult = 10
-    val brokerRequestLimit = BrokerBackpressureConfig.DefaultMinRequestQuotaLimit + mult * BrokerBackpressureConfig.DefaultRequestQuotaAdjustment
+    val brokerRequestLimit = config.backpressureConfig.minBrokerRequestQuota + mult * BrokerBackpressureConfig.DefaultRequestQuotaAdjustment
     val queueSizeSensor = metrics.sensor("RequestQueueSize")
     val queueSizePercentiles = RequestQueueSizePercentiles.createPercentiles(metrics, maxQueueSize, SocketServer.DataPlaneMetricPrefix)
     queueSizeSensor.add(queueSizePercentiles)
@@ -579,14 +581,16 @@ class ClientRequestQuotaManagerTest {
     val queueSizePercentiles = RequestQueueSizePercentiles.createPercentiles(metrics, maxQueueSize, SocketServer.DataPlaneMetricPrefix)
     queueSizeSensor.add(queueSizePercentiles)
     for (i <- 0 until 100000) {
-      queueSizeSensor.record(config.backpressureConfig.queueSizeCap + 1)
+      // this tests that the backpressure implementation uses p90 (non-default, set in config) vs. p95 (default) to decide
+      // when to backpressure; this will result in p95 = 390 < 400 (queue size threshold) and p99 = 406 > 400
+      queueSizeSensor.record(i % 410)
     }
     // make sure that limit does not fall below the minimum
     for (i <- 0 until 1000) {
       requestQuotaManager.updateBrokerQuotaLimit()
     }
     assertBackpressureMetricValue("non-exempt-request-time-capacity",
-      Some(BrokerBackpressureConfig.DefaultMinRequestQuotaLimit), 0.01)
+      Some(config.backpressureConfig.minBrokerRequestQuota), 0.01)
   }
 
   @Test

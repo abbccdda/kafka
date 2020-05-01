@@ -247,8 +247,8 @@ class ClientRequestQuotaManager(private val config: ClientQuotaManagerConfig,
     * Backpressure is increased/decreased in linear constant steps. This approach may be a bit slow during sudden overload.
     */
   def updateAdjustedCapacity(brokerRequestLimit: Double): Double = {
-    val queueSize = RequestQueueSizePercentiles.dataPlaneQueueSize(metrics, "p95")
-    val minCap = BrokerBackpressureConfig.DefaultMinRequestQuotaLimit
+    val queueSize = RequestQueueSizePercentiles.dataPlaneQueueSize(metrics, dynamicBackpressureConfig.queueSizePercentile)
+    val minCap = dynamicBackpressureConfig.minBrokerRequestQuota
     lastLimitCorrection = if (queueSize >= dynamicBackpressureConfig.queueSizeCap) {
       val maxAdjustmentLimit = math.max(brokerRequestLimit - minCap, 0.0)
       if (lastLimitCorrection < maxAdjustmentLimit)

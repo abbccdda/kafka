@@ -8,6 +8,7 @@ package kafka.server
 import java.util.concurrent.TimeUnit
 
 import org.apache.kafka.common.MetricName
+import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.apache.kafka.common.metrics._
 
 import scala.collection.Seq
@@ -24,11 +25,17 @@ import scala.collection.Seq
   *                                       requests from tenants
   * @param maxQueueSize                   the maximum number of queued requests allowed for data-plane, before blocking
   *                                       the network threads, which corresponds to "queued.max.requests" broker config
+  * @param minBrokerRequestQuota          The minimum broker request quota; request backpressure would not reduce
+  *                                       the broker request quota any further even if the overload is still detected
+  * @param queueSizePercentile            request queue size percentile used by request backpressure as string of format "pN",
+  *                                       where N is the percentile value. Example is "p95".
   */
 case class BrokerBackpressureConfig(backpressureEnabledInConfig: Boolean = false,
                                     backpressureCheckFrequencyMs: Long = BrokerBackpressureConfig.DefaultBackpressureCheckFrequencyMs,
                                     tenantEndpointListenerNames: Seq[String] = Seq(),
-                                    maxQueueSize: Double = Double.MaxValue) {
+                                    maxQueueSize: Double = Double.MaxValue,
+                                    minBrokerRequestQuota: Double = ConfluentConfigs.BACKPRESSURE_REQUEST_MIN_BROKER_LIMIT_DEFAULT.toDouble,
+                                    queueSizePercentile: String = ConfluentConfigs.BACKPRESSURE_REQUEST_QUEUE_SIZE_PERCENTILE_DEFAULT) {
 
   /**
    * Maximum queue size threshold for the data-plane request queue, used by request backpressure to decide whether to
@@ -37,6 +44,14 @@ case class BrokerBackpressureConfig(backpressureEnabledInConfig: Boolean = false
   def queueSizeCap: Double =
     if (maxQueueSize < Double.MaxValue) maxQueueSize * BrokerBackpressureConfig.DefaultMaxResourceUtilization
     else Double.MaxValue
+
+  override def toString: String  = {
+    s"BrokerBackpressureConfig(backpressureEnabledInConfig=$backpressureEnabledInConfig" +
+      s", backpressureCheckFrequencyMs=$backpressureCheckFrequencyMs" +
+      s", tenantEndpointListenerNames=$tenantEndpointListenerNames" +
+      s", minBrokerRequestQuota=$minBrokerRequestQuota" +
+      s", queueSizePercentile=$queueSizePercentile)"
+  }
 }
 
 
@@ -55,13 +70,9 @@ object BrokerBackpressureConfig {
   // DefaultMinNonExemptRequestUtilization * total capacity
   val DefaultMinNonExemptRequestUtilization = 0.3
 
-  // minimum combined request quota for all tenants. Even if request queues are over-loaded,
-  // the broker will not backpressure requests any further than 200 total request quota
-  // if time on threads was exactly CPU, then 200 corresponds to two cores. Our default cloud
-  // deployments have 4 virtual cores (aws, gcp, azure); time on threads are usually not exactly
-  // CPU time (especially when the time is taken to read from disk). During various experiments
-  // on AWS, total measured IO + network thread usage often got up to 700.
-  val DefaultMinRequestQuotaLimit = 200.0
+  // the absolute minimum for the broker request quota that limits combined request quota for all active tenants.
+  // used only when the value in ConfluentConfigs.BACKPRESSURE_REQUEST_QUEUE_SIZE_PERCENTILE_CONFIG is smaller than this
+  val MinBrokerRequestQuota = 10.0
 
   // step to increase / decrease request limit when increasing/decreasing request backpressure
   val DefaultRequestQuotaAdjustment = 25.0

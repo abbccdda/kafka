@@ -962,7 +962,10 @@ class DynamicListenerConfig(server: KafkaServer) extends BrokerReconfigurable wi
 
 object DynamicBackpressure {
   val ReconfigurableConfigs = Set(
-    ConfluentConfigs.BACKPRESSURE_TYPES_CONFIG)
+    ConfluentConfigs.BACKPRESSURE_TYPES_CONFIG,
+    ConfluentConfigs.BACKPRESSURE_REQUEST_MIN_BROKER_LIMIT_CONFIG,
+    ConfluentConfigs.BACKPRESSURE_REQUEST_QUEUE_SIZE_PERCENTILE_CONFIG
+  )
 }
 
 class DynamicBackpressure(server: KafkaServer) extends BrokerReconfigurable {

@@ -1,6 +1,7 @@
 // (Copyright) [2019 - 2019] Confluent, Inc.
 package io.confluent.kafka.multitenant.integration.test;
 
+import kafka.server.BrokerBackpressureConfig;
 import org.apache.kafka.clients.admin.AlterConfigOp;
 import org.apache.kafka.clients.admin.AlterConfigsOptions;
 import org.apache.kafka.clients.admin.ConfigEntry;
@@ -199,10 +200,110 @@ public class BrokerBackpressureTest {
                broker.quotaManagers().request().backpressureEnabled());
     assertEquals((double) maxQueueSize,
                  broker.quotaManagers().request().dynamicBackpressureConfig().maxQueueSize(), 0);
+    assertEquals(ConfluentConfigs.BACKPRESSURE_REQUEST_MIN_BROKER_LIMIT_DEFAULT.doubleValue(),
+            broker.quotaManagers().request().dynamicBackpressureConfig().minBrokerRequestQuota(), 0.0);
+    assertEquals(ConfluentConfigs.BACKPRESSURE_REQUEST_QUEUE_SIZE_PERCENTILE_DEFAULT,
+            broker.quotaManagers().request().dynamicBackpressureConfig().queueSizePercentile());
 
     assertEquals(numIoThreads * 100.0, ThreadUsageMetrics.ioThreadsCapacity(broker.metrics()), 1.0);
     assertEquals(numNetworkThreads * 100.0,
                  ThreadUsageMetrics.networkThreadsCapacity(broker.metrics(), JavaConverters.asScalaBuffer(Collections.singletonList("EXTERNAL"))), 1.0);
+  }
+
+  @Test
+  public void testNonDefaultRequestBackpressureConfig() throws Exception {
+    Properties props = brokerPropsWithTenantQuotas();
+    props.put(ConfluentConfigs.BACKPRESSURE_TYPES_CONFIG, "request");
+    props.put(ConfluentConfigs.BACKPRESSURE_REQUEST_MIN_BROKER_LIMIT_CONFIG, "150");
+    props.put(ConfluentConfigs.BACKPRESSURE_REQUEST_QUEUE_SIZE_PERCENTILE_CONFIG, "p99");
+    final PhysicalCluster physicalCluster = testHarness.start(props);
+
+    KafkaServer broker = physicalCluster.kafkaCluster().brokers().get(0);
+    assertTrue("Expected request backpressure to be enabled",
+            broker.quotaManagers().request().backpressureEnabled());
+    assertEquals((double) maxQueueSize,
+            broker.quotaManagers().request().dynamicBackpressureConfig().maxQueueSize(), 0);
+    assertEquals(150.0, broker.quotaManagers().request().dynamicBackpressureConfig().minBrokerRequestQuota(), 0.0);
+    assertEquals("p99", broker.quotaManagers().request().dynamicBackpressureConfig().queueSizePercentile());
+  }
+
+  @Test
+  public void testRequestBackpressureConfigWithInvalidValuesSetsAcceptedValues() throws Exception {
+    Properties props = brokerPropsWithTenantQuotas();
+    props.put(ConfluentConfigs.BACKPRESSURE_TYPES_CONFIG, "request");
+    props.put(ConfluentConfigs.BACKPRESSURE_REQUEST_MIN_BROKER_LIMIT_CONFIG, "0");
+    props.put(ConfluentConfigs.BACKPRESSURE_REQUEST_QUEUE_SIZE_PERCENTILE_CONFIG, "100");
+    final PhysicalCluster physicalCluster = testHarness.start(props);
+
+    KafkaServer broker = physicalCluster.kafkaCluster().brokers().get(0);
+    assertTrue("Expected request backpressure to be enabled",
+            broker.quotaManagers().request().backpressureEnabled());
+    assertEquals((double) maxQueueSize,
+            broker.quotaManagers().request().dynamicBackpressureConfig().maxQueueSize(), 0);
+    assertEquals(BrokerBackpressureConfig.MinBrokerRequestQuota(),
+            broker.quotaManagers().request().dynamicBackpressureConfig().minBrokerRequestQuota(), 0.0);
+    assertEquals(ConfluentConfigs.BACKPRESSURE_REQUEST_QUEUE_SIZE_PERCENTILE_DEFAULT,
+            broker.quotaManagers().request().dynamicBackpressureConfig().queueSizePercentile());
+  }
+
+  @Test
+  public void testDynamicRequestBackpressureConfig() throws Exception {
+    Properties props = brokerPropsWithTenantQuotas();
+    props.put(ConfluentConfigs.BACKPRESSURE_TYPES_CONFIG, "request");
+    final PhysicalCluster physicalCluster = testHarness.start(props);
+
+    KafkaServer broker0 = physicalCluster.kafkaCluster().brokers().get(0);
+    assertTrue("Expected request backpressure to be enabled",
+            broker0.quotaManagers().request().backpressureEnabled());
+    assertEquals(ConfluentConfigs.BACKPRESSURE_REQUEST_MIN_BROKER_LIMIT_DEFAULT,
+            broker0.quotaManagers().request().dynamicBackpressureConfig().minBrokerRequestQuota(), 0.0);
+    assertEquals(ConfluentConfigs.BACKPRESSURE_REQUEST_QUEUE_SIZE_PERCENTILE_DEFAULT,
+            broker0.quotaManagers().request().dynamicBackpressureConfig().queueSizePercentile());
+
+    AdminClient adminClient = physicalCluster.superAdminClient();
+    adminClient.incrementalAlterConfigs(
+            backpressureConfig(ConfluentConfigs.BACKPRESSURE_REQUEST_MIN_BROKER_LIMIT_CONFIG, "100"), configsOptions).all().get();
+
+    // verify min broker request quota got updated on all brokers
+    for (KafkaServer broker : physicalCluster.kafkaCluster().brokers()) {
+      TestUtils.waitForCondition(
+              () -> broker.quotaManagers().request().dynamicBackpressureConfig().minBrokerRequestQuota() == 100,
+              "Expected min broker request limit to be updated to 100 on broker " + broker.config().brokerId());
+      // but queue size percentile setting did not change
+      assertEquals(ConfluentConfigs.BACKPRESSURE_REQUEST_QUEUE_SIZE_PERCENTILE_DEFAULT,
+              broker.quotaManagers().request().dynamicBackpressureConfig().queueSizePercentile());
+    }
+
+    adminClient.incrementalAlterConfigs(
+            backpressureConfig(ConfluentConfigs.BACKPRESSURE_REQUEST_QUEUE_SIZE_PERCENTILE_CONFIG, "p99"), configsOptions).all().get();
+
+    // verify queue size percentile got updated on all brokers
+    for (KafkaServer broker : physicalCluster.kafkaCluster().brokers()) {
+      TestUtils.waitForCondition(
+              () -> broker.quotaManagers().request().dynamicBackpressureConfig().queueSizePercentile().equals("p99"),
+              "Expected queue size percentile to be updated to `p99` on broker " + broker.config().brokerId());
+      // and min broker request quota did not change
+      assertEquals(100.0, broker.quotaManagers().request().dynamicBackpressureConfig().minBrokerRequestQuota(), 0.0);
+    }
+
+    // test that dynamically updating percentile to an invalid value sets it to default `p95`
+    adminClient.incrementalAlterConfigs(
+            backpressureConfig(ConfluentConfigs.BACKPRESSURE_REQUEST_QUEUE_SIZE_PERCENTILE_CONFIG, "p101"), configsOptions).all().get();
+    for (KafkaServer broker : physicalCluster.kafkaCluster().brokers()) {
+      TestUtils.waitForCondition(
+              () -> broker.quotaManagers().request().dynamicBackpressureConfig().queueSizePercentile().equals(ConfluentConfigs.BACKPRESSURE_REQUEST_QUEUE_SIZE_PERCENTILE_DEFAULT),
+              "Expected queue size percentile to be updated to `p95` on broker " + broker.config().brokerId());
+    }
+
+    // verify that dynamically setting min broker request limit to too small value sets it to the lowest acceptable value
+    adminClient.incrementalAlterConfigs(
+            backpressureConfig(ConfluentConfigs.BACKPRESSURE_REQUEST_MIN_BROKER_LIMIT_CONFIG, "-1"), configsOptions).all().get();
+
+    for (KafkaServer broker : physicalCluster.kafkaCluster().brokers()) {
+      TestUtils.waitForCondition(
+              () -> broker.quotaManagers().request().dynamicBackpressureConfig().minBrokerRequestQuota() == BrokerBackpressureConfig.MinBrokerRequestQuota(),
+              "Expected min broker request limit to be updated to 10 on broker " + broker.config().brokerId());
+    }
   }
 
   @Test
@@ -282,7 +383,8 @@ public class BrokerBackpressureTest {
     }
 
     AdminClient adminClient = physicalCluster.superAdminClient();
-    adminClient.incrementalAlterConfigs(backpressureTypesConfigs("fetch,produce,request"), configsOptions).all().get();
+    adminClient.incrementalAlterConfigs(
+            backpressureConfig(ConfluentConfigs.BACKPRESSURE_TYPES_CONFIG, "fetch,produce,request"), configsOptions).all().get();
 
     // verify backpressure is enabled on every broker
     for (KafkaServer broker : physicalCluster.kafkaCluster().brokers()) {
@@ -300,7 +402,8 @@ public class BrokerBackpressureTest {
     }
 
     // disable one backpressure type
-    adminClient.incrementalAlterConfigs(backpressureTypesConfigs("fetch,produce"), configsOptions).all().get();
+    adminClient.incrementalAlterConfigs(backpressureConfig(
+            ConfluentConfigs.BACKPRESSURE_TYPES_CONFIG, "fetch,produce"), configsOptions).all().get();
     for (KafkaServer broker : physicalCluster.kafkaCluster().brokers()) {
       assertTrue("Expected consume backpressure to be enabled on broker " + broker.config().brokerId(),
                  broker.quotaManagers().fetch().backpressureEnabled());
@@ -312,7 +415,8 @@ public class BrokerBackpressureTest {
     }
 
     // disable all backpressure types
-    adminClient.incrementalAlterConfigs(backpressureTypesConfigs(""), configsOptions).all().get();
+    adminClient.incrementalAlterConfigs(
+            backpressureConfig(ConfluentConfigs.BACKPRESSURE_TYPES_CONFIG, ""), configsOptions).all().get();
     for (KafkaServer broker : physicalCluster.kafkaCluster().brokers()) {
       TestUtils.waitForCondition(
           () -> !broker.quotaManagers().fetch().backpressureEnabled(),
@@ -330,22 +434,20 @@ public class BrokerBackpressureTest {
   public void testDynamicEnableRequestBackpressureFailsWithoutMultitenantListener() throws Exception {
     final PhysicalCluster physicalCluster = testHarness.start(brokerPropsWithInvalidMultitenantListenerName());
     AdminClient adminClient = physicalCluster.superAdminClient();
-    adminClient.incrementalAlterConfigs(backpressureTypesConfigs("request"), configsOptions).all().get();
+    adminClient.incrementalAlterConfigs(backpressureConfig(ConfluentConfigs.BACKPRESSURE_TYPES_CONFIG, "request"), configsOptions).all().get();
   }
 
   @Test(expected = ExecutionException.class)
   public void testDynamicEnableBackpressureFailsWithoutTenantQuotasEnabled() throws Exception {
     final PhysicalCluster physicalCluster = testHarness.start(brokerProps());
     AdminClient adminClient = physicalCluster.superAdminClient();
-    adminClient.incrementalAlterConfigs(backpressureTypesConfigs("fetch,produce,request"), configsOptions).all().get();
+    adminClient.incrementalAlterConfigs(backpressureConfig(ConfluentConfigs.BACKPRESSURE_TYPES_CONFIG, "fetch,produce,request"), configsOptions).all().get();
   }
 
-  private Map<ConfigResource, Collection<AlterConfigOp>> backpressureTypesConfigs(
-      String backpressureTypes) {
-    ConfigEntry backpressureCfg = new ConfigEntry(ConfluentConfigs.BACKPRESSURE_TYPES_CONFIG,
-                                                  backpressureTypes);
+  private Map<ConfigResource, Collection<AlterConfigOp>> backpressureConfig(String configKey, String configValue) {
+    ConfigEntry backpressureCfg = new ConfigEntry(configKey, configValue);
     List<AlterConfigOp> brokerConfigs = Collections.singletonList(
-        new AlterConfigOp(backpressureCfg, AlterConfigOp.OpType.SET));
+            new AlterConfigOp(backpressureCfg, AlterConfigOp.OpType.SET));
     return Collections.singletonMap(defaultBrokerConfigResource, brokerConfigs);
   }
 
