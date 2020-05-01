@@ -26,6 +26,7 @@ import kafka.log.LogConfig
 import kafka.security.CredentialProvider
 import kafka.server.Constants._
 import kafka.server.QuotaFactory.QuotaManagers
+import kafka.server.link.ClusterLinkManager
 import kafka.utils.Logging
 import org.apache.kafka.common.config.ConfigDef.Validator
 import org.apache.kafka.common.config.ConfigException
@@ -243,9 +244,9 @@ class BrokerConfigHandler(private val brokerConfig: KafkaConfig,
 /**
  * Handles cluster link config updates in ZK.
  */
-class ClusterLinkConfigHandler extends ConfigHandler with Logging {
-  override def processConfigChanges(linkName: String, value: Properties): Unit = {
-    // Pending implementation.
+class ClusterLinkConfigHandler(private val clusterLinkManager: ClusterLinkManager) extends ConfigHandler with Logging {
+  def processConfigChanges(linkName: String, value: Properties): Unit = {
+    clusterLinkManager.addOrUpdateClusterLink(linkName, value)
   }
 }
 

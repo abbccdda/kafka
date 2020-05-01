@@ -44,7 +44,7 @@ object ClusterLinkFetcherThread {
       clusterLinkMetadata.throttleTimeSensorName,
       metadata = None,
       Some(new ManualMetadataUpdater),
-      metrics: Metrics,
+      metrics,
       Map("link-name" -> clusterLinkMetadata.linkName, "broker-id" -> sourceBroker.id.toString, "fetcher-id" -> fetcherId.toString),
       time,
       s"link-${clusterLinkMetadata.linkName}-broker-$brokerId-fetcher-$fetcherId",

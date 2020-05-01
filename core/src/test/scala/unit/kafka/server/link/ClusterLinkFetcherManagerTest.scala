@@ -4,15 +4,17 @@
 
 package kafka.server.link
 
+import java.util
 import java.util.{Collections, Properties}
 
 import kafka.cluster.{BrokerEndPoint, Partition}
 import kafka.log.AbstractLog
-import kafka.server.{AdminManager, KafkaConfig, PartitionFetchState, ReplicaManager}
+import kafka.server._
 import kafka.server.QuotaFactory.UnboundedQuota
 import kafka.utils.TestUtils
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.config.SslConfigs
 import org.apache.kafka.common.message.CreatePartitionsRequestData.CreatePartitionsTopic
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.protocol.Errors
@@ -35,6 +37,7 @@ class ClusterLinkFetcherManagerTest {
   private val replicaManager: ReplicaManager = mock(classOf[ReplicaManager])
   private val log: AbstractLog = createNiceMock(classOf[AbstractLog])
   private var fetcherManager: ClusterLinkFetcherManager = _
+  private var adminManager: AdminManager = _
   private var numPartitions = 2
 
 
@@ -44,19 +47,19 @@ class ClusterLinkFetcherManagerTest {
     props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "localhost:1234")
     val clusterLinkConfig = new ClusterLinkConfig(props)
 
+    adminManager = createNiceMock(classOf[AdminManager])
     fetcherManager = new ClusterLinkFetcherManager(
       linkName,
       clusterLinkConfig,
       brokerConfig,
       replicaManager,
+      adminManager,
       UnboundedQuota,
       metrics,
       time) {
       override def createFetcherThread(fetcherId: Int, sourceBroker: BrokerEndPoint): ClusterLinkFetcherThread = {
         val thread: ClusterLinkFetcherThread = createNiceMock(classOf[ClusterLinkFetcherThread])
-        val fetchState: PartitionFetchState = createNiceMock(classOf[PartitionFetchState])
-        expect(thread.fetchState(anyObject())).andReturn(Some(fetchState)).anyTimes()
-        replay(thread)
+        setupFetcherThreadMock(thread)
         thread
       }
       override protected def partitionCount(topic: String): Int = numPartitions
@@ -81,7 +84,7 @@ class ClusterLinkFetcherManagerTest {
 
     fetcherManager.addLinkedFetcherForPartitions(Set(partition1_0))
     assertEquals(Set(topic1), metadataTopics)
-    assertEquals(0, fetcherManager.metadata.timeToNextUpdate(time.milliseconds))
+    assertEquals(0, fetcherManager.currentMetadata.timeToNextUpdate(time.milliseconds))
 
     fetcherManager.removeLinkedFetcherForPartitions(Set(tp1_0), retainMetadata = true)
     assertEquals(Set(topic1), metadataTopics)
@@ -95,7 +98,7 @@ class ClusterLinkFetcherManagerTest {
     assertEquals(Set(topic1, topic2), metadataTopics)
 
     fetcherManager.removeLinkedFetcherForPartitions(Set(tp1_0), retainMetadata = false)
-    assertEquals(Collections.singletonList(topic2), fetcherManager.metadata.newMetadataRequestBuilder().topics())
+    assertEquals(Collections.singletonList(topic2), fetcherManager.currentMetadata.newMetadataRequestBuilder().topics())
 
     val tp1_1 = new TopicPartition(topic1, 1)
     val partition1_1 : Partition = mock(classOf[Partition])
@@ -103,7 +106,7 @@ class ClusterLinkFetcherManagerTest {
     fetcherManager.addLinkedFetcherForPartitions(Set(partition1_1))
     assertEquals(Set(topic1, topic2), metadataTopics)
     fetcherManager.addLinkedFetcherForPartitions(Set(partition1_0))
-    assertEquals(2, fetcherManager.metadata.newMetadataRequestBuilder().topics().size)
+    assertEquals(2, fetcherManager.currentMetadata.newMetadataRequestBuilder().topics().size)
     assertEquals(Set(topic1, topic2), metadataTopics)
     fetcherManager.removeLinkedFetcherForPartitions(Set(tp1_0), retainMetadata = false)
     assertEquals(Set(topic1, topic2), metadataTopics)
@@ -159,7 +162,7 @@ class ClusterLinkFetcherManagerTest {
     assertEquals(1, fetcherManager.fetcherThreadMap.size)
 
     fetcherManager.removeLinkedFetcherForPartitions(Set(tp), retainMetadata = true)
-    assertEquals(Collections.singletonList(topic), fetcherManager.metadata.newMetadataRequestBuilder().topics())
+    assertEquals(Collections.singletonList(topic), fetcherManager.currentMetadata.newMetadataRequestBuilder().topics())
     fetcherManager.shutdownIdleFetcherThreads()
     assertEquals(0, fetcherManager.fetcherThreadMap.size)
 
@@ -180,8 +183,6 @@ class ClusterLinkFetcherManagerTest {
     setupMock(partition, tp)
 
     val capturedRequests: Capture[Seq[CreatePartitionsTopic]] = newCapture(CaptureType.ALL)
-    val adminManager: AdminManager = createNiceMock(classOf[AdminManager])
-    expect(replicaManager.adminManager).andReturn(adminManager).anyTimes()
     expect(adminManager.createPartitions(anyInt(), capture(capturedRequests), EasyMock.eq(false), anyObject(), anyObject()))
       .anyTimes()
     replay(replicaManager, adminManager)
@@ -214,9 +215,64 @@ class ClusterLinkFetcherManagerTest {
     assertEquals(2, capturedRequests.getValues.size)
   }
 
+  @Test
+  def testReconfigure(): Unit = {
+    val topic = "testTopic"
+    val tp = new TopicPartition(topic, 0)
+    val partition : Partition = mock(classOf[Partition])
+    setupMock(partition, tp)
+
+    fetcherManager.addLinkedFetcherForPartitions(Set(partition))
+    assertEquals(None, fetcherManager.getFetcher(tp))
+    assertEquals(Set(topic), metadataTopics)
+
+    val topics: Map[String, Integer] = Map(topic -> 2)
+    setupMock(partition, tp, linkedLeaderEpoch=2, numEpochUpdates = 1)
+    updateMetadata(topics, linkedLeaderEpoch = 2)
+    assertEquals(1, fetcherManager.fetcherThreadMap.size)
+    val fetcherThread1 = fetcherManager.fetcherThreadMap.values.head
+    val metadata1 = fetcherManager.currentMetadata
+    val metadataThread1: ClusterLinkMetadataThread =
+      JTestUtils.fieldValue(fetcherManager, classOf[ClusterLinkFetcherManager], "metadataRefreshThread")
+    val metadataClient1 = metadataThread1.clusterLinkClient
+
+    setupFetcherThreadMock(fetcherThread1, Set(new TopicPartition(topic, 0)))
+    val fetcherClient1 = fetcherThread1.clusterLinkClient
+    expect(fetcherClient1.reconfigure(anyObject())).times(1)
+    expect(fetcherClient1.validateReconfiguration(anyObject())).times(1)
+    replay(fetcherClient1)
+
+    val newDynamicProps = new util.HashMap[String, String]
+    newDynamicProps.putAll(fetcherManager.currentConfig.originalsStrings())
+    newDynamicProps.put(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG, "truststore.jks")
+    fetcherManager.reconfigure(new ClusterLinkConfig(newDynamicProps))
+    assertEquals(1, fetcherManager.fetcherThreadMap.size)
+    assertSame(fetcherThread1, fetcherManager.fetcherThreadMap.values.head)
+    assertSame(metadata1, fetcherManager.currentMetadata)
+
+    val newNonDynamicProps = new util.HashMap[String, String]
+    newNonDynamicProps.putAll(fetcherManager.currentConfig.originalsStrings())
+    newNonDynamicProps.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "localhost:5678")
+    reset(fetcherThread1.clusterLinkClient)
+    expect(fetcherClient1.close()).once()
+    replay(fetcherClient1)
+    fetcherManager.reconfigure(new ClusterLinkConfig(newNonDynamicProps))
+    assertEquals(0, fetcherManager.fetcherThreadMap.size)
+    assertNotSame(metadata1, fetcherManager.currentMetadata)
+    assertEquals(Set(topic), metadataTopics)
+    updateMetadata(topics, linkedLeaderEpoch = 2)
+    assertNotSame(fetcherThread1, fetcherManager.fetcherThreadMap.values.head)
+    assertFalse("Metadata client not closed", metadataClient1.networkClient.active)
+    val metadataThread2: ClusterLinkMetadataThread =
+      JTestUtils.fieldValue(fetcherManager, classOf[ClusterLinkFetcherManager], "metadataRefreshThread")
+    assertNotSame(metadataThread1, metadataThread2)
+    assertNotSame(metadataClient1, metadataThread2.clusterLinkClient)
+    assertTrue("Metadata client not active", metadataThread2.clusterLinkClient.networkClient.active)
+  }
+
   private def updateMetadata(topics: Map[String, Integer],
                              linkedLeaderEpoch: Int): Unit = {
-    val metadata = fetcherManager.metadata
+    val metadata = fetcherManager.currentMetadata
     val metadataResponse = JTestUtils.metadataUpdateWith("sourceCluster", 1,
       Collections.emptyMap[String, Errors], topics.asJava, _ => linkedLeaderEpoch)
     metadata.update(metadata.updateVersion(), metadataResponse, false, time.milliseconds)
@@ -238,5 +294,18 @@ class ClusterLinkFetcherManagerTest {
     replay(partition)
   }
 
-  private def metadataTopics = fetcherManager.metadata.newMetadataRequestBuilder().topics().asScala.toSet
+  private def setupFetcherThreadMock(fetcherThread: ClusterLinkFetcherThread,
+                                     partitions: Set[TopicPartition] = Set.empty): Unit = {
+    reset(fetcherThread)
+    val initialFetchState: InitialFetchState = createNiceMock(classOf[InitialFetchState])
+    val partitionAndOffsets = partitions.map(_ -> initialFetchState).toMap
+    expect(fetcherThread.partitionsAndOffsets).andReturn(partitionAndOffsets).anyTimes()
+    val fetchState: PartitionFetchState = createNiceMock(classOf[PartitionFetchState])
+    expect(fetcherThread.fetchState(anyObject())).andReturn(Some(fetchState)).anyTimes()
+    val fetcherClient: ClusterLinkNetworkClient = createNiceMock(classOf[ClusterLinkNetworkClient])
+    expect(fetcherThread.clusterLinkClient).andReturn(fetcherClient).anyTimes()
+    replay(fetcherThread)
+  }
+
+  private def metadataTopics = fetcherManager.currentMetadata.newMetadataRequestBuilder().topics().asScala.toSet
 }

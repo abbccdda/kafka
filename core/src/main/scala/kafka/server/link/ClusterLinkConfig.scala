@@ -7,7 +7,7 @@ package kafka.server.link
 import java.util.{Collections, Properties}
 
 import kafka.server.KafkaConfig._
-import kafka.server.{Defaults, KafkaConfig}
+import kafka.server.Defaults
 import kafka.server.link.ClusterLinkConfigDefaults._
 import org.apache.kafka.clients.{ClientDnsLookup, CommonClientConfigs}
 import org.apache.kafka.clients.CommonClientConfigs._
@@ -42,7 +42,7 @@ case class ClusterLinkConfig(props: java.util.Map[_, _])
   val connectionsMaxIdleMs = getLong(ConnectionsMaxIdleMsProp)
   val replicaSocketTimeoutMs = getInt(ReplicaSocketTimeoutMsProp)
   val replicaSocketReceiveBufferBytes = getInt(ReplicaSocketReceiveBufferBytesProp)
-  val replicaFetchMaxBytes = getInt(KafkaConfig.ReplicaFetchMaxBytesProp)
+  val replicaFetchMaxBytes = getInt(ReplicaFetchMaxBytesProp)
   val replicaFetchWaitMaxMs = getInt(ReplicaFetchWaitMaxMsProp)
   val replicaFetchMinBytes = getInt(ReplicaFetchMinBytesProp)
   val replicaFetchResponseMaxBytes = getInt(ReplicaFetchResponseMaxBytesProp)

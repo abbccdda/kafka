@@ -16,14 +16,17 @@
   */
 package integration.kafka.link
 
+import java.io.File
+import java.nio.file.{Files, StandardCopyOption}
 import java.time.Duration
+import java.util
 import java.util.concurrent.TimeUnit
 import java.util.{Collections, Properties}
 
 import kafka.api.{IntegrationTestHarness, KafkaSasl, SaslSetup}
 import kafka.controller.ReplicaAssignment
 import kafka.server.{KafkaConfig, KafkaServer}
-import kafka.server.link.{ClusterLinkConfig, ClusterLinkTopicState}
+import kafka.server.link.ClusterLinkTopicState
 import kafka.utils.Implicits._
 import kafka.utils.{JaasTestUtils, Logging, TestUtils}
 import kafka.zk.ConfigEntityChangeNotificationZNode
@@ -32,7 +35,7 @@ import org.apache.kafka.clients.admin.NewPartitions
 import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer}
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, ProducerRecord}
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.config.SaslConfigs
+import org.apache.kafka.common.config.{SaslConfigs, SslConfigs}
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.security.scram.ScramCredential
 import org.junit.Assert.{assertEquals, assertTrue}
@@ -43,8 +46,8 @@ import scala.collection.{Map, Seq, mutable}
 
 class ClusterLinkIntegrationTest extends Logging {
 
-  val sourceCluster = new ClusterLinkTestHarness
-  val destCluster = new ClusterLinkTestHarness
+  val sourceCluster = new ClusterLinkTestHarness(SecurityProtocol.SASL_SSL)
+  val destCluster = new ClusterLinkTestHarness(SecurityProtocol.SASL_PLAINTEXT)
   val topic = "linkedTopic"
   var numPartitions = 4
   val linkName = "testLink"
@@ -246,6 +249,41 @@ class ClusterLinkIntegrationTest extends Logging {
     verifyMirror(topic)
   }
 
+  @Test
+  def testAlterClusterLinkConfigs(): Unit = {
+    sourceCluster.createTopic(topic, numPartitions, replicationFactor = 2)
+
+    // Create a mirror and produce some records.
+    destCluster.createClusterLink(linkName, sourceCluster, metadataMaxAgeMs = 10000L)
+    destCluster.linkTopic(topic, numPartitions, linkName)
+    produceToSourceCluster(8)
+    waitForMirror(topic)
+
+    // Update non-critical non-dynamic config metadata.max.age.ms
+    destCluster.alterClusterLink(linkName, Map(CommonClientConfigs.METADATA_MAX_AGE_CONFIG -> "60000"))
+    produceToSourceCluster(8)
+    waitForMirror(topic)
+
+    // Update critical non-dynamic config bootstrap.servers. Restart source brokers to ensure
+    // new bootstrap servers are required for the test to pass.
+    sourceCluster.servers.foreach(_.shutdown())
+    sourceCluster.servers.foreach(_.startup())
+    sourceCluster.updateBootstrapServers()
+    destCluster.alterClusterLink(linkName, Map(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG -> sourceCluster.brokerList))
+    produceToSourceCluster(8)
+    waitForMirror(topic)
+
+    // Update critical dynamic truststore path config
+    val oldFile = new File(destCluster.clusterLinks(linkName).getProperty(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG))
+    val newFile = File.createTempFile("truststore", ".jks")
+    Files.copy(oldFile.toPath, newFile.toPath, StandardCopyOption.REPLACE_EXISTING)
+    destCluster.alterClusterLink(linkName, Map(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG -> newFile.getAbsolutePath))
+    produceToSourceCluster(8)
+    waitForMirror(topic)
+
+    verifyMirror(topic)
+  }
+
   private def verifyMirror(topic: String): Unit = {
     waitForMirror(topic)
     destCluster.unlinkTopic(topic, linkName)
@@ -320,18 +358,19 @@ class ClusterLinkIntegrationTest extends Logging {
   }
 }
 
-class ClusterLinkTestHarness extends IntegrationTestHarness with SaslSetup {
+class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends IntegrationTestHarness with SaslSetup {
 
   override val brokerCount = 3
   private val kafkaClientSaslMechanism = "SCRAM-SHA-256"
   private val kafkaServerSaslMechanisms = Collections.singletonList("SCRAM-SHA-256").asScala
 
-  override protected def securityProtocol = SecurityProtocol.SASL_PLAINTEXT
+  override protected def securityProtocol = kafkaSecurityProtocol
 
   override protected val serverSaslProperties = Some(kafkaServerSaslProperties(kafkaServerSaslMechanisms, kafkaClientSaslMechanism))
   override protected val clientSaslProperties = Some(kafkaClientSaslProperties(kafkaClientSaslMechanism))
+  override protected lazy val trustStoreFile = Some(File.createTempFile("truststore", ".jks"))
 
-  private val clusterLinks = mutable.Map[String, Properties]()
+  val clusterLinks = mutable.Map[String, Properties]()
   private var producer: KafkaProducer[Array[Byte], Array[Byte]] = _
 
   serverConfig.put(KafkaConfig.OffsetsTopicReplicationFactorProp, brokerCount.toString)
@@ -376,13 +415,28 @@ class ClusterLinkTestHarness extends IntegrationTestHarness with SaslSetup {
 
   def deleteClusterLink(linkName: String): Unit = {
     servers.foreach { server =>
-      server.replicaManager.clusterLinkManager.removeClusterLink(linkName)
+      server.clusterLinkManager.removeClusterLink(linkName)
     }
     clusterLinks.remove(linkName)
   }
 
   def addClusterLink(server: KafkaServer, linkName: String): Unit = {
-    server.replicaManager.clusterLinkManager.addClusterLink(linkName, new ClusterLinkConfig(clusterLinks(linkName)))
+    server.clusterLinkManager.addClusterLink(linkName, clusterLinks(linkName))
+  }
+
+  def alterClusterLink(linkName: String, updatedConfigs: Map[String, String]): Unit = {
+    val newConfigs = linkConfigs(linkName, updatedConfigs)
+    servers.foreach { server =>
+      server.clusterLinkManager.reconfigureClusterLink(linkName, newConfigs)
+
+      val config = server.clusterLinkManager.fetcherManager(linkName).get.currentConfig
+      updatedConfigs.foreach { case (name, value) =>
+        assertEquals(s"Unexpected value for $name", value, config.originals.get(name))
+      }
+    }
+    val newProps = new Properties()
+    newProps ++= newConfigs.asScala
+    clusterLinks.put(linkName, newProps)
   }
 
   def linkTopic(topic: String, numPartitions: Int, linkName: String): Unit = {
@@ -407,7 +461,7 @@ class ClusterLinkTestHarness extends IntegrationTestHarness with SaslSetup {
 
     servers.foreach { server =>
       TestUtils.waitUntilTrue(() =>
-        server.replicaManager.clusterLinkManager.fetcherManager(linkName).forall(_.isEmpty),
+        server.clusterLinkManager.fetcherManager(linkName).forall(_.isEmpty),
         s"Linked fetchers not stopped for $linkName on broker ${server.config.brokerId}")
     }
   }
@@ -475,5 +529,12 @@ class ClusterLinkTestHarness extends IntegrationTestHarness with SaslSetup {
     servers(brokerId).startup()
     clusterLink.foreach { linkName => addClusterLink(servers(brokerId), linkName) }
     updateBootstrapServers()
+  }
+
+  private def linkConfigs(linkName: String, updatedProps: Map[String, String]): util.Map[String, Object] = {
+    val props = new util.HashMap[String, Object]
+    clusterLinks(linkName).forEach((k, v) => props.put(k.toString, v))
+    updatedProps.foreach { case (k, v) => props.put(k, v) }
+    props
   }
 }

@@ -4,11 +4,15 @@
 
 package kafka.server.link
 
+import java.util
+import java.util.Properties
+
 import kafka.api.KAFKA_2_3_IV1
 import kafka.cluster.Partition
-import kafka.server.{KafkaConfig, ReplicaManager, ReplicaQuota}
+import kafka.server.{AdminManager, KafkaConfig, ReplicaManager, ReplicaQuota}
 import kafka.tier.fetcher.TierStateFetcher
 import kafka.utils.Logging
+import kafka.zk.KafkaZkClient
 import org.apache.kafka.clients.admin.{Admin, ConfluentAdmin}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.{ClusterLinkExistsException, ClusterLinkInUseException, ClusterLinkNotFoundException, InvalidClusterLinkException}
@@ -19,48 +23,70 @@ import org.apache.kafka.common.utils.Time
 import scala.collection.{Map, mutable}
 
 /**
-  * Replica manager for linked replicas. One ClusterLinkReplicaManager instance is present in
-  * each broker to manage replicas for which this broker is the leader of the destination partition
-  * and the source partition is in a linked cluster. Every link is managed by a ClusterLinkFetcherManager.
+  * Cluster link manager for managing cluster links and linked replicas. One ClusterLinkManager instance
+  * is present in each broker to manage replicas for which this broker is the leader of the destination partition
+  * and the source partition is in a linked cluster. Each link is managed by a collection of manager instances.
+  * A ClusterLinkFetcherManager manages replication from the source cluster.
+  *
   *
   * Thread safety:
-  *   - ClusterLinkReplicaManager is thread-safe. All update operations including creation and
+  *   - ClusterLinkManager is thread-safe. All update operations including creation and
   *     deletion of links as well as addition and removal of topic mirrors are performed while
   *     holding the `managersLock`.
-  *   - Locking order: ClusterLinkReplicaManager.managersLock -> ClusterLinkFetcherManager.lock
-  *                    ClusterLinkReplicaManager.managersLock -> ClusterLinkClientManager.lock
+  *   - Locking order: ClusterLinkManager.managersLock -> ClusterLinkFetcherManager.lock
+  *                    ClusterLinkManager.managersLock -> ClusterLinkClientManager.lock
   *
   */
-class ClusterLinkReplicaManager(brokerConfig: KafkaConfig,
-                                replicaManager: ReplicaManager,
-                                quota: ReplicaQuota,
-                                metrics: Metrics,
-                                time: Time,
-                                threadNamePrefix: Option[String] = None,
-                                tierStateFetcher: Option[TierStateFetcher]) extends Logging {
+class ClusterLinkManager(brokerConfig: KafkaConfig,
+                         clusterId: String,
+                         quota: ReplicaQuota,
+                         adminManager: AdminManager,
+                         zkClient: KafkaZkClient,
+                         metrics: Metrics,
+                         time: Time,
+                         threadNamePrefix: Option[String] = None,
+                         tierStateFetcher: Option[TierStateFetcher]) extends Logging {
 
-  private case class Managers(val fetcherManager: ClusterLinkFetcherManager, val clientManager: ClusterLinkClientManager)
+  private case class Managers(fetcherManager: ClusterLinkFetcherManager, clientManager: ClusterLinkClientManager)
 
   private val managersLock = new Object
   private val managers = mutable.Map[String, Managers]()
-
   val scheduler = new ClusterLinkScheduler
+  val admin = new ClusterLinkAdminManager(brokerConfig, clusterId, zkClient, this)
+  var replicaManager: ReplicaManager = _
 
-  def startup(): Unit = {
+  def startup(replicaManager: ReplicaManager): Unit = {
+    this.replicaManager = replicaManager
     scheduler.startup()
   }
 
-  def addClusterLink(linkName: String, config: ClusterLinkConfig): Unit = {
+  def addOrUpdateClusterLink(linkName: String, configs: Properties): Unit = {
+    val exists = managersLock synchronized {
+      if (!managers.contains(linkName)) {
+        addClusterLink(linkName, configs)
+        false
+      } else
+        true
+    }
+    if (exists) {
+      val newConfigs = new util.HashMap[String, String]
+      configs.stringPropertyNames.forEach(key => newConfigs.put(key, configs.getProperty(key)))
+      reconfigureClusterLink(linkName, newConfigs)
+    }
+  }
+
+  def addClusterLink(linkName: String, configs: Properties): Unit = {
     // Support for OffsetsForLeaderEpoch in clients was added in 2.3.0. This is the minimum supported version
     // for cluster linking.
     if (brokerConfig.interBrokerProtocolVersion <= KAFKA_2_3_IV1)
       throw new InvalidClusterLinkException(s"Cluster linking is not supported with inter-broker protocol version ${brokerConfig.interBrokerProtocolVersion}")
 
+    val config = new ClusterLinkConfig(configs)
     managersLock synchronized {
       if (managers.contains(linkName))
         throw new ClusterLinkExistsException(s"Cluster link '$linkName' exists")
 
-      val clientManager = new ClusterLinkClientManager(linkName, scheduler, replicaManager.zkClient, config,
+      val clientManager = new ClusterLinkClientManager(linkName, scheduler, zkClient, config,
         (cfg: ClusterLinkConfig) => Admin.create(cfg.originals).asInstanceOf[ConfluentAdmin])
       clientManager.startup()
 
@@ -83,6 +109,15 @@ class ClusterLinkReplicaManager(brokerConfig: KafkaConfig,
           throw new ClusterLinkNotFoundException(s"Cluster link '$linkName' not found")
       }
     }
+  }
+
+  def reconfigureClusterLink(linkName: String, newProps: util.Map[String, _]): Unit = {
+    val linkManagers = managersLock synchronized {
+      managers.getOrElse(linkName, throw new ClusterLinkNotFoundException(s"Cluster link not found: $linkName"))
+    }
+    val newConfig = new ClusterLinkConfig(newProps)
+    linkManagers.fetcherManager.reconfigure(newConfig)
+    linkManagers.clientManager.reconfigure(newConfig)
   }
 
   def addPartitions(partitions: collection.Set[Partition]): Unit = {
@@ -177,6 +212,7 @@ class ClusterLinkReplicaManager(brokerConfig: KafkaConfig,
       config,
       brokerConfig,
       replicaManager,
+      adminManager,
       quota,
       metrics,
       time,

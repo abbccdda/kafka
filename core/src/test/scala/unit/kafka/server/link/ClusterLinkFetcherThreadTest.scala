@@ -48,7 +48,7 @@ class ClusterLinkFetcherThreadTest extends ReplicaFetcherThreadTest {
       name,
       fetcherId = 0,
       brokerConfig,
-      clusterLinkConfig,
+      new ClusterLinkConfig(clusterLinkProps),
       new ClusterLinkMetadata(brokerConfig, clusterLinkName, 100, 60000),
       fetcherManager,
       brokerEndPoint,
@@ -68,10 +68,10 @@ class ClusterLinkFetcherThreadTest extends ReplicaFetcherThreadTest {
     super.cleanup()
   }
 
-  private def clusterLinkConfig : ClusterLinkConfig = {
+  private def clusterLinkProps : Properties = {
     val props = new Properties
     props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, s"${brokerEndPoint.host}:${brokerEndPoint.port}")
-    new ClusterLinkConfig(props)
+    props
   }
 
   /*
@@ -83,14 +83,17 @@ class ClusterLinkFetcherThreadTest extends ReplicaFetcherThreadTest {
     val props = TestUtils.createBrokerConfig(1, "localhost:1234")
     props.put(KafkaConfig.InterBrokerProtocolVersionProp, "0.11.0")
     val replicaManager: ReplicaManager = mock(classOf[ReplicaManager])
-    val clusterLinkReplicaManager = new ClusterLinkReplicaManager(
+    val clusterLinkManager = new ClusterLinkManager(
       KafkaConfig.fromProps(props),
-      replicaManager,
+      "clusterId",
       quota = UnboundedQuota,
+      adminManager = null,
+      zkClient = null,
       new Metrics,
       new SystemTime,
       tierStateFetcher = None)
-    clusterLinkReplicaManager.addClusterLink(clusterLinkName, clusterLinkConfig)
+    clusterLinkManager.startup(replicaManager)
+    clusterLinkManager.addClusterLink(clusterLinkName, clusterLinkProps)
   }
 
   @Test
@@ -121,11 +124,13 @@ class ClusterLinkFetcherThreadTest extends ReplicaFetcherThreadTest {
     val blockingSend: BlockingSend = createNiceMock(classOf[BlockingSend])
     expect(blockingSend.close()).once()
     replay(replicaManager, stateStore, logManager, log, blockingSend)
+    val clusterLinkConfig = new ClusterLinkConfig(clusterLinkProps)
 
     val fetcherManager = new ClusterLinkFetcherManager(clusterLinkName,
                                                        clusterLinkConfig,
                                                        brokerConfig,
                                                        replicaManager,
+                                                       adminManager = null,
                                                        UnboundedQuota,
                                                        new Metrics,
                                                        time) {
@@ -164,8 +169,8 @@ class ClusterLinkFetcherThreadTest extends ReplicaFetcherThreadTest {
       Collections.singletonMap("topic", Errors.NONE),
       Collections.singletonMap("topic", 1),
       sourceLeaderEpoch)
-    fetcherManager.metadata.update(1, metadataResponse, false, time.milliseconds)
-    fetcherManager.onNewMetadata(fetcherManager.metadata.fetch())
+    fetcherManager.currentMetadata.update(1, metadataResponse, false, time.milliseconds)
+    fetcherManager.onNewMetadata(fetcherManager.currentMetadata.fetch())
     assertNotNull("Fetcher thread not created", fetcherThread)
     assertTrue("State reset before fetching offsets", offsetsPending)
 
