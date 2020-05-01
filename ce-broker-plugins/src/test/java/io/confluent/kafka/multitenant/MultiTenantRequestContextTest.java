@@ -2004,7 +2004,7 @@ public class MultiTenantRequestContextTest {
       AddPartitionsToTxnRequest intercepted = (AddPartitionsToTxnRequest) parseRequest(context, inbound);
       assertEquals(mkSet(new TopicPartition("tenant_foo", 0), new TopicPartition("tenant_bar", 0)),
           new HashSet<>(intercepted.partitions()));
-      assertEquals("tenant_tr", intercepted.transactionalId());
+      assertEquals("tenant_tr", intercepted.data.transactionalId());
       verifyRequestMetrics(ApiKeys.ADD_PARTITIONS_TO_TXN);
     }
   }
@@ -2018,7 +2018,7 @@ public class MultiTenantRequestContextTest {
       partitionErrors.put(new TopicPartition("tenant_bar", 0), Errors.NONE);
       AddPartitionsToTxnResponse outbound = new AddPartitionsToTxnResponse(0, partitionErrors);
       Struct struct = parseResponse(ApiKeys.ADD_PARTITIONS_TO_TXN, ver, context.buildResponse(outbound));
-      AddPartitionsToTxnResponse intercepted = new AddPartitionsToTxnResponse(struct);
+      AddPartitionsToTxnResponse intercepted = new AddPartitionsToTxnResponse(struct, ver);
       assertEquals(mkSet(new TopicPartition("foo", 0), new TopicPartition("bar", 0)),
           intercepted.errors().keySet());
       verifyResponseMetrics(ApiKeys.ADD_PARTITIONS_TO_TXN, Errors.NONE);

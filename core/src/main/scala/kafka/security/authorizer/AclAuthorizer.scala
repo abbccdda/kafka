@@ -39,7 +39,7 @@ import org.apache.kafka.server.authorizer.AclDeleteResult.AclBindingDeleteResult
 import org.apache.kafka.server.authorizer._
 import org.apache.zookeeper.client.ZKClientConfig
 
-import scala.collection.{mutable, Seq}
+import scala.collection.{Seq, mutable}
 import scala.jdk.CollectionConverters._
 import scala.util.{Failure, Random, Success, Try}
 
@@ -117,7 +117,7 @@ trait AclUpdateListener {
 
 class AclAuthorizer extends Authorizer with Logging {
   private[security] val authorizerLogger = Logger("kafka.authorizer.logger")
-  private var aclUpdateListeners = mutable.Set.empty[AclUpdateListener]
+  private val aclUpdateListeners = mutable.Set.empty[AclUpdateListener]
 
   private var superUsers = Set.empty[KafkaPrincipal]
   private var shouldAllowEveryoneIfNoAclIsFound = false
@@ -259,7 +259,7 @@ class AclAuthorizer extends Authorizer with Logging {
           }
         } catch {
           case e: Exception =>
-            resourceBindingsBeingDeleted.foreach { case (binding, index) =>
+            resourceBindingsBeingDeleted.keys.foreach { binding =>
                 deleteExceptions.getOrElseUpdate(binding, apiException(e))
             }
         }

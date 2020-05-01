@@ -39,7 +39,7 @@ object ThreadUsageMetrics {
     */
   private def threadUsage(metrics: Metrics, threadType: ThreadType,
                   metricTags: Map[String, String],
-                  throttleTypeOpt: Option[RequestThrottleType] = None): Double = {
+                  throttleTypeOpt: Option[RequestThrottleType]): Double = {
     val metricOpt = Option(metrics.metric(threadUsageMetricName(metrics, threadType, metricTags, throttleTypeOpt)))
     metricOpt match {
       case Some(metric) => metric.metricValue().asInstanceOf[Double]
@@ -152,7 +152,7 @@ class ThreadUsageSensors(private val metrics: Metrics,
                         timeMs: Long,
                         threadType: ThreadType,
                         metricTags: Map[String, String],
-                        throttleTypeOpt: Option[RequestThrottleType] = None) {
+                        throttleTypeOpt: Option[RequestThrottleType] = None): Unit = {
     val sensorName = threadUsageSensorName(threadType, metricTags, throttleTypeOpt)
     val metricName = ThreadUsageMetrics.threadUsageMetricName(metrics, threadType, metricTags, throttleTypeOpt)
     val sensor = getOrCreateSensor(sensorName, metricName)

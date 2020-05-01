@@ -32,6 +32,7 @@ import org.apache.kafka.common.protocol.{ApiKeys, Errors}
 import org.apache.kafka.common.requests.{AbstractRequest, AbstractResponse, ListOffsetRequest, ListOffsetResponse, RequestHeader, ResponseHeader}
 import org.junit.Assert.{assertFalse, assertTrue}
 
+import scala.annotation.nowarn
 import scala.collection.JavaConverters._
 import scala.collection.Seq
 import scala.reflect.ClassTag
@@ -90,7 +91,7 @@ abstract class BaseRequestTest extends IntegrationTestHarness {
   }
 
   def receive[T <: AbstractResponse](socket: Socket, apiKey: ApiKeys, version: Short)
-                                    (implicit classTag: ClassTag[T], nn: NotNothing[T]): T = {
+                                    (implicit classTag: ClassTag[T], @nowarn("cat=unused") nn: NotNothing[T]): T = {
     val incoming = new DataInputStream(socket.getInputStream)
     val len = incoming.readInt()
 

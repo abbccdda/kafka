@@ -95,15 +95,20 @@ class BrokerEpochIntegrationTest extends ZooKeeperTestHarness {
 
   @Test
   def testControlRequestWithCorrectBrokerEpoch(): Unit = {
-    testControlRequestWithBrokerEpoch(false)
+    testControlRequestWithBrokerEpoch(0)
   }
 
   @Test
   def testControlRequestWithStaleBrokerEpoch(): Unit = {
-    testControlRequestWithBrokerEpoch(true)
+    testControlRequestWithBrokerEpoch(-1)
   }
 
-  private def testControlRequestWithBrokerEpoch(isEpochInRequestStale: Boolean): Unit = {
+  @Test
+  def testControlRequestWithNewerBrokerEpoch(): Unit = {
+    testControlRequestWithBrokerEpoch(1)
+  }
+
+  private def testControlRequestWithBrokerEpoch(epochInRequestDiffFromCurrentEpoch: Long): Unit = {
     val tp = new TopicPartition("new-topic", 0)
 
     // create topic with 1 partition, 2 replicas, one on each broker
@@ -128,8 +133,7 @@ class BrokerEpochIntegrationTest extends ZooKeeperTestHarness {
     controllerChannelManager.startup()
 
     val broker2 = servers(brokerId2)
-    val epochInRequest =
-      if (isEpochInRequestStale) broker2.kafkaController.brokerEpoch - 1 else broker2.kafkaController.brokerEpoch
+    val epochInRequest = broker2.kafkaController.brokerEpoch + epochInRequestDiffFromCurrentEpoch
 
     try {
       // Send LeaderAndIsr request with correct broker epoch
@@ -152,10 +156,12 @@ class BrokerEpochIntegrationTest extends ZooKeeperTestHarness {
           partitionStates.asJava, nodes.toSet.asJava,
           false)
 
-        if (isEpochInRequestStale) {
+        if (epochInRequestDiffFromCurrentEpoch < 0) {
+          // stale broker epoch in LEADER_AND_ISR
           sendAndVerifyStaleBrokerEpochInResponse(controllerChannelManager, requestBuilder)
         }
         else {
+          // broker epoch in LEADER_AND_ISR >= current broker epoch
           sendAndVerifySuccessfulResponse(controllerChannelManager, requestBuilder)
           TestUtils.waitUntilLeaderIsKnown(Seq(broker2), tp, 10000)
         }
@@ -192,10 +198,12 @@ class BrokerEpochIntegrationTest extends ZooKeeperTestHarness {
           epochInRequest,
           partitionStates.asJava, liveBrokers.asJava)
 
-        if (isEpochInRequestStale) {
+        if (epochInRequestDiffFromCurrentEpoch < 0) {
+          // stale broker epoch in UPDATE_METADATA
           sendAndVerifyStaleBrokerEpochInResponse(controllerChannelManager, requestBuilder)
         }
         else {
+          // broker epoch in UPDATE_METADATA >= current broker epoch
           sendAndVerifySuccessfulResponse(controllerChannelManager, requestBuilder)
           TestUtils.waitUntilMetadataIsPropagated(Seq(broker2), tp.topic, tp.partition, 10000)
           assertEquals(brokerId2,
@@ -218,9 +226,11 @@ class BrokerEpochIntegrationTest extends ZooKeeperTestHarness {
           epochInRequest, // Correct broker epoch
           false, topicStates)
 
-        if (isEpochInRequestStale) {
+        if (epochInRequestDiffFromCurrentEpoch < 0) {
+          // stale broker epoch in STOP_REPLICA
           sendAndVerifyStaleBrokerEpochInResponse(controllerChannelManager, requestBuilder)
         } else {
+          // broker epoch in STOP_REPLICA >= current broker epoch
           sendAndVerifySuccessfulResponse(controllerChannelManager, requestBuilder)
           assertEquals(HostedPartition.None, broker2.replicaManager.getPartition(tp))
         }

@@ -57,7 +57,7 @@ class DelayedListOffsets(delayMs: Long,
       false
   }
 
-  override def onExpiration() {
+  override def onExpiration(): Unit = {
     pending.cancel()
   }
 
@@ -65,7 +65,7 @@ class DelayedListOffsets(delayMs: Long,
    * Upon completion, call response callback with the tier fetched TimestampAndOffsets
    * combined with the disk TimestampAndOffsets.
    */
-  override def onComplete() {
+  override def onComplete(): Unit = {
     val tierResponses = pending.tierTimestampAndOffsets()
       .asScala
       .map { case (topicPartition, tierTimestampAndOffset) =>

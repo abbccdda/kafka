@@ -38,7 +38,7 @@ import scala.jdk.CollectionConverters._
 import scala.collection._
 import scala.collection.mutable.ArrayBuffer
 import scala.util.{Failure, Success, Try}
-  
+
 /**
  * The entry point to the kafka log management subsystem. The log manager is responsible for log creation, retrieval, and cleaning.
  * All read and write operations are delegated to the individual log instances.
@@ -109,7 +109,7 @@ class LogManager(logDirs: Seq[File],
     if (newConfig.logDeletionMaxSegmentsPerRun < 0)
       throw new ConfigException(s"Log deletion max segments per run cannot be less than 0, current value is $maxSegmentsDeletedPerRun")
   }
-  
+
   override def reconfigure(oldConfig: KafkaConfig, newConfig: KafkaConfig): Unit = {
     val newMaxSegmentsDeletedPerRun = newConfig.logDeletionMaxSegmentsPerRun
     info(s"Reconfigure log deletion maximum segments deleted per run from $maxSegmentsDeletedPerRun to $newMaxSegmentsDeletedPerRun")
@@ -1052,9 +1052,17 @@ class LogManager(logDirs: Seq[File],
   /**
    * Map of log dir to logs by topic and partitions in that dir
    */
-  private def logsByDir: Map[String, Map[TopicPartition, AbstractLog]] = {
-    (this.currentLogs.toList ++ this.futureLogs.toList).toMap
-      .groupBy { case (_, log) => log.parentDir }
+  def logsByDir: Map[String, Map[TopicPartition, AbstractLog]] = {
+    // This code is called often by checkpoint processes and is written in a way that reduces
+    // allocations and CPU with many topic partitions.
+    // When changing this code please measure the changes with org.apache.kafka.jmh.server.CheckpointBench
+    val byDir = new mutable.AnyRefMap[String, mutable.AnyRefMap[TopicPartition, AbstractLog]]()
+    def addToDir(tp: TopicPartition, log: AbstractLog): Unit = {
+      byDir.getOrElseUpdate(log.parentDir, new mutable.AnyRefMap[TopicPartition, AbstractLog]()).put(tp, log)
+    }
+    currentLogs.foreachEntry(addToDir)
+    futureLogs.foreachEntry(addToDir)
+    byDir
   }
 
   // logDir should be an absolute path

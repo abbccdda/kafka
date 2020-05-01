@@ -39,7 +39,7 @@ import org.apache.kafka.common.utils.{LogContext, Time}
 import org.apache.kafka.common.{KafkaException, Node, Reconfigurable, TopicPartition}
 
 import scala.jdk.CollectionConverters._
-import scala.collection.mutable.{HashMap, ListBuffer}
+import scala.collection.mutable.HashMap
 import scala.collection.{Seq, Set, mutable}
 
 object ControllerChannelManager {

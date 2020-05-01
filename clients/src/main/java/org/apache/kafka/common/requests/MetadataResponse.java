@@ -113,8 +113,8 @@ public class MetadataResponse extends AbstractResponse {
     @Override
     public Map<Errors, Integer> errorCounts() {
         Map<Errors, Integer> errorCounts = new HashMap<>();
-        for (MetadataResponseTopic metadata : data.topics())
-            updateErrorCounts(errorCounts, Errors.forCode(metadata.errorCode()));
+        data.topics().forEach(metadata ->
+            updateErrorCounts(errorCounts, Errors.forCode(metadata.errorCode())));
         return errorCounts;
     }
 

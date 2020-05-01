@@ -27,7 +27,6 @@ import java.util.concurrent.atomic.AtomicInteger
 
 import kafka.admin.{AdminUtils, RackAwareMode}
 import kafka.api.ElectLeadersRequestOps
-import kafka.api.LeaderAndIsr
 import kafka.api.{ApiVersion, KAFKA_0_11_0_IV0, KAFKA_2_3_IV0}
 import kafka.cluster.Partition
 import kafka.common.OffsetAndMetadata
@@ -55,13 +54,12 @@ import org.apache.kafka.common.internals.FatalExitError
 import org.apache.kafka.common.internals.Topic.{GROUP_METADATA_TOPIC_NAME, TIER_TOPIC_NAME, TRANSACTION_STATE_TOPIC_NAME, isInternal}
 import org.apache.kafka.common.message.AlterConfigsResponseData.AlterConfigsResourceResponse
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopic
-import org.apache.kafka.common.message.CreatePartitionsResponseData.CreatePartitionsTopicResult
 import org.apache.kafka.common.message.{AddOffsetsToTxnResponseData, AlterConfigsResponseData, AlterPartitionReassignmentsResponseData, CreateAclsResponseData, CreatePartitionsResponseData, CreateTopicsResponseData, DeleteAclsResponseData, DeleteGroupsResponseData, DeleteRecordsResponseData, DeleteTopicsResponseData, DescribeAclsResponseData, DescribeGroupsResponseData, DescribeLogDirsResponseData, EndTxnResponseData, ExpireDelegationTokenResponseData, FindCoordinatorResponseData, HeartbeatResponseData, InitProducerIdResponseData, JoinGroupResponseData, LeaveGroupResponseData, ListGroupsResponseData, ListPartitionReassignmentsResponseData, MetadataResponseData, OffsetCommitRequestData, OffsetCommitResponseData, OffsetDeleteResponseData, RemoveBrokersResponseData, RenewDelegationTokenResponseData, ReplicaStatusResponseData, SaslAuthenticateResponseData, SaslHandshakeResponseData, StopReplicaResponseData, SyncGroupResponseData, TierListOffsetResponseData, UpdateMetadataResponseData}
 import org.apache.kafka.common.message.CreateTopicsResponseData.{CreatableTopicResult, CreatableTopicResultCollection}
 import org.apache.kafka.common.message.DeleteGroupsResponseData.{DeletableGroupResult, DeletableGroupResultCollection}
 import org.apache.kafka.common.message.AlterPartitionReassignmentsResponseData.{ReassignablePartitionResponse, ReassignableTopicResponse}
-import org.apache.kafka.common.message.CreatePartitionsResponseData.CreatePartitionsTopicResult
 import org.apache.kafka.common.message.CreateAclsResponseData.AclCreationResult
+import org.apache.kafka.common.message.CreatePartitionsResponseData.CreatePartitionsTopicResult
 import org.apache.kafka.common.message.DeleteTopicsResponseData.{DeletableTopicResult, DeletableTopicResultCollection}
 import org.apache.kafka.common.message.DeleteRecordsResponseData.{DeleteRecordsPartitionResult, DeleteRecordsTopicResult}
 import org.apache.kafka.common.message.ElectLeadersResponseData.PartitionResult
@@ -213,7 +211,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     }
   }
 
-  private def handleInternalRequest(request: RequestChannel.Request) {
+  private def handleInternalRequest(request: RequestChannel.Request): Unit = {
     request.header.apiKey match {
       case ApiKeys.TIER_LIST_OFFSET => handleTierListOffsetRequest(request)
       case ApiKeys.CONFLUENT_LEADER_AND_ISR => handleLeaderAndIsrRequest(request)
@@ -221,7 +219,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     }
   }
 
-  def handleReplicaStatusRequest(request: RequestChannel.Request) {
+  def handleReplicaStatusRequest(request: RequestChannel.Request): Unit = {
     def toPartitionResponse(partition: TopicPartition, authorized: Boolean): ReplicaStatusPartitionResponse = {
       val response = new ReplicaStatusPartitionResponse()
         .setPartitionIndex(partition.partition())
@@ -270,7 +268,7 @@ class KafkaApis(val requestChannel: RequestChannel,
   }
 
   // Handle TierListOffsetRequest which is a tiering aware offset lookup request. See TierListOffsetRequest for more details.
-  def handleTierListOffsetRequest(request: RequestChannel.Request) {
+  def handleTierListOffsetRequest(request: RequestChannel.Request): Unit = {
     val offsetRequest = request.body[TierListOffsetRequest]
     val responseData = new TierListOffsetResponseData()
 
@@ -677,20 +675,21 @@ class KafkaApis(val requestChannel: RequestChannel,
         }
       }
 
-      // When this callback is triggered, the remote API call has completed
-      request.apiRemoteCompleteTimeNanos = time.nanoseconds
-
       // Record both bandwidth and request quota-specific values and throttle by muting the channel if any of the quotas
       // have been violated. If both quotas have been violated, use the max throttle time between the two quotas. Note
       // that the request quota is not enforced if acks == 0.
-      val bandwidthThrottleTimeMs = quotas.produce.maybeRecordAndGetThrottleTimeMs(request, numBytesAppended, time.milliseconds)
-      val requestThrottleTimeMs = if (produceRequest.acks == 0) 0 else quotas.request.maybeRecordAndGetThrottleTimeMs(request)
+      val timeMs = time.milliseconds()
+      val bandwidthThrottleTimeMs = quotas.produce.maybeRecordAndGetThrottleTimeMs(request, numBytesAppended, timeMs)
+      val requestThrottleTimeMs =
+        if (produceRequest.acks == 0) 0
+        else quotas.request.maybeRecordAndGetThrottleTimeMs(request, timeMs)
       val maxThrottleTimeMs = Math.max(bandwidthThrottleTimeMs, requestThrottleTimeMs)
       if (maxThrottleTimeMs > 0) {
+        request.apiThrottleTimeMs = maxThrottleTimeMs
         if (bandwidthThrottleTimeMs > requestThrottleTimeMs) {
-          quotas.produce.throttle(request, bandwidthThrottleTimeMs, sendResponse)
+          quotas.produce.throttle(request, bandwidthThrottleTimeMs, requestChannel.sendResponse)
         } else {
-          quotas.request.throttle(request, requestThrottleTimeMs, sendResponse)
+          quotas.request.throttle(request, requestThrottleTimeMs, requestChannel.sendResponse)
         }
       }
 
@@ -887,10 +886,6 @@ class KafkaApis(val requestChannel: RequestChannel,
       }
       erroneous.foreach { case (tp, data) => partitions.put(tp, data) }
 
-      // When this callback is triggered, the remote API call has completed.
-      // Record time before any byte-rate throttling.
-      request.apiRemoteCompleteTimeNanos = time.nanoseconds
-
       var unconvertedFetchResponse: FetchResponse[Records] = null
 
       def createResponse(throttleTimeMs: Int): FetchResponse[BaseRecords] = {
@@ -942,12 +937,13 @@ class KafkaApis(val requestChannel: RequestChannel,
         // quotas have been violated. If both quotas have been violated, use the max throttle time between the two
         // quotas. When throttled, we unrecord the recorded bandwidth quota value
         val responseSize = fetchContext.getResponseSize(partitions, versionId)
-        val timeMs = time.milliseconds
-        val requestThrottleTimeMs = quotas.request.maybeRecordAndGetThrottleTimeMs(request)
+        val timeMs = time.milliseconds()
+        val requestThrottleTimeMs = quotas.request.maybeRecordAndGetThrottleTimeMs(request, timeMs)
         val bandwidthThrottleTimeMs = quotas.fetch.maybeRecordAndGetThrottleTimeMs(request, responseSize, timeMs)
 
         val maxThrottleTimeMs = math.max(bandwidthThrottleTimeMs, requestThrottleTimeMs)
         if (maxThrottleTimeMs > 0) {
+          request.apiThrottleTimeMs = maxThrottleTimeMs
 
           // Historically, one reason to return an empty fetch response when it's throttled is to avoid the throttling
           // value being exceeded. If the throttling value is exceeded, other requests like HeartBeat could be
@@ -968,9 +964,9 @@ class KafkaApis(val requestChannel: RequestChannel,
             quotas.fetch.unrecordQuotaSensor(request, responseSize, timeMs)
 
           if (bandwidthThrottleTimeMs > requestThrottleTimeMs) {
-            quotas.fetch.throttle(request, bandwidthThrottleTimeMs, sendResponse)
+            quotas.fetch.throttle(request, bandwidthThrottleTimeMs, requestChannel.sendResponse)
           } else {
-            quotas.request.throttle(request, requestThrottleTimeMs, sendResponse)
+            quotas.request.throttle(request, requestThrottleTimeMs, requestChannel.sendResponse)
           }
 
           if (!responseContainsReclaimableMemoryRecords)
@@ -2304,7 +2300,7 @@ class KafkaApis(val requestChannel: RequestChannel,
   def handleAddPartitionToTxnRequest(request: RequestChannel.Request, bufferSupplier: BufferSupplier): Unit = {
     ensureInterBrokerVersion(KAFKA_0_11_0_IV0)
     val addPartitionsToTxnRequest = request.body[AddPartitionsToTxnRequest]
-    val transactionalId = addPartitionsToTxnRequest.transactionalId
+    val transactionalId = addPartitionsToTxnRequest.data.transactionalId
     val partitionsToAdd = addPartitionsToTxnRequest.partitions.asScala
     if (!authorize(request.context, WRITE, TRANSACTIONAL_ID, transactionalId))
       sendResponseMaybeThrottle(request, requestThrottleMs =>
@@ -2346,8 +2342,8 @@ class KafkaApis(val requestChannel: RequestChannel,
         }
 
         txnCoordinator.handleAddPartitionsToTransaction(transactionalId,
-          addPartitionsToTxnRequest.producerId,
-          addPartitionsToTxnRequest.producerEpoch,
+          addPartitionsToTxnRequest.data.producerId,
+          addPartitionsToTxnRequest.data.producerEpoch,
           authorizedPartitions,
           sendResponseCallback,
           bufferSupplier)
@@ -3323,15 +3319,21 @@ class KafkaApis(val requestChannel: RequestChannel,
   private def sendResponseMaybeThrottle(request: RequestChannel.Request,
                                         createResponse: Int => AbstractResponse,
                                         onComplete: Option[Send => Unit] = None): Unit = {
-    val throttleTimeMs = quotas.request.maybeRecordAndGetThrottleTimeMs(request)
-    quotas.request.throttle(request, throttleTimeMs, sendResponse)
+    val throttleTimeMs = maybeRecordAndGetThrottleTimeMs(request)
+    quotas.request.throttle(request, throttleTimeMs, requestChannel.sendResponse)
     sendResponse(request, Some(createResponse(throttleTimeMs)), onComplete)
   }
 
   private def sendErrorResponseMaybeThrottle(request: RequestChannel.Request, error: Throwable): Unit = {
-    val throttleTimeMs = quotas.request.maybeRecordAndGetThrottleTimeMs(request)
-    quotas.request.throttle(request, throttleTimeMs, sendResponse)
+    val throttleTimeMs = maybeRecordAndGetThrottleTimeMs(request)
+    quotas.request.throttle(request, throttleTimeMs, requestChannel.sendResponse)
     sendErrorOrCloseConnection(request, error, throttleTimeMs)
+  }
+
+  private def maybeRecordAndGetThrottleTimeMs(request: RequestChannel.Request): Int = {
+    val throttleTimeMs = quotas.request.maybeRecordAndGetThrottleTimeMs(request, time.milliseconds())
+    request.apiThrottleTimeMs = throttleTimeMs
+    throttleTimeMs
   }
 
   private def sendResponseExemptThrottle(request: RequestChannel.Request,
@@ -3391,12 +3393,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       case None =>
         new RequestChannel.NoOpResponse(request)
     }
-    sendResponse(response)
-  }
 
-  private def sendResponse(response: RequestChannel.Response): Unit = {
-    // Note: The response object may contain ReclaimableMemoryRecords. ReclaimableMemoryRecords must be released before
-    // dropping so that the memory lease is returned to the memory limiter.
     requestChannel.sendResponse(response)
   }
 
@@ -3405,10 +3402,9 @@ class KafkaApis(val requestChannel: RequestChannel,
     // if the controller hasn't been upgraded to use KIP-380
     if (brokerEpochInRequest == AbstractControlRequest.UNKNOWN_BROKER_EPOCH) false
     else {
-      val curBrokerEpoch = controller.brokerEpoch
-      if (brokerEpochInRequest < curBrokerEpoch) true
-      else if (brokerEpochInRequest == curBrokerEpoch) false
-      else throw new IllegalStateException(s"Epoch $brokerEpochInRequest larger than current broker epoch $curBrokerEpoch")
+      // brokerEpochInRequest > controller.brokerEpoch is possible in rare scenarios where the controller gets notified
+      // about the new broker epoch and sends a control request with this epoch before the broker learns about it
+      brokerEpochInRequest < controller.brokerEpoch
     }
   }
 

@@ -19,7 +19,6 @@ package kafka.server
 
 import java.util.Properties
 
-import kafka.log.LogConfig
 import kafka.security.CredentialProvider
 import org.apache.kafka.common.config.ConfigDef
 import org.apache.kafka.common.config.ConfigDef.Importance._

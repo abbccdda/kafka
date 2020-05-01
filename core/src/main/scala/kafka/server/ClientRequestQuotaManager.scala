@@ -69,25 +69,19 @@ class ClientRequestQuotaManager(private val config: ClientQuotaManagerConfig,
     * @param request client request
     * @return Number of milliseconds to throttle in case of quota violation. Zero otherwise
     */
-  def maybeRecordAndGetThrottleTimeMs(request: RequestChannel.Request): Int = {
-    if (request.apiRemoteCompleteTimeNanos == -1) {
-      // When this callback is triggered, the remote API call has completed
-      request.apiRemoteCompleteTimeNanos = time.nanoseconds
-    }
-
-    val currentTimeMs = time.milliseconds()
+  def maybeRecordAndGetThrottleTimeMs(request: RequestChannel.Request, timeMs: Long): Int = {
     val reqIoThreadPercentage = nanosToPercentage(request.requestThreadTimeNanos)
     val listenerName = request.context.listenerName.value
-    threadUsageSensors.recordIoThreadUsage(reqIoThreadPercentage, currentTimeMs)
+    threadUsageSensors.recordIoThreadUsage(reqIoThreadPercentage, timeMs)
 
     if (quotasEnabled) {
-      threadUsageSensors.recordIoThreadUsage(reqIoThreadPercentage, currentTimeMs, Some(NonExemptRequest))
+      threadUsageSensors.recordIoThreadUsage(reqIoThreadPercentage, timeMs, Some(NonExemptRequest))
 
       request.recordNetworkThreadTimeCallback = Some(timeNanos => {
         recordNoThrottle(getOrCreateQuotaSensors(request.session, request.header.clientId), nanosToPercentage(timeNanos))
         recordNetworkUsage(nanosToPercentage(timeNanos), listenerName, NonExemptRequest, time.milliseconds())
       })
-      recordAndGetThrottleTimeMs(request.session, request.header.clientId, reqIoThreadPercentage, currentTimeMs)
+      recordAndGetThrottleTimeMs(request.session, request.header.clientId, reqIoThreadPercentage, timeMs)
     } else {
       request.recordNetworkThreadTimeCallback = Some(timeNanos => recordNetworkUsage(
         nanosToPercentage(timeNanos), listenerName, NonExemptRequest, time.milliseconds()))
@@ -116,8 +110,8 @@ class ClientRequestQuotaManager(private val config: ClientQuotaManagerConfig,
     dynamicBackpressureConfig.backpressureEnabledInConfig &&
     dynamicBackpressureConfig.tenantEndpointListenerNames.nonEmpty
 
-  override protected def throttleTime(clientMetric: KafkaMetric): Long = {
-    math.min(super.throttleTime(clientMetric), maxThrottleTimeMs)
+  override protected def throttleTime(quotaValue: Double, quotaBound: Double, windowSize: Long): Long = {
+    math.min(super.throttleTime(quotaValue, quotaBound, windowSize), maxThrottleTimeMs)
   }
 
   override protected def clientRateMetricName(quotaMetricTags: Map[String, String]): MetricName = {

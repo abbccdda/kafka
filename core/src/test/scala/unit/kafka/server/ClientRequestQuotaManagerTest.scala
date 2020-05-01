@@ -227,7 +227,7 @@ class ClientRequestQuotaManagerTest {
 
     val request = buildRequest()
     simulateTimeOnRequestHandlerThread(request, 2)
-    requestQuotaManager.maybeRecordAndGetThrottleTimeMs(request)
+    requestQuotaManager.maybeRecordAndGetThrottleTimeMs(request, time.milliseconds)
     val expectedBrokerQuotaLimit = totalCapacity * BrokerBackpressureConfig.DefaultMaxResourceUtilization
     assertEquals(expectedBrokerQuotaLimit, requestQuotaManager.getBrokerQuotaLimit, 0.01)
 
@@ -250,7 +250,7 @@ class ClientRequestQuotaManagerTest {
 
     val request = buildRequest()
     simulateTimeOnRequestHandlerThread(request, 2)
-    requestQuotaManager.maybeRecordAndGetThrottleTimeMs(request)
+    requestQuotaManager.maybeRecordAndGetThrottleTimeMs(request, time.milliseconds)
     assertEquals(Double.MaxValue, requestQuotaManager.getBrokerQuotaLimit, 1.0)
 
     time.sleep(1) // 1 millisecond
@@ -264,7 +264,7 @@ class ClientRequestQuotaManagerTest {
 
     val request = buildRequest()
     simulateTimeOnRequestHandlerThread(request, 1)
-    val throttleMs = requestQuotaManager.maybeRecordAndGetThrottleTimeMs(request)
+    val throttleMs = requestQuotaManager.maybeRecordAndGetThrottleTimeMs(request, time.milliseconds)
     assertEquals(0, throttleMs)
 
     assertIoThreadUsageMetricValue("request-io-time", Some(0.1), 0.01)
@@ -322,7 +322,7 @@ class ClientRequestQuotaManagerTest {
   def testNonExemptRequestWithQuotasEnabledRecordsAllThreadUsageMetrics(): Unit = {
     val request = buildRequest()
     simulateTimeOnRequestHandlerThread(request, 2)
-    val throttleMs = requestQuotaManager.maybeRecordAndGetThrottleTimeMs(request)
+    val throttleMs = requestQuotaManager.maybeRecordAndGetThrottleTimeMs(request, time.milliseconds)
     assertEquals(0, throttleMs)
 
     assertIoThreadUsageMetricValue("request-io-time", Some(0.2), 0.01)
@@ -354,7 +354,7 @@ class ClientRequestQuotaManagerTest {
     // over-utilize IO threads
     simulateTimeOnRequestHandlerThread(request, 1000)
     for (_ <- 0 until 8) {
-      val throttleMs = requestQuotaManager.maybeRecordAndGetThrottleTimeMs(request)
+      val throttleMs = requestQuotaManager.maybeRecordAndGetThrottleTimeMs(request, time.milliseconds)
       // request quota is unlimited in this test and backpressure disabled, so should not throttle
       assertEquals(0, throttleMs)
     }
@@ -382,7 +382,7 @@ class ClientRequestQuotaManagerTest {
 
     simulateTimeOnRequestHandlerThread(request, 10)
     for (_ <- 0 until ioThreadpoolSize) {
-      val throttleMs = requestQuotaManager.maybeRecordAndGetThrottleTimeMs(request)
+      val throttleMs = requestQuotaManager.maybeRecordAndGetThrottleTimeMs(request, time.milliseconds)
       // request quota is unlimited in this test and backpressure disabled, so should not throttle
       assertEquals(0, throttleMs)
     }
@@ -436,7 +436,7 @@ class ClientRequestQuotaManagerTest {
 
     simulateTimeOnRequestHandlerThread(request, 10)
     for (_ <- 0 until ioThreadpoolSize) {
-      val throttleMs = requestQuotaManager.maybeRecordAndGetThrottleTimeMs(request)
+      val throttleMs = requestQuotaManager.maybeRecordAndGetThrottleTimeMs(request, time.milliseconds)
       // request quota is unlimited in this test and backpressure disabled, so should not throttle
       assertEquals(0, throttleMs)
     }
@@ -522,7 +522,7 @@ class ClientRequestQuotaManagerTest {
   def testBrokerRequestLimitIsAdjustedOnRequestOverload(): Unit = {
     val request = buildRequest()
     simulateTimeOnRequestHandlerThread(request, 500)
-    val throttleMs = requestQuotaManager.maybeRecordAndGetThrottleTimeMs(request)
+    val throttleMs = requestQuotaManager.maybeRecordAndGetThrottleTimeMs(request, time.milliseconds)
     assertEquals(0, throttleMs)
 
     assertIoThreadUsageMetricValue("request-io-time", Some(50), 0.01)
@@ -565,7 +565,7 @@ class ClientRequestQuotaManagerTest {
   def testBrokerRequestLimitDoesNotFallBelowMinimum(): Unit = {
     val request = buildRequest()
     simulateTimeOnRequestHandlerThread(request, 500)
-    val throttleMs = requestQuotaManager.maybeRecordAndGetThrottleTimeMs(request)
+    val throttleMs = requestQuotaManager.maybeRecordAndGetThrottleTimeMs(request, time.milliseconds)
     assertEquals(0, throttleMs)
     time.sleep(10) // 10 millisecond
     request.recordNetworkThreadTimeCallback.foreach(record => record(10000000))
@@ -596,12 +596,12 @@ class ClientRequestQuotaManagerTest {
     // two requests, one per listener
     val request1 = buildRequest()
     simulateTimeOnRequestHandlerThread(request1, 2)
-    val throttleMs1 = requestQuotaManager.maybeRecordAndGetThrottleTimeMs(request1)
+    val throttleMs1 = requestQuotaManager.maybeRecordAndGetThrottleTimeMs(request1, time.milliseconds)
     assertEquals(0, throttleMs1)
 
     val request2 = buildRequest(secondListener)
     simulateTimeOnRequestHandlerThread(request2, 2)
-    val throttleMs2 = requestQuotaManager.maybeRecordAndGetThrottleTimeMs(request2)
+    val throttleMs2 = requestQuotaManager.maybeRecordAndGetThrottleTimeMs(request2, time.milliseconds)
     assertEquals(0, throttleMs2)
 
     assertIoThreadUsageMetricValue("request-io-time", Some(0.4), 0.01)
@@ -648,7 +648,7 @@ class ClientRequestQuotaManagerTest {
 
     // Generate and verify listener metrics
     simulateTimeOnRequestHandlerThread(request, 10)
-    requestQuotaManager.maybeRecordAndGetThrottleTimeMs(request)
+    requestQuotaManager.maybeRecordAndGetThrottleTimeMs(request, time.milliseconds)
     time.sleep(1000)
     for (_ <- 0 until networkThreadpoolSize) {
       request.recordNetworkThreadTimeCallback.foreach(record => record(1000000000))

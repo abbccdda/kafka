@@ -28,7 +28,6 @@ import org.apache.kafka.common.security.auth.{KafkaPrincipal, SecurityProtocol}
 import org.apache.kafka.common.utils.Utils
 import org.apache.kafka.server.authorizer.{AuthorizableRequestContext, Authorizer}
 
-
 object AuthorizerUtils {
 
   def createAuthorizer(className: String): Authorizer = {

@@ -60,6 +60,7 @@ import org.junit.Assert._
 import org.junit.{After, Before, Test}
 import org.scalatest.Assertions.intercept
 
+import scala.annotation.nowarn
 import scala.jdk.CollectionConverters._
 import scala.collection.mutable
 import scala.collection.mutable.Buffer
@@ -977,6 +978,7 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
     consumeRecords(consumer)
   }
 
+  @nowarn("cat=deprecation")
   @Test
   def testPatternSubscriptionWithNoTopicAccess(): Unit = {
     createTopic(topic)
@@ -1013,6 +1015,7 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
     assertEquals(Collections.singleton(topic), e.unauthorizedTopics())
   }
 
+  @nowarn("cat=deprecation")
   @Test
   def testPatternSubscriptionWithTopicAndGroupRead(): Unit = {
     createTopic(topic)
@@ -1044,6 +1047,7 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
     assertTrue(consumer.assignment().isEmpty)
   }
 
+  @nowarn("cat=deprecation")
   @Test
   def testPatternSubscriptionMatchingInternalTopic(): Unit = {
     createTopic(topic)

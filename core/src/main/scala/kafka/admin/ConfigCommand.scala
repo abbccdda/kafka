@@ -250,10 +250,16 @@ object ConfigCommand extends Config {
   }
 
   private[admin] def parseConfigsToBeAdded(opts: ConfigCommandOptions): Properties = {
-    val props = if (opts.options.has(opts.addConfig)) {
-      AdminUtils.parseConfigs(opts.options.valueOf(opts.addConfig))
-    } else {
-      new Properties
+    val props = new Properties
+    if (opts.options.has(opts.addConfigFile)) {
+      val file = opts.options.valueOf(opts.addConfigFile)
+      props.putAll(Utils.loadProps(file))
+    }
+    if (opts.options.has(opts.addConfig)) {
+      val parsedProps = AdminUtils.parseConfigs(opts.options.valueOf(opts.addConfig))
+      parsedProps.asScala.foreach { case (k, v) =>
+        props.setProperty(k, v)
+      }
     }
     if (props.containsKey(LogConfig.MessageFormatVersionProp)) {
       println(s"WARNING: The configuration ${LogConfig.MessageFormatVersionProp}=${props.getProperty(LogConfig.MessageFormatVersionProp)} is specified. " +
@@ -670,6 +676,9 @@ object ConfigCommand extends Config {
       s"Entity types '${ConfigType.User}' and '${ConfigType.Client}' may be specified together to update config for clients of a specific user.")
       .withRequiredArg
       .ofType(classOf[String])
+    val addConfigFile = parser.accepts("add-config-file", "Path to a properties file with configs to add. See add-config for a list of valid configurations.")
+      .withRequiredArg
+      .ofType(classOf[String])
     val replicaPlacementOpt = parser.accepts("replica-placement", ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_DOC)
       .withRequiredArg
       .describedAs("Replica placement JSON file path.")
@@ -800,11 +809,15 @@ object ConfigCommand extends Config {
           throw new IllegalArgumentException(s"an entity name must be specified with --alter of ${entityTypeVals.mkString(",")}")
 
         val isAddConfigPresent = options.has(addConfig)
+        val isAddConfigFilePresent = options.has(addConfigFile)
         val isReplicaPlacementPresent = options.has(replicaPlacementOpt)
         val isDeleteConfigPresent = options.has(deleteConfig)
 
-        if(!isAddConfigPresent && !isReplicaPlacementPresent && ! isDeleteConfigPresent)
-          throw new IllegalArgumentException("At least one of --add-config, --delete-config or --replica-placement must be specified with --alter")
+        if(isAddConfigPresent && isAddConfigFilePresent)
+          throw new IllegalArgumentException("Only one of --add-config or --add-config-file must be specified")
+
+        if(!isAddConfigPresent && !isAddConfigFilePresent && !isReplicaPlacementPresent && !isDeleteConfigPresent)
+          throw new IllegalArgumentException("At least one of --add-config, --add-config-file, --delete-config or --replica-placement must be specified with --alter")
       }
     }
   }

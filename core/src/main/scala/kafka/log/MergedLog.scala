@@ -5,7 +5,6 @@
 package kafka.log
 
 import java.io.{File, IOException}
-import java.util
 import java.util.UUID
 import java.util.concurrent.Future
 

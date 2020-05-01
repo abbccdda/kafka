@@ -134,7 +134,7 @@ object KafkaServer {
     logProps
   }
 
-  private [kafka] def augmentWithKafkaConfig(logProps: util.Map[String, Object], kafkaConfig: KafkaConfig) {
+  private [kafka] def augmentWithKafkaConfig(logProps: util.Map[String, Object], kafkaConfig: KafkaConfig): Unit = {
     // we augment the props with broker-level kafka configs for configuring the interceptor
     if (kafkaConfig != null) {
       logProps.put(ConfluentConfigs.MAX_CACHE_SIZE_CONFIG, kafkaConfig.getInt(ConfluentConfigs.MAX_CACHE_SIZE_CONFIG))

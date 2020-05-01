@@ -80,8 +80,7 @@ public class LeaderAndIsrResponse extends AbstractResponse {
         if (error != Errors.NONE)
             // Minor optimization since the top-level error applies to all partitions
             return Collections.singletonMap(error, partitions().size());
-        return errorCounts(partitions().stream().map(l -> Errors.forCode(l.errorCode())).collect(
-            toList()));
+        return errorCounts(partitions().stream().map(l -> Errors.forCode(l.errorCode())));
     }
 
     public static LeaderAndIsrResponse parse(ByteBuffer buffer, short version) {

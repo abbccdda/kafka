@@ -85,7 +85,6 @@ class Replica(val brokerId: Int, val topicPartition: TopicPartition) extends Log
     lastFetchLeaderLogEndOffset = leaderEndOffset
     _lastFetchTimeMs = followerFetchTimeMs
     updateLastSentHighWatermark(lastSentHighwatermark)
-    trace(s"Updated state of replica to $this")
   }
 
   /**
@@ -98,7 +97,6 @@ class Replica(val brokerId: Int, val topicPartition: TopicPartition) extends Log
     */
   private def updateLastSentHighWatermark(highWatermark: Long): Unit = {
     _lastSentHighWatermark = highWatermark
-    trace(s"Updated HW of replica to $highWatermark")
   }
 
   def resetLastCaughtUpTime(curLeaderLogEndOffset: Long, curTimeMs: Long, lastCaughtUpTimeMs: Long): Unit = {
