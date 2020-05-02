@@ -266,6 +266,11 @@ public class MultiTenantApis {
           }
           break;
 
+        case ADD_PARTITIONS_TO_TXN:
+          if (field != null && field.name.equals("name"))
+            return Optional.some(
+                    new StringTenantTransformer(type, TenantTransform.ADD_PREFIX));
+
         default:
           // fall through
       }
@@ -358,6 +363,7 @@ public class MultiTenantApis {
         case OFFSET_FETCH:
         case TXN_OFFSET_COMMIT:
         case OFFSET_DELETE:
+        case ADD_PARTITIONS_TO_TXN:
           if (field != null && field.name.equals("name")) {
               return Optional.some(
                       new StringTenantTransformer(type, TenantTransform.REMOVE_PREFIX));
