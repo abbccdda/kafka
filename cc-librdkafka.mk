@@ -15,6 +15,6 @@ install-librdkafka:
 	git clone https://github.com/edenhill/librdkafka.git $(TMPDIR)/librdkafka
 	git -C $(TMPDIR)/librdkafka checkout v$(LIBRDKAFKA_VERSION)
 	cd $(TMPDIR)/librdkafka && ./configure
-	make -C $(TMPDIR)/librdkafka
-	sudo make -C $(TMPDIR)/librdkafka install
+	$(MAKE) -C $(TMPDIR)/librdkafka
+	sudo $(MAKE) -C $(TMPDIR)/librdkafka install
 	rm -rf $(TMPDIR)/librdkafka

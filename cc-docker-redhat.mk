@@ -1,6 +1,13 @@
 RELEASE_POSTCOMMIT += push-docker-redhat
 BUILD_TARGETS += build-docker-redhat
+
+# if RHEL_VERSION not defined suffix with tag rhel7 will be appended
+ifndef RHEL_VERSION
 RHEL_TAG_NAME := $(BUILD_TAG)-rhel7
+else
+RHEL_TAG_NAME := $(BUILD_TAG)-$(RHEL_VERSION)
+endif
+
 # redhat release version scheme based on redhat certification process
 minor_version := $(subst .,$(_space),$(VERSION_NO_V))
 RHEL_RELEASE_NUMBER := $(shell expr $(word 2,$(minor_version)))

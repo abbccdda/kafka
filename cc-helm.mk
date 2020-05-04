@@ -6,12 +6,11 @@ HELM_URL := https://storage.googleapis.com/kubernetes-helm
 HELM_TGZ := helm-$(HELM_VERSION)-linux-amd64.tar.gz
 
 INIT_CI_TARGETS += helm-setup-ci
-BUILD_TARGETS += helm-set-version helm-package
+BUILD_TARGETS += helm-package
 TEST_TARGETS += helm-lint
 CLEAN_TARGETS += helm-clean
 RELEASE_PRECOMMIT += helm-set-bumped-version helm-add-requirements
-RELEASE_POSTCOMMIT += $(HELM_DOWNSTREAM_CHARTS)
-RELEASE_MAKE_TARGETS += helm-release
+RELEASE_MAKE_TARGETS += helm-release $(HELM_DOWNSTREAM_CHARTS)
 
 CHART_VERSION := $(VERSION_NO_V)
 BUMPED_CHART_VERSION := $(BUMPED_CLEAN_VERSION)
@@ -30,8 +29,10 @@ helm-clean:
 	helm delete $(CHART_NAME)-dev --purge
 
 .PHONY: helm-lint
+## Lint helm chart with values from charts/$(CHART_NAME)/lint.yaml (if present)
 helm-lint:
-	helm lint charts/$(CHART_NAME)
+	test -f charts/$(CHART_NAME)/lint.yaml && VALUES="--values charts/$(CHART_NAME)/lint.yaml" ;\
+	helm lint charts/$(CHART_NAME) $$VALUES
 
 .PHONY: helm-deploy-local
 ## Deploy helm to current kube context with values set to local.yaml
@@ -54,14 +55,11 @@ helm-set-bumped-version:
 
 .PHONY: helm-set-version
 helm-set-version:
-	test -f charts/$(CHART_NAME)/Chart.yaml \
-		&& ($(CPD_PATH) helm setver --chart charts/$(CHART_NAME)/Chart.yaml --version $(CHART_VERSION) &&\
-			git add charts/$(CHART_NAME)/Chart.yaml) \
-		|| true
+	@echo DEPRECATED: helm-set-version has been removed. Please update your Makefile.
 
 .PHONY: helm-release-local
 ## Set the version to the current un-bumped version and package
-helm-release-local: helm-set-version helm-release
+helm-release-local: helm-release
 
 $(HOME)/.helm/repository/cache/helm-cloud-index.yaml:
 	@echo helm repo helm-cloud repo missing, adding...
@@ -102,10 +100,10 @@ helm-add-requirements: helm-update-deps
 
 .PHONY: helm-package
 ## Build helm package at the current version
-helm-package: helm-set-version helm-install-deps
+helm-package: helm-install-deps
 	mkdir -p charts/package
 	rm -rf charts/package/$(CHART_NAME)-$(CHART_VERSION).tgz
-	helm package charts/$(CHART_NAME) -d charts/package
+	helm package --version "$(CHART_VERSION)" charts/$(CHART_NAME) -d charts/package
 
 .PHONY: helm-release
 helm-release: helm-package
@@ -113,9 +111,7 @@ helm-release: helm-package
 
 .PHONY: helm-install-ci
 helm-install-ci:
-	test ! -f $(CI_BIN)/helm \
-		&& wget -q $(HELM_URL)/$(HELM_TGZ) && tar xzfv $(HELM_TGZ) && mv linux-amd64/helm $(CI_BIN) \
-		|| true
+	test -f $(CI_BIN)/helm || curl -s -o - $(HELM_URL)/$(HELM_TGZ) | tar -xz --strip-components=1 -C $(CI_BIN) linux-amd64/helm
 
 .PHONY: helm-init-ci
 helm-init-ci:
@@ -132,6 +128,17 @@ helm-commit-deps:
 		git commit -m 'chore: $(UPSTREAM_CHART):$(UPSTREAM_VERSION) update chart deps' && \
 		git push $(GIT_REMOTE_NAME) $(GIT_BRANCH_NAME))
 
+.PHONY: helm-deploy-deps
+## Update and deploy the deps
+helm-deploy-deps:
+	@echo "Start to update $(CHART_NAME):$(CHART_VERSION) via $(REPO_NAME)"
+	rm -rf $(REPO_NAME)
+	git clone git@github.com:confluentinc/$(REPO_NAME).git $(REPO_NAME)
+	$(MAKE) $(MAKE_ARGS) -C $(REPO_NAME) helm-update-deps helm-commit-deps \
+		UPSTREAM_CHART=$(CHART_NAME) \
+		UPSTREAM_VERSION=$(CHART_VERSION)
+	@echo "Successfully updated $(CHART_NAME):$(CHART_VERSION) via $(REPO_NAME)"
+
 .PHONY: $(HELM_DOWNSTREAM_CHARTS)
 $(HELM_DOWNSTREAM_CHARTS):
 ifeq ($(HOTFIX),true)
@@ -139,9 +146,8 @@ ifeq ($(HOTFIX),true)
 else ifeq ($(BUMP),major)
 	@echo "Skipping bumping downstream helm chart deps $@ with major version bump"
 else
-	git clone git@github.com:confluentinc/$@.git $@
-	make -C $@ helm-update-deps helm-commit-deps \
-		UPSTREAM_CHART=$(CHART_NAME) \
-		UPSTREAM_VERSION=$(BUMPED_VERSION)
-	rm -rf $@
+	@for i in $$(seq 1 3); do \
+		echo "Attempt to update downstream helm chart: $$i"; \
+		$(MAKE) $(MAKE_ARGS) helm-deploy-deps REPO_NAME=$@ && break; \
+	done
 endif

@@ -2,7 +2,7 @@ DOCKER_BUILD_PRE  += .npmrc
 DOCKER_BUILD_POST += clean-npmrc
 RELEASE_PRECOMMIT += set-node-bumped-version
 
-NPM_REGISTRY ?= https://nexus.confluent.io/repository/npm-internal/
+NPM_REGISTRY ?= https://confluent.jfrog.io/confluent/api/npm/npm-internal/
 NPM_SCOPE ?= @confluent
 
 .PHONY: set-node-bumped-version
@@ -41,8 +41,7 @@ else ifneq ("$(wildcard $(HOME)/.m2/settings.xml)","")
 			bravissimolabs/generate-npm-authtoken \
 			> $(HOME)/.npmrc
 else
-	@echo "https://nexus.confluent.io not logged in, Username, Password, and Email not found in environment, prompting for login:" && \
-		npm login --registry=https://nexus.confluent.io/repository/npm-internal/ --scope=@confluent
+	@echo "Follow instructions here to configure .npmrc: https://confluentinc.atlassian.net/wiki/spaces/MMA/pages/966057260/Setup+NPM"
 endif
 
 .PHONY: npm-login

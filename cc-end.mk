@@ -10,19 +10,24 @@ RELEASE_TARGETS := $(RELEASE_PRECOMMIT) get-release-image commit-release tag-rel
 ## Release Project.  See show-args to see what will run
 release: $(RELEASE_TARGETS)
 ifneq ($(RELEASE_MAKE_TARGETS),)
-	make $(RELEASE_MAKE_TARGETS)
+	$(MAKE) $(MAKE_ARGS) $(RELEASE_MAKE_TARGETS)
 endif
 
 .PHONY: release-ci
 ## Target for CI to run to release
 release-ci:
-ifeq ($(CI)$,true)
+ifeq ($(CI),true)
 ifneq ($(RELEASE_BRANCH),$(_empty))
-	make release
+	$(MAKE) $(MAKE_ARGS) release
 endif
 else
 	true
 endif
+
+.PHONY: pre-release-check
+pre-release-check:
+	test -f go.sum && git checkout go.sum || true # discard local go.sum modifications
+	git diff --exit-code --name-status || (echo "ERROR: the repo is not supposed to have local dirty changes prior to releasing" && git status && exit 1)
 
 .PHONY: build
 ## Build Project.  See show-args to see what will run
@@ -36,6 +41,10 @@ test: $(TEST_TARGETS)
 ## Clean Project.  See show-args to see what will run
 clean: $(CLEAN_TARGETS)
 
+.PHONY: epilogue-ci
+## Epilogue (post-build steps for CI).  See show-args to see what will run
+epilogue-ci: $(EPILOGUE_TARGETS)
+
 .PHONY: show-args
 ## Show what common targets will run.
 show-args:
@@ -45,9 +54,11 @@ show-args:
 	@echo "TEST_TARGETS:         $(TEST_TARGETS)"
 	@echo "RELEASE_TARGETS:      $(RELEASE_TARGETS)"
 	@echo "RELEASE_MAKE_TARGETS: $(RELEASE_MAKE_TARGETS)"
+	@echo "EPILOGUE_TARGETS:     $(EPILOGUE_TARGETS)"
 	@echo "CI_BIN:               $(CI_BIN)"
 	@echo "BIN_PATH:             $(BIN_PATH)"
 	@echo "HOST_OS:              $(HOST_OS)"
+	@echo "GIT_ROOT:             $(GIT_ROOT)"
 
 .DEFAULT_GOAL := help
 .PHONY: help
