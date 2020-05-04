@@ -122,6 +122,7 @@ public class MultiTenantApis {
       case CREATE_CLUSTER_LINKS:
       case LIST_CLUSTER_LINKS:
       case DELETE_CLUSTER_LINKS:
+      case INITIATE_SHUTDOWN:
         return false;
 
       default:
@@ -177,6 +178,7 @@ public class MultiTenantApis {
       switch (api) {
         case DELETE_RECORDS:
         case METADATA:
+        case ADD_PARTITIONS_TO_TXN:
           if (field != null && field.name.equals("name")) {
             return Optional.some(
                 new StringTenantTransformer(type, TenantTransform.ADD_PREFIX));
@@ -265,11 +267,6 @@ public class MultiTenantApis {
                 new AclTenantTransformer(type, TenantTransform.ADD_PREFIX, ApiKeys.DESCRIBE_ACLS));
           }
           break;
-
-        case ADD_PARTITIONS_TO_TXN:
-          if (field != null && field.name.equals("name"))
-            return Optional.some(
-                    new StringTenantTransformer(type, TenantTransform.ADD_PREFIX));
 
         default:
           // fall through

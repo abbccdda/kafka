@@ -87,7 +87,7 @@ class TierMetadataPartitionFencingTest(ProduceConsumeValidateTest, TierSupport):
 
         # 1. Write file containing list of partitions to be fenced.
         first_partition = list(self.PARTITION_IDS_TO_BE_FENCED)[0]
-        topic_id_b64 = base64.b64encode(uuid.UUID(self.topic_id(first_partition)).bytes)
+        topic_id_b64 = base64.urlsafe_b64encode(uuid.UUID(self.topic_id(first_partition)).bytes)
         fencing_input_file = "{}/trigger_fencing.input".format(KafkaService.PERSISTENT_ROOT)
         input_tpids = []
         for partition in self.PARTITION_IDS_TO_BE_FENCED:

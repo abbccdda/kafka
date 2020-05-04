@@ -103,12 +103,6 @@ public class KafkaServerMetricsReporterIntegrationTest extends MetricReporterClu
                     resourceLabels.get(TelemetryResourceType.KAFKA.prefixLabel(KafkaServerMetricsReporter.LABEL_CLUSTER_ID))
                 );
 
-                // Legacy label alias - remove after https://confluentinc.atlassian.net/browse/METRICS-516
-                assertEquals(
-                    servers.get(0).clusterId(),
-                    resourceLabels.get("cluster_id")
-                );
-
                 assertTrue(
                     brokerRacks.contains(
                         resourceLabels.get(TelemetryResourceType.KAFKA.prefixLabel(

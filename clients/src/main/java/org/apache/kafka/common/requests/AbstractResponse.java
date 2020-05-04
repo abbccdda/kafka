@@ -188,6 +188,8 @@ public abstract class AbstractResponse implements AbstractRequestResponse {
                 return new AlterClientQuotasResponse(struct, version);
             case REMOVE_BROKERS:
                 return new RemoveBrokersResponse(struct, version);
+            case INITIATE_SHUTDOWN:
+                return new InitiateShutdownResponse(struct, version);
             default:
                 return maybeParseInternalResponse(apiKey, struct, version);
         }

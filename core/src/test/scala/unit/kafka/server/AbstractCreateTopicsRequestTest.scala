@@ -50,7 +50,9 @@ abstract class AbstractCreateTopicsRequestTest extends BaseRequestTest {
                numPartitions: Integer = null,
                replicationFactor: Integer = null,
                config: Map[String, String] = null,
-               assignment: Map[Int, Seq[Int]] = null): CreatableTopic = {
+               assignment: Map[Int, Seq[Int]] = null,
+               linkName: String = null,
+               mirrorTopic: String = null): CreatableTopic = {
     val topic = new CreatableTopic()
     topic.setName(name)
     if (numPartitions != null) {
@@ -89,6 +91,8 @@ abstract class AbstractCreateTopicsRequestTest extends BaseRequestTest {
       }
       topic.setAssignments(effectiveAssignments)
     }
+    topic.setLinkName(linkName)
+    topic.setMirrorTopic(mirrorTopic)
     topic
   }
 

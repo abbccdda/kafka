@@ -42,6 +42,8 @@ public class NewTopic {
     private final Optional<Short> replicationFactor;
     private final Map<Integer, List<Integer>> replicasAssignments;
     private Map<String, String> configs = null;
+    private Optional<String> linkName;
+    private Optional<String> mirrorTopic;
 
     /**
      * A new topic with the specified replication factor and number of partitions.
@@ -60,6 +62,8 @@ public class NewTopic {
         this.numPartitions = numPartitions;
         this.replicationFactor = replicationFactor;
         this.replicasAssignments = null;
+        this.linkName = Optional.empty();
+        this.mirrorTopic = Optional.empty();
     }
 
     /**
@@ -74,6 +78,8 @@ public class NewTopic {
         this.numPartitions = Optional.empty();
         this.replicationFactor = Optional.empty();
         this.replicasAssignments = Collections.unmodifiableMap(replicasAssignments);
+        this.linkName = Optional.empty();
+        this.mirrorTopic = Optional.empty();
     }
 
     /**
@@ -123,11 +129,43 @@ public class NewTopic {
         return configs;
     }
 
+    /**
+     * Sets the cluster link name for topic mirroring.
+     */
+    public NewTopic linkName(Optional<String> linkName) {
+        this.linkName = Objects.requireNonNull(linkName);
+        return this;
+    }
+
+    /**
+     * The cluster link name for topic mirroring.
+     */
+    public Optional<String> linkName() {
+        return linkName;
+    }
+
+    /**
+     * Sets the topic name over the cluster link that the topic will mirror.
+     */
+    public NewTopic mirrorTopic(Optional<String> mirrorTopic) {
+        this.mirrorTopic = Objects.requireNonNull(mirrorTopic);
+        return this;
+    }
+
+    /**
+     * The topic name over the cluster link that the topic will mirror.
+     */
+    public Optional<String> mirrorTopic() {
+        return mirrorTopic;
+    }
+
     CreatableTopic convertToCreatableTopic() {
         CreatableTopic creatableTopic = new CreatableTopic().
             setName(name).
             setNumPartitions(numPartitions.orElse(NO_PARTITIONS)).
-            setReplicationFactor(replicationFactor.orElse(NO_REPLICATION_FACTOR));
+            setReplicationFactor(replicationFactor.orElse(NO_REPLICATION_FACTOR)).
+            setLinkName(linkName.orElse(null)).
+            setMirrorTopic(mirrorTopic.orElse(null));
         if (replicasAssignments != null) {
             for (Entry<Integer, List<Integer>> entry : replicasAssignments.entrySet()) {
                 creatableTopic.assignments().add(
@@ -154,8 +192,14 @@ public class NewTopic {
                 append(", numPartitions=").append(numPartitions.map(String::valueOf).orElse("default")).
                 append(", replicationFactor=").append(replicationFactor.map(String::valueOf).orElse("default")).
                 append(", replicasAssignments=").append(replicasAssignments).
-                append(", configs=").append(configs).
-                append(")");
+                append(", configs=").append(configs);
+        if (linkName.isPresent()) {
+            bld.append(", linkName=").append(linkName.get());
+        }
+        if (mirrorTopic.isPresent()) {
+            bld.append(", mirrorTopic=").append(mirrorTopic.get());
+        }
+        bld.append(")");
         return bld.toString();
     }
 
@@ -168,11 +212,13 @@ public class NewTopic {
             Objects.equals(numPartitions, that.numPartitions) &&
             Objects.equals(replicationFactor, that.replicationFactor) &&
             Objects.equals(replicasAssignments, that.replicasAssignments) &&
-            Objects.equals(configs, that.configs);
+            Objects.equals(configs, that.configs) &&
+            Objects.equals(linkName, that.linkName) &&
+            Objects.equals(mirrorTopic, that.mirrorTopic);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(name, numPartitions, replicationFactor, replicasAssignments, configs);
+        return Objects.hash(name, numPartitions, replicationFactor, replicasAssignments, configs, linkName, mirrorTopic);
     }
 }

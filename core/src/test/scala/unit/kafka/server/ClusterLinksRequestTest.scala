@@ -243,7 +243,7 @@ class ClusterLinksRequestTest extends BaseRequestTest {
     assertClusterLinksEquals(Seq("cluster"))
   }
 
-  private def runWithRemoteCluster(callback: (String, Option[String]) => Unit) {
+  private def runWithRemoteCluster(callback: (String, Option[String]) => Unit): Unit = {
     val remoteCluster = new IntegrationTestHarness() {
       override def brokerCount: Int = 1
     }

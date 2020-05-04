@@ -54,7 +54,7 @@ import org.apache.kafka.common.internals.FatalExitError
 import org.apache.kafka.common.internals.Topic.{GROUP_METADATA_TOPIC_NAME, TIER_TOPIC_NAME, TRANSACTION_STATE_TOPIC_NAME, isInternal}
 import org.apache.kafka.common.message.AlterConfigsResponseData.AlterConfigsResourceResponse
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopic
-import org.apache.kafka.common.message.{AddOffsetsToTxnResponseData, AlterConfigsResponseData, AlterPartitionReassignmentsResponseData, CreateAclsResponseData, CreatePartitionsResponseData, CreateTopicsResponseData, DeleteAclsResponseData, DeleteGroupsResponseData, DeleteRecordsResponseData, DeleteTopicsResponseData, DescribeAclsResponseData, DescribeGroupsResponseData, DescribeLogDirsResponseData, EndTxnResponseData, ExpireDelegationTokenResponseData, FindCoordinatorResponseData, HeartbeatResponseData, InitProducerIdResponseData, JoinGroupResponseData, LeaveGroupResponseData, ListGroupsResponseData, ListPartitionReassignmentsResponseData, MetadataResponseData, OffsetCommitRequestData, OffsetCommitResponseData, OffsetDeleteResponseData, RemoveBrokersResponseData, RenewDelegationTokenResponseData, ReplicaStatusResponseData, SaslAuthenticateResponseData, SaslHandshakeResponseData, StopReplicaResponseData, SyncGroupResponseData, TierListOffsetResponseData, UpdateMetadataResponseData}
+import org.apache.kafka.common.message.{AddOffsetsToTxnResponseData, AlterConfigsResponseData, AlterPartitionReassignmentsResponseData, CreateAclsResponseData, CreatePartitionsResponseData, CreateTopicsResponseData, DeleteAclsResponseData, DeleteGroupsResponseData, DeleteRecordsResponseData, DeleteTopicsResponseData, DescribeAclsResponseData, DescribeGroupsResponseData, DescribeLogDirsResponseData, EndTxnResponseData, ExpireDelegationTokenResponseData, FindCoordinatorResponseData, HeartbeatResponseData, InitProducerIdResponseData, InitiateShutdownResponseData, JoinGroupResponseData, LeaveGroupResponseData, ListGroupsResponseData, ListPartitionReassignmentsResponseData, MetadataResponseData, OffsetCommitRequestData, OffsetCommitResponseData, OffsetDeleteResponseData, RemoveBrokersResponseData, RenewDelegationTokenResponseData, ReplicaStatusResponseData, SaslAuthenticateResponseData, SaslHandshakeResponseData, StopReplicaResponseData, SyncGroupResponseData, TierListOffsetResponseData, UpdateMetadataResponseData}
 import org.apache.kafka.common.message.CreateTopicsResponseData.{CreatableTopicResult, CreatableTopicResultCollection}
 import org.apache.kafka.common.message.DeleteGroupsResponseData.{DeletableGroupResult, DeletableGroupResultCollection}
 import org.apache.kafka.common.message.AlterPartitionReassignmentsResponseData.{ReassignablePartitionResponse, ReassignableTopicResponse}
@@ -199,6 +199,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         case ApiKeys.CREATE_CLUSTER_LINKS => handleCreateClusterLinksRequest(request)
         case ApiKeys.LIST_CLUSTER_LINKS => handleListClusterLinksRequest(request)
         case ApiKeys.DELETE_CLUSTER_LINKS => handleDeleteClusterLinksRequest(request)
+        case ApiKeys.INITIATE_SHUTDOWN => handleInitiateShutdownRequest(request)
         case _ if request.header.apiKey.isInternal => handleInternalRequest(request)
       }
     } catch {
@@ -3216,6 +3217,21 @@ class KafkaApis(val requestChannel: RequestChannel,
 
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         new DeleteClusterLinksResponse(result, requestThrottleMs))
+    }
+  }
+
+  def handleInitiateShutdownRequest(request: RequestChannel.Request): Unit = {
+    val initiateShutdownRequest = request.body[InitiateShutdownRequest]
+    if (!authorize(request.context, ALTER, CLUSTER, CLUSTER_NAME)) {
+      sendResponseMaybeThrottle(request, requestThrottleMs =>
+        initiateShutdownRequest.getErrorResponse(requestThrottleMs, Errors.CLUSTER_AUTHORIZATION_FAILED.exception))
+    } else if (isBrokerEpochStale(initiateShutdownRequest.data().brokerEpoch())) {
+      sendResponseMaybeThrottle(request, requestThrottleMs =>
+        initiateShutdownRequest.getErrorResponse(requestThrottleMs, Errors.STALE_BROKER_EPOCH.exception))
+    } else {
+      KafkaServer.initiateShutdown()
+      sendResponseMaybeThrottle(request, requestThrottleMs =>
+        new InitiateShutdownResponse(new InitiateShutdownResponseData().setThrottleTimeMs(requestThrottleMs)))
     }
   }
 

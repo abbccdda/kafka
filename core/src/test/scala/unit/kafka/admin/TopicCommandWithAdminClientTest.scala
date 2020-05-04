@@ -28,6 +28,7 @@ import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.clients.admin._
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.{ConfigException, ConfigResource, ConfluentTopicConfig, TopicConfig}
+import org.apache.kafka.common.errors._
 import org.apache.kafka.common.internals.Topic
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.protocol.Errors
@@ -1160,6 +1161,80 @@ class TopicCommandWithAdminClientTest extends KafkaServerTestHarness with Loggin
     output = TestUtils.grabConsoleOutput(topicService.listTopics(new TopicCommandOptions(Array("--list", "--exclude-internal"))))
     assertTrue(output.contains(testTopicName))
     assertFalse(output.contains(Topic.GROUP_METADATA_TOPIC_NAME))
+  }
+
+  @Test(expected = classOf[IllegalArgumentException])
+  def testCreateMirrorWithNoMirrorTopic(): Unit = {
+    new TopicCommandOptions(Array("--bootstrap-server", brokerList, "--create", "--topic", testTopicName,
+      "--link-name", "test-link")).checkArgs()
+  }
+
+  @Test(expected = classOf[IllegalArgumentException])
+  def testCreateMirrorWithNoClusterLink(): Unit = {
+    new TopicCommandOptions(Array("--bootstrap-server", brokerList, "--create", "--topic", testTopicName,
+      "--mirror-topic", testTopicName)).checkArgs()
+  }
+
+  @Test(expected = classOf[InvalidClusterLinkException])
+  def testCreateMirrorWithEmptyClusterLink(): Unit = {
+    new TopicCommandOptions(Array("--bootstrap-server", brokerList, "--create", "--topic", testTopicName,
+      "--mirror-topic", testTopicName, "--link-name", "")).checkArgs()
+  }
+
+  @Test(expected = classOf[InvalidClusterLinkException])
+  def testCreateMirrorWithInvalidClusterLink(): Unit = {
+    new TopicCommandOptions(Array("--bootstrap-server", brokerList, "--create", "--topic", testTopicName,
+      "--mirror-topic", testTopicName, "--link-name", "test+link")).checkArgs()
+  }
+
+  @Test(expected = classOf[InvalidTopicException])
+  def testCreateMirrorWithEmptyMirrorTopic(): Unit = {
+    new TopicCommandOptions(Array("--bootstrap-server", brokerList, "--create", "--topic", testTopicName,
+      "--mirror-topic", "", "--link-name", "test-link")).checkArgs()
+  }
+
+  @Test(expected = classOf[InvalidTopicException])
+  def testCreateMirrorWithInvalidMirrorTopic(): Unit = {
+    new TopicCommandOptions(Array("--bootstrap-server", brokerList, "--create", "--topic", testTopicName,
+      "--mirror-topic", "invalid+topic", "--link-name", "test-link")).checkArgs()
+  }
+
+  @Test(expected = classOf[UnsupportedVersionException])
+  def testCreateMirrorWithNonMatchingMirrorTopic(): Unit = {
+    throw intercept[ExecutionException] {
+      topicService.createTopic(new TopicCommandOptions(Array("--bootstrap-server", brokerList, "--topic", testTopicName,
+        "--mirror-topic", "another-topic", "--link-name", "nonexistent")))
+    }.getCause
+  }
+
+  @Test(expected = classOf[ClusterLinkNotFoundException])
+  def testCreateMirrorWithNonexistentClusterLink(): Unit = {
+    throw intercept[ExecutionException] {
+      topicService.createTopic(new TopicCommandOptions(Array("--bootstrap-server", brokerList, "--topic", testTopicName,
+        "--mirror-topic", testTopicName, "--link-name", "nonexistent")))
+    }.getCause
+  }
+
+  @Test(expected = classOf[InvalidConfigurationException])
+  def testCreateMirrorWithMirroredConfig(): Unit = {
+    throw intercept[ExecutionException] {
+      topicService.createTopic(new TopicCommandOptions(Array("--bootstrap-server", brokerList, "--create", "--topic", testTopicName,
+        "--mirror-topic", testTopicName, "--link-name", "linked-cluster", "--config", "delete.retention.ms=1000")))
+    }.getCause
+  }
+
+  @Test
+  def testCreateMirrorWithPartitions(): Unit = {
+    assertCheckArgsExitCode(1,
+      new TopicCommandOptions(Array("--bootstrap-server", brokerList, "--create", "--topic", testTopicName,
+        "--mirror-topic", testTopicName, "--link-name", "linked-cluster", "--partitions", "1")))
+  }
+
+  @Test
+  def testCreateMirrorReplicaAssignment(): Unit = {
+    assertCheckArgsExitCode(1,
+      new TopicCommandOptions(Array("--bootstrap-server", brokerList, "--create", "--topic", testTopicName,
+        "--mirror-topic", testTopicName, "--link-name", "linked-cluster", "--replica-assignment", "3:0,5:1")))
   }
 
 }

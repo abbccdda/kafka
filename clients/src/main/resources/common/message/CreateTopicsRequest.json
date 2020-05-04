@@ -47,7 +47,11 @@
           "about": "The configuration name." },
         { "name": "Value", "type": "string", "versions": "0+", "nullableVersions": "0+",
           "about": "The configuration value." }
-      ]}
+      ]},
+      { "name": "LinkName", "type": "string", "versions": "5+", "nullableVersions": "5+", "default": "null", "tag": 10000, "taggedVersions": "5+",
+        "about": "The cluster link name for topic mirroring." },
+      { "name": "MirrorTopic", "type": "string", "entityType": "topicName", "versions": "5+", "nullableVersions": "5+", "default": "null", "tag": 10001, "taggedVersions": "5+",
+        "about": "The topic name over the cluster link that the topic will mirror." }
     ]},
     { "name": "timeoutMs", "type": "int32", "versions": "0+", "default": "60000",
       "about": "How long to wait in milliseconds before timing out the request." },

@@ -134,8 +134,11 @@ class ControllerChannelManagerTest {
     assertEquals(controllerEpoch, leaderAndIsrRequest.controllerEpoch)
     val partitionStatesMap = leaderAndIsrRequest.partitionStates.asScala.map(ps =>
       new TopicPartition(ps.topicName, ps.partitionIndex) -> ps).toMap
-    assertEquals(partitions.mapValues(_.leader), partitionStatesMap.mapValues(_.leader))
-    assertEquals(partitions.mapValues(_.isr), partitionStatesMap.mapValues(_.isr.asScala))
+
+    partitions.foreach { case (tp, leaderAndIsr) =>
+      assertEquals(leaderAndIsr.leader, partitionStatesMap(tp).leader)
+      assertEquals(leaderAndIsr.isr, partitionStatesMap(tp).isr.asScala)
+    }
     assertEquals(Some(UUID.fromString("7957e4fe-3ceb-4c29-bd74-62bdb4e08cb4")),
       partitionStatesMap.get(new TopicPartition("foo", 0)).map(_.topicId))
 

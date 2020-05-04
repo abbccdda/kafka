@@ -4,7 +4,6 @@ import static io.confluent.telemetry.TelemetryResourceType.KAFKA;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSet.Builder;
 import io.confluent.telemetry.ResourceBuilderFacade;
@@ -90,14 +89,7 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
             .withId(clusterResource.clusterId())
             .withNamespacedLabel(LABEL_CLUSTER_ID, clusterResource.clusterId())
             .withNamespacedLabel(LABEL_BROKER_ID, config.getBrokerId())
-            .withLabels(config.getLabels())
-
-            // Included for backwards compatibility with existing tags.
-            // Can be removed once https://confluentinc.atlassian.net/browse/METRICS-516 is completed
-            .withLabelAliases(ImmutableMap.of(
-                KAFKA.prefixLabel(LABEL_CLUSTER_ID), "cluster_id",
-                KAFKA.prefixLabel(LABEL_BROKER_ID), "broker_id"
-            ));
+            .withLabels(config.getLabels());
 
         // Do not add kafka.broker.rack if data is unavailable.
         config.getBrokerRack().ifPresent(value -> resourceBuilderFacade.withNamespacedLabel(LABEL_BROKER_RACK, value));

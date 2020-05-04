@@ -2029,7 +2029,7 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   def brokerStartupRegistrationDelay = getLong(KafkaConfig.BrokerStartupRegistrationDelayProp)
 
   /** ********* Interceptor Configuration ***********/
-  val appendRecordInterceptors = getConfiguredInstances(KafkaConfig.AppendRecordInterceptorClassesProp, classOf[RecordInterceptor])
+  def appendRecordInterceptors = getConfiguredInstances(KafkaConfig.AppendRecordInterceptorClassesProp, classOf[RecordInterceptor])
 
   /** ********* Replica Placement Constraints ***********/
   val topicPlacementConstraints: Option[TopicPlacement] = TopicPlacement.parse(

@@ -26,6 +26,7 @@ import kafka.common.{AdminCommandFailedException, TopicPlacement}
 import kafka.controller.ReplicaAssignment
 import kafka.log.LogConfig
 import kafka.server.ConfigType
+import kafka.server.link.ClusterLinkUtils
 import kafka.utils.Implicits._
 import kafka.utils._
 import kafka.zk.{AdminZkClient, KafkaZkClient}
@@ -90,6 +91,8 @@ object TopicCommand extends Logging {
     val configsToAdd: Properties = parseTopicConfigsToBeAdded(opts)
     val configsToDelete: Seq[String] = parseTopicConfigsToBeDeleted(opts)
     val rackAwareMode: RackAwareMode = opts.rackAwareMode
+    val linkName: Option[String] = opts.linkName
+    val mirrorTopic: Option[String] = opts.mirrorTopic
 
     replicaPlacement.map(Utils.readFileAsString)
       .flatMap { jsonString => TopicPlacement.parse(jsonString).asScala }
@@ -293,6 +296,8 @@ object TopicCommand extends Logging {
           .toMap.asJava
 
         newTopic.configs(configsMap)
+        topic.linkName.foreach(ln => newTopic.linkName(Optional.of(ln)))
+        topic.mirrorTopic.foreach(mt => newTopic.mirrorTopic(Optional.of(mt)))
         val createResult = adminClient.createTopics(Collections.singleton(newTopic))
         createResult.all().get()
         println(s"Created topic ${topic.name}.")
@@ -723,6 +728,15 @@ object TopicCommand extends Logging {
 
     private val disableRackAware = parser.accepts("disable-rack-aware", "Disable rack aware replica assignment")
 
+    private val linkNameOpt = parser.accepts("link-name", "The cluster link name for topic mirroring. Requires --bootstrap-server option.")
+      .withRequiredArg
+      .describedAs("cluster link name")
+      .ofType(classOf[String])
+    private val mirrorTopicOpt = parser.accepts("mirror-topic", "The topic that will be mirrored over the cluster link. Requires --bootstrap-server and --link-name options.")
+      .withRequiredArg
+      .describedAs("mirror topic")
+      .ofType(classOf[String])
+
     // This is not currently used, but we keep it for compatibility
     parser.accepts("force", "Suppress console prompts")
 
@@ -769,6 +783,8 @@ object TopicCommand extends Logging {
     def excludeInternalTopics: Boolean = has(excludeInternalTopicOpt)
     def topicConfig: Option[util.List[String]] = valuesAsOption(configOpt)
     def configsToDelete: Option[util.List[String]] = valuesAsOption(deleteConfigOpt)
+    def linkName: Option[String] = valueAsOption(linkNameOpt)
+    def mirrorTopic: Option[String] = valueAsOption(mirrorTopicOpt)
 
     def checkArgs(): Unit = {
       if (args.length == 0)
@@ -784,6 +800,11 @@ object TopicCommand extends Logging {
       // check required args
       if (has(bootstrapServerOpt) == has(zkConnectOpt))
         throw new IllegalArgumentException("Only one of --bootstrap-server or --zookeeper must be specified")
+
+      if (has(mirrorTopicOpt) != has(linkNameOpt))
+        throw new IllegalArgumentException("Only one of --mirror-topic or --link-name is specified")
+      linkName.foreach(ClusterLinkUtils.validateLinkName)
+      mirrorTopic.foreach(Topic.validate)
 
       if (!has(bootstrapServerOpt))
         CommandLineUtils.checkRequiredArgs(parser, options, zkConnectOpt)
@@ -825,6 +846,8 @@ object TopicCommand extends Logging {
       CommandLineUtils.checkInvalidArgs(parser, options, ifExistsOpt, allTopicLevelOpts -- Set(alterOpt, deleteOpt, describeOpt) ++ Set(bootstrapServerOpt))
       CommandLineUtils.checkInvalidArgs(parser, options, ifNotExistsOpt, allTopicLevelOpts -- Set(createOpt) ++ Set(bootstrapServerOpt))
       CommandLineUtils.checkInvalidArgs(parser, options, excludeInternalTopicOpt, allTopicLevelOpts -- Set(listOpt, describeOpt))
+      CommandLineUtils.checkInvalidArgs(parser, options, mirrorTopicOpt, allTopicLevelOpts - createOpt ++ Set(zkConnectOpt, partitionsOpt, replicaAssignmentOpt))
+      CommandLineUtils.checkInvalidArgs(parser, options, linkNameOpt, allTopicLevelOpts - createOpt ++ Set(zkConnectOpt, partitionsOpt, replicaAssignmentOpt))
     }
   }
 
@@ -836,4 +859,3 @@ object TopicCommand extends Logging {
     }
   }
 }
-

@@ -308,7 +308,7 @@ public class MultiTenantRequestContext extends RequestContext {
       topicDetails.setName(tenantContext.addTenantPrefix(topicDetails.name()));
       updatedTopicSet.add(new CreatableTopic().setConfigs(topicDetails.configs()).setAssignments(topicDetails.assignments())
               .setReplicationFactor(topicDetails.replicationFactor()).setNumPartitions(topicDetails.numPartitions())
-              .setName(topicDetails.name()));
+              .setName(topicDetails.name()).setLinkName(topicDetails.linkName()).setMirrorTopic(topicDetails.mirrorTopic()));
     }
 
     final boolean overrideAssignments = partitionAssignor != null;

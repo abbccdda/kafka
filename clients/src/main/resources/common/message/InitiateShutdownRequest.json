@@ -1,0 +1,11 @@
+// Copyright 2020 Confluent Inc.
+{
+  "apiKey": 10005,
+  "type": "request",
+  "name": "InitiateShutdownRequest",
+  "validVersions": "0",
+  "fields": [
+    { "name": "BrokerEpoch", "type": "int64", "versions": "0+", "default": "-1",
+      "about": "The current broker epoch of the broker to shut down." }
+  ]
+}

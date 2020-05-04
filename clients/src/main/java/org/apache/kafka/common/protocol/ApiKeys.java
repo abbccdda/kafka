@@ -77,6 +77,8 @@ import org.apache.kafka.common.message.IncrementalAlterConfigsRequestData;
 import org.apache.kafka.common.message.IncrementalAlterConfigsResponseData;
 import org.apache.kafka.common.message.InitProducerIdRequestData;
 import org.apache.kafka.common.message.InitProducerIdResponseData;
+import org.apache.kafka.common.message.InitiateShutdownRequestData;
+import org.apache.kafka.common.message.InitiateShutdownResponseData;
 import org.apache.kafka.common.message.JoinGroupRequestData;
 import org.apache.kafka.common.message.JoinGroupResponseData;
 import org.apache.kafka.common.message.LeaderAndIsrRequestData;
@@ -245,6 +247,7 @@ public enum ApiKeys {
     CREATE_CLUSTER_LINKS(10002, "CreateClusterLinks", CreateClusterLinksRequestData.SCHEMAS, CreateClusterLinksResponseData.SCHEMAS),
     LIST_CLUSTER_LINKS(10003, "ListClusterLinks", ListClusterLinksRequestData.SCHEMAS, ListClusterLinksResponseData.SCHEMAS),
     DELETE_CLUSTER_LINKS(10004, "DeleteClusterLinks", DeleteClusterLinksRequestData.SCHEMAS, DeleteClusterLinksResponseData.SCHEMAS),
+    INITIATE_SHUTDOWN(10005, "InitiateShutdown", InitiateShutdownRequestData.SCHEMAS, InitiateShutdownResponseData.SCHEMAS),
 
     // The following APIs are deprecated and will be removed in a future release
     CONFLUENT_LEADER_AND_ISR(32766, "ConfluentLeaderAndIsr", true, ConfluentLeaderAndIsrRequestData.SCHEMAS,

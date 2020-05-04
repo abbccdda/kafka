@@ -1181,6 +1181,16 @@ public class MultiTenantRequestContextTest {
               CreateTopicsRequest.NO_REPLICATION_FACTOR));
       }
 
+      // Creating topics with a cluster link and mirror topic are only supported in version 5+.
+      if (ver >= 5) {
+        requestTopics.add(new CreateTopicsRequestData.CreatableTopic()
+                .setName("mirror")
+                .setNumPartitions(CreateTopicsRequest.NO_NUM_PARTITIONS)
+                .setReplicationFactor((short) 4)
+                .setLinkName("link-name")
+                .setMirrorTopic("mirror-topic"));
+      }
+
       CreateTopicsRequest inbound = new CreateTopicsRequest.Builder(
               new CreateTopicsRequestData()
                       .setTopics(requestTopics)
@@ -1193,6 +1203,9 @@ public class MultiTenantRequestContextTest {
       Set<String> expectedTopics = mkSet("tenant_foo", "tenant_bar", "tenant_invalid");
       if (ver >= 4) {
         expectedTopics.add("tenant_default");
+      }
+      if (ver >= 5) {
+        expectedTopics.add("tenant_mirror");
       }
       assertEquals(expectedTopics, intercepted.data().topics().stream().map(CreatableTopic::name)
               .collect(Collectors.toSet()));
@@ -1221,6 +1234,14 @@ public class MultiTenantRequestContextTest {
                 intercepted.data().topics().find("tenant_default").assignments().size());
         assertEquals(DEFAULT_REPLICATION_FACTOR,
                 intercepted.data().topics().find("tenant_default").assignments().find(0).brokerIds().size());
+      }
+
+      if (ver >= 5) {
+        assertEquals(CreateTopicsRequest.NO_NUM_PARTITIONS,
+                intercepted.data().topics().find("tenant_mirror").numPartitions());
+        assertEquals(4, intercepted.data().topics().find("tenant_mirror").replicationFactor());
+        assertEquals("link-name", intercepted.data().topics().find("tenant_mirror").linkName());
+        assertEquals("mirror-topic", intercepted.data().topics().find("tenant_mirror").mirrorTopic());
       }
 
       verifyRequestMetrics(ApiKeys.CREATE_TOPICS);
@@ -1263,6 +1284,16 @@ public class MultiTenantRequestContextTest {
               CreateTopicsRequest.NO_REPLICATION_FACTOR));
       }
 
+      // Creating topics with a cluster link and mirror topic are only supported in version 5+.
+      if (ver >= 5) {
+        requestTopics.add(new CreateTopicsRequestData.CreatableTopic()
+                .setName("mirror")
+                .setNumPartitions(CreateTopicsRequest.NO_NUM_PARTITIONS)
+                .setReplicationFactor((short) 4)
+                .setLinkName("link-name")
+                .setMirrorTopic("mirror-topic"));
+      }
+
       CreateTopicsRequest inbound = new CreateTopicsRequest.Builder(
               new CreateTopicsRequestData()
                       .setTopics(requestTopics)
@@ -1275,6 +1306,9 @@ public class MultiTenantRequestContextTest {
       Set<String> expectedTopics = mkSet("tenant_foo", "tenant_bar", "tenant_invalid");
       if (ver >= 4) {
         expectedTopics.add("tenant_default");
+      }
+      if (ver >= 5) {
+        expectedTopics.add("tenant_mirror");
       }
       assertEquals(expectedTopics, intercepted.data().topics().stream().map(CreatableTopic::name)
           .collect(Collectors.toSet()));
@@ -1301,6 +1335,14 @@ public class MultiTenantRequestContextTest {
               intercepted.data().topics().find("tenant_default").numPartitions());
         assertEquals(CreateTopicsRequest.NO_REPLICATION_FACTOR,
               intercepted.data().topics().find("tenant_default").replicationFactor());
+      }
+
+      if (ver >= 5) {
+        assertEquals(CreateTopicsRequest.NO_NUM_PARTITIONS,
+                intercepted.data().topics().find("tenant_mirror").numPartitions());
+        assertEquals(4, intercepted.data().topics().find("tenant_mirror").replicationFactor());
+        assertEquals("link-name", intercepted.data().topics().find("tenant_mirror").linkName());
+        assertEquals("mirror-topic", intercepted.data().topics().find("tenant_mirror").mirrorTopic());
       }
 
       verifyRequestMetrics(ApiKeys.CREATE_TOPICS);

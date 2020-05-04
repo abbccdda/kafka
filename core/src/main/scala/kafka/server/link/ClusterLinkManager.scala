@@ -40,7 +40,6 @@ import scala.collection.{Map, mutable}
 class ClusterLinkManager(brokerConfig: KafkaConfig,
                          clusterId: String,
                          quota: ReplicaQuota,
-                         adminManager: AdminManager,
                          zkClient: KafkaZkClient,
                          metrics: Metrics,
                          time: Time,
@@ -54,9 +53,11 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
   val scheduler = new ClusterLinkScheduler
   val admin = new ClusterLinkAdminManager(brokerConfig, clusterId, zkClient, this)
   var replicaManager: ReplicaManager = _
+  var adminManager: AdminManager = _
 
-  def startup(replicaManager: ReplicaManager): Unit = {
+  def startup(replicaManager: ReplicaManager, adminManager: AdminManager): Unit = {
     this.replicaManager = replicaManager
+    this.adminManager = adminManager
     scheduler.startup()
   }
 

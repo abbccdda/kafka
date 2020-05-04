@@ -15,6 +15,7 @@ package kafka.api
 import java.time.Duration
 import java.util
 import java.util.concurrent.ExecutionException
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.regex.Pattern
 import java.util.{Collections, Optional, Properties}
 
@@ -54,6 +55,8 @@ import org.apache.kafka.common.resource.PatternType.LITERAL
 import org.apache.kafka.common.resource.ResourceType._
 import org.apache.kafka.common.resource.{PatternType, Resource, ResourcePattern, ResourcePatternFilter, ResourceType}
 import org.apache.kafka.common.security.auth.{AuthenticationContext, KafkaPrincipal, KafkaPrincipalBuilder, SecurityProtocol}
+import org.apache.kafka.common.utils.Exit
+import org.apache.kafka.common.utils.Exit.Procedure
 import org.apache.kafka.common.{ElectionType, IsolationLevel, Node, TopicPartition, requests}
 import org.apache.kafka.test.{TestUtils => JTestUtils}
 import org.junit.Assert._
@@ -96,6 +99,9 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
   val clientPrincipalString: String = clientPrincipal.toString
 
   val brokerId: Integer = 0
+  def brokerEpoch(): Long = {
+    servers.find(_.config.brokerId == brokerId).map(_.kafkaController.brokerEpoch).getOrElse(-1L)
+  }
   val topic = "topic"
   val topicPattern = "topic.*"
   val transactionalId = "transactional.id"
@@ -223,7 +229,9 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
       resp.data.entries.asScala.find(e => e.linkName == linkName).get.errorCode)),
     ApiKeys.CREATE_CLUSTER_LINKS -> ((resp: ListClusterLinksResponse) => Errors.forCode(resp.data.errorCode)),
     ApiKeys.DELETE_CLUSTER_LINKS -> ((resp: DeleteClusterLinksResponse) => Errors.forCode(
-      resp.data.entries.asScala.find(e => e.linkName == linkName).get.errorCode)))
+      resp.data.entries.asScala.find(e => e.linkName == linkName).get.errorCode)),
+    ApiKeys.INITIATE_SHUTDOWN -> ((resp: InitiateShutdownResponse) => Errors.forCode(resp.data.errorCode()))
+  )
 
   val requestKeysToAcls = Map[ApiKeys, Map[ResourcePattern, Set[AccessControlEntry]]](
     ApiKeys.METADATA -> topicDescribeAcl,
@@ -270,7 +278,8 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
     ApiKeys.REMOVE_BROKERS -> clusterAlterAcl,
     ApiKeys.CREATE_CLUSTER_LINKS -> clusterAlterAcl,
     ApiKeys.LIST_CLUSTER_LINKS -> clusterDescribeAcl,
-    ApiKeys.DELETE_CLUSTER_LINKS -> clusterAlterAcl
+    ApiKeys.DELETE_CLUSTER_LINKS -> clusterAlterAcl,
+    ApiKeys.INITIATE_SHUTDOWN -> clusterAlterAcl
   )
 
   @Before
@@ -604,6 +613,8 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
   private def listClusterLinksRequest = new ListClusterLinksRequest.Builder().build()
 
   private def deleteClusterLinksRequest = new DeleteClusterLinksRequest.Builder(Collections.singleton(linkName), false, true).build()
+
+  private def initiateShutdownRequest = new InitiateShutdownRequest.Builder(brokerEpoch).build()
 
   @Test
   def testAuthorizationWithTopicExisting(): Unit = {
@@ -1634,6 +1645,40 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
 
     val deleteClusterLinksResponse = connectAndReceive[DeleteClusterLinksResponse](deleteClusterLinksRequest)
     assertEquals(Errors.NONE, Errors.forCode(deleteClusterLinksResponse.data.entries.get(0).errorCode))
+  }
+
+  @Test
+  def testUnauthorizedInitiateShutdownWithoutAlter(): Unit = {
+    val initiateShutdownResponse = connectAndReceive[InitiateShutdownResponse](initiateShutdownRequest)
+
+    assertEquals(Errors.CLUSTER_AUTHORIZATION_FAILED, Errors.forCode(initiateShutdownResponse.data.errorCode))
+  }
+
+  @Test
+  def testUnauthorizedInitiateShutdownWithDescribe(): Unit = {
+    addAndVerifyAcls(Set(new AccessControlEntry(clientPrincipalString, WildcardHost, DESCRIBE, ALLOW)), clusterResource)
+    val initiateShutdownResponse = connectAndReceive[InitiateShutdownResponse](initiateShutdownRequest)
+    assertEquals(Errors.CLUSTER_AUTHORIZATION_FAILED, Errors.forCode(initiateShutdownResponse.data.errorCode))
+  }
+
+  @Test
+  def testInitiateShutdownWithWildCardAuth(): Unit = {
+    val exited = new AtomicBoolean(false)
+    Exit.setExitProcedure((_: Int, _: String) => {
+      exited.set(true)
+      throw new Exception()
+    })
+
+    addAndVerifyAcls(Set(new AccessControlEntry(clientPrincipalString, WildcardHost, ALTER, ALLOW)), clusterResource)
+    val initiateShutdownResponse = connectAndReceive[InitiateShutdownResponse](initiateShutdownRequest)
+    assertEquals(Errors.NONE, Errors.forCode(initiateShutdownResponse.data.errorCode))
+
+    // wait for the shutdown to be called before exit procedure is reset, otherwise we may shutdown the JVM
+    TestUtils.waitUntilTrue(() => exited.get(), "Kafka shutdown did not happen", waitTimeMs = 60000L)
+
+    // The reset should NOT be in a finally block, because there are some errors cases where an exception can be thrown and yet a shutdown thread is created and started.
+    // In those error cases, we could reset the exit procedure before the shutdown happens and the started thread could actually shut down the JVM
+    Exit.resetExitProcedure()
   }
 
   @Test(expected = classOf[TransactionalIdAuthorizationException])

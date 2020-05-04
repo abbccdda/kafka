@@ -95,6 +95,7 @@ import org.apache.kafka.common.message.IncrementalAlterConfigsResponseData;
 import org.apache.kafka.common.message.IncrementalAlterConfigsResponseData.AlterConfigsResourceResponse;
 import org.apache.kafka.common.message.InitProducerIdRequestData;
 import org.apache.kafka.common.message.InitProducerIdResponseData;
+import org.apache.kafka.common.message.InitiateShutdownResponseData;
 import org.apache.kafka.common.message.JoinGroupRequestData;
 import org.apache.kafka.common.message.JoinGroupResponseData;
 import org.apache.kafka.common.message.JoinGroupResponseData.JoinGroupResponseMember;
@@ -474,6 +475,9 @@ public class RequestResponseTest {
         checkRequest(createRemoveBrokerRequest(), true);
         checkErrorResponse(createRemoveBrokerRequest(), new UnknownServerException(), true);
         checkResponse(createRemoveBrokersResponse(), 0, true);
+        checkRequest(createInitiateShutdownRequest(), true);
+        checkErrorResponse(createInitiateShutdownRequest(), new UnknownServerException(), true);
+        checkResponse(createInitiateShutdownResponse(), 0, true);
     }
 
     @Test
@@ -2310,5 +2314,14 @@ public class RequestResponseTest {
                     .setBrokerId(1)
         ));
         return new RemoveBrokersResponse(data);
+    }
+
+    private InitiateShutdownRequest createInitiateShutdownRequest() {
+        return new InitiateShutdownRequest.Builder(Long.MAX_VALUE).build();
+    }
+
+    private InitiateShutdownResponse createInitiateShutdownResponse() {
+        InitiateShutdownResponseData data = new InitiateShutdownResponseData();
+        return new InitiateShutdownResponse(data);
     }
 }

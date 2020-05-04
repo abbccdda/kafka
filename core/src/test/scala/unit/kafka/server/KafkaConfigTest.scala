@@ -30,6 +30,8 @@ import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.record.Records
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.config.internals.ConfluentConfigs
+import org.apache.kafka.server.interceptor.RecordInterceptor
+import org.apache.kafka.test.InterceptorUtils
 import org.junit.Assert._
 import org.junit.Test
 import org.scalatest.Assertions.intercept
@@ -945,6 +947,22 @@ class KafkaConfigTest {
           assertDynamic(kafkaConfigProp, 10014L, () => config.logRollTimeJitterMillis)
         case LogConfig.UncleanLeaderElectionEnableProp =>
           assertDynamic(kafkaConfigProp, true, () => config.uncleanLeaderElectionEnable)
+        case LogConfig.AppendRecordInterceptorClassesProp =>
+          assertDynamic(kafkaConfigProp, classOf[InterceptorUtils.MockRecordInterceptor].getName, () => config.appendRecordInterceptors)
+        case LogConfig.TierLocalHotsetBytesProp =>
+          assertDynamic(kafkaConfigProp, 100, () => config.tierLocalHotsetBytes)
+        case LogConfig.TierLocalHotsetMsProp =>
+          assertDynamic(kafkaConfigProp, 100, () => config.tierLocalHotsetMs)
+        case LogConfig.PreferTierFetchMsProp =>
+          assertDynamic(kafkaConfigProp, 100, () => config.preferTierFetchMs)
+        case LogConfig.TierEnableProp =>
+          assertDynamic(kafkaConfigProp, true, () => config.tierEnable)
+          assertDynamic(kafkaConfigProp, false, () => config.tierEnable)
+        case LogConfig.TierSegmentHotsetRollMinBytesProp =>
+          assertDynamic(kafkaConfigProp, 20000, () => config.tierSegmentHotsetRollMinBytes)
+        case LogConfig.SegmentSpeculativePrefetchEnableProp =>
+          assertDynamic(kafkaConfigProp, true, () => config.segmentSpeculativePrefetchEnable)
+          assertDynamic(kafkaConfigProp, false, () => config.segmentSpeculativePrefetchEnable)
         case LogConfig.MessageFormatVersionProp =>
         // not dynamically updatable
         case LogConfig.FollowerReplicationThrottledReplicasProp =>

@@ -1628,13 +1628,11 @@ class KafkaApisTest {
       assertEquals(expected.observers, value.observers.asScala)
     }
 
-    val fooReassignment = topicReassignments.head
-    assertEquals("foo", fooReassignment.name)
+    val fooReassignment = topicReassignments.find(_.name == "foo").get
     assertEquals(1, fooReassignment.partitions.size)
     assertReassignment(expectedReassignments(fooPartition), fooReassignment.partitions.asScala.head)
 
-    val barReassignment = topicReassignments(1)
-    assertEquals("bar", barReassignment.name)
+    val barReassignment = topicReassignments.find(_.name == "bar").get
     assertEquals(1, barReassignment.partitions.size)
     assertReassignment(expectedReassignments(barPartition), barReassignment.partitions.asScala.head)
   }

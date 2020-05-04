@@ -74,7 +74,7 @@ task installGitHooks(type: Exec) {
 
 // this section must be before the allprojects section where the maven credentials are used
 ext {
-  gradleVersion = "$versions.gradle"
+  gradleVersion = versions.gradle
   minJavaVersion = "8"
   buildVersionFileName = "kafka-version.properties"
 
