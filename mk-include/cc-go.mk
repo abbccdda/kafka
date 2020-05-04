@@ -1,55 +1,74 @@
-SERVICE_NAME ?=
-MAIN_GO ?= main.go
-GO_OUTDIR ?= bin
+# Defaults
+GO ?= $(shell which go)# default go bin to whatever's on the path
+GO_VERSION := $(shell $(GO) version)# the version of the go bin
+GO_ALPINE ?= true# default to alpine images
+GO_STATIC ?= true# default to static binaries
+GO_BINS ?= main.go=main# format: space seperated list of source.go=output_bin
+GO_OUTDIR ?= bin# default to output bins to bin/
+GO_LDFLAGS ?= -X main.version=$(VERSION)# Setup LD Flags
+GO_EXTRA_FLAGS ?=
+CODECOV ?= true# default to enabled now
+GO_TEST_ARGS ?= -race -v -cover# default list of args to pass to go test
+GO_CODECOV_TEST_ARGS ?= -race -v# default list of args to pass to go test for codecov report
+MK_INCLUDE_BIN ?= ./mk-include/bin
 
-# for terraform
-MODULE_NAME ?= $(SERVICE_NAME)
-# for docker images
-IMAGE_NAME ?= $(SERVICE_NAME)
-# for helm charts
-CHART_NAME ?= $(SERVICE_NAME)
+ifdef TESTS_TO_RUN
+GO_TEST_ARGS += -run $(TESTS_TO_RUN)
+GO_CODECOV_TEST_ARGS += -run $(TESTS_TO_RUN)
+endif
 
-BASE_IMAGE ?= confluent-docker.jfrog.io/confluentinc/cc-service-base
-BASE_VERSION ?= 1.9
+# flags for confluent-kafka-go-dev / librdkafka on alpine
+ifeq ($(GO_ALPINE),true)
+GO_EXTRA_FLAGS += -tags musl
+endif
 
-GO_LDFLAGS ?= "-X main.version=$(VERSION)"
+# Build the listed main packages and everything they import into executables
+ifeq ($(GO_STATIC),true)
+GO_EXTRA_FLAGS += -a -tags static_all -buildmode=exe
+endif
 
+# List of all go files in project
 ALL_SRC = $(shell find . -type d -path ./vendor -prune -o -type d -path ./.gomodcache -prune -o -type d -path ./.semaphore-cache -prune -o -name \*.go -not -name bindata.go -print)
 
-CODECOV ?= false
-GO_TEST_ARGS ?= -race -v -cover
-GO_CODECOV_TEST_ARGS ?= -race -v
+# CLI Doc gen stuff
+CLI_DOCS_GEN_MAINS ?= # Default to empty
+CLI_DOCS_GEN_DIRS := $(dir $(CLI_DOCS_GEN_MAINS))
 
-GO111MODULE ?= off
+# Force go mod on
+GO111MODULE := on
 export GO111MODULE
 
-DEP_VERSION ?= v0.5.0
+# Mark confluentinc projects as private
+GOPRIVATE ?= github.com/confluentinc/*
+export GOPRIVATE
+
+# Disable go mod changes on CI
 ifeq ($(CI),true)
-DEP_ARGS := -vendor-only
-
-# Override GOPATH so that mods get cached
-ifeq ($(GO111MODULE),on)
-GOPATH := $(SEMAPHORE_CACHE_DIR)/go
-export GOPATH
+GO_MOD_DOWNLOAD_MODE_FLAG ?= -mod=readonly
+else
+GO_MOD_DOWNLOAD_MODE_FLAG ?=
 endif
 
-endif
+# Allow for opt out of module prefetching on CI
+GO_PREFETCH_DEPS := true
 
-GOPATH ?= $(shell go env GOPATH)
+GOPATH ?= $(shell $(GO) env GOPATH)
 
 GO_BUILD_TARGET ?= build-go
 GO_TEST_TARGET ?= lint-go test-go
+GO_TEST_PACKAGE_ARGS ?= ./...
 GO_CLEAN_TARGET ?= clean-go
 
 INIT_CI_TARGETS += deps
-BUILD_TARGETS += $(GO_BUILD_TARGET)
+BUILD_TARGETS += $(GO_BUILD_TARGET) gen-cli-docs-go
 TEST_TARGETS += $(GO_TEST_TARGET)
 CLEAN_TARGETS += $(GO_CLEAN_TARGET)
+RELEASE_PRECOMMIT += commit-cli-docs-go
 RELEASE_POSTCOMMIT += $(GO_DOWNSTREAM_DEPS)
-DOCKER_BUILD_PRE += .gomodcache
 
 GO_BINDATA_VERSION := 3.11.0
 GO_BINDATA_OPTIONS ?=
+GO_BINDATA_OUTPUT ?= deploy/bindata.go
 
 ifeq ($(CI),true)
 # Override the DB_URL for go tests that need access to postgres
@@ -60,49 +79,54 @@ endif
 .PHONY: show-go
 ## Show Go Variables
 show-go:
-	@echo "SERVICE_NAME: $(SERVICE_NAME)"
-	@echo "MAIN_GO: $(MAIN_GO)"
+	@echo "GO: $(GO)"
+	@echo "GO_VERSION: $(GO_VERSION)"
+	@echo "GO_BINS: $(GO_BINS)"
 	@echo "GO_OUTDIR: $(GO_OUTDIR)"
 	@echo "GO_LDFLAGS: $(GO_LDFLAGS)"
-	@echo "DEP_ARGS: $(DEP_ARGS)"
-	@echo "IMAGE_NAME: $(IMAGE_NAME)"
-	@echo "CHART_NAME: $(CHART_NAME)"
-	@echo "MODULE_NAME: $(MODULE_NAME)"
+	@echo "GO_EXTRA_FLAGS: $(GO_EXTRA_FLAGS)"
+	@echo "GO_MOD_DOWNLOAD_MODE_FLAG: $(GO_MOD_DOWNLOAD_MODE_FLAG)"
+	@echo "GO_ALPINE: $(GO_ALPINE)"
+	@echo "GO_STATIC: $(GO_STATIC)"
 	@echo "GO111MODULE: $(GO111MODULE)"
+	@echo "GOPATH: $(GOPATH)"
 	@echo "GO_BINDATA_VERSION: $(GO_BINDATA_VERSION)"
 	@echo "DB_URL: $(DB_URL)"
 	@echo "GO_DOWNSTREAM_DEPS: $(GO_DOWNSTREAM_DEPS)"
+	@echo "CLI_DOCS_GEN_MAINS: $(CLI_DOCS_GEN_MAINS)"
+	@echo "CODECOV: $(CODECOV)"
+	@echo "GO_PREFETCH_DEPS: $(GO_PREFETCH_DEPS)"
+	@echo "GO_TEST_ARGS: $(GO_TEST_ARGS)"
+	@echo "GO_CODECOV_TEST_ARGS: $(GO_CODECOV_TEST_ARGS)"
+
 
 .PHONY: clean-go
 clean-go:
-	rm -rf $(SERVICE_NAME) .netrc bin/ .gomodcache/
+ifeq ($(abspath $(GO_OUTDIR)),$(abspath $(BIN_PATH)))
+	@echo "WARNING: Your project is deleting BIN_PATH contents during clean-go."
+	@echo "BIN_PATH: $(BIN_PATH), abs: $(abspath $(BIN_PATH))"
+	@echo "CI_BIN: $(CI_BIN), abs: $(abspath $(CI_BIN))"
+	@echo "GO_OUTDIR: $(GO_OUTDIR), abs: $(abspath $(GO_OUTDIR))"
+endif
+	rm -rf $(SERVICE_NAME) $(GO_OUTDIR)
 
 .PHONY: vet
 vet:
-	@go list ./... | grep -v vendor | xargs go vet
+	@$(GO) list $(GO_MOD_DOWNLOAD_MODE_FLAG) ./... | grep -v vendor | xargs $(GO) vet $(GO_MOD_DOWNLOAD_MODE_FLAG)
 
 .PHONY: deps
-## Install and run dep ensure (with -vendor-only if on CI) or run go mod download
+## fetch any dependencies - go mod download is opt out
 deps: $(HOME)/.hgrc $(GO_EXTRA_DEPS)
-ifeq ($(GO111MODULE),off)
-	@(dep version | grep $(DEP_VERSION)) || (mkdir -p $(GOPATH)/bin && DEP_RELEASE_TAG=$(DEP_VERSION) curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh && dep version)
-	dep ensure $(DEP_ARGS)
-else
-	@test -f Gopkg.toml && echo "WARNING: GO111MODULE enabled but Gopkg.toml found!" || true
-	@test -f go.mod || echo "ERROR: GO111MODULE enabled but go.mod not found!"
-	@test -f go.sum || echo "ERROR: GO111MODULE enabled but go.sum not found!"
-	go mod download
-	go mod verify
+ifeq ($(GO_PREFETCH_DEPS),true)
+	$(GO) mod download
+	$(GO) mod verify
 endif
 
 $(HOME)/.hgrc:
 	echo -e '[ui]\ntls = False' > $@
 
-.PHONY: .gomodcache
 .gomodcache:
-ifeq ($(GO111MODULE),on)
-	rm -rf .gomodcache; cp -r $(GOPATH)/pkg/mod/cache/download .gomodcache
-endif
+	mkdir .gomodcache || true
 
 .PHONY: lint-go
 ## Lints (gofmt)
@@ -115,37 +139,27 @@ fmt:
 	@gofmt -e -s -l -w $(ALL_SRC)
 
 .PHONY: build-go
-## Build just the go project, override with BUILD_GO_OVERRIDE
-build-go: go-bindata $(BUILD_GO_OVERRIDE)
-ifeq ($(BUILD_GO_OVERRIDE),)
-	go build -o $(GO_OUTDIR)/$(SERVICE_NAME) -ldflags $(GO_LDFLAGS) $(MAIN_GO)
-endif
-
-.PHONY: install
-## Install the go binary into $GOBIN
-install:
-	go build -o $(GOBIN)/$(SERVICE_NAME) $(MAIN_GO)
-
-.PHONY: run
-## Run MAIN_GO
-run: deps
-	go run $(MAIN_GO)
+## Build just the go project
+build-go: go-bindata $(GO_BINS)
+$(GO_BINS):
+	$(eval split := $(subst =, ,$(@)))
+	$(GO) build $(GO_MOD_DOWNLOAD_MODE_FLAG) -o $(GO_OUTDIR)/$(word 2,$(split)) -ldflags "$(GO_LDFLAGS)" $(GO_EXTRA_FLAGS) $(word 1,$(split))
 
 .PHONY: test-go
 ## Run Go Tests and Vet code
 test-go: vet
 ifeq ($(CI)$(CODECOV),truetrue)
 	test -f coverage.txt && truncate -s 0 coverage.txt || true
-	go test $(GO_CODECOV_TEST_ARGS) -coverprofile=coverage.txt ./...
+	set -o pipefail && $(GO) test $(GO_MOD_DOWNLOAD_MODE_FLAG) $(GO_CODECOV_TEST_ARGS) -coverprofile=coverage.txt $(GO_TEST_PACKAGE_ARGS) -json | $(MK_INCLUDE_BIN)/decode_test2json.py
 	curl -s https://codecov.io/bash | bash
 else
-	go test $(GO_TEST_ARGS) ./...
+	set -o pipefail && $(GO) test $(GO_MOD_DOWNLOAD_MODE_FLAG) $(GO_TEST_ARGS) $(GO_TEST_PACKAGE_ARGS) -json | $(MK_INCLUDE_BIN)/decode_test2json.py
 endif
 
 .PHONY: generate
 ## Run go generate
 generate:
-	go generate
+	$(GO) generate $(GO_MOD_DOWNLOAD_MODE_FLAG)
 
 SEED_POSTGRES_URL ?= postgres://
 
@@ -153,9 +167,9 @@ SEED_POSTGRES_URL ?= postgres://
 ## Seed local mothership DB. Optionally set SEED_POSTGRES_URL for base postgres url
 seed-local-mothership:
 	@echo "Seeding postgres in 'SEED_POSTGRES_URL=${SEED_POSTGRES_URL}'. Set SEED_POSTGRES_URL to override"
-	psql ${SEED_POSTGRES_URL}/postgres -c 'DROP DATABASE IF EXISTS mothership;'
-	psql ${SEED_POSTGRES_URL}/postgres -c 'CREATE DATABASE mothership;'
-	psql ${SEED_POSTGRES_URL}/mothership -f mk-include/seed-db/mothership-seed.sql
+	psql -P pager=off ${SEED_POSTGRES_URL}/postgres -c 'DROP DATABASE IF EXISTS mothership;'
+	psql -P pager=off ${SEED_POSTGRES_URL}/postgres -c 'CREATE DATABASE mothership;'
+	psql -P pager=off ${SEED_POSTGRES_URL}/mothership -f mk-include/seed-db/mothership-seed.sql
 
 .PHONY: install-go-bindata
 GO_BINDATA_INSTALLED_VERSION := $(shell $(BIN_PATH)/go-bindata -version 2>/dev/null | head -n 1 | awk '{print $$2}' | xargs)
@@ -163,7 +177,8 @@ install-go-bindata:
 	@echo "go-bindata installed version: $(GO_BINDATA_INSTALLED_VERSION)"
 	@echo "go-bindata want version: $(GO_BINDATA_VERSION)"
 ifneq ($(GO_BINDATA_INSTALLED_VERSION),$(GO_BINDATA_VERSION))
-	curl -L -o $(BIN_PATH)/go-bindata https://github.com/kevinburke/go-bindata/releases/download/v$(GO_BINDATA_VERSION)/go-bindata-$(shell go env GOOS)-$(shell go env GOARCH)
+	mkdir -p $(BIN_PATH)
+	curl -L -o $(BIN_PATH)/go-bindata https://github.com/kevinburke/go-bindata/releases/download/v$(GO_BINDATA_VERSION)/go-bindata-$(shell $(GO) env GOOS)-$(shell $(GO) env GOARCH)
 	chmod +x $(BIN_PATH)/go-bindata
 endif
 
@@ -171,14 +186,17 @@ endif
 ifneq ($(GO_BINDATA_OPTIONS),)
 ## Run go-bindata for project
 go-bindata: install-go-bindata
-	go-bindata $(GO_BINDATA_OPTIONS)
+	$(BIN_PATH)/go-bindata $(GO_BINDATA_OPTIONS)
+	@echo
+	@echo "Here is the list of static assets bundled by go-bindata:"
+	@sed -n '/\/\/ sources:/,/^$$/p' $(GO_BINDATA_OUTPUT)
 ifeq ($(CI),true)
-ifeq ($(findstring pull-request,$(BRANCH_NAME)),pull-request)
+ifeq ($(findstring pull-request,$(BRANCH_NAME) $(SEMAPHORE_GIT_REF_TYPE)),pull-request)
 	git diff --exit-code --name-status || \
 		(echo "ERROR: cannot commit changes back to a fork, please run go-bindata locally and commit the changes" && exit 1)
 else
 	git diff --exit-code --name-status || \
-		(git add deploy/bindata.go && \
+		(git add $(GO_BINDATA_OUTPUT) && \
 		git commit -m 'chore: updating bindata' && \
 		git push $(GIT_REMOTE_NAME) $(BRANCH_NAME))
 endif
@@ -187,25 +205,38 @@ else
 go-bindata:
 endif
 
+.PHONY: gen-cli-docs-go $(CLI_DOCS_GEN_MAINS)
+## Generate go cli docs if generator file is specified
+gen-cli-docs-go: $(CLI_DOCS_GEN_MAINS)
+$(CLI_DOCS_GEN_MAINS):
+	$(GO) run $(GO_MOD_DOWNLOAD_MODE_FLAG) $@
+
+.PHONY: commit-cli-docs-go $(CLI_DOCS_GEN_DIRS)
+commit-cli-docs-go: $(CLI_DOCS_GEN_DIRS)
+$(CLI_DOCS_GEN_DIRS):
+	git diff --exit-code --name-status $@ || \
+		(git add $@ && \
+		git commit -m 'chore: updating cli docs [ci skip]')
+
 .PHONY: go-update-deps
 ## Update dependencies (go get -u)
 go-update-deps:
 ifeq ($(HOTFIX),true)
-	go get -u=patch
+	$(GO) get -u=patch
 else
-	go get -u
+	$(GO) get -u
 endif
-	go mod tidy
+	$(GO) mod tidy
 
 .PHONY: go-update-dep
 ## Update single dependency, specify with DEP=
 go-update-dep:
 ifeq ($(DEP),)
 	@echo "Error: must specify DEP= on the commandline"
-	@echo "Usage: make go-update-dep DEP=github.com/confluentinc/example@v1.2.3"
+	@echo "Usage: $(MAKE) go-update-dep DEP=github.com/confluentinc/example@v1.2.3"
 else
-	go get $(DEP)
-	go mod tidy
+	$(GO) get $(DEP)
+	$(GO) mod tidy
 endif
 
 .PHONY: go-commit-deps
@@ -226,7 +257,7 @@ else ifeq ($(BUMP),major)
 	@echo "Skipping bumping downstream go dep $@ with major version bump"
 else
 	git clone git@github.com:confluentinc/$@.git $@
-	make -C $@ go-update-dep go-commit-deps \
+	$(MAKE) $(MAKE_ARGS) -C $@ go-update-dep go-commit-deps \
 		DEP=$(shell grep module go.mod | awk '{print $$2}')@$(BUMPED_VERSION) \
 		UPSTREAM_MOD=$(SERVICE_NAME) \
 		UPSTREAM_VERSION=$(BUMPED_VERSION)

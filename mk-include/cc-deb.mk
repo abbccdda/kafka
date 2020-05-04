@@ -4,9 +4,9 @@ RELEASE_MAKE_TARGETS += publish-deb-docker
 
 # Check if version includes a - which means it's not a released version
 ifeq ($(findstring -,$(VERSION_NO_V)), "")
-APT_SUITE := stable
-else
 APT_SUITE := testing
+else
+APT_SUITE := stable
 endif
 
 .aws:
@@ -45,4 +45,5 @@ publish-deb: build-deb
 			--visibility private \
 			--s3-region us-west-2 \
 			--bucket cloud-confluent-apt \
+			--preserve-versions \
 			$(DEB_OUTDIR)/$(DEB_PKG_NAME)_$(VERSION_NO_V)_amd64.deb

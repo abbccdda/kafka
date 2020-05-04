@@ -41,10 +41,9 @@ else ifneq ("$(wildcard $(HOME)/.m2/settings.xml)","")
 			bravissimolabs/generate-npm-authtoken \
 			> $(HOME)/.npmrc
 else
-	@echo "https://confluent.jfrog.io not logged in, Username, Password, and Email not found in environment, prompting for login:" && \
-		npm login --registry=https://confluent.jfrog.io/confluent/api/npm/npm-internal/ --scope=@confluent
+	@echo "Follow instructions here to configure .npmrc: https://confluentinc.atlassian.net/wiki/spaces/MMA/pages/966057260/Setup+NPM"
 endif
 
 .PHONY: npm-login
-## Login to Confluent's private npm on Artifactory
+## Login to Confluent's private npm on Nexus
 npm-login: $(HOME)/.npmrc
