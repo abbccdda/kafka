@@ -245,6 +245,8 @@ public abstract class AbstractRequest implements AbstractRequestResponse {
                 return new AlterClientQuotasRequest(struct, apiVersion);
             case REMOVE_BROKERS:
                 return new RemoveBrokersRequest(struct, apiVersion);
+            case INITIATE_SHUTDOWN:
+                return new InitiateShutdownRequest(struct, apiVersion);
             default:
                 return maybeParseInternalRequest(apiKey, apiVersion, struct);
         }

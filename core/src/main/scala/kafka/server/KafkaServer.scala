@@ -21,10 +21,11 @@ import java.io.{File, IOException}
 import java.net.{InetAddress, SocketTimeoutException}
 import java.util
 import java.util.concurrent._
-import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger, AtomicLong}
 import java.util.Collections
 import java.util.function.Supplier
 
+import com.typesafe.scalalogging.Logger
 import kafka.api.{KAFKA_0_9_0, KAFKA_2_2_IV0, KAFKA_2_4_IV1}
 import kafka.cluster.Broker
 import kafka.common.{GenerateBrokerIdException, InconsistentBrokerIdException, InconsistentBrokerMetadataException, InconsistentClusterIdException}
@@ -57,7 +58,7 @@ import org.apache.kafka.common.requests.{ControlledShutdownRequest, ControlledSh
 import org.apache.kafka.common.security.scram.internals.ScramMechanism
 import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache
 import org.apache.kafka.common.security.{JaasContext, JaasUtils}
-import org.apache.kafka.common.utils.{AppInfoParser, LogContext, Time}
+import org.apache.kafka.common.utils.{AppInfoParser, KafkaThread, LogContext, Time}
 import org.apache.kafka.common.{ClusterResource, Endpoint, Node}
 import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.apache.kafka.common.security.fips.FipsValidator
@@ -67,6 +68,7 @@ import org.apache.kafka.server.http.{MetadataServer, MetadataServerFactory}
 import org.apache.kafka.server.license.LicenseValidator
 import org.apache.kafka.server.multitenant.MultiTenantMetadata
 import org.apache.zookeeper.client.ZKClientConfig
+import org.slf4j.LoggerFactory
 
 import scala.jdk.CollectionConverters._
 import scala.collection.{Map, Seq, mutable}
@@ -174,8 +176,31 @@ object KafkaServer {
       Some(clientConfig)
     }
 
+  /**
+   * Initiates a shutdown of the Java Virtual Machine by
+   * creating a thread that calls #{@code Exit#exit()}
+   *
+   * Note that the thread invoking exit blocks until the JVM terminates.
+   *
+   * @return the #{@code Thread} which is calling exit
+   */
+  def initiateShutdown(): Thread = {
+    val previousInitiations = externalShutdownInitiations.getAndAdd(1)
+    val th = KafkaThread.daemon(s"external-shutdown-$previousInitiations", () => {
+      logger.warn("Initiating externally-requested shutdown by calling Exit " +
+        "(there were {} externally-initiated shutdowns previously)", previousInitiations)
+      Exit.exit(0)
+      logger.warn("Externally-requested shutdown finished successfully")
+    })
+
+    th.start()
+    th
+  }
+
   val MIN_INCREMENTAL_FETCH_SESSION_EVICTION_MS: Long = 120000
   val MULTI_TENANT_AUTHORIZER_CLASS_NAME = "io.confluent.kafka.multitenant.authorizer.MultiTenantAuthorizer"
+  val externalShutdownInitiations: AtomicLong = new AtomicLong(0)
+  val logger = Logger(LoggerFactory.getLogger("KafkaServer"))
 }
 
 /**
@@ -279,6 +304,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
   private[kafka] def brokerTopicStats = _brokerTopicStats
 
+  newGauge("ExternalShutdownInitiations", () => KafkaServer.externalShutdownInitiations.get())
   newGauge("BrokerState", () => brokerState.currentState)
   newGauge("ClusterId", () => clusterId)
   newGauge("yammer-metrics-count", () =>  KafkaYammerMetrics.defaultRegistry.allMetrics.size)

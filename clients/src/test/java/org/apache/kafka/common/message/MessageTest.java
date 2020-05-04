@@ -1183,6 +1183,21 @@ public final class MessageTest {
     }
 
     @Test
+    public void testInitiateShutdownRequest() throws Exception {
+        InitiateShutdownRequestData data = new InitiateShutdownRequestData().setBrokerEpoch(1);
+
+        testAllMessageRoundTrips(data);
+    }
+
+    @Test
+    public void testInitiateShutdownResponse() throws Exception {
+        InitiateShutdownResponseData data = new InitiateShutdownResponseData()
+            .setErrorCode(Errors.STALE_BROKER_EPOCH.code()).setErrorMessage("error");
+
+        testAllMessageRoundTrips(data);
+    }
+
+    @Test
     public void testAlterPartitionReassignmentWithoutObservers() throws Exception {
         AlterPartitionReassignmentsRequestData.ReassignablePartition partition =
             new AlterPartitionReassignmentsRequestData.ReassignablePartition()

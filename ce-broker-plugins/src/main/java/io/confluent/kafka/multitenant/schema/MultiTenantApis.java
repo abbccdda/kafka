@@ -122,6 +122,7 @@ public class MultiTenantApis {
       case CREATE_CLUSTER_LINKS:
       case LIST_CLUSTER_LINKS:
       case DELETE_CLUSTER_LINKS:
+      case INITIATE_SHUTDOWN:
         return false;
 
       default:
