@@ -355,7 +355,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
       + " of distribution goals used for detecting and fixing anomalies. For example, 2.50 means the threshold for each "
       + "distribution goal (i.e. Replica Distribution, Leader Replica Distribution, Resource Distribution, and Topic Replica "
       + "Distribution Goals) will be 2.50x of the value used in manual goal optimization requests (e.g. rebalance).";
-  public static final Double DEFAULT_GOAL_VIOLATION_DISTRIBUTION_THRESHOLD_MULTIPLIER = 1.25;
+  public static final Double DEFAULT_GOAL_VIOLATION_DISTRIBUTION_THRESHOLD_MULTIPLIER = 1.1;
 
   /**
    * <code>cpu.capacity.threshold</code>
