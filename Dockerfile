@@ -24,7 +24,7 @@ RUN tar -xzvf /home/gradle/core/build/distributions/kafka_*-SNAPSHOT.tgz --strip
 
 # Build a Docker image for the K8s liveness storage probe.
 
-FROM confluent-docker.jfrog.io/confluentinc/cc-service-base:1.10 AS go-build
+FROM golang:1.12.7 as go-build
 
 ARG version
 
@@ -39,7 +39,6 @@ COPY ./mk-include ./mk-include
 
 RUN make deps DEP_ARGS=-vendor-only VERSION=${version}
 
-RUN make lint-go test-go
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 make build-go GO_OUTDIR= VERSION=${version}
 
 

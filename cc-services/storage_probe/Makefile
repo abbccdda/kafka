@@ -8,6 +8,7 @@ GO_TEST_ARGS = -race -v -cover -p=1
 GO_CODECOV_TEST_ARGS = -race -v -cover -p=1
 BASE_VERSION := 1.10
 GO11MODULE := on
+GO_BINS := main.go=storage-probe
 
 MASTER_BRANCH := master
 

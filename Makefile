@@ -23,6 +23,7 @@ DOCKER_BUILD_PRE  += copy-gradle-properties
 DOCKER_BUILD_POST += clean-gradle-properties
 
 BUILD_TARGETS += build-docker-cc-kafka-init
+TEST_TARGETS += test-cc-services
 RELEASE_POSTCOMMIT += push-docker-cc-kafka-init
 
 ifeq ($(CONFLUENT_PLATFORM_PACKAGING),)
@@ -83,6 +84,10 @@ push-docker-cc-services:
 	make VERSION=$(VERSION) BASE_IMAGE=$(IMAGE_REPO)/$(IMAGE_NAME) BASE_VERSION=$(IMAGE_VERSION) -C cc-services/soak_cluster push-docker
 	make VERSION=$(VERSION) BASE_IMAGE=$(IMAGE_REPO)/$(IMAGE_NAME) BASE_VERSION=$(IMAGE_VERSION) -C cc-services/trogdor push-docker
 	make VERSION=$(VERSION) BASE_IMAGE=$(IMAGE_REPO)/$(IMAGE_NAME) BASE_VERSION=$(IMAGE_VERSION) -C cc-services/tier_validator push-docker
+
+.PHONY: test-cc-services
+test-cc-services:
+	make VERSION=$(VERSION) -C cc-services/storage_probe test
 
 GRADLE_TEMP = ./tmp/gradle/
 .PHONY: copy-gradle-properties
