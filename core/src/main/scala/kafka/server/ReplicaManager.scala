@@ -1762,7 +1762,7 @@ class ReplicaManager(val config: KafkaConfig,
               s"partition as leader with correlation id $correlationId from controller $controllerId epoch $controllerEpoch for " +
               s"partition ${partition.topicPartition} (last update controller epoch ${partitionState.controllerEpoch}) " +
               s"since it is already the leader for the partition.")
-          if (partition.isLinkDestination)
+          if (partition.isActiveLinkDestination)
             linkedPartitionsToMakeLeaders += partition
         } catch {
           case e: KafkaStorageException =>

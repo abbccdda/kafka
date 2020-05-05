@@ -26,6 +26,7 @@ object ClusterLinkConfigDefaults {
   val NumClusterLinkFetchers = 1
   val RetryBackoffMs = 100L
   val MetadataMaxAgeMs = 5 * 60 * 1000
+  val RetryTimeoutMs = 5 * 60 * 1000
 }
 
 case class ClusterLinkConfig(props: java.util.Map[_, _])
@@ -50,6 +51,8 @@ case class ClusterLinkConfig(props: java.util.Map[_, _])
 
   val metadataRefreshBackoffMs = getLong(CommonClientConfigs.RETRY_BACKOFF_MS_CONFIG)
   val metadataMaxAgeMs = getLong(CommonClientConfigs.METADATA_MAX_AGE_CONFIG)
+
+  val retryTimeoutMs: Int = getInt(ClusterLinkConfig.RetryTimeoutMsProp)
 }
 
 object ClusterLinkConfig {
@@ -57,6 +60,10 @@ object ClusterLinkConfig {
   val NumClusterLinkFetchersProp = "num.cluster.link.fetchers"
   val NumClusterLinkFetchersDoc = "Number of fetcher threads used to replicate messages from source brokers in cluster links."
 
+  val RetryTimeoutMsProp = "cluster.link.retry.timeout.ms"
+  val RetryTimeoutMsDoc = "The number of milliseconds after which failures are no longer retried and" +
+    " partitions are marked as failed. If the source topic is deleted and recreated within this timeout," +
+    " the link may contain records from the old as well as the new topic."
 
   def main(args: Array[String]): Unit = {
     println(configDef.toHtml)
@@ -64,6 +71,7 @@ object ClusterLinkConfig {
 
   private val configDef = new ConfigDef()
     .define(NumClusterLinkFetchersProp, INT, NumClusterLinkFetchers, LOW, NumClusterLinkFetchersDoc)
+    .define(RetryTimeoutMsProp, INT, RetryTimeoutMs, MEDIUM, RetryTimeoutMsDoc)
     .define(BOOTSTRAP_SERVERS_CONFIG, LIST, Collections.emptyList, new ConfigDef.NonNullValidator, HIGH, BOOTSTRAP_SERVERS_DOC)
     .define(CLIENT_DNS_LOOKUP_CONFIG, STRING, ClientDnsLookup.USE_ALL_DNS_IPS.toString,
       in(ClientDnsLookup.DEFAULT.toString, ClientDnsLookup.USE_ALL_DNS_IPS.toString, ClientDnsLookup.RESOLVE_CANONICAL_BOOTSTRAP_SERVERS_ONLY.toString),

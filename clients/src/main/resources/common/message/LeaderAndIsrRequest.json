@@ -44,6 +44,8 @@
         "taggedVersions": "4+", "ignorable": true, "about": "The topic ID" },
       { "name": "ClusterLink", "type": "string", "versions": "4+", "nullableVersions": "4+", "default": "null", "tag": 10001,
         "taggedVersions": "4+", "ignorable": true, "about": "Cluster link name if this topic is being mirrored." },
+      { "name": "ClusterLinkTopicState", "type": "string", "versions": "4+", "nullableVersions": "4+", "default": "null", "tag": 10002,
+        "taggedVersions": "4+", "ignorable": false, "about": "Cluster link state if this topic is being mirrored." },
       { "name": "PartitionStates", "type": "[]LeaderAndIsrPartitionState", "versions": "2+",
         "about": "The state of each partition" }
     ]},
@@ -63,11 +65,13 @@
     { "name": "LeaderAndIsrPartitionState", "versions": "0+", "fields": [
       { "name": "TopicName", "type": "string", "versions": "0-1", "entityType": "topicName", "ignorable": true,
         "about": "The topic name.  This is only present in v0 or v1." },
-      // The following two should be transient fields, but the generator doesn't support that yet
+      // The following three should be transient fields, but the generator doesn't support that yet
       { "name": "TopicId", "type": "uuid", "versions": "4+", "entityType": "topicId", "tag": 10001,
         "taggedVersions": "4+", "ignorable": true, "about": "The topic ID" },
       { "name": "ClusterLink", "type": "string", "versions": "4+", "nullableVersions": "4+", "default": "null",  "tag": 10003,
         "taggedVersions": "4+", "ignorable": true, "about": "Cluster link name if this topic is being mirrored." },
+      { "name": "ClusterLinkTopicState", "type": "string", "versions": "4+", "nullableVersions": "4+", "default": "null",  "tag": 10004,
+        "taggedVersions": "4+", "ignorable": false, "about": "Cluster link state if this topic is being mirrored." },
       { "name": "PartitionIndex", "type": "int32", "versions": "0+",
         "about": "The partition index." },
       { "name": "ControllerEpoch", "type": "int32", "versions": "0+",

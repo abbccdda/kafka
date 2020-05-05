@@ -13,9 +13,22 @@ import scala.collection.JavaConverters._
 abstract class ClusterLinkTopicState {
 
   /**
-    * Name of the active cluster link for the topic, or none if not linked.
+    * Name of the cluster link for the topic.
+    * Link name is returned even if mirroring is in paused or failed state
+    * to prevent updates to local topic.
     */
-  def activeLinkName: Option[String]
+  def linkName: String
+
+  /**
+    * State of the topic link, persisted in ZK and propagated to brokers in LeaderAndIsrRequest
+    */
+  def state: String
+
+  /**
+    * Returns true if this topic and its metadata should be sync'ed from source.
+    * Returns false if this topic link has failed or is in a paused state.
+    */
+  def shouldSync: Boolean
 
   /**
     * Returns a JSON-like map of the state's data.
@@ -31,20 +44,46 @@ abstract class ClusterLinkTopicState {
 object ClusterLinkTopicState {
 
   private val mirrorKey = "mirror"
-  private val stateKeys = List(mirrorKey)
+  private val failedMirrorKey = "failed_mirror"
+  private val stateKeys = List(mirrorKey, failedMirrorKey)
 
   /**
     * Indicates an active mirroring setup, where the local topic is the destination.
     *
     * @param linkName the name of the cluster link that the topic mirrors from
-    * @param topic the name of the topic over the cluster link to mirror
     * @param timeMs the time, in milliseconds, at which the state transition occurred
     */
-  case class Mirror(val linkName: String,
-                    val timeMs: Long = Time.SYSTEM.milliseconds())
+  case class Mirror(linkName: String,
+                    timeMs: Long = Time.SYSTEM.milliseconds())
       extends ClusterLinkTopicState {
 
-    override def activeLinkName: Option[String] = Some(linkName)
+    override def state: String = mirrorKey
+
+    override def shouldSync: Boolean = true
+
+    override def toMap: Map[String, _] = {
+      Map(
+        "version" -> 1,
+        "time_ms" -> timeMs,
+        "link_name" -> linkName
+      )
+    }
+  }
+
+  /**
+    * Indicates topic mirror where the local topic is the destination but the link has failed.
+    * Active mirrors may be in this state because source topic was deleted.
+    *
+    * @param linkName the name of the cluster link that the topic mirrors from
+    * @param timeMs the time, in milliseconds, at which the state transition occurred
+    */
+  case class FailedMirror(linkName: String,
+                          timeMs: Long = Time.SYSTEM.milliseconds())
+    extends ClusterLinkTopicState {
+
+    override def state: String = failedMirrorKey
+
+    override def shouldSync: Boolean = false
 
     override def toMap: Map[String, _] = {
       Map(
@@ -63,6 +102,7 @@ object ClusterLinkTopicState {
   def toJsonString(state: ClusterLinkTopicState): String = {
     val name = state match {
       case cfg: ClusterLinkTopicState.Mirror => mirrorKey
+      case cfg: ClusterLinkTopicState.FailedMirror => failedMirrorKey
       case _ => throw new IllegalStateException("Unexpected cluster link topic state")
     }
 
@@ -96,7 +136,19 @@ object ClusterLinkTopicState {
             validateVersion(1, jsonOpt("version").to[Int])
             val timeMs = jsonOpt("time_ms").to[Long]
             val linkName = jsonOpt("link_name").to[String]
-            new Mirror(linkName, timeMs)
+            Mirror(linkName, timeMs)
+          case `failedMirrorKey` =>
+            validateVersion(1, jsonOpt("version").to[Int])
+            val timeMs = jsonOpt("time_ms").to[Long]
+            val linkName = jsonOpt("link_name").to[String]
+            FailedMirror(linkName, timeMs)
+          case _ =>
+            // During rolling upgrade, we should ensure that some brokers with new states cannot
+            // put the link into a state not known by other brokers. For now, mark this as failed.
+            validateVersion(1, jsonOpt("version").to[Int])
+            val timeMs = jsonOpt("time_ms").to[Long]
+            val linkName = jsonOpt("link_name").to[String]
+            FailedMirror(linkName, timeMs)
         }
 
       case None =>
@@ -104,4 +156,11 @@ object ClusterLinkTopicState {
     }
   }
 
+  def fromState(linkName: String, state: String): ClusterLinkTopicState = {
+    state match {
+      case `mirrorKey` => Mirror(linkName)
+      case `failedMirrorKey` => FailedMirror(linkName)
+      case _ => FailedMirror(linkName) // If we don't understand the state, don't sync.
+    }
+  }
 }

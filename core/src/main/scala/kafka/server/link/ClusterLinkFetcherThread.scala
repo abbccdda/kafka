@@ -5,6 +5,7 @@
 package kafka.server.link
 
 import kafka.cluster.BrokerEndPoint
+import kafka.log.LogAppendInfo
 import kafka.server._
 import kafka.tier.fetcher.TierStateFetcher
 import org.apache.kafka.clients.FetchSessionHandler.FetchRequestData
@@ -20,6 +21,10 @@ import scala.collection.JavaConverters._
 import scala.collection.Map
 
 object ClusterLinkFetcherThread {
+
+  val LinkErrors = Set(
+    Errors.UNKNOWN_TOPIC_OR_PARTITION,
+    Errors.UNKNOWN_LEADER_EPOCH)
 
   def apply(name: String,
             fetcherId: Int,
@@ -119,7 +124,12 @@ class ClusterLinkFetcherThread(name: String,
   override def isOffsetForLeaderEpochSupported: Boolean = true
 
   // We don't expect to handle tiered exceptions from the source cluster, error will be processed by the caller
-  override protected def onOffsetTiered(topicPartition: TopicPartition, requestEpoch: Option[Int]): Boolean = false
+  // We mark the link as failed and mirroring will be stopped when failure is propagated by the controller.
+  override protected def onOffsetTiered(topicPartition: TopicPartition, requestEpoch: Option[Int]): Boolean = {
+    fetcherManager.onPartitionLinkFailure(topicPartition, retriable = false,
+      s"Unexpected tiered offset for $topicPartition epoch $requestEpoch")
+    false
+  }
 
   override protected def onPartitionFenced(tp: TopicPartition, requestEpoch: Option[Int]): Boolean = {
     debug(s"onPartitionFenced $tp : request metadata ")
@@ -128,7 +138,9 @@ class ClusterLinkFetcherThread(name: String,
   }
 
   override protected def handlePartitionsWithErrors(partitions: Map[TopicPartition, Errors], methodName: String): Unit = {
-    if (partitions.values.exists(_.exception.isInstanceOf[InvalidMetadataException])) {
+    val failed = partitions.filter { case (_, error) => ClusterLinkFetcherThread.LinkErrors.contains(error) }
+    failed.foreach { case (tp, error) => fetcherManager.onPartitionLinkFailure(tp, retriable = true, error.message) }
+    if (failed.nonEmpty || partitions.values.exists(_.exception.isInstanceOf[InvalidMetadataException])) {
       debug(s"Request metadata update because of errors $partitions")
       clusterLinkMetadata.requestUpdate()
     }
@@ -144,5 +156,10 @@ class ClusterLinkFetcherThread(name: String,
         fetcherManager.partition(tp).foreach(_.linkedLeaderOffsetsPending(false))
       }
     }
+  }
+
+  override def processPartitionData(tp: TopicPartition, fetchOffset: Long, partitionData: FetchData): Option[LogAppendInfo] = {
+    fetcherManager.clearPartitionLinkFailure(tp, s"New data fetched from $tp offset $fetchOffset")
+    super.processPartitionData(tp, fetchOffset, partitionData)
   }
 }

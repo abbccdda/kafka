@@ -35,12 +35,14 @@ case class LeaderAndIsr(leader: Int,
                         isr: List[Int],
                         zkVersion: Int,
                         isUnclean: Boolean,
-                        linkedLeaderEpoch: Option[Int]) {
+                        linkedLeaderEpoch: Option[Int],
+                        linkFailed: Boolean = false) {
   def withZkVersion(zkVersion: Int) = copy(zkVersion = zkVersion)
 
   def newLeader(leader: Int, isUnclean: Boolean) = newLeaderAndIsr(leader, isr, isUnclean)
 
-  def newLeaderAndIsr(leader: Int, isr: List[Int], isUnclean: Boolean) = LeaderAndIsr(leader, nextEpoch, isr, zkVersion, isUnclean, linkedLeaderEpoch)
+  def newLeaderAndIsr(leader: Int, isr: List[Int], isUnclean: Boolean) = LeaderAndIsr(leader, nextEpoch,
+    isr, zkVersion, isUnclean, linkedLeaderEpoch, linkFailed)
 
   def newEpochAndZkVersion = newLeaderAndIsr(leader, isr, isUnclean)
 
@@ -51,7 +53,7 @@ case class LeaderAndIsr(leader: Int,
   private def nextEpoch = Math.max(leaderEpoch + 1, linkedLeaderEpoch.getOrElse(-1))
 
   override def toString: String = {
-    val linkedEpoch = linkedLeaderEpoch.map(epoch => s" linkedLeaderEpoch=$epoch,").getOrElse("")
+    val linkedEpoch = linkedLeaderEpoch.map(epoch => s" linkedLeaderEpoch=$epoch,linkFailed=$linkFailed").getOrElse("")
     s"LeaderAndIsr(leader=$leader, leaderEpoch=$leaderEpoch,$linkedEpoch isUncleanLeader=$isUnclean, isr=$isr, zkVersion=$zkVersion)"
   }
 }

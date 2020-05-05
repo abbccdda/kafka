@@ -85,6 +85,7 @@ class ClusterLinkManagerTest {
 
     val partitionState: LeaderAndIsrPartitionState = mock(classOf[LeaderAndIsrPartitionState])
     expect(partitionState.clusterLink()).andReturn(linkName).anyTimes()
+    expect(partitionState.clusterLinkTopicState()).andReturn("mirror").anyTimes()
     replay(partitionState)
     clusterLinkManager.removePartitions(Map(partition0 -> partitionState))
     assertTrue("Topic removed from metadata",
@@ -98,6 +99,16 @@ class ClusterLinkManagerTest {
     assertFalse("Topic not removed from metadata",
       fetcherManager.currentMetadata.retainTopic(topic, isInternal = false, time.milliseconds))
     assertFalse("Topic should not be in client manager", clientManager.getTopics.contains(topic))
+
+    reset(partitionState)
+    expect(partitionState.clusterLink()).andReturn(linkName).anyTimes()
+    expect(partitionState.clusterLinkTopicState()).andReturn("failed-mirror").anyTimes()
+    replay(partitionState)
+    clusterLinkManager.addPartitions(Set(partition0))
+    clusterLinkManager.removePartitions(Map(partition0 -> partitionState))
+    assertFalse("Topic not removed from metadata for failed mirror",
+      fetcherManager.currentMetadata.retainTopic(topic, isInternal = false, time.milliseconds))
+    assertFalse("Topic should not be in client manager for failed mirror", clientManager.getTopics.contains(topic))
 
     val tp1 = new TopicPartition(topic, 1)
     val partition1: Partition = createNiceMock(classOf[Partition])
@@ -147,7 +158,7 @@ class ClusterLinkManagerTest {
     reset(partition)
     expect(partition.topicPartition).andReturn(tp).anyTimes()
     expect(partition.getClusterLink).andReturn(linkName).anyTimes()
-    expect(partition.isLinkDestination).andReturn(linkName.nonEmpty).anyTimes()
+    expect(partition.isActiveLinkDestination).andReturn(linkName.nonEmpty).anyTimes()
     expect(partition.getLinkedLeaderEpoch).andReturn(Some(1)).anyTimes()
     replay(partition)
   }

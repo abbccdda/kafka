@@ -331,18 +331,18 @@ class KafkaApis(val requestChannel: RequestChannel,
       // this callback is invoked under the replica state change lock to ensure proper order of
       // leadership changes
       updatedLeaders.foreach { partition =>
-        if (!partition.isLinkDestination && partition.topic == GROUP_METADATA_TOPIC_NAME)
+        if (!partition.linkedUpdatesOnly && partition.topic == GROUP_METADATA_TOPIC_NAME)
           groupCoordinator.onElection(partition.partitionId)
-        else if (!partition.isLinkDestination && partition.topic == TRANSACTION_STATE_TOPIC_NAME)
+        else if (!partition.linkedUpdatesOnly && partition.topic == TRANSACTION_STATE_TOPIC_NAME)
           txnCoordinator.onElection(partition.partitionId, partition.getLeaderEpoch)
         else if (partition.topic.startsWith(TIER_TOPIC_NAME))
           tierDeletedPartitionsCoordinatorOpt.foreach(_.handleImmigration(partition.partitionId))
       }
 
       updatedFollowers.foreach { partition =>
-        if (!partition.isLinkDestination && partition.topic == GROUP_METADATA_TOPIC_NAME)
+        if (!partition.linkedUpdatesOnly && partition.topic == GROUP_METADATA_TOPIC_NAME)
           groupCoordinator.onResignation(partition.partitionId)
-        else if (!partition.isLinkDestination && partition.topic == TRANSACTION_STATE_TOPIC_NAME)
+        else if (!partition.linkedUpdatesOnly && partition.topic == TRANSACTION_STATE_TOPIC_NAME)
           txnCoordinator.onResignation(partition.partitionId, Some(partition.getLeaderEpoch))
         else if (partition.topic.startsWith(TIER_TOPIC_NAME))
           tierDeletedPartitionsCoordinatorOpt.foreach(_.handleEmigration(partition.partitionId))

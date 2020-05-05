@@ -43,6 +43,7 @@ class ClusterLinkFetcherThreadTest extends ReplicaFetcherThreadTest {
                                                     logContextOpt: Option[LogContext]): ReplicaFetcherThread = {
     val fetcherManager: ClusterLinkFetcherManager = mock(classOf[ClusterLinkFetcherManager])
     expect(fetcherManager.partition(anyObject(classOf[TopicPartition]))).andReturn(None).anyTimes()
+    expect(fetcherManager.clearPartitionLinkFailure(anyObject(classOf[TopicPartition]), anyString())).anyTimes()
     replay(fetcherManager)
     new ClusterLinkFetcherThread(
       name,
@@ -111,7 +112,7 @@ class ClusterLinkFetcherThreadTest extends ReplicaFetcherThreadTest {
                                   new MetadataCache(0),
                                   logManager,
                                   tierReplicaManagerOpt = None)
-    expect(stateStore.updateLinkedLeaderEpoch(anyInt(), anyObject(classOf[LeaderAndIsr]))).andReturn(Some(1)).anyTimes()
+    expect(stateStore.updateClusterLinkState(anyInt(), anyObject(classOf[LeaderAndIsr]))).andReturn(Some(1)).anyTimes()
     val log: AbstractLog = createNiceMock(classOf[AbstractLog])
     partition.log = Some(log)
 
