@@ -107,7 +107,7 @@ class ClusterLinkFetcherManager(linkName: String,
     val deletedKeys = currentProps.asScala.filter { case (k, _) => !newProps.containsKey(k) }
 
     if (changeMap.nonEmpty || deletedKeys.nonEmpty) {
-      lock synchronized {
+      val restartMetadata = lock synchronized {
         val updatedKeys = changeMap.keySet ++ deletedKeys.keySet
         info(s"Reconfiguring link $linkName with new configs updated=$updatedKeys newConfig=${newConfig.values}")
         if (SslConfigs.RECONFIGURABLE_CONFIGS.containsAll(updatedKeys.asJava)) {
@@ -117,16 +117,22 @@ class ClusterLinkFetcherManager(linkName: String,
           metadataRefreshThread.clusterLinkClient.reconfigure(newConfigValues)
           fetcherThreadMap.values.map(_.clusterLinkClient).foreach(_.reconfigure(newConfigValues))
           this.clusterLinkConfig = newConfig
+          false
         } else {
           debug(s"Recreating cluster link fetchers with updated configs: $updatedKeys")
           fetcherThreadMap.values.foreach(_.partitionsAndOffsets.keySet.foreach(unassignedPartitions.add))
-          shutdown()
           this.clusterLinkConfig = newConfig
-          initializeMetadata()
-          updateMetadataTopics()
-          metadata.requestUpdate()
-          startup()
+          closeAllFetchers()
+          true
         }
+      }
+      // Restart metadata thread without holding fetcher manager lock since metadata thread
+      // acquires fetcher manager lock to process new metadata
+      if (restartMetadata) {
+        metadataRefreshThread.shutdown()
+        initializeMetadata()
+        updateMetadataTopics()
+        metadataRefreshThread.start()
       }
     } else
       debug("Not reconfiguring fetcher manager since configs haven't changed")
