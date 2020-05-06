@@ -14,7 +14,7 @@ import com.linkedin.kafka.cruisecontrol.model.ReplicaPlacementInfo;
 import com.linkedin.kafka.cruisecontrol.monitor.LoadMonitor;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import kafka.zk.KafkaZkClient;
-import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartition;
@@ -43,9 +43,6 @@ import java.util.stream.Collectors;
 import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.OPERATION_LOGGER;
 import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.currentUtcDate;
 import static com.linkedin.kafka.cruisecontrol.executor.ExecutionTaskTracker.ExecutionTasksSummary;
-import static com.linkedin.kafka.cruisecontrol.executor.ExecutorAdminUtils.executeIntraBrokerReplicaMovements;
-import static com.linkedin.kafka.cruisecontrol.executor.ExecutorAdminUtils.getLogdirInfoForExecutionTask;
-import static com.linkedin.kafka.cruisecontrol.executor.ExecutorAdminUtils.isOngoingIntraBrokerReplicaMovement;
 import static org.apache.kafka.clients.admin.DescribeReplicaLogDirsResult.ReplicaLogDirInfo;
 
 /**
@@ -71,7 +68,8 @@ public class Executor {
   private final long _statusCheckingIntervalMs;
   private final ExecutorService _proposalExecutor;
   private final KafkaZkClient _kafkaZkClient;
-  private final AdminClient _adminClient;
+  private final ConfluentAdmin _adminClient;
+  private final ExecutorAdminUtils adminUtils;
 
   private static final long METADATA_REFRESH_BACKOFF = 100L;
   private static final long METADATA_EXPIRY_MS = Long.MAX_VALUE;
@@ -139,7 +137,7 @@ public class Executor {
            AnomalyDetector anomalyDetector) {
     this(config, time, metricRegistry, metadataClient, demotionHistoryRetentionTimeMs,
         removalHistoryRetentionTimeMs, executorNotifier, anomalyDetector,
-         KafkaCruiseControlUtils.createAdminClient(config.originals()), null);
+         KafkaCruiseControlUtils.createAdmin(config.originals()), null);
   }
 
   /**
@@ -153,7 +151,7 @@ public class Executor {
            long removalHistoryRetentionTimeMs,
            ExecutorNotifier executorNotifier,
            AnomalyDetector anomalyDetector,
-           AdminClient adminClient,
+           ConfluentAdmin adminClient,
            ReplicationThrottleHelper throttleHelper) {
       String zkUrl = config.getString(KafkaCruiseControlConfig.ZOOKEEPER_CONNECT_CONFIG);
     _numExecutionStopped = new AtomicInteger(0);
@@ -171,6 +169,7 @@ public class Executor {
     _kafkaZkClient = KafkaCruiseControlUtils.createKafkaZkClient(zkUrl, ZK_EXECUTOR_METRIC_GROUP, ZK_EXECUTOR_METRIC_TYPE,
         zkSecurityEnabled);
     _adminClient = adminClient;
+    adminUtils = new ExecutorAdminUtils(_adminClient, config);
     _executionTaskManager =
         new ExecutionTaskManager(config.getInt(KafkaCruiseControlConfig.NUM_CONCURRENT_PARTITION_MOVEMENTS_PER_BROKER_CONFIG),
                                  config.getInt(KafkaCruiseControlConfig.NUM_CONCURRENT_INTRA_BROKER_PARTITION_MOVEMENTS_CONFIG),
@@ -511,9 +510,8 @@ public class Executor {
       throw new IllegalStateException("There are ongoing inter-broker partition movements.");
     }
 
-    if (isOngoingIntraBrokerReplicaMovement(_metadataClient.cluster().nodes().stream().mapToInt(Node::id).boxed()
-                                                           .collect(Collectors.toSet()),
-                                            _adminClient, _config)) {
+    if (adminUtils.isOngoingIntraBrokerReplicaMovement(_metadataClient.cluster().nodes().stream().mapToInt(Node::id).boxed()
+                                                           .collect(Collectors.toSet()))) {
       _executionTaskManager.clear();
       _uuid = null;
       throw new IllegalStateException("There are ongoing intra-broker partition movements.");
@@ -853,7 +851,7 @@ public class Executor {
           }
           // Execute the tasks.
           _executionTaskManager.markTasksInProgress(tasksToExecute);
-          ExecutorUtils.executeReplicaReassignmentTasks(_adminClient, _kafkaZkClient, tasksToExecute, _config);
+          ExecutorUtils.executeReplicaReassignmentTasks(_adminClient, adminUtils, _kafkaZkClient, tasksToExecute, _config);
         }
         // Wait indefinitely for partition movements to finish.
         List<ExecutionTask> completedTasks = waitForExecutionTaskToFinish();
@@ -920,7 +918,7 @@ public class Executor {
         if (!tasksToExecute.isEmpty()) {
           // Execute the tasks.
           _executionTaskManager.markTasksInProgress(tasksToExecute);
-          executeIntraBrokerReplicaMovements(tasksToExecute, _adminClient, _executionTaskManager, _config);
+          adminUtils.executeIntraBrokerReplicaMovements(tasksToExecute, _executionTaskManager);
         }
         // Wait indefinitely for partition movements to finish.
         waitForExecutionTaskToFinish();
@@ -1022,9 +1020,8 @@ public class Executor {
         }
 
         Cluster cluster = _metadataClient.refreshMetadata().cluster();
-        Map<ExecutionTask, ReplicaLogDirInfo> logDirInfoByTask = getLogdirInfoForExecutionTask(
-            _executionTaskManager.inExecutionTasks(Collections.singleton(ExecutionTask.TaskType.INTRA_BROKER_REPLICA_ACTION)),
-            _adminClient, _config);
+        Map<ExecutionTask, ReplicaLogDirInfo> logDirInfoByTask = adminUtils.getLogdirInfoForExecutionTask(
+            _executionTaskManager.inExecutionTasks(Collections.singleton(ExecutionTask.TaskType.INTRA_BROKER_REPLICA_ACTION)));
 
         if (LOG.isDebugEnabled()) {
           LOG.debug("Tasks in execution: {}", _executionTaskManager.inExecutionTasks());
@@ -1065,7 +1062,7 @@ public class Executor {
         int numReassignmentsToCancel = partitionReassignmentsToCancel.size();
         if (cancelRequested && numReassignmentsToCancel > 0) {
           LOG.info("Cancelling {} partition reassignments", numReassignmentsToCancel);
-          int numCancelled = ExecutorAdminUtils.cancelInterBrokerReplicaMovements(partitionReassignmentsToCancel, _adminClient);
+          int numCancelled = adminUtils.cancelInterBrokerReplicaMovements(partitionReassignmentsToCancel);
           int numFailedCancellations = numReassignmentsToCancel - numCancelled;
 
           LOG.info("Successfully cancelled {}/{} partition reassignments", numCancelled, numReassignmentsToCancel);
@@ -1268,12 +1265,12 @@ public class Executor {
       if (!isSubset(ExecutorUtils.partitionsBeingReassigned(_adminClient, _kafkaZkClient),
           interBrokerReplicaActionsToReexecute)) {
         LOG.info("Reexecuting tasks {}", interBrokerReplicaActionsToReexecute);
-        ExecutorUtils.executeReplicaReassignmentTasks(_adminClient, _kafkaZkClient, interBrokerReplicaActionsToReexecute, _config);
+        ExecutorUtils.executeReplicaReassignmentTasks(_adminClient, adminUtils, _kafkaZkClient, interBrokerReplicaActionsToReexecute, _config);
       }
 
       List<ExecutionTask> intraBrokerReplicaActionsToReexecute =
           new ArrayList<>(_executionTaskManager.inExecutionTasks(Collections.singleton(ExecutionTask.TaskType.INTRA_BROKER_REPLICA_ACTION)));
-      getLogdirInfoForExecutionTask(intraBrokerReplicaActionsToReexecute, _adminClient, _config).forEach((k, v) -> {
+      adminUtils.getLogdirInfoForExecutionTask(intraBrokerReplicaActionsToReexecute).forEach((k, v) -> {
         String targetLogdir = k.proposal().replicasToMoveBetweenDisksByBroker().get(k.brokerId()).logdir();
         // If task is completed or in-progess, do not reexecute the task.
         if (targetLogdir.equals(v.getCurrentReplicaLogDir()) || targetLogdir.equals(v.getFutureReplicaLogDir())) {
@@ -1282,7 +1279,7 @@ public class Executor {
       });
       if (!intraBrokerReplicaActionsToReexecute.isEmpty()) {
         LOG.info("Reexecuting tasks {}", intraBrokerReplicaActionsToReexecute);
-        executeIntraBrokerReplicaMovements(intraBrokerReplicaActionsToReexecute, _adminClient, _executionTaskManager, _config);
+        adminUtils.executeIntraBrokerReplicaMovements(intraBrokerReplicaActionsToReexecute, _executionTaskManager);
       }
 
       // Only reexecute leader actions if there is no replica actions running.

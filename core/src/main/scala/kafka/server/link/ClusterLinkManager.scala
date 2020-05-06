@@ -126,7 +126,7 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
       debug(s"addPartitions $partitions")
       val unknownClusterLinks = mutable.Map[String, Iterable[TopicPartition]]()
       managersLock synchronized {
-        partitions.groupBy(_.getClusterLink.getOrElse(""))
+        partitions.filter(_.isActiveLinkDestination).groupBy(_.getClusterLink.getOrElse(""))
           .foreach { case (linkName, linkPartitions) =>
             if (!linkName.isEmpty) {
               managers.get(linkName) match {
@@ -170,8 +170,8 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
   def removePartitions(partitionStates: Map[Partition, LeaderAndIsrPartitionState]): Unit = {
     val firstPartitionTopics = partitionStates.map(_._1.topicPartition).filter(_.partition == 0).map(_.topic).toSet
     managersLock synchronized {
-      val (unlinkedPartitions, linkedPartitions)  = partitionStates.partition { case (partition, partitionState) =>
-        partitionState.clusterLink == null || partitionState.clusterLink.isEmpty
+      val (linkedPartitions, unlinkedPartitions)  = partitionStates.partition { case (_, partitionState) =>
+        Partition.clusterLinkTopicState(partitionState).exists(_.shouldSync)
       }
       managers.values.foreach { case Managers(fetcherManager, clientManager) =>
         if (unlinkedPartitions.nonEmpty) {

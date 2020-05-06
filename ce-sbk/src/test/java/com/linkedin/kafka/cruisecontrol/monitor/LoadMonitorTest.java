@@ -35,7 +35,7 @@ import java.util.Properties;
 import java.util.Set;
 
 import com.yammer.metrics.core.MetricsRegistry;
-import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.clients.admin.DescribeLogDirsResult;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.KafkaFuture;
@@ -550,7 +550,7 @@ public class LoadMonitorTest {
     EasyMock.replay(mockMetadataClient);
 
     // Create mock admin client.
-    AdminClient mockAdminClient = EasyMock.mock(AdminClient.class);
+    ConfluentAdmin mockAdminClient = EasyMock.mock(ConfluentAdmin.class);
     EasyMock.expect(mockAdminClient.describeLogDirs(Arrays.asList(0, 1)))
             .andReturn(getDescribeLogDirsResult())
             .anyTimes();

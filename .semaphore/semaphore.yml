@@ -21,6 +21,7 @@ blocks:
       prologue:
         commands:
           - sem-version java 8
+          - sem-version go 1.12
           - git config --global url."git@github.com:".insteadOf "https://github.com/"
           - chmod 400 ~/.ssh/id_rsa
           - export SEMAPHORE_CACHE_DIR=/home/semaphore
@@ -31,6 +32,7 @@ blocks:
           commands:
             - make init-ci
             - make build
+            - make test
             - make release-ci
       epilogue:
         commands:

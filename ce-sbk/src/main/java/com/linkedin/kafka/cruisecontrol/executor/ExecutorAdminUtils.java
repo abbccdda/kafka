@@ -18,8 +18,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
-import org.apache.kafka.clients.admin.Admin;
-import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.clients.admin.NewPartitionReassignment;
 import org.apache.kafka.clients.admin.TopicDescription;
 import org.apache.kafka.common.KafkaException;
@@ -46,19 +45,20 @@ import static org.apache.kafka.common.requests.DescribeLogDirsResponse.LogDirInf
 public class ExecutorAdminUtils {
   private static final Logger LOG = LoggerFactory.getLogger(ExecutorAdminUtils.class);
 
-  private ExecutorAdminUtils() {
+  private ConfluentAdmin adminClient;
+  private final KafkaCruiseControlConfig config;
 
+  public ExecutorAdminUtils(ConfluentAdmin adminClient, KafkaCruiseControlConfig config) {
+    this.adminClient = adminClient;
+    this.config = config;
   }
 
   /**
    * Returns the replicas for a given partition. If the topic or partition doesn't exist, return an empty collection
    *
-   * @param adminClient to send the DescribeTopics request
    * @param topicPartition the partition to fetch the replicas for
-   * @param config The config object that holds all the Cruise Control related configs
    */
-  static List<Integer> getReplicasForPartition(Admin adminClient, TopicPartition topicPartition,
-                                               KafkaCruiseControlConfig config) {
+  public List<Integer> getReplicasForPartition(TopicPartition topicPartition) {
     try {
       Map<String, TopicDescription> descriptions = adminClient.describeTopics(Collections.singletonList(topicPartition.topic()))
                                                               .all()
@@ -82,38 +82,11 @@ public class ExecutorAdminUtils {
   }
 
   /**
-   * Fetch the logdir information for subject replicas in intra-broker replica movement tasks.
+   * Cancels any partition reassignments for the given topic partitions
    *
-   * @param tasks The tasks to check.
-   * @param adminClient The adminClient to send describeReplicaLogDirs request.
-   * @param config The config object that holds all the Cruise Control related configs
-   * @return Replica logdir information by task.
+   * @return the number of in-progress partition reassignments that were cancelled
    */
-  static Map<ExecutionTask, ReplicaLogDirInfo> getLogdirInfoForExecutionTask(Collection<ExecutionTask> tasks,
-                                                                             AdminClient adminClient,
-                                                                             KafkaCruiseControlConfig config) {
-    Set<TopicPartitionReplica> replicasToCheck = new HashSet<>(tasks.size());
-    Map<ExecutionTask, ReplicaLogDirInfo> logdirInfoByTask = new HashMap<>(tasks.size());
-    Map<TopicPartitionReplica, ExecutionTask> taskByReplica = new HashMap<>(tasks.size());
-    tasks.forEach(t -> {
-      TopicPartitionReplica tpr = new TopicPartitionReplica(t.proposal().topic(), t.proposal().partitionId(), t.brokerId());
-      replicasToCheck.add(tpr);
-      taskByReplica.put(tpr, t);
-    });
-    Map<TopicPartitionReplica, KafkaFuture<ReplicaLogDirInfo>> logDirsByReplicas = adminClient.describeReplicaLogDirs(replicasToCheck).values();
-    for (Map.Entry<TopicPartitionReplica, KafkaFuture<ReplicaLogDirInfo>> entry : logDirsByReplicas.entrySet()) {
-      try {
-        ReplicaLogDirInfo info = entry.getValue().get(config.getLong(LOGDIR_RESPONSE_TIMEOUT_MS_CONFIG), TimeUnit.MILLISECONDS);
-        logdirInfoByTask.put(taskByReplica.get(entry.getKey()), info);
-      } catch (InterruptedException | ExecutionException | TimeoutException e) {
-        LOG.warn("Encounter exception {} when fetching logdir information for replica {}", e.getMessage(), entry.getKey());
-      }
-    }
-    return logdirInfoByTask;
-  }
-
-  static int cancelInterBrokerReplicaMovements(List<TopicPartition> partitionReassignmentsToCancel,
-                                               AdminClient adminClient) {
+  public int cancelInterBrokerReplicaMovements(List<TopicPartition> partitionReassignmentsToCancel) {
     int numCancelled = 0;
     Optional<NewPartitionReassignment> cancelReassignment = Optional.empty();
     Map<TopicPartition, Optional<NewPartitionReassignment>> partitionsToCancel =
@@ -148,17 +121,40 @@ public class ExecutorAdminUtils {
   }
 
   /**
+   * Fetch the logdir information for subject replicas in intra-broker replica movement tasks.
+   *
+   * @param tasks The tasks to check.
+   * @return Replica logdir information by task.
+   */
+  public Map<ExecutionTask, ReplicaLogDirInfo> getLogdirInfoForExecutionTask(Collection<ExecutionTask> tasks) {
+    Set<TopicPartitionReplica> replicasToCheck = new HashSet<>(tasks.size());
+    Map<ExecutionTask, ReplicaLogDirInfo> logdirInfoByTask = new HashMap<>(tasks.size());
+    Map<TopicPartitionReplica, ExecutionTask> taskByReplica = new HashMap<>(tasks.size());
+    tasks.forEach(t -> {
+      TopicPartitionReplica tpr = new TopicPartitionReplica(t.proposal().topic(), t.proposal().partitionId(), t.brokerId());
+      replicasToCheck.add(tpr);
+      taskByReplica.put(tpr, t);
+    });
+    Map<TopicPartitionReplica, KafkaFuture<ReplicaLogDirInfo>> logDirsByReplicas = adminClient.describeReplicaLogDirs(replicasToCheck).values();
+    for (Map.Entry<TopicPartitionReplica, KafkaFuture<ReplicaLogDirInfo>> entry : logDirsByReplicas.entrySet()) {
+      try {
+        ReplicaLogDirInfo info = entry.getValue().get(config.getLong(LOGDIR_RESPONSE_TIMEOUT_MS_CONFIG), TimeUnit.MILLISECONDS);
+        logdirInfoByTask.put(taskByReplica.get(entry.getKey()), info);
+      } catch (InterruptedException | ExecutionException | TimeoutException e) {
+        LOG.warn("Encounter exception {} when fetching logdir information for replica {}", e.getMessage(), entry.getKey());
+      }
+    }
+    return logdirInfoByTask;
+  }
+
+  /**
    * Execute intra-broker replica movement tasks by sending alterReplicaLogDirs request.
    *
    * @param tasksToExecute The tasks to execute.
-   * @param adminClient The adminClient to send alterReplicaLogDirs request.
    * @param executionTaskManager The task manager to do bookkeeping for task execution state.
-   * @param config The config object that holds all the Cruise Control related configs
    */
-  static void executeIntraBrokerReplicaMovements(List<ExecutionTask> tasksToExecute,
-                                                 AdminClient adminClient,
-                                                 ExecutionTaskManager executionTaskManager,
-                                                 KafkaCruiseControlConfig config) {
+  public void executeIntraBrokerReplicaMovements(List<ExecutionTask> tasksToExecute,
+                                                 ExecutionTaskManager executionTaskManager) {
     Map<TopicPartitionReplica, String> replicaAssignment = new HashMap<>(tasksToExecute.size());
     Map<TopicPartitionReplica, ExecutionTask> replicaToTask = new HashMap<>(tasksToExecute.size());
     tasksToExecute.forEach(t -> {
@@ -181,12 +177,9 @@ public class ExecutorAdminUtils {
   /**
    * Check whether there is ongoing intra-broker replica movement.
    * @param brokersToCheck List of broker to check.
-   * @param adminClient The adminClient to send describeLogDirs request.
-   * @param config The config object that holds all the Cruise Control related configs
    * @return True if there is ongoing intra-broker replica movement.
    */
-  static boolean isOngoingIntraBrokerReplicaMovement(Collection<Integer> brokersToCheck, AdminClient adminClient,
-                                                     KafkaCruiseControlConfig config) {
+  public boolean isOngoingIntraBrokerReplicaMovement(Collection<Integer> brokersToCheck) {
     Map<Integer, KafkaFuture<Map<String, LogDirInfo>>> logDirsByBrokerId = adminClient.describeLogDirs(brokersToCheck).values();
     for (Map.Entry<Integer, KafkaFuture<Map<String, LogDirInfo>>> entry : logDirsByBrokerId.entrySet()) {
       try {

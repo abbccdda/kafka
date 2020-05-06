@@ -131,6 +131,8 @@ final class TierArchiver(config: TierTasksConfig,
             s" TierArchiver lag in descending order of lag (TopicPartition, LagInBytes):" +
             s" $topLaggingPartitions")
       partitionLagMaxValue = topLaggingPartitions(0)._3
+    } else {
+      partitionLagMaxValue = 0L
     }
   }
 

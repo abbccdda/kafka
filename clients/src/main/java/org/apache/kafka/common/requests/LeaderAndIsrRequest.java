@@ -168,7 +168,9 @@ public class LeaderAndIsrRequest extends AbstractControlRequest {
                 LeaderAndIsrTopicState topicState = topicStates.computeIfAbsent(partition.topicName(),
                     t -> new LeaderAndIsrTopicState()
                         .setTopicName(partition.topicName())
-                        .setTopicId(partition.topicId()));
+                        .setTopicId(partition.topicId())
+                        .setClusterLink(partition.clusterLink())
+                        .setClusterLinkTopicState(partition.clusterLinkTopicState()));
                 topicState.partitionStates().add(partition);
             }
             return topicStates;

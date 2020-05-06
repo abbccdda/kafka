@@ -90,7 +90,7 @@ public class TierPartitionForceRestore extends AbstractTierMetadata {
     }
 
     public Optional<OffsetAndEpoch> stateValidityOffsetAndEpoch() {
-        return Optional.of(offsetAndEpoch(metadata.stateValidityOffsetAndEpoch()));
+        return Optional.of(new OffsetAndEpoch(metadata.stateValidityOffsetAndEpoch()));
     }
 
     @Override

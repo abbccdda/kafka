@@ -261,6 +261,18 @@ class TierSupport():
                       TieredStorageMetricsRegistry.num_log_segments(topic, p).mbean,
                       TieredStorageMetricsRegistry.log_tier_size(topic, p).mbean]
 
+    def remove_log_metrics(self, topic, partitions=[0]):
+        """Removes log related metrics for given topic partitions.
+           This is necessary when these topics are deleted as jmx tool will return
+           all metrics or nothing
+        """
+        remove = set([])
+        for p in partitions:
+            remove.add(TieredStorageMetricsRegistry.log_local_size(topic, p).mbean)
+            remove.add(TieredStorageMetricsRegistry.num_log_segments(topic, p).mbean)
+            remove.add(TieredStorageMetricsRegistry.log_tier_size(topic, p).mbean)
+        self.kafka.jmx_object_names = [item for item in self.kafka.jmx_object_names if item not in remove]
+
     def restart_jmx_tool(self):
         for node in self.kafka.nodes:
             node.account.kill_java_processes(self.kafka.jmx_class_name(), clean_shutdown=False, allow_fail=True)

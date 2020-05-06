@@ -6,8 +6,8 @@ package com.linkedin.kafka.cruisecontrol.executor;
 
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUnitTestUtils;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
-import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AlterPartitionReassignmentsResult;
+import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.clients.admin.DescribeTopicsOptions;
 import org.apache.kafka.clients.admin.DescribeTopicsResult;
 import org.apache.kafka.clients.admin.NewPartitionReassignment;
@@ -21,6 +21,7 @@ import org.apache.kafka.common.errors.NoReassignmentInProgressException;
 import org.apache.kafka.common.errors.UnsupportedVersionException;
 import org.easymock.EasyMock;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 
 import java.util.Arrays;
@@ -56,7 +57,14 @@ public class ExecutorAdminUtilsTest {
           defaultTopicPartitionInfo(_t0P0)
       ));
 
+  private ConfluentAdmin mockAdminClient;
+
   private final long _defaultDescribeTopicsTimeoutMs = KafkaCruiseControlConfig.DEFAULT_DESCRIBE_TOPICS_RESPONSE_TIMEOUT_MS;
+
+  @Before
+  public void setUp() {
+    mockAdminClient = EasyMock.mock(ConfluentAdmin.class);
+  }
 
   @Test
   public void testCancelInterBrokerReplicaMovements() throws ExecutionException, InterruptedException {
@@ -84,14 +92,14 @@ public class ExecutorAdminUtilsTest {
     response.put(_t0P2, mockTP2Future);
     EasyMock.replay(mockTP0Future, mockTP1Future, mockTP2Future);
 
-    AdminClient mockAdminClient = EasyMock.mock(AdminClient.class);
     AlterPartitionReassignmentsResult resultsMock = EasyMock.mock(AlterPartitionReassignmentsResult.class);
     EasyMock.expect(resultsMock.values()).andReturn(response);
     EasyMock.expect(mockAdminClient.alterPartitionReassignments(expectedPartitionCancellations)).andReturn(resultsMock);
     EasyMock.replay(resultsMock, mockAdminClient);
+    ExecutorAdminUtils adminUtils = new ExecutorAdminUtils(mockAdminClient, config());
 
     int receivedNumSuccessfulCancellations =
-        ExecutorAdminUtils.cancelInterBrokerReplicaMovements(Arrays.asList(_t0P0, _t0P1, _t0P2), mockAdminClient);
+        adminUtils.cancelInterBrokerReplicaMovements(Arrays.asList(_t0P0, _t0P1, _t0P2));
 
     Assert.assertEquals(expectedSuccessfulCancellations, receivedNumSuccessfulCancellations);
   }
@@ -110,14 +118,14 @@ public class ExecutorAdminUtilsTest {
     response.put(_t0P1, mockTP0Future);
     response.put(_t0P2, mockTP0Future);
     EasyMock.replay(mockTP0Future);
-    AdminClient mockAdminClient = EasyMock.mock(AdminClient.class);
     AlterPartitionReassignmentsResult resultsMock = EasyMock.mock(AlterPartitionReassignmentsResult.class);
     EasyMock.expect(resultsMock.values()).andReturn(response);
     EasyMock.expect(mockAdminClient.alterPartitionReassignments(expectedPartitionCancellations)).andReturn(resultsMock);
     EasyMock.replay(resultsMock, mockAdminClient);
+    ExecutorAdminUtils adminUtils = new ExecutorAdminUtils(mockAdminClient, config());
 
     int receivedNumSuccessfulCancellations =
-        ExecutorAdminUtils.cancelInterBrokerReplicaMovements(Arrays.asList(_t0P0, _t0P1, _t0P2), mockAdminClient);
+        adminUtils.cancelInterBrokerReplicaMovements(Arrays.asList(_t0P0, _t0P1, _t0P2));
 
     Assert.assertEquals(expectedSuccessfulCancellations, receivedNumSuccessfulCancellations);
   }
@@ -126,13 +134,13 @@ public class ExecutorAdminUtilsTest {
   public void testGetReplicasForPartitionReturnsReplicasForPartition()
       throws InterruptedException, ExecutionException, TimeoutException {
     KafkaCruiseControlConfig config = config(10L);
-    AdminClient mockAdminClient = EasyMock.mock(AdminClient.class);
     Map<String, TopicDescription> topicDescriptions = new HashMap<>();
     topicDescriptions.put(TOPIC0, _topic0TopicDescription);
     KafkaCruiseControlUnitTestUtils.mockDescribeTopics(mockAdminClient, _topics, topicDescriptions, 10);
     EasyMock.replay(mockAdminClient);
+    ExecutorAdminUtils adminUtils = new ExecutorAdminUtils(mockAdminClient, config);
 
-    List<Integer> receivedReplicas = ExecutorAdminUtils.getReplicasForPartition(mockAdminClient, _t0P0, config);
+    List<Integer> receivedReplicas = adminUtils.getReplicasForPartition(_t0P0);
     Assert.assertArrayEquals(_nodeIds, receivedReplicas.toArray(new Integer[0]));
   }
 
@@ -140,13 +148,13 @@ public class ExecutorAdminUtilsTest {
   public void testGetReplicasForPartitionReturnsEmptyReplicasForPartitionDuringExceptions()
       throws InterruptedException, ExecutionException, TimeoutException {
     KafkaCruiseControlConfig config = config();
-    AdminClient mockAdminClient = EasyMock.mock(AdminClient.class);
+    ExecutorAdminUtils adminUtils = new ExecutorAdminUtils(mockAdminClient, config);
 
     // 1. Mock #describeTopics() to throw an exception
     EasyMock.expect(mockAdminClient.describeTopics(_topics)).andThrow(new InvalidTopicException());
     EasyMock.replay(mockAdminClient);
 
-    List<Integer> receivedReplicas = ExecutorAdminUtils.getReplicasForPartition(mockAdminClient, _t0P0, config);
+    List<Integer> receivedReplicas = adminUtils.getReplicasForPartition(_t0P0);
     Assert.assertEquals(0, receivedReplicas.size());
 
     EasyMock.reset(mockAdminClient);
@@ -165,7 +173,7 @@ public class ExecutorAdminUtilsTest {
         .andReturn(mockDescribeTopicsResult);
     EasyMock.replay(mockDescribeTopicsResult, mockKafkaFuture, mockAdminClient);
 
-    receivedReplicas = ExecutorAdminUtils.getReplicasForPartition(mockAdminClient, _t0P0, config);
+    receivedReplicas = adminUtils.getReplicasForPartition(_t0P0);
     Assert.assertEquals(0, receivedReplicas.size());
   }
 
@@ -173,15 +181,13 @@ public class ExecutorAdminUtilsTest {
   public void testGetReplicasForPartitionReturnsEmptyReplicasForPartitionIfPartitionNotPresent()
       throws InterruptedException, ExecutionException, TimeoutException {
     KafkaCruiseControlConfig config = config();
-    AdminClient mockAdminClient = EasyMock.mock(AdminClient.class);
+    ExecutorAdminUtils adminUtils = new ExecutorAdminUtils(mockAdminClient, config);
     Map<String, TopicDescription> topicDescriptions = new HashMap<>();
     topicDescriptions.put(TOPIC0, _topic0TopicDescription);
     KafkaCruiseControlUnitTestUtils.mockDescribeTopics(mockAdminClient, _topics, topicDescriptions, _defaultDescribeTopicsTimeoutMs);
     EasyMock.replay(mockAdminClient);
 
-    List<Integer> receivedReplicas = ExecutorAdminUtils.getReplicasForPartition(mockAdminClient,
-                                                                                new TopicPartition(TOPIC0, 101),
-                                                                                config);
+    List<Integer> receivedReplicas = adminUtils.getReplicasForPartition(new TopicPartition(TOPIC0, 101));
     Assert.assertEquals(0, receivedReplicas.size());
   }
 

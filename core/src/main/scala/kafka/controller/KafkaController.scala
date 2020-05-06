@@ -26,6 +26,8 @@ import kafka.cluster.Observer
 import kafka.log.LogConfig
 import kafka.metrics.{KafkaMetricsGroup, KafkaTimer}
 import kafka.server._
+import kafka.server.link.ClusterLinkTopicState
+import kafka.server.link.ClusterLinkTopicState.{FailedMirror, Mirror}
 import kafka.tier.topic.TierTopicManager
 import kafka.utils._
 import kafka.zk.KafkaZkClient.UpdateLeaderAndIsrResult
@@ -818,16 +820,51 @@ class KafkaController(val config: KafkaConfig,
     val partitions = if (updatedPartitions.nonEmpty) updatedPartitions else controllerContext.allPartitions.toSeq
     val leaderIsrAndControllerEpochs = zkClient.getTopicPartitionStates(partitions)
     val linkedLeaderChanges = mutable.Set[TopicPartition]()
+    val failedLinks = mutable.Set[String]()
     leaderIsrAndControllerEpochs.foreach { case (partition, leaderIsrAndControllerEpoch) =>
-      val oldLinkedEpoch = controllerContext.partitionLeadershipInfo.get(partition)
-        .flatMap(_.leaderAndIsr.linkedLeaderEpoch)
-      val newLinkedEpoch = leaderIsrAndControllerEpoch.leaderAndIsr.linkedLeaderEpoch
-      if (oldLinkedEpoch != newLinkedEpoch)
-        linkedLeaderChanges += partition
+      if (leaderIsrAndControllerEpoch.leaderAndIsr.linkFailed) {
+        failedLinks += partition.topic
+      } else {
+        val oldLinkedEpoch = controllerContext.partitionLeadershipInfo.get(partition)
+          .flatMap(_.leaderAndIsr.linkedLeaderEpoch)
+        val newLinkedEpoch = leaderIsrAndControllerEpoch.leaderAndIsr.linkedLeaderEpoch
+        if (oldLinkedEpoch != newLinkedEpoch)
+          linkedLeaderChanges += partition
+      }
       controllerContext.partitionLeadershipInfo.put(partition, leaderIsrAndControllerEpoch)
+    }
+    failedLinks.foreach { topic =>
+      linkedLeaderChanges ++= controllerContext.partitionsForTopic(topic)
+      controllerContext.linkedTopics.get(topic) match {
+        case Some(Mirror(linkName, _)) =>
+          val newState = FailedMirror(linkName)
+          controllerContext.linkedTopics += topic -> newState
+          updateClusterLinkState(topic, newState)
+        case _ =>
+      }
     }
     if (updatedPartitions.nonEmpty && linkedLeaderChanges.nonEmpty)
       updateLeaderEpochAndSendRequest(linkedLeaderChanges.toSeq)
+  }
+
+  private def updateClusterLinkState(topic: String, linkState: ClusterLinkTopicState): Unit = {
+    val topicAssignment = controllerContext.partitionFullReplicaAssignmentForTopic(topic)
+
+    val setDataResponse = zkClient.setTopicAssignmentRaw(
+      topic,
+      controllerContext.topicIds.get(topic),
+      topicAssignment,
+      Some(linkState),
+      controllerContext.epochZkVersion
+    )
+    setDataResponse.resultCode match {
+      case Code.OK =>
+        info(s"Successfully updated cluster link state of topic $topic to $linkState")
+      case Code.NONODE =>
+        throw new IllegalStateException(s"Failed to update cluster link state of topic $topic to " +
+          s"$linkState since the topic was not found")
+      case _ => throw new KafkaException(setDataResponse.resultException.get)
+    }
   }
 
   private def isReassignmentComplete(partition: TopicPartition, assignment: ReplicaAssignment): Boolean = {
@@ -1579,8 +1616,8 @@ class KafkaController(val config: KafkaConfig,
         }
         onNewPartitionCreation(partitionsToBeAdded.keySet)
       }
-      val oldLink = controllerContext.linkedTopics.get(topic).flatMap(_.activeLinkName)
-      val newLink = topicInfo.headOption.flatMap(_.clusterLink).flatMap(_.activeLinkName)
+      val oldLink = controllerContext.linkedTopics.get(topic).map(_.linkName)
+      val newLink = topicInfo.headOption.flatMap(_.clusterLink).map(_.linkName)
       if (oldLink != newLink) {
         newLink match {
           case Some(linkName) =>

@@ -18,7 +18,7 @@ import com.linkedin.kafka.cruisecontrol.executor.ExecutorState;
 import com.linkedin.kafka.cruisecontrol.monitor.LoadMonitor;
 import com.linkedin.kafka.cruisecontrol.monitor.task.LoadMonitorTaskRunner;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
-import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.common.utils.SystemTime;
 import org.apache.kafka.common.utils.Time;
 import org.slf4j.Logger;
@@ -52,7 +52,7 @@ public class AnomalyDetector {
   private static final Logger OPERATION_LOG = LoggerFactory.getLogger(OPERATION_LOGGER);
   private final KafkaCruiseControl _kafkaCruiseControl;
   private final AnomalyNotifier _anomalyNotifier;
-  private final AdminClient _adminClient;
+  private final ConfluentAdmin _adminClient;
   // Detectors
   private final GoalViolationDetector _goalViolationDetector;
   private final BrokerFailureDetector _brokerFailureDetector;
@@ -76,7 +76,7 @@ public class AnomalyDetector {
                          Time time,
                          DataBalancerMetricsRegistry metricRegistry) {
     _anomalies = new LinkedBlockingDeque<>();
-    _adminClient = KafkaCruiseControlUtils.createAdminClient(config.originals());
+    _adminClient = KafkaCruiseControlUtils.createAdmin(config.originals());
     _anomalyDetectionIntervalMs = config.getLong(KafkaCruiseControlConfig.ANOMALY_DETECTION_INTERVAL_MS_CONFIG);
     _anomalyNotifier = config.getConfiguredInstance(KafkaCruiseControlConfig.ANOMALY_NOTIFIER_CLASS_CONFIG,
                                                     AnomalyNotifier.class);
@@ -109,7 +109,7 @@ public class AnomalyDetector {
    * Package private constructor for unit test.
    */
   AnomalyDetector(LinkedBlockingDeque<Anomaly> anomalies,
-                  AdminClient adminClient,
+                  ConfluentAdmin adminClient,
                   long anomalyDetectionIntervalMs,
                   KafkaCruiseControl kafkaCruiseControl,
                   AnomalyNotifier anomalyNotifier,

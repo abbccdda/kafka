@@ -114,6 +114,9 @@ class TestTierTopicDeletion(ProduceConsumeValidateTest, TierSupport):
         self.logger.info("deleting topic " + self.topic)
         self.kafka.delete_topic(self.topic)
 
+        self.remove_log_metrics(self.topic, range(0, self.PARTITIONS))
+        self.restart_jmx_tool()
+
         # bounce brokers after topic delete to trigger partial deletion
         for node in self.kafka.nodes:
             self.bounce_broker(node, hard_bounce_broker)

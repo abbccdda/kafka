@@ -13,7 +13,7 @@ import kafka.log.LogConfig;
 import kafka.server.ConfigType;
 import kafka.zk.AdminZkClient;
 import kafka.zk.KafkaZkClient;
-import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.ConfigEntry;
 import org.apache.kafka.clients.admin.KafkaAdminClient;
@@ -61,7 +61,7 @@ public class ReplicationThrottleHelperTest extends CCKafkaIntegrationTestHarness
   }
 
   private void createTopics() {
-    AdminClient adminClient = KafkaCruiseControlUtils.createAdminClient(Collections.singletonMap(
+    ConfluentAdmin adminClient = KafkaCruiseControlUtils.createAdmin(Collections.singletonMap(
         AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, broker(0).plaintextAddr()));
     try {
       adminClient.createTopics(Arrays.asList(

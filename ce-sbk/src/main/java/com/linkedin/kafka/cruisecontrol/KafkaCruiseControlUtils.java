@@ -25,9 +25,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 import kafka.zk.KafkaZkClient;
-import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AdminClientConfig;
-import org.apache.kafka.clients.admin.DescribeLogDirsResult;
+import org.apache.kafka.clients.admin.ConfluentAdmin;
 import java.util.TimeZone;
 import java.util.stream.Collectors;
 
@@ -221,29 +220,13 @@ public class KafkaCruiseControlUtils {
   }
 
   /**
-   * Describe LogDirs using the given bootstrap servers for the given brokers.
-   *
-   * @param brokers Brokers for which the logDirs will be described.
-   * @param adminClientConfigs Configurations used for the AdminClient.
-   * @return DescribeLogDirsResult using the given bootstrap servers for the given brokers.
-   */
-  public static DescribeLogDirsResult describeLogDirs(Collection<Integer> brokers, Map<String, Object> adminClientConfigs) {
-    AdminClient adminClient = KafkaCruiseControlUtils.createAdminClient(adminClientConfigs);
-    try {
-      return adminClient.describeLogDirs(brokers);
-    } finally {
-      KafkaCruiseControlUtils.closeAdminClientWithTimeout(adminClient);
-    }
-  }
-
-  /**
-   * Create an instance of AdminClient using the given configurations.
+   * Create an instance of ConfluentAdmin using the given configurations.
    *
    * @param adminClientConfigs Configurations used for the AdminClient.
    * @return A new instance of AdminClient.
    */
-  public static AdminClient createAdminClient(Map<String, Object> adminClientConfigs) {
-    return AdminClient.create(filterAdminClientConfigs(adminClientConfigs));
+  public static ConfluentAdmin createAdmin(Map<String, Object> adminClientConfigs) {
+    return ConfluentAdmin.create(filterAdminClientConfigs(adminClientConfigs));
   }
 
   /**
@@ -251,11 +234,11 @@ public class KafkaCruiseControlUtils {
    *
    * @param adminClient AdminClient to be closed
    */
-  public static void closeAdminClientWithTimeout(AdminClient adminClient) {
+  public static void closeAdminClientWithTimeout(ConfluentAdmin adminClient) {
     closeAdminClientWithTimeout(adminClient, ADMIN_CLIENT_CLOSE_TIMEOUT_MS);
   }
 
-  public static void closeAdminClientWithTimeout(AdminClient adminClient, long timeoutMs) {
+  public static void closeAdminClientWithTimeout(ConfluentAdmin adminClient, long timeoutMs) {
     closeClientWithTimeout(adminClient::close, timeoutMs);
   }
 

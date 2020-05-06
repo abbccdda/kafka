@@ -759,6 +759,7 @@ class PartitionTest {
           .setReplicas(replicas)
           .setIsNew(true)
           .setClusterLink(clusterLink.orNull)
+          .setClusterLinkTopicState(clusterLink.map(_ => "mirror").orNull)
       topicIdOpt.foreach { topicId => partitionState.setTopicId(topicId) }
 
       assertTrue("Expected become leader transition to succeed",

@@ -32,7 +32,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 import kafka.zk.KafkaZkClient;
-import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.Node;
@@ -381,7 +381,7 @@ public class MonitorUtils {
    */
   static Map<TopicPartition, Map<Integer, String>> getReplicaPlacementInfo(ClusterModel clusterModel,
                                                                            Cluster cluster,
-                                                                           AdminClient adminClient,
+                                                                           ConfluentAdmin adminClient,
                                                                            KafkaCruiseControlConfig config) {
     Map<TopicPartition, Map<Integer, String>> replicaPlacementInfo = new HashMap<>();
     Map<Integer, KafkaFuture<Map<String, DescribeLogDirsResponse.LogDirInfo>>> logDirsByBrokerId =

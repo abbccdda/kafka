@@ -35,7 +35,7 @@ import kafka.controller.ReplicaAssignment;
 import kafka.log.LogConfig;
 import kafka.zk.AdminZkClient;
 import kafka.zk.KafkaZkClient;
-import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.clients.admin.TopicDescription;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -289,7 +289,7 @@ public class KafkaSampleStore implements SampleStore {
         "EnsureTopicCreated",
         zkSecurityEnabled);
     AdminZkClient adminZkClient = new AdminZkClient(kafkaZkClient);
-    AdminClient adminClient = KafkaCruiseControlUtils.createAdminClient(KafkaCruiseControlUtils.filterAdminClientConfigs(config));
+    ConfluentAdmin adminClient = KafkaCruiseControlUtils.createAdmin(KafkaCruiseControlUtils.filterAdminClientConfigs(config));
     try {
       long partitionSampleWindowMs = (Long) config.get(KafkaCruiseControlConfig.PARTITION_METRICS_WINDOW_MS_CONFIG);
       long brokerSampleWindowMs = (Long) config.get(KafkaCruiseControlConfig.BROKER_METRICS_WINDOW_MS_CONFIG);
@@ -376,13 +376,13 @@ public class KafkaSampleStore implements SampleStore {
    * @return true if the topic exists and false if the topic had to be created.
    */
   private static boolean ensureTopicCreated(KafkaZkClient kafkaZkClient,
-                                         AdminZkClient adminZkClient,
-                                         AdminClient adminClient,
-                                         Set<String> allTopics,
-                                         String topic,
-                                         long retentionMs,
-                                         int replicationFactor,
-                                         int partitionCount) {
+                                            AdminZkClient adminZkClient,
+                                            ConfluentAdmin adminClient,
+                                            Set<String> allTopics,
+                                            String topic,
+                                            long retentionMs,
+                                            int replicationFactor,
+                                            int partitionCount) {
     Properties props = new Properties();
     props.setProperty(LogConfig.RetentionMsProp(), Long.toString(retentionMs));
     props.setProperty(LogConfig.CleanupPolicyProp(), DEFAULT_CLEANUP_POLICY);

@@ -69,7 +69,7 @@ set-tf-bumped-version:
 
 .PHONY: tf-fmt
 tf-fmt:
-	find . -name '*.tf' -not -path "./.semaphore*" -not -path "*.terraform*" | xargs -L1 terraform fmt -check -diff
+	find . -name '*.tf' -not -path "./.semaphore*" -not -path "*.terraform*" | $(XARGS) -L1 terraform fmt -check -diff
 
 $(BIN_PATH)/terraform:
 	@curl -Ssq "https://releases.hashicorp.com/terraform/$(TF_VERSION)/terraform_$(TF_VERSION)_linux_amd64.zip" | sudo zcat > $(BIN_PATH)/terraform ; sudo chmod +x $(BIN_PATH)/terraform

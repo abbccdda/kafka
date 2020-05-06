@@ -121,7 +121,7 @@ class ClusterLinkFetcherManagerTest {
     def resetMock(offsetsPending: Boolean): Unit = {
       reset(partition)
       expect(partition.topicPartition).andReturn(tp).anyTimes()
-      expect(partition.isLinkDestination).andReturn(true).anyTimes()
+      expect(partition.isActiveLinkDestination).andReturn(true).anyTimes()
       expect(partition.linkedLeaderOffsetsPending(offsetsPending)).once()
       replay(partition)
     }
@@ -284,7 +284,7 @@ class ClusterLinkFetcherManagerTest {
                         numEpochUpdates: Int = 0): Unit = {
     reset(partition)
     expect(partition.topicPartition).andReturn(tp).anyTimes()
-    expect(partition.isLinkDestination).andReturn(true).anyTimes()
+    expect(partition.isActiveLinkDestination).andReturn(true).anyTimes()
     expect(partition.getLinkedLeaderEpoch).andReturn(Some(linkedLeaderEpoch)).anyTimes()
     expect(partition.getLeaderEpoch).andReturn(10).anyTimes()
     expect(partition.linkedLeaderOffsetsPending(anyBoolean())).anyTimes()

@@ -50,7 +50,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.stream.Collectors;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
-import org.apache.kafka.common.Node;
 import org.apache.kafka.common.acl.AccessControlEntry;
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclBindingFilter;
@@ -211,12 +210,10 @@ public class MockCentralizedAclTest extends ConfluentServerAuthorizerTest {
 
   private static class MockCentralizedAclProvider extends ConfluentProvider {
 
-    private final String clusterId;
     private final Scope scope;
     private final DefaultAuthCache authCache;
 
     MockCentralizedAclProvider(String clusterId) {
-      this.clusterId = clusterId;
       this.scope = Scope.kafkaClusterScope(clusterId);
       this.authCache = new DefaultAuthCache(RbacRoles.loadDefaultPolicy(), scope);
     }
@@ -224,8 +221,7 @@ public class MockCentralizedAclTest extends ConfluentServerAuthorizerTest {
     @Override
     protected ConfluentAdmin createMdsAdminClient(AuthorizerServerInfo serverInfo,
         Map<String, ?> clientConfigs) {
-      Node node = new Node(serverInfo.brokerId(), "localhost", 9092);
-      KafkaTestUtils.setFinalField(this, ConfluentProvider.class, "authCache", authCache);
+      KafkaTestUtils.setField(this, ConfluentProvider.class, "authCache", authCache);
       return EasyMock.createNiceMock(ConfluentAdmin.class);
     }
 

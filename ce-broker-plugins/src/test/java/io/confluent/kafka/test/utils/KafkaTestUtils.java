@@ -6,7 +6,6 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -214,17 +213,12 @@ public class KafkaTestUtils {
     }
   }
 
-  @SuppressWarnings("unchecked")
-  public static void setFinalField(Object o, Class<?> clazz, String fieldName, Object value)  {
+  public static void setField(Object o, Class<?> clazz, String fieldName, Object value)  {
     try {
       Field field = clazz.getDeclaredField(fieldName);
       field.setAccessible(true);
-      Field modifiersField = Field.class.getDeclaredField("modifiers");
-      modifiersField.setAccessible(true);
-      int modifiers = field.getModifiers();
-      modifiersField.setInt(field, modifiers & ~Modifier.FINAL);
       field.set(o, value);
-    } catch (Exception e) {
+    } catch (ReflectiveOperationException e) {
       throw new RuntimeException(e);
     }
   }

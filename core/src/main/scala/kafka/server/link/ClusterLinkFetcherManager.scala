@@ -5,6 +5,8 @@
 package kafka.server.link
 
 import java.util
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 import kafka.cluster.{BrokerEndPoint, Partition}
 import kafka.server._
@@ -13,15 +15,16 @@ import org.apache.kafka.clients.Metadata.LeaderAndEpoch
 import org.apache.kafka.clients._
 import org.apache.kafka.common.config.SslConfigs
 import org.apache.kafka.common.errors.ReassignmentInProgressException
-import org.apache.kafka.common.message.CreatePartitionsRequestData.CreatePartitionsTopic
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.metrics.stats.{Avg, Max}
+import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.ApiError
 import org.apache.kafka.common.utils.Time
 import org.apache.kafka.common._
+import org.apache.kafka.common.message.CreatePartitionsRequestData.CreatePartitionsTopic
 
 import scala.collection.{Map, Set, mutable}
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 
 /**
@@ -51,7 +54,7 @@ class ClusterLinkFetcherManager(linkName: String,
     clientId = s"ClusterLinkFetcher-$linkName",
     numFetchers = initialConfig.numClusterLinkFetchers) with MetadataListener  {
 
-  private val linkedPartitions = mutable.Map[TopicPartition, PartitionAndState]()
+  private val linkedPartitions = new ConcurrentHashMap[TopicPartition, PartitionAndState]()
   private val unassignedPartitions = mutable.Set[TopicPartition]()
 
   @volatile private var metadata: ClusterLinkMetadata = _
@@ -107,7 +110,7 @@ class ClusterLinkFetcherManager(linkName: String,
     val deletedKeys = currentProps.asScala.filter { case (k, _) => !newProps.containsKey(k) }
 
     if (changeMap.nonEmpty || deletedKeys.nonEmpty) {
-      lock synchronized {
+      val restartMetadata = lock synchronized {
         val updatedKeys = changeMap.keySet ++ deletedKeys.keySet
         info(s"Reconfiguring link $linkName with new configs updated=$updatedKeys newConfig=${newConfig.values}")
         if (SslConfigs.RECONFIGURABLE_CONFIGS.containsAll(updatedKeys.asJava)) {
@@ -117,16 +120,22 @@ class ClusterLinkFetcherManager(linkName: String,
           metadataRefreshThread.clusterLinkClient.reconfigure(newConfigValues)
           fetcherThreadMap.values.map(_.clusterLinkClient).foreach(_.reconfigure(newConfigValues))
           this.clusterLinkConfig = newConfig
+          false
         } else {
           debug(s"Recreating cluster link fetchers with updated configs: $updatedKeys")
           fetcherThreadMap.values.foreach(_.partitionsAndOffsets.keySet.foreach(unassignedPartitions.add))
-          shutdown()
           this.clusterLinkConfig = newConfig
-          initializeMetadata()
-          updateMetadataTopics()
-          metadata.requestUpdate()
-          startup()
+          closeAllFetchers()
+          true
         }
+      }
+      // Restart metadata thread without holding fetcher manager lock since metadata thread
+      // acquires fetcher manager lock to process new metadata
+      if (restartMetadata) {
+        metadataRefreshThread.shutdown()
+        initializeMetadata()
+        updateMetadataTopics()
+        metadataRefreshThread.start()
       }
     } else
       debug("Not reconfiguring fetcher manager since configs haven't changed")
@@ -151,25 +160,63 @@ class ClusterLinkFetcherManager(linkName: String,
 
   override def onNewMetadata(newCluster: Cluster): Unit = {
     val linkedEpochChanges = mutable.Map[Partition, Int]()
+    val failedLinks = mutable.Map[TopicPartition, String]()
     lock synchronized {
       val updatedPartitions = mutable.Set[TopicPartition]()
       debug(s"onNewMetadata linkedPartitions ${linkedPartitions.keySet} unassigned $unassignedPartitions : $newCluster")
-      val partition0Topics = linkedPartitions.keySet.filter(_.partition == 0).map(_.topic).toSet
-      if (partition0Topics.nonEmpty)
-        maybeUpdatePartitionCount(partition0Topics, newCluster)
 
-      linkedPartitions.foreach { case (tp, partitionAndState) =>
+      val updatedPartitionCounts = mutable.Map[String, Int]()
+      linkedPartitions.asScala.filterKeys(_.partition == 0).foreach { case (tp, state) =>
+        val topic = tp.topic
+        try {
+          metadata.maybeThrowExceptionForTopic(topic)
+        } catch {
+          case e: Exception =>
+            debug(s"Metadata error for $topic", e)
+            if (ClusterLinkFetcherThread.LinkErrors.contains(Errors.forException(e)))
+              failedLinks += tp -> e.getMessage
+        }
+        if (!newCluster.topics.contains(topic))
+          failedLinks += tp -> s"Topic $topic not present in metadata"
+
+        val sourcePartitionCount = newCluster.partitionCountForTopic(topic)
+        if (sourcePartitionCount != null) {
+          val destPartitionCount = partitionCount(topic)
+          if (destPartitionCount < sourcePartitionCount) {
+            logger.debug(s"Increasing partitions for linked topic $topic from $destPartitionCount to $sourcePartitionCount")
+            updatedPartitionCounts += topic -> sourcePartitionCount
+          } else if (destPartitionCount > sourcePartitionCount) {
+            val reason = s"Topic $topic has $destPartitionCount destination partitions, but only $sourcePartitionCount source partitions."
+            warn(s"$reason This may be a transient issue or it could indicate that the source partition was" +
+              s" deleted and recreated")
+            failedLinks += new TopicPartition(topic, 0) -> reason
+          }
+        }
+      }
+      if (updatedPartitionCounts.nonEmpty)
+        updatePartitionCount(updatedPartitionCounts, newCluster)
+
+      linkedPartitions.asScala.foreach { case (tp, partitionAndState) =>
         val partition = partitionAndState.partition
         val oldLeaderAndEpoch = partitionAndState.sourceLeaderAndEpoch
         val newLeaderAndEpoch = metadata.currentLeader(tp)
         if (oldLeaderAndEpoch != LeaderAndEpoch.noLeaderOrEpoch() && oldLeaderAndEpoch != newLeaderAndEpoch)
-            updatedPartitions += tp
+          updatedPartitions += tp
         val newEpoch = newLeaderAndEpoch.epoch.orElse(-1)
         val oldEpoch = partition.getLinkedLeaderEpoch.getOrElse(-1)
         if (newEpoch >= 0 && oldEpoch < newEpoch) {
           partition.linkedLeaderOffsetsPending(true)
           updatedPartitions += tp
           linkedEpochChanges += partition -> newEpoch
+        }
+        if (!failedLinks.contains(tp) && newLeaderAndEpoch.leader.isPresent && newEpoch >= 0) {
+          if (oldEpoch > newEpoch) {
+            // Epoch has gone backwards, mark as failure since topic may have been deleted and recreated in source
+            failedLinks += tp -> s"Source epoch has gone backwards from $oldEpoch to $newEpoch"
+          } else if (newEpoch >= oldEpoch && partitionAndState.failureStartMs.get() > 0) {
+            debug(s"Clearing link failure for $tp since newEpoch=$newEpoch is not less than than oldEpoch=$oldEpoch")
+            partitionAndState.clearLinkFailure()
+          }
         }
       }
 
@@ -187,7 +234,10 @@ class ClusterLinkFetcherManager(linkName: String,
     val failedUpdates = linkedEpochChanges.count { case (partition, newEpoch) =>
       !partition.updateLinkedLeaderEpoch(newEpoch)
     }
-    if (failedUpdates > 0)
+    failedLinks.foreach { case (tp, reason) =>
+      onPartitionLinkFailure(tp, retriable = true, reason)
+    }
+    if (failedUpdates > 0 || failedLinks.nonEmpty)
       metadata.requestUpdate()
   }
 
@@ -196,7 +246,7 @@ class ClusterLinkFetcherManager(linkName: String,
     lock synchronized {
       partitions.foreach { partition =>
         partition.linkedLeaderOffsetsPending(true)
-        linkedPartitions += partition.topicPartition -> new PartitionAndState(partition)
+        linkedPartitions.put(partition.topicPartition, new PartitionAndState(partition))
         unassignedPartitions += partition.topicPartition
       }
       updateMetadataTopics()
@@ -209,10 +259,12 @@ class ClusterLinkFetcherManager(linkName: String,
     lock synchronized {
       removeFetcherForPartitions(partitions)
       partitions.foreach { tp =>
-        if (!retainMetadata) {
+        val partitionAndState = linkedPartitions.get(tp)
+        if (!retainMetadata || partitionAndState == null || !partitionAndState.partition.isActiveLinkDestination) {
           unassignedPartitions.remove(tp)
-          val partitionAndState = linkedPartitions.remove(tp)
-          partitionAndState.foreach(_.partition.linkedLeaderOffsetsPending(false))
+          linkedPartitions.remove(tp)
+          if (partitionAndState != null)
+            partitionAndState.partition.linkedLeaderOffsetsPending(false)
         }
       }
       updateMetadataTopics()
@@ -222,7 +274,7 @@ class ClusterLinkFetcherManager(linkName: String,
   }
 
   private def updateMetadataTopics(): Unit = {
-    metadata.setTopics(linkedPartitions.keySet.map(_.topic).toSet)
+    metadata.setTopics(linkedPartitions.keySet.asScala.map(_.topic).toSet)
   }
 
   def isEmpty: Boolean = {
@@ -235,16 +287,43 @@ class ClusterLinkFetcherManager(linkName: String,
 
   private[link] def currentMetadata: ClusterLinkMetadata = metadata
 
+  private[link] def onPartitionLinkFailure(topicPartition: TopicPartition, retriable: Boolean, reason: String): Unit = {
+    debug(s"onPartitionLinkFailure $topicPartition retriable=$retriable reason=$reason")
+    val partitionAndState = linkedPartitions.get(topicPartition)
+    if (partitionAndState != null && partitionAndState.partition.isActiveLinkDestination) {
+      val retryTimeoutMs = if (retriable) clusterLinkConfig.retryTimeoutMs else 0
+      val retryRemainingMs = partitionAndState.onLinkFailure(time.milliseconds, retryTimeoutMs)
+      if (retryRemainingMs <= 0) {
+        error(s"Mirroring of topic ${topicPartition.topic} stopped due to failure of partition $topicPartition : $reason.")
+        if (!partitionAndState.partition.failClusterLink()) {
+          debug("Failed to update failed state, will retry on next failure")
+        }
+      } else {
+        info(s"Cluster link failed due to: $reason, will retry for $retryRemainingMs ms.")
+      }
+    } else
+      debug(s"Ignoring partition link failure since $topicPartition is not an active link destination any more")
+  }
+
+  private[link] def clearPartitionLinkFailure(topicPartition: TopicPartition, reason: String): Unit = {
+    info(s"Clearing cluster link failure for partition $topicPartition due to: $reason")
+    val partitionAndState = linkedPartitions.get(topicPartition)
+    if (partitionAndState != null) {
+      partitionAndState.clearLinkFailure()
+    }
+  }
+
   private[link] def partition(tp: TopicPartition): Option[Partition] = {
-    linkedPartitions.get(tp).map(_.partition)
+    Option(linkedPartitions.get(tp)).map(_.partition)
   }
 
   private def maybeAddLinkedFetchers(): Unit = {
     lock synchronized {
       val assignablePartitions = mutable.Map[TopicPartition, InitialFetchState]()
       unassignedPartitions.foreach { tp =>
-        val partitionAndState = linkedPartitions
-          .getOrElse(tp, throw new IllegalStateException(s"Linked partition not found $tp"))
+        val partitionAndState = linkedPartitions.get(tp)
+        if (partitionAndState == null)
+          throw new IllegalStateException(s"Linked partition not found $tp")
         val partition = partitionAndState.partition
         val leaderAndEpoch = metadata.currentLeader(tp)
         if (leaderAndEpoch.leader.isPresent && leaderAndEpoch.epoch.isPresent) {
@@ -265,53 +344,38 @@ class ClusterLinkFetcherManager(linkName: String,
       addFetcherForPartitions(assignablePartitions)
       assignablePartitions.keySet.foreach(unassignedPartitions.remove)
 
-      if (unassignedPartitions.nonEmpty || linkedPartitions.keySet.exists(failedPartitions.contains)) {
+      if (unassignedPartitions.nonEmpty || linkedPartitions.keySet.asScala.exists(failedPartitions.contains)) {
         debug(s"Request metadata due to unassigned partitions: $unassignedPartitions")
         metadata.requestUpdate()
       }
     }
   }
 
-  private def maybeUpdatePartitionCount(topics: Set[String], cluster: Cluster): Unit = {
-
-    def createPartitionsRequestData(topic: String): Option[CreatePartitionsTopic] = {
-      val sourcePartitionCount = cluster.partitionCountForTopic(topic)
-      val destPartitionCount = partitionCount(topic)
-      if (destPartitionCount < sourcePartitionCount) {
-        logger.debug(s"Increasing partitions for linked topic $topic from $destPartitionCount to $sourcePartitionCount")
-        Some(new CreatePartitionsTopic().setName(topic).setCount(sourcePartitionCount).setAssignments(null))
-      }  else if (destPartitionCount > sourcePartitionCount) {
-        warn(s"Topic $topic has $destPartitionCount destination partitions, but only $sourcePartitionCount" +
-          s" source partitions. This may be a transient issue or it could indicate that the source partition was" +
-          s" deleted and recreated")
-        None
-      } else
-        None
-    }
+  private def updatePartitionCount(topicPartitionCounts: Map[String, Int], cluster: Cluster): Unit = {
 
     def callback(results: Map[String, ApiError]): Unit = {
       val (successful, failed) = results.partition(_._2 == ApiError.NONE)
       if (failed.nonEmpty)
         error(s"Could not update partition counts for $failed")
       if (successful.nonEmpty)
-        debug(s"Updated partition counts for $topics : ${successful.keySet}")
+        debug(s"Updated partition counts for $topicPartitionCounts : ${successful.keySet}")
     }
 
-    val newPartitions = topics.flatMap(createPartitionsRequestData).toSeq
-    if (newPartitions.nonEmpty) {
-      try {
-        adminManager.createPartitions(
-          brokerConfig.requestTimeoutMs,
-          newPartitions,
-          validateOnly = false,
-          brokerConfig.interBrokerListenerName,
-          callback)
-      } catch {
-        case _: ReassignmentInProgressException =>
-          debug(s"Reassignment is in progress, partitions could not be updated for $newPartitions")
-        case e: Throwable =>
-          error(s"Could not update partition counts: $newPartitions", e)
-      }
+    val newPartitions = topicPartitionCounts.map { case (topic, partitionCount) =>
+      new CreatePartitionsTopic().setName(topic).setCount(partitionCount).setAssignments(null)
+    }.toSeq
+    try {
+      adminManager.createPartitions(
+        brokerConfig.requestTimeoutMs,
+        newPartitions,
+        validateOnly = false,
+        brokerConfig.interBrokerListenerName,
+        callback)
+    } catch {
+      case _: ReassignmentInProgressException =>
+        debug(s"Reassignment is in progress, partitions could not be updated for $newPartitions")
+      case e: Throwable =>
+        error(s"Could not update partition counts: $newPartitions", e)
     }
   }
 
@@ -324,4 +388,18 @@ class ClusterLinkFetcherManager(linkName: String,
 
 class PartitionAndState(val partition: Partition) {
   var sourceLeaderAndEpoch: LeaderAndEpoch = LeaderAndEpoch.noLeaderOrEpoch()
+  val failureStartMs = new AtomicLong
+
+  /**
+    * Set failure start time if it has not been set already.
+    * Returns the number of milliseconds left to retry.
+    */
+  def onLinkFailure(now: Long, retryTimeoutMs: Int): Long = {
+    failureStartMs.compareAndSet(0, now)
+    failureStartMs.get + retryTimeoutMs - now
+  }
+
+  def clearLinkFailure(): Unit = {
+    failureStartMs.set(0L)
+  }
 }

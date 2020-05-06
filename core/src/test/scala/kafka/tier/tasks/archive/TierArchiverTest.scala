@@ -17,7 +17,7 @@ import kafka.tier.tasks.TierTasksConfig
 import kafka.tier.topic.TierTopicManager
 import kafka.utils.{MockTime, TestUtils}
 import org.apache.kafka.common.TopicPartition
-import org.junit.Assert.assertEquals
+import org.junit.Assert.{assertEquals, assertTrue}
 import org.junit.Test
 import org.mockito.Mockito.{mock, when}
 import org.mockito.invocation.InvocationOnMock
@@ -27,6 +27,74 @@ import scala.collection.JavaConverters._
 import scala.concurrent.ExecutionContext.Implicits.global
 
 class TierArchiverTest {
+  @Test
+  def testLagCalculationWithReset(): Unit = {
+    val topicPartition = new TopicPartition("mytopic-1", 0)
+    val replicaManager = mock(classOf[ReplicaManager])
+
+    val segment = mock(classOf[LogSegment])
+    when(segment.size).thenReturn(20)
+
+    val log = mock(classOf[AbstractLog])
+    when(replicaManager.getLog(topicPartition)).thenReturn(Some(log))
+
+    when(log.tierableLogSegments).thenReturn(List(segment))
+    when(log.topicPartition).thenReturn(topicPartition)
+
+    val tierPartitionState = mock(classOf[TierPartitionState])
+    when(tierPartitionState.isTieringEnabled).thenReturn(true)
+    when(tierPartitionState.status).thenReturn(TierPartitionStatus.ONLINE)
+    when(log.tierPartitionState).thenReturn(tierPartitionState)
+
+    val partition = mock(classOf[Partition])
+    when(partition.log).thenReturn(Some(log))
+
+    when(replicaManager.leaderPartitionsIterator).thenAnswer(new Answer[Iterator[Partition]] {
+      override def answer(invocation: InvocationOnMock): Iterator[Partition] = {
+        List(partition).iterator
+      }
+    })
+    val config = TierTasksConfig(numThreads = 2)
+    TestUtils.clearYammerMetrics()
+    val archiver = new TierArchiver(
+      config,
+      replicaManager,
+      mock(classOf[TierTopicManager]),
+      mock(classOf[TierObjectStore]),
+      CancellationContext.newContext(),
+      config.numThreads,
+      new MockTime())
+
+    def checkLag(expectedLag: Int) = {
+      val laggingPartitions = archiver.partitionLagInfo
+      val expectedPartitions = if (expectedLag > 0) 1 else 0
+      assertEquals(expectedPartitions, laggingPartitions.size)
+      if (laggingPartitions.size == 1) {
+        assertEquals(
+          (topicPartition, TierPartitionStatus.ONLINE, expectedLag), laggingPartitions(0))
+      }
+
+      archiver.logPartitionLagInfo()
+
+      assertEquals(expectedLag, metricValue[Long]("TotalLag"))
+      assertEquals(expectedLag, metricValue[Long]("TotalLagWithoutErrorPartitions"))
+      assertEquals(expectedLag, metricValue[Long]("PartitionLagMaxValue"))
+      assertEquals(expectedPartitions, metricValue[Int]("LaggingPartitionsCount"))
+    }
+
+    // 1. First call to logPartitionLagInfo() should log the lagging partition.
+    checkLag(20)
+
+    // 2. Second call to logPartitionLagInfo() should reset metrics to 0, since, the partition is
+    // not lagging now.
+    when(replicaManager.leaderPartitionsIterator).thenAnswer(new Answer[Iterator[Partition]] {
+      override def answer(invocation: InvocationOnMock): Iterator[Partition] = {
+        List().iterator
+      }
+    })
+    checkLag(0)
+  }
+
   @Test
   def testLagCalculation(): Unit = {
     val replicaManager = mock(classOf[ReplicaManager])
@@ -94,7 +162,6 @@ class TierArchiverTest {
 
     val laggingPartitions = archiver.partitionLagInfo
     assertEquals(6, laggingPartitions.size)
-    println(laggingPartitions)
     assertEquals((partition6, TierPartitionStatus.ERROR, 120), laggingPartitions(0))
     assertEquals((partition3, TierPartitionStatus.ONLINE, 120), laggingPartitions(1))
     assertEquals((partition1, TierPartitionStatus.ONLINE, 80), laggingPartitions(2))

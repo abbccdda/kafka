@@ -462,7 +462,7 @@ public class ConfluentProviderTest {
       @Override
       public void configure(Map<String, ?> configs) {
         super.configure(configs);
-        KafkaTestUtils.setFinalField(rbacProvider, ConfluentProvider.class, "authCache", authCache);
+        KafkaTestUtils.setField(rbacProvider, ConfluentProvider.class, "authCache", authCache);
       }
 
       @Override

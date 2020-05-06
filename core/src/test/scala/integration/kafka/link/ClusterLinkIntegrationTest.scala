@@ -1,19 +1,6 @@
-/**
-  * Licensed to the Apache Software Foundation (ASF) under one or more
-  * contributor license agreements.  See the NOTICE file distributed with
-  * this work for additional information regarding copyright ownership.
-  * The ASF licenses this file to You under the Apache License, Version 2.0
-  * (the "License"); you may not use this file except in compliance with
-  * the License.  You may obtain a copy of the License at
-  *
-  * http://www.apache.org/licenses/LICENSE-2.0
-  *
-  * Unless required by applicable law or agreed to in writing, software
-  * distributed under the License is distributed on an "AS IS" BASIS,
-  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-  * See the License for the specific language governing permissions and
-  * limitations under the License.
-  */
+/*
+ * Copyright 2020 Confluent Inc.
+ */
 package integration.kafka.link
 
 import java.io.File
@@ -26,7 +13,7 @@ import java.util.{Collections, Properties}
 import kafka.api.{IntegrationTestHarness, KafkaSasl, SaslSetup}
 import kafka.controller.ReplicaAssignment
 import kafka.server.{KafkaConfig, KafkaServer}
-import kafka.server.link.ClusterLinkTopicState
+import kafka.server.link.{ClusterLinkConfig, ClusterLinkTopicState}
 import kafka.utils.Implicits._
 import kafka.utils.{JaasTestUtils, Logging, TestUtils}
 import kafka.zk.ConfigEntityChangeNotificationZNode
@@ -35,10 +22,10 @@ import org.apache.kafka.clients.admin.NewPartitions
 import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer}
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, ProducerRecord}
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.config.{SaslConfigs, SslConfigs}
+import org.apache.kafka.common.config.{ConfigResource, SaslConfigs, SslConfigs, TopicConfig}
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.security.scram.ScramCredential
-import org.junit.Assert.{assertEquals, assertTrue}
+import org.junit.Assert.{assertEquals, assertNotEquals, assertTrue}
 import org.junit.{After, Before, Test}
 
 import scala.collection.JavaConverters._
@@ -280,7 +267,44 @@ class ClusterLinkIntegrationTest extends Logging {
     destCluster.alterClusterLink(linkName, Map(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG -> newFile.getAbsolutePath))
     produceToSourceCluster(8)
     waitForMirror(topic)
+    verifyMirror(topic)
+  }
 
+  @Test
+  def testSourceTopicDelete(): Unit = {
+    val numRecords = 10
+    sourceCluster.createTopic(topic, numPartitions, replicationFactor = 2)
+    destCluster.createClusterLink(linkName, sourceCluster, retryTimeoutMs = 10000)
+    destCluster.linkTopic(topic, numPartitions, linkName)
+
+    produceToSourceCluster(numRecords)
+    waitForMirror(topic)
+    assertTrue(destCluster.topicLinkState(topic).shouldSync)
+    sourceCluster.createAdminClient().deleteTopics(Collections.singleton(topic)).all()
+      .get(20, TimeUnit.SECONDS)
+    TestUtils.waitUntilTrue(() => !destCluster.topicLinkState(topic).shouldSync,
+      "Source topic deletion not propagated", waitTimeMs = 20000)
+
+    val topicProps = new Properties
+    topicProps.put(TopicConfig.MAX_MESSAGE_BYTES_CONFIG, "100000")
+    sourceCluster.createTopic(topic, 1, replicationFactor = 2, topicProps)
+    produceToSourceCluster(numRecords)
+    truncate(producedRecords, numRecords)
+
+    // Verify that partitions and configs of new source topic are not sync'ed
+    val destAdmin = destCluster.createAdminClient()
+    val topicDescription = destAdmin.describeTopics(Collections.singleton(topic))
+      .values().get(topic)
+      .get(20, TimeUnit.SECONDS)
+    assertEquals(numPartitions, topicDescription.partitions().size())
+
+    val topicResource = new ConfigResource(ConfigResource.Type.TOPIC, topic)
+    val topicConfigs = destAdmin.describeConfigs(Collections.singleton(topicResource))
+      .values().get(topicResource)
+      .get(20, TimeUnit.SECONDS)
+    val maxMessageSize = topicConfigs.entries().asScala.find(entry => entry.name == TopicConfig.MAX_MESSAGE_BYTES_CONFIG)
+    assertTrue(maxMessageSize.nonEmpty)
+    assertNotEquals("100000", maxMessageSize.get.value)
     verifyMirror(topic)
   }
 
@@ -319,6 +343,8 @@ class ClusterLinkIntegrationTest extends Logging {
   }
 
   def produceRecords(producer: KafkaProducer[Array[Byte], Array[Byte]], topic: String, numRecords: Int): Unit = {
+    val numPartitions = producer.partitionsFor(topic).size()
+    assertTrue(s"Invalid partition count $numPartitions", numPartitions > 0)
     val futures = (0 until numRecords).map { _ =>
       val index = nextProduceIndex
       nextProduceIndex += 1
@@ -394,7 +420,10 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
     maybeShutdownProducer()
   }
 
-  def createClusterLink(linkName: String, sourceCluster: ClusterLinkTestHarness, metadataMaxAgeMs: Long = 60000L): Unit = {
+  def createClusterLink(linkName: String,
+                        sourceCluster: ClusterLinkTestHarness,
+                        metadataMaxAgeMs: Long = 60000L,
+                        retryTimeoutMs: Long = 30000L): Unit = {
     val userName = s"user-$linkName"
     val password = s"secret-$linkName"
     val linkJaasConfig = "org.apache.kafka.common.security.scram.ScramLoginModule required username=\"%s\" password=\"%s\";"
@@ -404,6 +433,7 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
     val props = new Properties
     props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, sourceCluster.brokerList)
     props.put(CommonClientConfigs.METADATA_MAX_AGE_CONFIG, metadataMaxAgeMs.toString)
+    props.put(ClusterLinkConfig.RetryTimeoutMsProp, retryTimeoutMs.toString)
     props ++= sourceCluster.clientSecurityProps(linkName)
     props.put(SaslConfigs.SASL_JAAS_CONFIG, linkJaasConfig)
     clusterLinks += linkName -> props
@@ -464,6 +494,12 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
         server.clusterLinkManager.fetcherManager(linkName).forall(_.isEmpty),
         s"Linked fetchers not stopped for $linkName on broker ${server.config.brokerId}")
     }
+  }
+
+  def topicLinkState(topic: String): ClusterLinkTopicState = {
+    val topicLinkOpt = zkClient.getReplicaAssignmentAndTopicIdForTopics(Set(topic)).head.clusterLink
+    assertTrue("Cluster link not found", topicLinkOpt.nonEmpty)
+    topicLinkOpt.get
   }
 
   def createLinkCredentials(userName: String, password: String): Unit = {

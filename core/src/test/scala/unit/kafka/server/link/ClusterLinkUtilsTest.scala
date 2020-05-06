@@ -194,7 +194,7 @@ class ClusterLinkUtilsTest {
       configs, validateOnly = false, Some(future))
     assertEquals(expectedConfigs, result2.configs)
     assertTrue(result2.topicState.get.isInstanceOf[ClusterLinkTopicState.Mirror])
-    assertEquals(Some("link-name"), result2.topicState.get.activeLinkName)
+    assertEquals("link-name", result2.topicState.get.linkName)
     assertEquals(3, result2.numPartitions)
   }
 

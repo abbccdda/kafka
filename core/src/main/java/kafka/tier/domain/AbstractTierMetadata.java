@@ -17,7 +17,6 @@ import kafka.tier.serdes.SegmentDeleteComplete;
 import kafka.tier.serdes.SegmentDeleteInitiate;
 import kafka.tier.serdes.SegmentUploadComplete;
 import kafka.tier.serdes.SegmentUploadInitiate;
-import kafka.tier.state.OffsetAndEpoch;
 import kafka.utils.CoreUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -80,11 +79,6 @@ public abstract class AbstractTierMetadata {
                 new UUID(tierKey.topicId().mostSignificantBits(),
                         tierKey.topicId().leastSignificantBits()),
                 tierKey.partition());
-    }
-
-    public static OffsetAndEpoch offsetAndEpoch(kafka.tier.serdes.OffsetAndEpoch offsetAndEpoch) {
-         return new OffsetAndEpoch(offsetAndEpoch.offset(),
-                 offsetAndEpoch.epoch() == -1 ? Optional.empty() : Optional.of(offsetAndEpoch.epoch()));
     }
 
     /**

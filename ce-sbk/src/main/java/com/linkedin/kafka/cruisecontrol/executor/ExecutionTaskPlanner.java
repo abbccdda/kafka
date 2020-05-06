@@ -23,7 +23,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
-import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.Node;
@@ -64,7 +64,7 @@ public class ExecutionTaskPlanner {
   private final Map<Long, ExecutionTask> _remainingLeadershipMovements;
   private long _executionId;
   private ReplicaMovementStrategy _defaultReplicaMovementTaskStrategy;
-  private final AdminClient _adminClient;
+  private final ConfluentAdmin _adminClient;
   private final KafkaCruiseControlConfig _config;
 
   /**
@@ -73,7 +73,7 @@ public class ExecutionTaskPlanner {
    * @param defaultReplicaMovementStrategies  List of replica movement strategies.
    * @param config The config object that holds all the Cruise Control related configs.
    */
-  public ExecutionTaskPlanner(AdminClient adminClient, List<String> defaultReplicaMovementStrategies,
+  public ExecutionTaskPlanner(ConfluentAdmin adminClient, List<String> defaultReplicaMovementStrategies,
                               KafkaCruiseControlConfig config) {
     _executionId = 0L;
     _interPartMoveTaskByBrokerId = new HashMap<>();

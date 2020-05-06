@@ -49,7 +49,6 @@ class ClusterLinkTopicStateTest {
     val data = result.asInstanceOf[ClusterLinkTopicState.Mirror]
     assertEquals(linkName, data.linkName)
     assertEquals(timeMs, data.timeMs)
-    assertEquals(Some(linkName), data.activeLinkName)
   }
 
   @Test(expected = classOf[IllegalStateException])

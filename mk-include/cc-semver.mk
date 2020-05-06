@@ -14,9 +14,16 @@ else
 DEFAULT_BUMP ?= patch
 endif
 
+# Enable tacking on a timestamp to the versions.
+TS ?=
+
 VERSION := $(shell git rev-parse --is-inside-work-tree > /dev/null && git describe --tags --always --dirty)
 ifneq (,$(findstring dirty,$(VERSION)))
+ifeq ($(TS),)
 VERSION := $(VERSION)-$(USER)
+else
+VERSION := $(VERSION)-$(USER)-$(shell date +%s)
+endif
 endif
 CLEAN_VERSION := $(shell echo $(VERSION) | grep -Eo '([0-9]+\.){2}[0-9]+')
 VERSION_NO_V := $(shell echo $(VERSION) | sed 's,^v,,' )

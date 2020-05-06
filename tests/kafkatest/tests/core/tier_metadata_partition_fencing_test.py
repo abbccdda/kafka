@@ -191,9 +191,13 @@ class TierMetadataPartitionFencingTest(ProduceConsumeValidateTest, TierSupport):
 
         # 6. Verify that the topic can be deleted, despite a partition being fenced
         self.kafka.delete_topic(self.topic)
+
         wait_until(lambda: self.check_topic_deleted(),
                    timeout_sec=180, backoff_sec=2, err_msg="topic %s was not fully deleted" % self.topic)
 
-        # 7. Verify that the objects in the object store have been deleted.
-        self.object_deletions_completed(backend)
+        # 7. Remove log metrics as the topic has been deleted
+        self.remove_log_metrics(self.topic, range(0, self.PARTITION_COUNT))
+        self.restart_jmx_tool()
 
+        # 8. Verify that the objects in the object store have been deleted.
+        self.object_deletions_completed(backend)

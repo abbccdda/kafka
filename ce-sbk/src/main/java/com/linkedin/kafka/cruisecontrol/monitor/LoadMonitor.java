@@ -51,7 +51,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import com.linkedin.kafka.cruisecontrol.servlet.response.stats.SingleBrokerStats;
 import com.yammer.metrics.core.TimerContext;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
-import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartition;
@@ -85,7 +85,7 @@ public class LoadMonitor {
   private final Semaphore _clusterModelSemaphore;
   private final KafkaCruiseControlConfig _config;
   private final MetadataClient _metadataClient;
-  private final AdminClient _adminClient;
+  private final ConfluentAdmin _adminClient;
   private final BrokerCapacityConfigResolver _brokerCapacityConfigResolver;
   private final TopicConfigProvider _topicConfigProvider;
   private final ScheduledExecutorService _loadMonitorExecutor;
@@ -124,7 +124,7 @@ public class LoadMonitor {
                      MetricDef metricDef) {
     this(config,
          new MetadataClient(config, METADATA_TTL, time),
-         KafkaCruiseControlUtils.createAdminClient(config.originals()),
+         KafkaCruiseControlUtils.createAdmin(config.originals()),
          time,
          metricRegistry,
          metricDef);
@@ -135,7 +135,7 @@ public class LoadMonitor {
    */
   LoadMonitor(KafkaCruiseControlConfig config,
               MetadataClient metadataClient,
-              AdminClient adminClient,
+              ConfluentAdmin adminClient,
               Time time,
               DataBalancerMetricsRegistry metricRegistry,
               MetricDef metricDef) {
