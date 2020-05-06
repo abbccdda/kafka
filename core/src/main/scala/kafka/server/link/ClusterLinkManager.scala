@@ -66,7 +66,7 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
     * broker start up and to update existing cluster links when config update notifications
     * are processed. All updates are expected to be processed on a single thread.
     */
-  def addOrUpdateClusterLink(linkName: String, configs: Properties): Unit = {
+  def processClusterLinkChanges(linkName: String, configs: Properties): Unit = {
     if (!brokerConfig.clusterLinkEnable) {
       error(s"Cluster link $linkName not updated since cluster links are not enabled")
     } else {
@@ -74,8 +74,13 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
         val linkManager = managers.get(linkName)
         if (linkManager.isEmpty) {
           addClusterLink(linkName, configs)
+          linkManager
+        } else if (configs.isEmpty) {
+          removeClusterLink(linkName)
+          None
+        } else {
+          linkManager
         }
-        linkManager
       }
       existingManager.foreach(manager => reconfigureClusterLink(manager, configs))
     }

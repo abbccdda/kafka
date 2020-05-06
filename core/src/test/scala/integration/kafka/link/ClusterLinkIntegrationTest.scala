@@ -6,6 +6,7 @@ package integration.kafka.link
 import java.io.File
 import java.nio.file.{Files, StandardCopyOption}
 import java.time.Duration
+import java.util
 import java.util.concurrent.TimeUnit
 import java.util.{Collections, Properties}
 
@@ -21,7 +22,8 @@ import org.apache.kafka.clients.admin.NewPartitions
 import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer}
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, ProducerRecord}
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.config.{ConfigResource, SaslConfigs, SslConfigs, TopicConfig}
+import org.apache.kafka.common.config.{ConfigDef, ConfigResource, SaslConfigs, SslConfigs, TopicConfig}
+import org.apache.kafka.common.requests.NewClusterLink
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.security.scram.ScramCredential
 import org.junit.Assert.{assertEquals, assertNotEquals, assertTrue}
@@ -66,6 +68,8 @@ class ClusterLinkIntegrationTest extends Logging {
     consume(sourceCluster, topic)
 
     verifyMirror(topic)
+
+    destCluster.deleteClusterLink(linkName)
   }
 
   /**
@@ -147,7 +151,7 @@ class ClusterLinkIntegrationTest extends Logging {
     // Trigger unclean leader election in the destination cluster. No truncation is expected.
     // Produce records and ensure that all records are replicated in destination leader and follower
     val (leader2, _) = destCluster.shutdownLeader(tp)
-    destCluster.startBroker(leader1, Some(linkName))
+    destCluster.startBroker(leader1)
     produceToSourceCluster(2)
     waitForMirror(topic, servers = destCluster.servers.filter(_ != destCluster.servers(leader2)))
     destCluster.servers(leader2).startup()
@@ -199,12 +203,12 @@ class ClusterLinkIntegrationTest extends Logging {
     sourceCluster.startBroker(sourceBroker1)
 
     // Startup destBroker1 so that destBroker1 with no records becomes the new leader
-    destCluster.startBroker(destBroker1, Some(linkName))
+    destCluster.startBroker(destBroker1)
     val newLeader = TestUtils.waitUntilLeaderIsElectedOrChanged(destCluster.zkClient, topic, 0, oldLeaderOpt = Some(destBroker2))
     assertEquals(destBroker1, newLeader)
 
     // Restart destBroker2 which was ahead of destBroker1 and verify the mirrored records on leader and follower
-    destCluster.startBroker(destBroker2, Some(linkName))
+    destCluster.startBroker(destBroker2)
     produceToSourceCluster(100)
     verifyMirror(topic)
   }
@@ -435,35 +439,48 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
     props.put(ClusterLinkConfig.RetryTimeoutMsProp, retryTimeoutMs.toString)
     props ++= sourceCluster.clientSecurityProps(linkName)
     props.put(SaslConfigs.SASL_JAAS_CONFIG, linkJaasConfig)
-    clusterLinks += linkName -> props
+    val linkConfigs = ConfigDef.convertToStringMapWithPasswordValues(props.asInstanceOf[util.Map[String, _]])
+
+    val newLink = new NewClusterLink(linkName, null, linkConfigs)
+    servers.head.clusterLinkManager.admin.createClusterLink(
+      newLink,
+      validateLink = false,
+      validateOnly = false,
+      timeoutMs = 10000
+    ).get(15, TimeUnit.SECONDS)
 
     servers.foreach { server =>
-     addClusterLink(server, linkName)
+      TestUtils.waitUntilTrue(() =>
+        server.clusterLinkManager.fetcherManager(linkName).nonEmpty,
+        s"Linked fetcher not created for $linkName on broker ${server.config.brokerId}")
     }
+    val linkProps = new Properties
+    linkProps ++= linkConfigs.asScala
+    clusterLinks += linkName -> linkProps
   }
 
   def deleteClusterLink(linkName: String): Unit = {
+    servers.head.clusterLinkManager.admin.deleteClusterLink(linkName, validateOnly = false, force = false)
     servers.foreach { server =>
-      server.clusterLinkManager.removeClusterLink(linkName)
+      TestUtils.waitUntilTrue(() =>
+        server.clusterLinkManager.fetcherManager(linkName).isEmpty,
+        s"Linked fetcher not deleted for $linkName on broker ${server.config.brokerId}")
     }
     clusterLinks.remove(linkName)
   }
 
-  def addClusterLink(server: KafkaServer, linkName: String): Unit = {
-    server.clusterLinkManager.addClusterLink(linkName, clusterLinks(linkName))
-  }
-
   def alterClusterLink(linkName: String, updatedConfigs: Map[String, String]): Unit = {
-    val newConfigs = linkConfigs(linkName, updatedConfigs)
+    val newProps = new Properties()
+    newProps ++= clusterLinks(linkName)
+    newProps ++= updatedConfigs
+    adminZkClient.changeClusterLinkConfig(linkName, newProps)
+    clusterLinks.put(linkName, newProps)
     servers.foreach { server =>
-      server.clusterLinkManager.addOrUpdateClusterLink(linkName, newConfigs)
-
-      val config = server.clusterLinkManager.fetcherManager(linkName).get.currentConfig
-      updatedConfigs.foreach { case (name, value) =>
-        assertEquals(s"Unexpected value for $name", value, config.originals.get(name))
-      }
+      TestUtils.waitUntilTrue(() => {
+        val config = server.clusterLinkManager.fetcherManager(linkName).get.currentConfig
+        updatedConfigs.forall { case (name, value) => config.originals.get(name) == value }
+      }, s"Linked fetcher configs not updated for $linkName on broker ${server.config.brokerId}")
     }
-    clusterLinks.put(linkName, newConfigs)
   }
 
   def linkTopic(topic: String, numPartitions: Int, linkName: String): Unit = {
@@ -558,16 +575,8 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
       oldProducer.close(Duration.ZERO)
   }
 
-  def startBroker(brokerId: Int, clusterLink: Option[String] = None): Unit = {
+  def startBroker(brokerId: Int): Unit = {
     servers(brokerId).startup()
-    clusterLink.foreach { linkName => addClusterLink(servers(brokerId), linkName) }
     updateBootstrapServers()
-  }
-
-  private def linkConfigs(linkName: String, updatedProps: Map[String, String]): Properties = {
-    val props = new Properties
-    props ++= clusterLinks(linkName)
-    updatedProps.foreach { case (k, v) => props.setProperty(k, v) }
-    props
   }
 }

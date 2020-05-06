@@ -246,7 +246,7 @@ class BrokerConfigHandler(private val brokerConfig: KafkaConfig,
  */
 class ClusterLinkConfigHandler(private val clusterLinkManager: ClusterLinkManager) extends ConfigHandler with Logging {
   def processConfigChanges(linkName: String, value: Properties): Unit = {
-    clusterLinkManager.addOrUpdateClusterLink(linkName, value)
+    clusterLinkManager.processClusterLinkChanges(linkName, value)
   }
 }
 

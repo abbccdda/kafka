@@ -136,7 +136,7 @@ class ClusterLinkManagerTest {
 
     val newProps = new Properties
     newProps.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "localhost:5678")
-    clusterLinkManager.addOrUpdateClusterLink(linkName, newProps)
+    clusterLinkManager.processClusterLinkChanges(linkName, newProps)
     assertEquals(Collections.singletonList("localhost:5678"), fetcherManager.currentConfig.bootstrapServers)
   }
 
@@ -155,7 +155,7 @@ class ClusterLinkManagerTest {
 
     // Verify that cluster links in ZK created when cluster links were enabled don't
     // throw exceptions and don't create link managers.
-    clusterLinkManager.addOrUpdateClusterLink(linkName, new Properties)
+    clusterLinkManager.processClusterLinkChanges(linkName, new Properties)
     assertFalse("Unexpected cluster link", clusterLinkManager.hasLink(linkName))
 
     // Verify that partitions with cluster links don't throw exceptions when cluster links are disabled

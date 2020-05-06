@@ -115,8 +115,8 @@ class ClusterLinkFetcherManager(linkName: String,
         info(s"Reconfiguring link $linkName with new configs updated=$updatedKeys newConfig=${newConfig.values}")
         if (SslConfigs.RECONFIGURABLE_CONFIGS.containsAll(updatedKeys.asJava)) {
           debug(s"Reconfiguring cluster link fetchers with updated configs: $updatedKeys")
-          metadataRefreshThread.clusterLinkClient.validateReconfiguration(newProps)
           val newConfigValues = newConfig.values
+          metadataRefreshThread.clusterLinkClient.validateReconfiguration(newConfigValues)
           metadataRefreshThread.clusterLinkClient.reconfigure(newConfigValues)
           fetcherThreadMap.values.map(_.clusterLinkClient).foreach(_.reconfigure(newConfigValues))
           this.clusterLinkConfig = newConfig

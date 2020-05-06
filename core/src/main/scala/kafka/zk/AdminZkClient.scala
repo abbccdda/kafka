@@ -453,6 +453,14 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
     zkClient.createConfigChangeNotification(sanitizedEntityPath)
   }
 
+  private def deleteEntityConfig(rootEntityType: String, fullSanitizedEntityName: String): Unit = {
+    val sanitizedEntityPath = rootEntityType + '/' + fullSanitizedEntityName
+    zkClient.deleteEntityConfig(rootEntityType, fullSanitizedEntityName)
+
+    // create the change notification
+    zkClient.createConfigChangeNotification(sanitizedEntityPath)
+  }
+
   /**
    * Read the entity (topic, broker, client, user or <user, client>) config (if any) from zk
    * sanitizedEntityName is <topic>, <broker>, <client-id>, <user>, <user>/clients/<client-id>, or <cluster-link>.
@@ -525,14 +533,14 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
     if (zkClient.clusterLinkExists(linkName))
       throw new ClusterLinkExistsException(s"Cluster link with name '$linkName' already exists.")
     info(s"Creating cluster link '$linkName' with configuration '$config'")
-    zkClient.setOrCreateEntityConfigs(ConfigType.ClusterLink, linkName, config)
+    changeEntityConfig(ConfigType.ClusterLink, linkName, config)
     zkClient.createClusterLink(linkName, linkId, clusterId)
   }
 
   /**
     * Retrieves the requested cluster link's data.
     *
-    * @param the link name to retrieve
+    * @param linkName the link name to retrieve
     * @return the corresponding cluster link data, or none if it doesn't exist
     */
   def getClusterLink(linkName: String): Option[ClusterLinkData] =
@@ -565,7 +573,7 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
       throw new ClusterLinkNotFoundException(s"Cluster link with name '$linkName' doesn't exist.")
     info(s"Deleting cluster link '$linkName'")
     zkClient.deleteClusterLink(linkName)
-    zkClient.deleteEntityConfig(ConfigType.ClusterLink, linkName)
+    deleteEntityConfig(ConfigType.ClusterLink, linkName)
   }
 
 }
