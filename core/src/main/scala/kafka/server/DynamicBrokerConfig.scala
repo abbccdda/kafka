@@ -1009,7 +1009,7 @@ class DynamicBalancerConfig(server: KafkaServer) extends BrokerReconfigurable {
   override def validateReconfiguration(newConfig: KafkaConfig): Unit = { }
 
   override def reconfigure(oldConfig: KafkaConfig, newConfig: KafkaConfig): Unit = {
-    server.kafkaController.dataBalancer.map{ _.updateConfig(newConfig) }
+    server.kafkaController.dataBalancer.map{ _.updateConfig(oldConfig, newConfig) }
   }
 }
 

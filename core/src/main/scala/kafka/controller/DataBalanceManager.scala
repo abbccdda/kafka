@@ -25,7 +25,7 @@ trait DataBalanceManager {
 
   def shutdown() : Unit
 
-  def updateConfig(newConfig: KafkaConfig): Unit
+  def updateConfig(oldConfig: KafkaConfig, newConfig: KafkaConfig): Unit
 }
 
 object DataBalanceManager {

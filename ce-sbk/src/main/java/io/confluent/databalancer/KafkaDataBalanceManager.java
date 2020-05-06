@@ -136,9 +136,8 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
      * Updates the internal cruiseControl configuration based on dynamic property updates in the broker's KafkaConfig
      */
     @Override
-    public synchronized void updateConfig(KafkaConfig newConfig) {
+    public synchronized void updateConfig(KafkaConfig oldConfig, KafkaConfig newConfig) {
         // Commit all changes first, but keep the original for deciding what to do
-        KafkaConfig oldConfig = kafkaConfig;
         kafkaConfig = newConfig;
 
         // The most important change is enable<->disable

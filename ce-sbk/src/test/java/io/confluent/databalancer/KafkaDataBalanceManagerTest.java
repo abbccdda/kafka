@@ -71,15 +71,15 @@ public class KafkaDataBalanceManagerTest {
         // Instantiate the Active DBE
         dataBalancer.onElection();
 
-        dataBalancer.updateConfig(updatedConfig);
+        dataBalancer.updateConfig(initConfig, updatedConfig);
         verify(mockActiveDataBalanceEngine).onDeactivation();
 
         // Now check to see that it handles the state change properly
         Mockito.reset(mockActiveDataBalanceEngine);
-        dataBalancer.updateConfig(initConfig);
+        dataBalancer.updateConfig(updatedConfig, initConfig);
         verify(mockActiveDataBalanceEngine).onActivation(initConfig);
 
-        dataBalancer.updateConfig(initConfig);
+        dataBalancer.updateConfig(initConfig, initConfig);
         verifyNoMoreInteractions(mockActiveDataBalanceEngine);
         // Since it's been active this whole time, the inactive DBE should never have been called
         verify(mockInactiveDataBalanceEngine, never()).onActivation(any(KafkaConfig.class));
@@ -95,15 +95,15 @@ public class KafkaDataBalanceManagerTest {
         updatedConfig = new KafkaConfig(brokerProps);
         dataBalancer = new KafkaDataBalanceManager(initConfig, mockDataBalanceEngineFactory, mockDbMetrics);
 
-        dataBalancer.updateConfig(updatedConfig);
+        dataBalancer.updateConfig(initConfig, updatedConfig);
         verify(mockInactiveDataBalanceEngine).onDeactivation();
 
         // Now check to see that it handles the state change properly
         Mockito.reset(mockActiveDataBalanceEngine);
-        dataBalancer.updateConfig(initConfig);
+        dataBalancer.updateConfig(updatedConfig, initConfig);
         verify(mockInactiveDataBalanceEngine).onActivation(initConfig);
 
-        dataBalancer.updateConfig(initConfig);
+        dataBalancer.updateConfig(initConfig, initConfig);
         verifyNoMoreInteractions(mockActiveDataBalanceEngine);
         
         // Since it's been inactive this whole time, the active DBE should never have been called
@@ -122,13 +122,13 @@ public class KafkaDataBalanceManagerTest {
         dataBalancer.onElection();
         verify(mockActiveDataBalanceEngine).onActivation(initConfig);
 
-        dataBalancer.updateConfig(updatedConfig);
+        dataBalancer.updateConfig(initConfig, updatedConfig);
         verify(mockActiveDataBalanceEngine).updateThrottle(100L);
 
-        dataBalancer.updateConfig(initConfig);
+        dataBalancer.updateConfig(updatedConfig, initConfig);
         verify(mockActiveDataBalanceEngine).updateThrottle(200L);
 
-        dataBalancer.updateConfig(initConfig);
+        dataBalancer.updateConfig(initConfig, initConfig);
         verifyNoMoreInteractions(mockActiveDataBalanceEngine);
     }
 
@@ -140,7 +140,7 @@ public class KafkaDataBalanceManagerTest {
         verify(mockActiveDataBalanceEngine).onActivation(initConfig);
 
         // expect nothing to be updated
-        dataBalancer.updateConfig(updatedConfig);
+        dataBalancer.updateConfig(initConfig, updatedConfig);
         verifyNoMoreInteractions(mockActiveDataBalanceEngine);
     }
 
@@ -154,7 +154,7 @@ public class KafkaDataBalanceManagerTest {
         verify(mockActiveDataBalanceEngine, never()).onActivation(any(KafkaConfig.class));
 
         // Now update and enable
-        dataBalancer.updateConfig(initConfig);
+        dataBalancer.updateConfig(disabledConfig, initConfig);
         verify(mockActiveDataBalanceEngine).onActivation(initConfig);
     }
 

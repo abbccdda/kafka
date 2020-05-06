@@ -1899,7 +1899,7 @@ class TestDataBalancer extends DataBalanceManager {
 
   override def shutdown(): Unit = {}
 
-  override def updateConfig(newConfig: KafkaConfig): Unit = {
+  override def updateConfig(oldConfig: KafkaConfig, newConfig: KafkaConfig): Unit = {
     selfHealingConfig = newConfig.getBoolean(ConfluentConfigs.BALANCER_ENABLE_CONFIG);
     throttleConfig = newConfig.getLong(ConfluentConfigs.BALANCER_THROTTLE_CONFIG);
   }
