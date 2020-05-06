@@ -60,7 +60,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     // access is serialized through here (in particular for startup/shutdown).
     private final ExecutorService ccRunner;
     private final DataBalancerMetricsRegistry dataBalancerMetricsRegistry;
-    private KafkaCruiseControl cruiseControl;
+    private volatile KafkaCruiseControl cruiseControl;
     private Semaphore abortStartupCheck  = new Semaphore(0);
 
     public ConfluentDataBalanceEngine(DataBalancerMetricsRegistry dataBalancerMetricsRegistry) {
@@ -133,9 +133,9 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         try {
             KafkaCruiseControlConfig config = generateCruiseControlConfig(kafkaConfig);
             checkStartupComponentsReady(config);
-            KafkaCruiseControl cruiseControl = new KafkaCruiseControl(config, dataBalancerMetricsRegistry);
-            cruiseControl.startUp();
-            this.cruiseControl = cruiseControl;
+            KafkaCruiseControl newCruiseControl = new KafkaCruiseControl(config, dataBalancerMetricsRegistry);
+            newCruiseControl.startUp();
+            this.cruiseControl = newCruiseControl;
             LOG.info("DataBalancer: DataBalanceEngine started");
         } catch (StartupCheckInterruptedException e) {
             LOG.warn("DataBalanceEngine startup aborted by shutdown.", e);
