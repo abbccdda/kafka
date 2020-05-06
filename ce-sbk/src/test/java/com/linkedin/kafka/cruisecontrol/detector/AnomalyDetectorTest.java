@@ -16,7 +16,7 @@ import com.linkedin.kafka.cruisecontrol.detector.notifier.AnomalyType;
 import com.linkedin.kafka.cruisecontrol.exception.KafkaCruiseControlException;
 import com.linkedin.kafka.cruisecontrol.executor.ExecutorState;
 import com.linkedin.kafka.cruisecontrol.monitor.LoadMonitor;
-import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.easymock.EasyMock;
 import org.junit.Test;
 
@@ -103,7 +103,7 @@ public class AnomalyDetectorTest {
   @Test
   public void testDelayedCheck() throws InterruptedException {
     LinkedBlockingDeque<Anomaly> anomalies = new LinkedBlockingDeque<>();
-    AdminClient mockAdminClient = EasyMock.createNiceMock(AdminClient.class);
+    ConfluentAdmin mockAdminClient = EasyMock.createNiceMock(ConfluentAdmin.class);
     AnomalyNotifier mockAnomalyNotifier = EasyMock.mock(AnomalyNotifier.class);
     BrokerFailureDetector mockBrokerFailureDetector = EasyMock.createNiceMock(BrokerFailureDetector.class);
     GoalViolationDetector mockGoalViolationDetector = EasyMock.createNiceMock(GoalViolationDetector.class);
@@ -171,7 +171,7 @@ public class AnomalyDetectorTest {
 
   private void testFixAnomaly(AnomalyType anomalyType) throws InterruptedException, KafkaCruiseControlException {
     LinkedBlockingDeque<Anomaly> anomalies = new LinkedBlockingDeque<>();
-    AdminClient mockAdminClient = EasyMock.createNiceMock(AdminClient.class);
+    ConfluentAdmin mockAdminClient = EasyMock.createNiceMock(ConfluentAdmin.class);
     AnomalyNotifier mockAnomalyNotifier = EasyMock.mock(AnomalyNotifier.class);
     BrokerFailureDetector mockBrokerFailureDetector = EasyMock.createNiceMock(BrokerFailureDetector.class);
     GoalViolationDetector mockGoalViolationDetector = EasyMock.createNiceMock(GoalViolationDetector.class);
@@ -283,7 +283,7 @@ public class AnomalyDetectorTest {
   @Test
   public void testExecutionInProgress() throws InterruptedException {
     LinkedBlockingDeque<Anomaly> anomalies = new LinkedBlockingDeque<>();
-    AdminClient mockAdminClient = EasyMock.createNiceMock(AdminClient.class);
+    ConfluentAdmin mockAdminClient = EasyMock.createNiceMock(ConfluentAdmin.class);
     AnomalyNotifier mockAnomalyNotifier = EasyMock.mock(AnomalyNotifier.class);
     BrokerFailureDetector mockBrokerFailureDetector = EasyMock.createNiceMock(BrokerFailureDetector.class);
     GoalViolationDetector mockGoalViolationDetector = EasyMock.createNiceMock(GoalViolationDetector.class);
@@ -337,7 +337,7 @@ public class AnomalyDetectorTest {
   @Test
   public void testShutdown() throws InterruptedException {
     AnomalyNotifier mockAnomalyNotifier = EasyMock.createNiceMock(AnomalyNotifier.class);
-    AdminClient mockAdminClient = EasyMock.createNiceMock(AdminClient.class);
+    ConfluentAdmin mockAdminClient = EasyMock.createNiceMock(ConfluentAdmin.class);
     BrokerFailureDetector mockBrokerFailureDetector = EasyMock.createNiceMock(BrokerFailureDetector.class);
     GoalViolationDetector mockGoalViolationDetector = EasyMock.createNiceMock(GoalViolationDetector.class);
     MetricAnomalyDetector mockMetricAnomalyDetector = EasyMock.createNiceMock(MetricAnomalyDetector.class);

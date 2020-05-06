@@ -14,7 +14,7 @@ import java.util.Map;
 import java.util.Set;
 
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
-import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.utils.Time;
@@ -69,7 +69,7 @@ public class ExecutionTaskManager {
                               int defaultIntraBrokerPartitionMovementConcurrency,
                               int defaultLeadershipMovementConcurrency,
                               List<String> replicaMovementStrategies,
-                              AdminClient adminClient,
+                              ConfluentAdmin adminClient,
                               DataBalancerMetricsRegistry metricRegistry,
                               Time time,
                               KafkaCruiseControlConfig config) {

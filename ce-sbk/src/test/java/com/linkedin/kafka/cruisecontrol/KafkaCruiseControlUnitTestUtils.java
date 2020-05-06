@@ -13,9 +13,9 @@ import com.linkedin.kafka.cruisecontrol.monitor.metricdefinition.KafkaMetricDef;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.NoopSampler;
 import com.yammer.metrics.core.MetricsRegistry;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
-import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.Config;
 import org.apache.kafka.clients.admin.ConfigEntry;
+import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.clients.admin.DescribeConfigsResult;
 import org.apache.kafka.clients.admin.DescribeTopicsOptions;
 import org.apache.kafka.clients.admin.DescribeTopicsResult;
@@ -44,8 +44,8 @@ public class KafkaCruiseControlUnitTestUtils {
 
   }
 
-  public static void mockDescribeTopics(AdminClient mockAdminClient, Collection<String> expectedTopicsToDescribe,
-                                 Map<String, TopicDescription> topicDescriptions, long expectedTimeoutMs)
+  public static void mockDescribeTopics(ConfluentAdmin mockAdminClient, Collection<String> expectedTopicsToDescribe,
+                                        Map<String, TopicDescription> topicDescriptions, long expectedTimeoutMs)
       throws InterruptedException, ExecutionException, java.util.concurrent.TimeoutException {
     DescribeTopicsResult mockDescribeTopicsResult = EasyMock.mock(DescribeTopicsResult.class);
     KafkaFuture<Map<String, TopicDescription>> mockKafkaFuture = EasyMock.mock(KafkaFuture.class);
@@ -69,7 +69,7 @@ public class KafkaCruiseControlUnitTestUtils {
   /**
    * Mock describing broker configs
    */
-  public static void mockDescribeConfigs(AdminClient mockAdminClient, Collection<ConfigResource> expectedResourcesToDescribe,
+  public static void mockDescribeConfigs(ConfluentAdmin mockAdminClient, Collection<ConfigResource> expectedResourcesToDescribe,
                                          Map<String, List<ConfigEntry>> entries)
       throws InterruptedException, ExecutionException {
     DescribeConfigsResult mockDescribeConfigsResult = EasyMock.mock(DescribeConfigsResult.class);

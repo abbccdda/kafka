@@ -38,6 +38,7 @@ object ExecutorUtils {
    * @param config the configuration of Cruise Control.
    */
   def executeReplicaReassignmentTasks(adminClient: Admin,
+                                      executorAdminUtils: ExecutorAdminUtils,
                                       kafkaZkClient: KafkaZkClient,
                                       reassignmentTasks: java.util.List[ExecutionTask],
                                       config: KafkaCruiseControlConfig) {
@@ -54,7 +55,7 @@ object ExecutorUtils {
 
       reassignmentTasks.asScala.foreach({ task =>
         val tp = task.proposal().topicPartition()
-        val targetReplicas = replicasToWrite(adminClient, config,
+        val targetReplicas = replicasToWrite(executorAdminUtils, config,
           task, inProgressTargetReplicaReassignment.get(tp))
 
         if (targetReplicas.nonEmpty) {
@@ -80,7 +81,7 @@ object ExecutorUtils {
    * Given an ExecutionTask, return the targetReplicas we should write to the Kafka reassignments.
    * If we should not reassign a partition as part of this task, an empty replica set will be returned
    */
-  def replicasToWrite(adminClient: Admin, config: KafkaCruiseControlConfig,
+  def replicasToWrite(executorAdminUtils: ExecutorAdminUtils, config: KafkaCruiseControlConfig,
                       task: ExecutionTask, inProgressTargetReplicasOpt: Option[Seq[Int]]): Seq[Int] = {
     val tp = task.proposal.topicPartition()
     val oldReplicas = task.proposal.oldReplicas.asScala.map(_.brokerId.toInt)
@@ -115,7 +116,7 @@ object ExecutorUtils {
           Seq.empty
         } else {
           // verify with current assignment
-          val currentReplicaAssignment = ExecutorAdminUtils.getReplicasForPartition(adminClient, tp, config)
+          val currentReplicaAssignment = executorAdminUtils.getReplicasForPartition(tp)
           if (currentReplicaAssignment.isEmpty) {
             LOG.warn(s"Could not fetch the replicas for partition $tp. It is possible the topic or partition doesn't exist.")
             Seq.empty
@@ -176,10 +177,6 @@ object ExecutorUtils {
 
   def ongoingLeaderElection(kafkaZkClient: KafkaZkClient): util.Set[TopicPartition] = {
     setAsJavaSet(kafkaZkClient.getPreferredReplicaElection)
-  }
-
-  def currentReplicasForPartition(adminClient: Admin, tp: TopicPartition, config: KafkaCruiseControlConfig): java.util.List[java.lang.Integer] = {
-    ExecutorAdminUtils.getReplicasForPartition(adminClient, new TopicPartition(tp.topic(), tp.partition()), config)
   }
 
   def changeBrokerConfig(adminZkClient: AdminZkClient, brokerId: Int, config: Properties): Unit = {

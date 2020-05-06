@@ -17,7 +17,8 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
-import org.apache.kafka.clients.admin.AdminClient;
+
+import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.clients.admin.DescribeReplicaLogDirsResult;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.KafkaFuture;
@@ -238,7 +239,7 @@ public class ExecutionTaskPlannerTest {
     TopicPartitionReplica tpr1 = new TopicPartitionReplica(TOPIC2, 0, 1);
 
     //Mock adminClient
-    AdminClient mockAdminClient = EasyMock.mock(AdminClient.class);
+    ConfluentAdmin mockAdminClient = EasyMock.mock(ConfluentAdmin.class);
     try {
       // Reflectively set constructors from package private to public.
       Constructor<DescribeReplicaLogDirsResult> constructor1 = DescribeReplicaLogDirsResult.class.getDeclaredConstructor(Map.class);

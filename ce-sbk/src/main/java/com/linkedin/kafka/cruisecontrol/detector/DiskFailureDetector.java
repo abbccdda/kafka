@@ -18,7 +18,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
-import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.utils.Time;
@@ -35,7 +35,7 @@ import static com.linkedin.kafka.cruisecontrol.detector.AnomalyDetectorUtils.sho
 public class DiskFailureDetector implements Runnable {
   private static final Logger LOG = LoggerFactory.getLogger(DiskFailureDetector.class);
   private final KafkaCruiseControl _kafkaCruiseControl;
-  private final AdminClient _adminClient;
+  private final ConfluentAdmin _adminClient;
   private final LoadMonitor _loadMonitor;
   private final Queue<Anomaly> _anomalies;
   private final Time _time;
@@ -48,7 +48,7 @@ public class DiskFailureDetector implements Runnable {
 
   public DiskFailureDetector(KafkaCruiseControlConfig config,
                              LoadMonitor loadMonitor,
-                             AdminClient adminClient,
+                             ConfluentAdmin adminClient,
                              Queue<Anomaly> anomalies,
                              Time time,
                              KafkaCruiseControl kafkaCruiseControl,

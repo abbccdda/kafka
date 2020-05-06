@@ -22,7 +22,7 @@ import kafka.server.ConfigType;
 import kafka.server.ConfigType$;
 import kafka.server.KafkaConfig;
 import kafka.zk.KafkaZkClient;
-import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.DeleteTopicsResult;
 import org.apache.kafka.clients.admin.DescribeLogDirsResult;
@@ -148,7 +148,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     topicDescMap.put(TOPIC1, new TopicDescription(TOPIC1, false,
         Collections.singletonList(new TopicPartitionInfo(0, node0, Collections.singletonList(node0), Collections.singletonList(node0)))));
 
-    AdminClient mockAdminClient = EasyMock.mock(AdminClient.class);
+    ConfluentAdmin mockAdminClient = EasyMock.mock(ConfluentAdmin.class);
     ListPartitionReassignmentsResult mockListReassignResult = EasyMock.mock(ListPartitionReassignmentsResult.class);
 
     KafkaFuture<Map<TopicPartition, PartitionReassignment>> mockReassignmentFuture = EasyMock.mock(KafkaFuture.class);
@@ -846,7 +846,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
                     "Executor", false), adminClient, AUTO_THROTTLE);
     Executor executor = new Executor(config, time, KafkaCruiseControlUnitTestUtils.getMetricsRegistry(metricsRegistry),
             metadataClient, 86400000L, 43200000L, notifier, getMockAnomalyDetector(RANDOM_UUID),
-            KafkaCruiseControlUtils.createAdminClient(config.originals()), throttleHelper);
+            KafkaCruiseControlUtils.createAdmin(config.originals()), throttleHelper);
     executor.setExecutionMode(false);
     executor.executeProposals(Collections.singletonList(proposal),
             Collections.emptySet(),
@@ -867,7 +867,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
   }
 
   private Map<String, TopicDescription> createTopics() throws InterruptedException {
-    AdminClient adminClient = KafkaCruiseControlUtils.createAdminClient(Collections.singletonMap(
+    ConfluentAdmin adminClient = KafkaCruiseControlUtils.createAdmin(Collections.singletonMap(
                               AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, broker(0).plaintextAddr()));
     try {
       adminClient.createTopics(Arrays.asList(new NewTopic(TOPIC0, 1, (short) 1),
@@ -882,9 +882,9 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     Map<String, TopicDescription> topicDescriptions0 = null;
     Map<String, TopicDescription> topicDescriptions1 = null;
     do {
-      AdminClient adminClient0 = KafkaCruiseControlUtils.createAdminClient(Collections.singletonMap(
+      ConfluentAdmin adminClient0 = KafkaCruiseControlUtils.createAdmin(Collections.singletonMap(
                                  AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, broker(0).plaintextAddr()));
-      AdminClient adminClient1 = KafkaCruiseControlUtils.createAdminClient(Collections.singletonMap(
+      ConfluentAdmin adminClient1 = KafkaCruiseControlUtils.createAdmin(Collections.singletonMap(
                                  AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, broker(1).plaintextAddr()));
       try {
         topicDescriptions0 = adminClient0.describeTopics(Arrays.asList(TOPIC0, TOPIC1)).all().get();
@@ -907,7 +907,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
   }
 
   private void deleteTopics(Collection<String> topics) throws ExecutionException, InterruptedException {
-    AdminClient adminClient = KafkaCruiseControlUtils.createAdminClient(Collections.singletonMap(
+    ConfluentAdmin adminClient = KafkaCruiseControlUtils.createAdmin(Collections.singletonMap(
         AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, broker(0).plaintextAddr()));
     try {
       DeleteTopicsResult deleteTopicsResult = adminClient.deleteTopics(topics);
@@ -1003,7 +1003,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
             null, 86400000L, 43200000L, null, getMockAnomalyDetector(RANDOM_UUID));
   }
 
-  private Executor executor(AdminClient adminClient) {
+  private Executor executor(ConfluentAdmin adminClient) {
     KafkaCruiseControlConfig configs = new KafkaCruiseControlConfig(getExecutorProperties());
 
     return new Executor(configs, new SystemTime(), KafkaCruiseControlUnitTestUtils.getMetricsRegistry(metricsRegistry),

@@ -5,6 +5,8 @@ package org.apache.kafka.clients.admin;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 
 import org.apache.kafka.common.Confluent;
@@ -24,6 +26,26 @@ import org.apache.kafka.common.requests.NewClusterLink;
  */
 @Confluent
 public interface ConfluentAdmin extends Admin {
+
+    /**
+     * Create a new ConfluentAdmin with the given configuration.
+     *
+     * @param props The configuration.
+     * @return The new KafkaAdminClient.
+     */
+    static ConfluentAdmin create(Properties props) {
+        return (ConfluentAdmin) Admin.create(props);
+    }
+
+    /**
+     * Create a new ConfluentAdmin with the given configuration.
+     *
+     * @param conf The configuration.
+     * @return The new KafkaAdminClient.
+     */
+    static ConfluentAdmin create(Map<String, Object> conf) {
+        return (ConfluentAdmin) Admin.create(conf);
+    }
 
     /**
      * Retrieves the status of the replicas for a set of partitions, including observers.
