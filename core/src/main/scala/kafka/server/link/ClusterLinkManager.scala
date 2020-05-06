@@ -4,7 +4,6 @@
 
 package kafka.server.link
 
-import java.util
 import java.util.Properties
 
 import kafka.api.KAFKA_2_3_IV1
@@ -15,7 +14,7 @@ import kafka.utils.Logging
 import kafka.zk.KafkaZkClient
 import org.apache.kafka.clients.admin.{Admin, ConfluentAdmin}
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.errors.{ClusterLinkExistsException, ClusterLinkInUseException, ClusterLinkNotFoundException, InvalidClusterLinkException}
+import org.apache.kafka.common.errors._
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.utils.Time
@@ -50,33 +49,41 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
 
   private val managersLock = new Object
   private val managers = mutable.Map[String, Managers]()
-  val scheduler = new ClusterLinkScheduler
+  val scheduler = if (brokerConfig.clusterLinkEnable) new ClusterLinkScheduler else null
   val admin = new ClusterLinkAdminManager(brokerConfig, clusterId, zkClient, this)
-  var replicaManager: ReplicaManager = _
-  var adminManager: AdminManager = _
+  private var replicaManager: ReplicaManager = _
+  private var adminManager: AdminManager = _
 
   def startup(replicaManager: ReplicaManager, adminManager: AdminManager): Unit = {
     this.replicaManager = replicaManager
     this.adminManager = adminManager
-    scheduler.startup()
+    if (brokerConfig.clusterLinkEnable)
+      scheduler.startup()
   }
 
+  /**
+    * Process link update notifications. This is invoked to add existing cluster links during
+    * broker start up and to update existing cluster links when config update notifications
+    * are processed. All updates are expected to be processed on a single thread.
+    */
   def addOrUpdateClusterLink(linkName: String, configs: Properties): Unit = {
-    val exists = managersLock synchronized {
-      if (!managers.contains(linkName)) {
-        addClusterLink(linkName, configs)
-        false
-      } else
-        true
-    }
-    if (exists) {
-      val newConfigs = new util.HashMap[String, String]
-      configs.stringPropertyNames.forEach(key => newConfigs.put(key, configs.getProperty(key)))
-      reconfigureClusterLink(linkName, newConfigs)
+    if (!brokerConfig.clusterLinkEnable) {
+      error(s"Cluster link $linkName not updated since cluster links are not enabled")
+    } else {
+      val existingManager = managersLock synchronized {
+        val linkManager = managers.get(linkName)
+        if (linkManager.isEmpty) {
+          addClusterLink(linkName, configs)
+        }
+        linkManager
+      }
+      existingManager.foreach(manager => reconfigureClusterLink(manager, configs))
     }
   }
 
   def addClusterLink(linkName: String, configs: Properties): Unit = {
+    ensureClusterLinkEnabled()
+
     // Support for OffsetsForLeaderEpoch in clients was added in 2.3.0. This is the minimum supported version
     // for cluster linking.
     if (brokerConfig.interBrokerProtocolVersion <= KAFKA_2_3_IV1)
@@ -96,6 +103,8 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
   }
 
   def removeClusterLink(linkName: String): Unit = {
+    ensureClusterLinkEnabled()
+
     managersLock synchronized {
       managers.get(linkName) match {
         case Some(Managers(fetcherManager, clientManager)) =>
@@ -112,17 +121,14 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
     }
   }
 
-  def reconfigureClusterLink(linkName: String, newProps: util.Map[String, _]): Unit = {
-    val linkManagers = managersLock synchronized {
-      managers.getOrElse(linkName, throw new ClusterLinkNotFoundException(s"Cluster link not found: $linkName"))
-    }
+  private def reconfigureClusterLink(linkManagers: Managers, newProps: Properties): Unit = {
     val newConfig = new ClusterLinkConfig(newProps)
     linkManagers.fetcherManager.reconfigure(newConfig)
     linkManagers.clientManager.reconfigure(newConfig)
   }
 
   def addPartitions(partitions: collection.Set[Partition]): Unit = {
-    if (partitions.nonEmpty) {
+    if (brokerConfig.clusterLinkEnable && partitions.nonEmpty) {
       debug(s"addPartitions $partitions")
       val unknownClusterLinks = mutable.Map[String, Iterable[TopicPartition]]()
       managersLock synchronized {
@@ -203,7 +209,8 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
         clientManager.shutdown()
       }
     }
-    scheduler.shutdown()
+    if (scheduler != null)
+      scheduler.shutdown()
     info("shutdown completed")
   }
 
@@ -224,14 +231,28 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
   }
 
   def fetcherManager(linkName: String): Option[ClusterLinkFetcherManager] = {
+    ensureClusterLinkEnabled()
     managersLock synchronized {
       managers.get(linkName).map(_.fetcherManager)
     }
   }
 
   def clientManager(linkName: String): Option[ClusterLinkClientManager] = {
+    ensureClusterLinkEnabled()
     managersLock synchronized {
       managers.get(linkName).map(_.clientManager)
+    }
+  }
+
+  private[link] def ensureClusterLinkEnabled(): Unit = {
+    if (!brokerConfig.clusterLinkEnable)
+      throw new ClusterAuthorizationException("Cluster linking is not enabled")
+  }
+
+  // For unit testing
+  private[link] def hasLink(linkName: String): Boolean = {
+    managersLock synchronized {
+      managers.contains(linkName)
     }
   }
 }

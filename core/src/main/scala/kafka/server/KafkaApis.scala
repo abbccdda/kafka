@@ -3125,7 +3125,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         createClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.NOT_CONTROLLER.exception))
 
-    } else if (!authorize(request.context, ALTER, CLUSTER, CLUSTER_NAME)) {
+    } else if (!config.clusterLinkEnable || !authorize(request.context, ALTER, CLUSTER, CLUSTER_NAME)) {
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         createClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.CLUSTER_AUTHORIZATION_FAILED.exception))
 
@@ -3172,7 +3172,7 @@ class KafkaApis(val requestChannel: RequestChannel,
   def handleListClusterLinksRequest(request: RequestChannel.Request): Unit = {
     val listClusterLinksRequest = request.body[ListClusterLinksRequest]
 
-    if (!authorize(request.context, DESCRIBE, CLUSTER, CLUSTER_NAME)) {
+    if (!config.clusterLinkEnable || !authorize(request.context, DESCRIBE, CLUSTER, CLUSTER_NAME)) {
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         listClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.CLUSTER_AUTHORIZATION_FAILED.exception))
 
@@ -3195,7 +3195,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         deleteClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.NOT_CONTROLLER.exception))
 
-    } else if (!authorize(request.context, ALTER, CLUSTER, CLUSTER_NAME)) {
+    } else if (!config.clusterLinkEnable || !authorize(request.context, ALTER, CLUSTER, CLUSTER_NAME)) {
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         deleteClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.CLUSTER_AUTHORIZATION_FAILED.exception))
 

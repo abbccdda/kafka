@@ -50,6 +50,7 @@ import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, Produce
 import org.apache.kafka.common.{KafkaFuture, TopicPartition}
 import org.apache.kafka.common.acl.{AccessControlEntry, AccessControlEntryFilter, AclBinding, AclBindingFilter}
 import org.apache.kafka.common.config.ConfigResource
+import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException
 import org.apache.kafka.common.header.Header
 import org.apache.kafka.common.internals.Topic
@@ -333,6 +334,7 @@ object TestUtils extends Logging {
 
     props.put(KafkaConfig.NumPartitionsProp, numPartitions.toString)
     props.put(KafkaConfig.DefaultReplicationFactorProp, defaultReplicationFactor.toString)
+    props.put(KafkaConfig.ClusterLinkEnableProp, "true")
 
     props
   }

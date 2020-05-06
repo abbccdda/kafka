@@ -730,6 +730,9 @@ object KafkaConfig {
   /** ********* Enable FIPS Mode Configuration ****************/
   val EnableFipsProp = ConfluentConfigs.ENABLE_FIPS_CONFIG
 
+  /** ********* Cluster linking Configuration ***********/
+  val ClusterLinkEnableProp = ConfluentConfigs.CLUSTER_LINK_ENABLE_CONFIG
+
   /* Documentation */
   /** ********* Zookeeper Configuration ***********/
   val ZkConnectDoc = "Specifies the ZooKeeper connection string in the form <code>hostname:port</code> where host and port are the " +
@@ -1528,9 +1531,9 @@ object KafkaConfig {
       .define(PasswordEncoderIterationsProp, INT, Defaults.PasswordEncoderIterations, atLeast(1024), LOW, PasswordEncoderIterationsDoc)
 
       /** ********* Confluent Cluster Link Configs *********/
-      .define(ConfluentConfigs.NUM_CLUSTER_LINK_REPLICATION_QUOTAS_SAMPLES_PROP, INT, Defaults.NumClusterLinkReplicationQuotaSamples, atLeast(1), LOW, ConfluentConfigs.NUM_CLUSTER_LINK_REPLICATION_QUOTAS_SAMPLES_DOC)
-      .define(ConfluentConfigs.CLUSTER_LINK_REPLICATION_QUOTA_WINDOW_SIZE_SECONDS_PROP, INT, Defaults.ClusterLinkReplicationQuotaWindowSizeSeconds, atLeast(1), LOW, ConfluentConfigs.CLUSTER_LINK_REPLICATION_QUOTA_WINDOW_SIZE_SECONDS_DOC)
-
+      .define(ClusterLinkEnableProp, BOOLEAN, ConfluentConfigs.CLUSTER_LINK_ENABLE_DEFAULT, MEDIUM, ConfluentConfigs.CLUSTER_LINK_ENABLE_DOC)
+      .define(ConfluentConfigs.NUM_CLUSTER_LINK_REPLICATION_QUOTAS_SAMPLES_CONFIG, INT, Defaults.NumClusterLinkReplicationQuotaSamples, atLeast(1), LOW, ConfluentConfigs.NUM_CLUSTER_LINK_REPLICATION_QUOTAS_SAMPLES_DOC)
+      .define(ConfluentConfigs.CLUSTER_LINK_REPLICATION_QUOTA_WINDOW_SIZE_SECONDS_CONFIG, INT, Defaults.ClusterLinkReplicationQuotaWindowSizeSeconds, atLeast(1), LOW, ConfluentConfigs.CLUSTER_LINK_REPLICATION_QUOTA_WINDOW_SIZE_SECONDS_DOC)
 
       /** ********* Confluent Resource Names Configuration *********/
       .define(ConfluentResourceNameAuthorityProp, STRING, ConfluentConfigs.CRN_AUTHORITY_NAME_DEFAULT, LOW, ConfluentResourceNameAuthorityDoc)
@@ -2087,8 +2090,11 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   val replicationQuotaWindowSizeSeconds = getInt(KafkaConfig.ReplicationQuotaWindowSizeSecondsProp)
   val numAlterLogDirsReplicationQuotaSamples = getInt(KafkaConfig.NumAlterLogDirsReplicationQuotaSamplesProp)
   val alterLogDirsReplicationQuotaWindowSizeSeconds = getInt(KafkaConfig.AlterLogDirsReplicationQuotaWindowSizeSecondsProp)
-  val numClusterLinkReplicationQuotaSamples = getInt(ConfluentConfigs.NUM_CLUSTER_LINK_REPLICATION_QUOTAS_SAMPLES_PROP)
-  val clusterLinkReplicationQuotaWindowSizeSeconds = getInt(ConfluentConfigs.CLUSTER_LINK_REPLICATION_QUOTA_WINDOW_SIZE_SECONDS_PROP)
+
+  /** ********* Confluent Cluster Link Configs *********/
+  val clusterLinkEnable = getBoolean(KafkaConfig.ClusterLinkEnableProp)
+  val numClusterLinkReplicationQuotaSamples = getInt(ConfluentConfigs.NUM_CLUSTER_LINK_REPLICATION_QUOTAS_SAMPLES_CONFIG)
+  val clusterLinkReplicationQuotaWindowSizeSeconds = getInt(ConfluentConfigs.CLUSTER_LINK_REPLICATION_QUOTA_WINDOW_SIZE_SECONDS_CONFIG)
 
   def newRequestLogFilter(): RequestLogFilter = {
     val filter = Option(getConfiguredInstance(KafkaConfig.RequestLogFilterClass, classOf[RequestLogFilter]))

@@ -3,13 +3,14 @@
  */
 package kafka.server
 
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutionException
 
 import kafka.api.IntegrationTestHarness
 import org.apache.kafka.clients.admin.DescribeClusterOptions
 import org.apache.kafka.common.internals.KafkaFutureImpl
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.{ClusterLinkListing, CreateClusterLinksRequest, CreateClusterLinksResponse, DeleteClusterLinksRequest, DeleteClusterLinksResponse, ListClusterLinksRequest, ListClusterLinksResponse, NewClusterLink}
+import org.apache.kafka.test.TestUtils
 import org.junit.Assert._
 import org.junit.Test
 
@@ -241,6 +242,28 @@ class ClusterLinksRequestTest extends BaseRequestTest {
     val results = deleteClusterLinks(linkNames, validateOnly = false, force = false)
     assertEquals(expectedResults, results)
     assertClusterLinksEquals(Seq("cluster"))
+  }
+
+  @Test
+  def testClusterLinksDisabled(): Unit = {
+    servers.head.shutdown()
+    serverConfig.setProperty(KafkaConfig.ClusterLinkEnableProp, "false")
+    TestUtils.setFieldValue(servers.head.config, "clusterLinkEnable", false)
+    servers.head.startup()
+
+    val linkName = "testLink"
+    val newClusterLinks = Seq(newNewClusterLink(linkName, Some("cluster-id-1"), Map.empty[String, String]))
+    assertEquals(Map(linkName -> Errors.CLUSTER_AUTHORIZATION_FAILED),
+      createClusterLinks(newClusterLinks, validateOnly = false, validateLink = false))
+    assertEquals(Map(linkName -> Errors.CLUSTER_AUTHORIZATION_FAILED),
+      createClusterLinks(newClusterLinks, validateOnly = true, validateLink = false))
+
+    assertEquals(Map(linkName -> Errors.CLUSTER_AUTHORIZATION_FAILED),
+      deleteClusterLinks(Seq(linkName), validateOnly = false, force = true))
+    assertEquals(Map(linkName -> Errors.CLUSTER_AUTHORIZATION_FAILED),
+      deleteClusterLinks(Seq(linkName), validateOnly = true, force = true))
+
+    assertEquals((Set.empty, Errors.CLUSTER_AUTHORIZATION_FAILED), listClusterLinks())
   }
 
   private def runWithRemoteCluster(callback: (String, Option[String]) => Unit): Unit = {

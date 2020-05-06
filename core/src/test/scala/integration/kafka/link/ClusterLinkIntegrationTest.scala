@@ -6,7 +6,6 @@ package integration.kafka.link
 import java.io.File
 import java.nio.file.{Files, StandardCopyOption}
 import java.time.Duration
-import java.util
 import java.util.concurrent.TimeUnit
 import java.util.{Collections, Properties}
 
@@ -457,16 +456,14 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
   def alterClusterLink(linkName: String, updatedConfigs: Map[String, String]): Unit = {
     val newConfigs = linkConfigs(linkName, updatedConfigs)
     servers.foreach { server =>
-      server.clusterLinkManager.reconfigureClusterLink(linkName, newConfigs)
+      server.clusterLinkManager.addOrUpdateClusterLink(linkName, newConfigs)
 
       val config = server.clusterLinkManager.fetcherManager(linkName).get.currentConfig
       updatedConfigs.foreach { case (name, value) =>
         assertEquals(s"Unexpected value for $name", value, config.originals.get(name))
       }
     }
-    val newProps = new Properties()
-    newProps ++= newConfigs.asScala
-    clusterLinks.put(linkName, newProps)
+    clusterLinks.put(linkName, newConfigs)
   }
 
   def linkTopic(topic: String, numPartitions: Int, linkName: String): Unit = {
@@ -567,10 +564,10 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
     updateBootstrapServers()
   }
 
-  private def linkConfigs(linkName: String, updatedProps: Map[String, String]): util.Map[String, Object] = {
-    val props = new util.HashMap[String, Object]
-    clusterLinks(linkName).forEach((k, v) => props.put(k.toString, v))
-    updatedProps.foreach { case (k, v) => props.put(k, v) }
+  private def linkConfigs(linkName: String, updatedProps: Map[String, String]): Properties = {
+    val props = new Properties
+    props ++= clusterLinks(linkName)
+    updatedProps.foreach { case (k, v) => props.setProperty(k, v) }
     props
   }
 }

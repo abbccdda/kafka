@@ -868,8 +868,9 @@ class KafkaConfigTest {
         case ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_CONFIG =>
         case ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG =>
         case ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG =>
-        case ConfluentConfigs.NUM_CLUSTER_LINK_REPLICATION_QUOTAS_SAMPLES_PROP =>
-        case ConfluentConfigs.CLUSTER_LINK_REPLICATION_QUOTA_WINDOW_SIZE_SECONDS_PROP =>
+        case ConfluentConfigs.CLUSTER_LINK_ENABLE_CONFIG =>
+        case ConfluentConfigs.NUM_CLUSTER_LINK_REPLICATION_QUOTAS_SAMPLES_CONFIG =>
+        case ConfluentConfigs.CLUSTER_LINK_REPLICATION_QUOTA_WINDOW_SIZE_SECONDS_CONFIG =>
         case ConfluentConfigs.INTERNAL_REST_SERVER_BIND_PORT_CONFIG =>
 
         case _ => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "-1")

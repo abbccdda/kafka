@@ -23,14 +23,14 @@ object ClusterLinkUtils extends Logging {
     * @throws InvalidClusterLinkException if the link name is invalid
     */
   def validateLinkName(linkName: String): Unit = {
-    val maxLength = 200;
+    val maxLength = 200
 
     if (linkName eq null)
       throw new InvalidClusterLinkException("Cluster link name is null")
     if (linkName.isEmpty)
       throw new InvalidClusterLinkException("Cluster link name is empty")
     if (linkName.equals(".") || linkName.equals(".."))
-      throw new InvalidClusterLinkException("Link name cannot be \".\" or \"..\"");
+      throw new InvalidClusterLinkException("Link name cannot be \".\" or \"..\"")
     if (linkName.length > maxLength)
       throw new InvalidClusterLinkException(s"Link name exceeds maximum size of '$maxLength' characters")
 

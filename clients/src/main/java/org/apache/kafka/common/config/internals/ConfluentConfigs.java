@@ -319,12 +319,16 @@ public class ConfluentConfigs {
             "broker listener security protocols, TLS versions and cipher suites will be validated based on " +
             "FIPS compliance requirement.";
 
-    public static final String NUM_CLUSTER_LINK_REPLICATION_QUOTAS_SAMPLES_PROP =
+    public static final String CLUSTER_LINK_ENABLE_CONFIG = "confluent.cluster.link.enable";
+    public static final boolean CLUSTER_LINK_ENABLE_DEFAULT = false;
+    public static final String CLUSTER_LINK_ENABLE_DOC = "Enable cluster linking feature.";
+
+    public static final String NUM_CLUSTER_LINK_REPLICATION_QUOTAS_SAMPLES_CONFIG =
         "confluent.cluster.link.replication.quota.window.num";
     public static final String NUM_CLUSTER_LINK_REPLICATION_QUOTAS_SAMPLES_DOC =
         "The number of samples to retain in memory for cluster link replication quotas";
 
-    public static final String CLUSTER_LINK_REPLICATION_QUOTA_WINDOW_SIZE_SECONDS_PROP =
+    public static final String CLUSTER_LINK_REPLICATION_QUOTA_WINDOW_SIZE_SECONDS_CONFIG =
         "confluent.cluster.link.replication.quota.window.size.seconds";
     public static final String CLUSTER_LINK_REPLICATION_QUOTA_WINDOW_SIZE_SECONDS_DOC =
         "The time span of each sample for cluster link replication quotas";
