@@ -18,6 +18,11 @@ public final class OffsetAndEpoch {
         this.epoch = epoch;
     }
 
+    public OffsetAndEpoch(kafka.tier.serdes.OffsetAndEpoch offsetAndEpoch) {
+        this(offsetAndEpoch.offset(),
+            offsetAndEpoch.epoch() == -1 ? Optional.empty() : Optional.of(offsetAndEpoch.epoch()));
+    }
+
     public long offset() {
         return offset;
     }

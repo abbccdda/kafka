@@ -5,8 +5,10 @@
 package kafka.tier.state;
 
 import com.google.flatbuffers.FlatBufferBuilder;
+
 import kafka.tier.serdes.MaterializationTrackingInfo;
 import kafka.tier.serdes.TierPartitionStateHeader;
+import static kafka.tier.serdes.OffsetAndEpoch.createOffsetAndEpoch;
 import kafka.utils.CoreUtils;
 
 import java.nio.ByteBuffer;
@@ -36,7 +38,8 @@ public class Header {
            TierPartitionStatus status,
            long endOffset,
            OffsetAndEpoch globalMaterializedOffsetAndEpoch,
-           OffsetAndEpoch localMaterializedOffsetAndEpoch) {
+           OffsetAndEpoch localMaterializedOffsetAndEpoch,
+           OffsetAndEpoch errorOffsetAndEpoch) {
         if (tierEpoch < -1)
             throw new IllegalArgumentException("Illegal tierEpoch " + tierEpoch);
 
@@ -57,6 +60,11 @@ public class Header {
         TierPartitionStateHeader.addStatus(builder, TierPartitionStatus.toByte(status));
         TierPartitionStateHeader.addEndOffset(builder, endOffset);
         TierPartitionStateHeader.addMaterializationInfo(builder, materializedInfo);
+        int errorOffsetAndEpochId = createOffsetAndEpoch(
+            builder,
+            errorOffsetAndEpoch.offset(),
+            errorOffsetAndEpoch.epoch().orElse(-1));
+        TierPartitionStateHeader.addErrorOffsetAndEpoch(builder, errorOffsetAndEpochId);
         final int entryId = kafka.tier.serdes.TierPartitionStateHeader.endTierPartitionStateHeader(builder);
         builder.finish(entryId);
         this.header = TierPartitionStateHeader.getRootAsTierPartitionStateHeader(builder.dataBuffer());
@@ -100,6 +108,12 @@ public class Header {
         return materializationInfo.globalMaterializedOffsetAndEpoch();
     }
 
+    public OffsetAndEpoch errorOffsetAndEpoch() {
+        return header.errorOffsetAndEpoch() == null ?
+            OffsetAndEpoch.EMPTY :
+            new OffsetAndEpoch(header.errorOffsetAndEpoch());
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o)
@@ -114,12 +128,14 @@ public class Header {
                 Objects.equals(tierEpoch(), that.tierEpoch()) &&
                 Objects.equals(status(), that.status()) &&
                 Objects.equals(endOffset(), that.endOffset()) &&
+                Objects.equals(errorOffsetAndEpoch(), that.errorOffsetAndEpoch()) &&
                 Objects.equals(materializationInfo, that.materializationInfo);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(version(), topicId(), tierEpoch(), status(), endOffset(), materializationInfo);
+        return Objects.hash(
+            version(), topicId(), tierEpoch(), status(), endOffset(), errorOffsetAndEpoch(), materializationInfo);
     }
 
     @Override
@@ -130,6 +146,7 @@ public class Header {
                 "tierEpoch=" + tierEpoch() + ", " +
                 "status=" + status() + ", " +
                 "endOffset=" + endOffset() + ", " +
+                "errorOffsetAndEpoch=" + errorOffsetAndEpoch() + ", " +
                 "materializationInfo=" + materializationInfo +
                 ")";
     }

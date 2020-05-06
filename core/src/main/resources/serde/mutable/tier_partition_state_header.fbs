@@ -2,6 +2,7 @@
  Copyright 2019 Confluent Inc.
  */
 
+include "../immutable/offset_epoch.fbs";
 include "../immutable/uuid.fbs";
 namespace kafka.tier.serdes;
 
@@ -17,6 +18,7 @@ namespace kafka.tier.serdes;
  * Version 2: added `globalMaterializedOffset` and `localMaterializedOffset`
  * Version 3: introduced new status `TierPartitionStatus.ERROR` as a part of the fencing mechanism
  * Version 4: added `globalMaterializedEpoch` and `localMaterializedEpoch`
+ * Version 5: added `errorOffsetAndEpoch`
  */
 
 table TierPartitionStateHeader {
@@ -28,6 +30,8 @@ table TierPartitionStateHeader {
   endOffset: long = -1 (id: 4);  // added in version 1
 
   materializationInfo: MaterializationTrackingInfo (id: 5);  // added in version 2
+
+  errorOffsetAndEpoch: OffsetAndEpoch (id: 6);  // added in version 5
 }
 
 table MaterializationTrackingInfo {
