@@ -173,6 +173,7 @@ chmod a+rw /opt/kafka-2.5.0
 
 get_confluent_platform 5.3 5.3.0 2.12
 get_confluent_platform 5.4 5.4.0 2.12
+get_confluent_platform 5.5 5.5.0 2.12
 
 # For EC2 nodes, we want to use /mnt, which should have the local disk. On local
 # VMs, we can just create it if it doesn't exist and use it like we'd use

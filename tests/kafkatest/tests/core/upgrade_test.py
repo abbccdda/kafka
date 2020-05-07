@@ -22,7 +22,7 @@ from kafkatest.services.verifiable_producer import VerifiableProducer
 from kafkatest.services.zookeeper import ZookeeperService
 from kafkatest.tests.produce_consume_validate import ProduceConsumeValidateTest
 from kafkatest.utils import is_int
-from kafkatest.version import LATEST_0_8_2, LATEST_0_9, LATEST_0_10, LATEST_0_10_0, LATEST_0_10_1, LATEST_0_10_2, LATEST_0_11_0, LATEST_1_0, LATEST_1_1, LATEST_2_0, LATEST_2_1, LATEST_2_2, LATEST_2_3, LATEST_2_4, V_0_9_0_0, V_0_11_0_0, DEV_BRANCH, KafkaVersion
+from kafkatest.version import LATEST_0_8_2, LATEST_0_9, LATEST_0_10, LATEST_0_10_0, LATEST_0_10_1, LATEST_0_10_2, LATEST_0_11_0, LATEST_1_0, LATEST_1_1, LATEST_2_0, LATEST_2_1, LATEST_2_2, LATEST_2_3, LATEST_2_4, LATEST_2_5, V_0_9_0_0, V_0_11_0_0, DEV_BRANCH, KafkaVersion
 from kafkatest.utils.tiered_storage import tier_set_configs, TierSupport, TieredStorageMetricsRegistry, S3_BACKEND, GCS_BACKEND
 from kafkatest.services.kafka import config_property
 from kafkatest.services.kafka.util import java_version, new_jdk_not_supported
@@ -100,6 +100,9 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
         self.restart_jmx_tool()
 
     @cluster(num_nodes=6)
+    @matrix(from_kafka_project=["confluentplatform"], dist_version=["5.5.0"], from_kafka_version=[str(LATEST_2_5)], to_message_format_version=[None], compression_types=[["none"]],
+            from_tiered_storage=[False, True], to_tiered_storage=[True], hotset_bytes=[-1, 1], backend=[S3_BACKEND, GCS_BACKEND])
+    @matrix(from_kafka_project=["confluentplatform"], dist_version=["5.5.0"], from_kafka_version=[str(LATEST_2_5)], to_message_format_version=[None], compression_types=[["none"]])
     @matrix(from_kafka_project=["confluentplatform"], dist_version=["5.4.0"], from_kafka_version=[str(LATEST_2_4)], to_message_format_version=[None], compression_types=[["none"]],
             from_tiered_storage=[False, True], to_tiered_storage=[True], hotset_bytes=[-1, 1], backend=[S3_BACKEND])
     @matrix(from_kafka_project=["confluentplatform"], dist_version=["5.4.0"], from_kafka_version=[str(LATEST_2_4)], to_message_format_version=[None], compression_types=[["none"]],
