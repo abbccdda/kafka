@@ -19,13 +19,14 @@ package kafka.cluster
 
 import java.util
 
+import io.confluent.http.server.KafkaHttpServerBinder
 import kafka.common.BrokerEndPointNotAvailableException
 import kafka.server.KafkaConfig
 import org.apache.kafka.common.{ClusterResource, Endpoint, Node}
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo
-import org.apache.kafka.server.http.{MetadataServer, MetadataServerFactory}
+import org.apache.kafka.server.http.MetadataServer
 
 import scala.collection.Seq
 import scala.jdk.CollectionConverters._
@@ -35,7 +36,8 @@ object Broker {
                                          brokerId: Int,
                                          endpoints: util.List[Endpoint],
                                          interBrokerEndpoint: Endpoint,
-                                         override val metadataServer: MetadataServer) extends AuthorizerServerInfo
+                                         override val metadataServer: MetadataServer,
+                                         override val httpServerBinder: KafkaHttpServerBinder) extends AuthorizerServerInfo
 }
 
 /**
@@ -84,10 +86,11 @@ case class Broker(id: Int, endPoints: Seq[EndPoint], rack: Option[String]) {
 
   def toServerInfo(clusterId: String,
                    config: KafkaConfig,
-                   metadataServer: MetadataServer = MetadataServerFactory.none()): AuthorizerServerInfo = {
+                   metadataServer: MetadataServer,
+                   httpServerBinder: KafkaHttpServerBinder): AuthorizerServerInfo = {
     val clusterResource: ClusterResource = new ClusterResource(clusterId)
     val interBrokerEndpoint: Endpoint = endPoint(config.interBrokerListenerName).toJava
     val brokerEndpoints: util.List[Endpoint] = endPoints.toList.map(_.toJava).asJava
-    Broker.ServerInfo(clusterResource, id, brokerEndpoints, interBrokerEndpoint, metadataServer)
+    Broker.ServerInfo(clusterResource, id, brokerEndpoints, interBrokerEndpoint, metadataServer, httpServerBinder)
   }
 }

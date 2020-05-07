@@ -198,6 +198,7 @@ libs += [
   jerseyContainerServlet: "org.glassfish.jersey.containers:jersey-container-servlet:$versions.jersey",
   jerseyCommon: "org.glassfish.jersey.core:jersey-common:$versions.jersey",
   jerseyHk2: "org.glassfish.jersey.inject:jersey-hk2:$versions.jersey",
+  jerseyServer: "org.glassfish.jersey.core:jersey-server:$versions.jersey",
   jmhCore: "org.openjdk.jmh:jmh-core:$versions.jmh",
   jmhCoreBenchmarks: "org.openjdk.jmh:jmh-core-benchmarks:$versions.jmh",
   jmhGeneratorAnnProcess: "org.openjdk.jmh:jmh-generator-annprocess:$versions.jmh",

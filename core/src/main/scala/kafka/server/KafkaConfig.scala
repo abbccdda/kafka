@@ -17,6 +17,7 @@
 
 package kafka.server
 
+import java.time.Duration
 import java.util
 import java.util.{Collections, Locale, Properties}
 
@@ -1639,6 +1640,14 @@ object KafkaConfig {
       .defineInternal(ConfluentConfigs.INTERNAL_REST_SERVER_BIND_PORT_CONFIG, INT,
                       ConfluentConfigs.INTERNAL_REST_SERVER_BIND_PORT_DEFAULT, MEDIUM,
                       ConfluentConfigs.INTERNAL_REST_SERVER_BIND_PORT_DOC)
+
+      /********** Kafka HTTP server **********/
+      .defineInternal(ConfluentConfigs.HTTP_SERVER_START_TIMEOUT_MS_CONFIG, LONG,
+                      ConfluentConfigs.HTTP_SERVER_START_TIMEOUT_MS_DEFAULT, LOW,
+                      ConfluentConfigs.HTTP_SERVER_START_TIMEOUT_MS_DOC)
+      .defineInternal(ConfluentConfigs.HTTP_SERVER_STOP_TIMEOUT_MS_CONFIG, LONG,
+                      ConfluentConfigs.HTTP_SERVER_STOP_TIMEOUT_MS_DEFAULT, LOW,
+                      ConfluentConfigs.HTTP_SERVER_STOP_TIMEOUT_MS_DOC)
   }
 
   def configNames() = configDef.names().asScala.toList.sorted
@@ -2117,6 +2126,10 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
 
   /************* Internal REST Server ***********/
   val internalRestServerBindPort = getInt(ConfluentConfigs.INTERNAL_REST_SERVER_BIND_PORT_CONFIG)
+
+  /********** Kafka HTTP server **********/
+  val httpServerStartTimeout: Duration = Duration.ofMillis(getLong(ConfluentConfigs.HTTP_SERVER_START_TIMEOUT_MS_CONFIG))
+  val httpServerStopTimeout: Duration = Duration.ofMillis(getLong(ConfluentConfigs.HTTP_SERVER_STOP_TIMEOUT_MS_CONFIG))
 
   /** ********* Fetch Configuration **************/
   val maxIncrementalFetchSessionCacheSlots = getInt(KafkaConfig.MaxIncrementalFetchSessionCacheSlots)

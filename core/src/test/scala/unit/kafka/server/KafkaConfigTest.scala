@@ -872,6 +872,8 @@ class KafkaConfigTest {
         case ConfluentConfigs.NUM_CLUSTER_LINK_REPLICATION_QUOTAS_SAMPLES_CONFIG =>
         case ConfluentConfigs.CLUSTER_LINK_REPLICATION_QUOTA_WINDOW_SIZE_SECONDS_CONFIG =>
         case ConfluentConfigs.INTERNAL_REST_SERVER_BIND_PORT_CONFIG =>
+        case ConfluentConfigs.HTTP_SERVER_START_TIMEOUT_MS_CONFIG =>
+        case ConfluentConfigs.HTTP_SERVER_STOP_TIMEOUT_MS_CONFIG =>
 
         case _ => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "-1")
       }

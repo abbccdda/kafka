@@ -2,6 +2,7 @@
 
 package io.confluent.security.auth.provider;
 
+import io.confluent.http.server.KafkaHttpServerBinder;
 import io.confluent.security.auth.client.acl.MdsAclMigration;
 import io.confluent.security.auth.metadata.AuthCache;
 import io.confluent.security.auth.metadata.AuthStore;
@@ -209,15 +210,23 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
     return authStore.startReader()
         .thenApply(unused -> {
           if (usesMetadataFromThisKafkaCluster()) {
+            EmbeddedAuthorizer authorizer = createRbacAuthorizer();
+
             MetadataServer metadataServer = serverInfo.metadataServer();
             SimpleInjector injector = new SimpleInjector();
-            injector.putInstance(Authorizer.class, createRbacAuthorizer());
+            injector.putInstance(Authorizer.class, authorizer);
             injector.putInstance(AuthStore.class, authStore);
             injector.putInstance(AuthenticateCallbackHandler.class, authenticateCallbackHandler);
             configurator = new DefaultDynamicConfigurator(createMdsAdminClient(serverInfo, clientConfigs));
             injector.putInstance(DynamicConfigurator.class, configurator);
             metadataServer.registerMetadataProvider(providerName(), injector);
             ConfluentProvider.this.metadataServer = metadataServer;
+
+            KafkaHttpServerBinder httpServerBinder = serverInfo.httpServerBinder();
+            httpServerBinder.bindInstance(Authorizer.class, authorizer);
+            httpServerBinder.bindInstance(AuthStore.class, authStore);
+            httpServerBinder.bindInstance(
+                AuthenticateCallbackHandler.class, authenticateCallbackHandler);
           }
 
           Set<String> accessProviders = ConfluentAuthorizerConfig.accessRuleProviders(configs);

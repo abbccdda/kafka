@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.common.config.internals;
 
+import java.time.Duration;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -336,6 +337,20 @@ public class ConfluentConfigs {
     public static final String INTERNAL_REST_SERVER_BIND_PORT_CONFIG = "confluent.internal.rest.server.bind.port";
     public static final Integer INTERNAL_REST_SERVER_BIND_PORT_DEFAULT = null;
     public static final String INTERNAL_REST_SERVER_BIND_PORT_DOC = "The port to bind the internal rest server to.";
+
+    public static final String HTTP_SERVER_START_TIMEOUT_MS_CONFIG =
+        "confluent.http.server.start.timeout.ms";
+    public static final Long HTTP_SERVER_START_TIMEOUT_MS_DEFAULT =
+        Duration.ofSeconds(30).toMillis();
+    public static final String HTTP_SERVER_START_TIMEOUT_MS_DOC =
+        "How long to wait for the Kafka HTTP server to start up, in milliseconds. Default is 30s.";
+
+    public static final String HTTP_SERVER_STOP_TIMEOUT_MS_CONFIG =
+        "confluent.http.server.stop.timeout.ms";
+    public static final Long HTTP_SERVER_STOP_TIMEOUT_MS_DEFAULT =
+        Duration.ofSeconds(30).toMillis();
+    public static final String HTTP_SERVER_STOP_TIMEOUT_MS_DOC =
+        "How long to wait for the Kafka HTTP server to shutdown, in milliseconds. Default is 30s.";
 
     public enum ClientType {
         PRODUCER("producer", ProducerConfig.configNames()),

@@ -46,22 +46,6 @@
     <allow pkg="org.apache.kafka.common" />
   </subpackage>
 
-  <subpackage name="restserver">
-    <allow pkg="io.confluent.restserver" />
-    <allow pkg="io.confluent.kafka.test.cluster" />
-    <allow pkg="kafka" />
-    <allow pkg="org.apache.kafka.common" />
-    <allow pkg="org.apache.kafka.server.rest" />
-    <allow pkg="org.apache.kafka.test" />
-    <allow pkg="org.eclipse.jetty.server" />
-    <allow pkg="org.eclipse.jetty.servlet" />
-    <allow pkg="org.eclipse.jetty.util.ssl" />
-    <allow pkg="org.glassfish.jersey.server" />
-    <allow pkg="org.glassfish.jersey.servlet" />
-    <allow pkg="org.apache.http" />
-    <allow pkg="javax.ws.rs" />
-  </subpackage>
-
   <subpackage name="license">
     <allow pkg="io.confluent.command" />
     <allow pkg="io.confluent.license" />
@@ -183,8 +167,12 @@
       <allow pkg="io.confluent.security.auth" />
       <allow pkg="io.confluent.security.store" />
 
-      <subpackage name="provider.ldap">
-        <allow pkg="io.confluent.kafka.security.ldap.authorizer" />
+      <subpackage name="provider">
+        <allow pkg="io.confluent.http.server" />
+
+        <subpackage name="ldap">
+          <allow pkg="io.confluent.kafka.security.ldap.authorizer" />
+        </subpackage>
       </subpackage>
     </subpackage>
 
@@ -261,6 +249,14 @@
     <allow pkg="org.eclipse.jetty.servlet" />
     <allow pkg="javax.servlet" />
     <allow pkg="org.apache.kafka.common.errors" />
+  </subpackage>
+
+  <subpackage name="http">
+    <subpackage name="server">
+      <allow pkg="io.confluent.http.server" />
+      <allow pkg="org.glassfish.jersey.server" />
+      <allow pkg="org.eclipse.jetty.servlet" />
+    </subpackage>
   </subpackage>
 
 </import-control>

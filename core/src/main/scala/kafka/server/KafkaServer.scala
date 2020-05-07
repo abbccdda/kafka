@@ -36,6 +36,7 @@ import kafka.log.TierLogComponents
 import kafka.log.{LogConfig, LogManager}
 import kafka.metrics.{KafkaMetricsGroup, KafkaMetricsReporter, KafkaYammerMetrics}
 import kafka.network.SocketServer
+import io.confluent.http.server.{KafkaHttpServer, KafkaHttpServerBinder, KafkaHttpServerLoader}
 import io.confluent.rest.{BeginShutdownBrokerHandle, InternalRestServer}
 import kafka.security.CredentialProvider
 import kafka.server.link.ClusterLinkManager
@@ -71,6 +72,7 @@ import org.apache.zookeeper.client.ZKClientConfig
 import org.slf4j.LoggerFactory
 
 import scala.jdk.CollectionConverters._
+import scala.compat.java8.OptionConverters._
 import scala.collection.{Map, Seq, mutable}
 
 object KafkaServer {
@@ -293,6 +295,9 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
   private var licenseValidator: LicenseValidator = null
 
+  var httpServer: Option[KafkaHttpServer] = None
+  private var httpServerBinder: KafkaHttpServerBinder = null
+
   private var fipsValidator: FipsValidator = null
 
   private var internalRestServer: InternalRestServer = null
@@ -349,6 +354,9 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
           throw new InconsistentClusterIdException(
             s"The Cluster ID ${clusterId} doesn't match stored clusterId ${preloadedBrokerMetadataCheckpoint.clusterId} in meta.properties. " +
             s"The broker is trying to join the wrong cluster. Configured zookeeper.connect may be wrong.")
+
+        httpServerBinder = new KafkaHttpServerBinder()
+        httpServerBinder.bindInstance(classOf[ClusterResource], new ClusterResource(clusterId))
 
         /* generate brokerId */
         config.brokerId = getOrGenerateBrokerId(preloadedBrokerMetadataCheckpoint)
@@ -484,7 +492,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         authorizer.foreach(_.configure(config.originals))
         val authorizerFutures: Map[Endpoint, CompletableFuture[Void]] = authorizer match {
           case Some(authZ) =>
-            authZ.start(brokerInfo.broker.toServerInfo(clusterId, config, metadataServer)).asScala.map { case (ep, cs) =>
+            authZ.start(brokerInfo.broker.toServerInfo(clusterId, config, metadataServer, httpServerBinder)).asScala.map { case (ep, cs) =>
               ep -> cs.toCompletableFuture
             }
           case None =>
@@ -547,6 +555,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         authorizerFutures.values.foreach(_.join())
         metadataServer.start()
+        httpServer = KafkaHttpServerLoader.load(config.originals, httpServerBinder.createInjector()).asScala
 
         if (config.internalRestServerBindPort != null) {
           internalRestServer = new InternalRestServer(config.internalRestServerBindPort, BeginShutdownBrokerHandleAdapter(this))
@@ -560,6 +569,11 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         if (multitenantMetadata != null) {
           val endpoint = brokerInfo.broker.brokerEndPoint(config.interBrokerListenerName).connectionString()
           multitenantMetadata.handleSocketServerInitialized(endpoint)
+        }
+
+        httpServer.foreach(_.start())
+        if (!httpServer.forall(_.awaitStarted(config.httpServerStartTimeout))) {
+          throw new IllegalStateException("Kafka HTTP server failed to start up.")
         }
 
         startupComplete.set(true)
@@ -896,6 +910,16 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         if (licenseValidator != null)
           CoreUtils.swallow(licenseValidator.close(), this)
+
+        httpServer match {
+          case Some(server) => {
+            CoreUtils.swallow(server.stop(), this)
+            if (!server.awaitStopped(config.httpServerStopTimeout)) {
+              warn("Timed out while waiting for Kafka HTTP server to shutdown. Continuing Kafka server shutdown.")
+            }
+          }
+          case None =>
+        }
 
         if (dynamicConfigManager != null)
           CoreUtils.swallow(dynamicConfigManager.shutdown(), this)

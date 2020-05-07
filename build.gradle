@@ -767,6 +767,7 @@ project(':core') {
     // ZooKeeperMain depends on commons-cli but declares the dependency as `provided`
     compile libs.commonsCli
     compile libs.googlecloudstorage
+    compile project(':ce-http-server')
     compile project(':internal-rest-server')
 
     compileOnly libs.log4j
@@ -1112,6 +1113,8 @@ project(':clients') {
   conf2ScopeMappings.addMapping(1000, configurations.jacksonDatabindConfig, "provided")
 
   dependencies {
+    compile project(':ce-http-server')
+
     compile libs.zstd
     compile libs.lz4
     compile libs.snappy
@@ -2661,6 +2664,7 @@ project(':ce-auth-providers') {
     compile project(':ce-authorizer')
     compile project(':ce-rest-authorizer')
     compile project(':ce-rbac')
+    compile project(':ce-http-server')
 
     testCompile project(':core')
     testCompile project(':clients').sourceSets.test.output
@@ -2873,6 +2877,26 @@ project(':ce-resource-names') {
     }
     into "$buildDir/dependant-libs"
     duplicatesStrategy 'exclude'
+  }
+
+  checkstyle {
+    configProperties = checkstyleConfigProperties("confluent-import-control.xml")
+  }
+}
+
+project(':ce-http-server') {
+  group = "io.confluent"
+  archivesBaseName = "ce-http-server"
+
+  dependencies {
+    compile libs.jerseyServer
+    compile libs.jettyServlet
+    compile libs.slf4jApi
+
+    testCompile libs.junit
+    testCompile libs.mockitoCore
+
+    testCompile project(':clients').sourceSets.test.output
   }
 
   checkstyle {

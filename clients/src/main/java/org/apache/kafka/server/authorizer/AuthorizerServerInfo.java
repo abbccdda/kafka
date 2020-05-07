@@ -17,6 +17,7 @@
 
 package org.apache.kafka.server.authorizer;
 
+import io.confluent.http.server.KafkaHttpServerBinder;
 import java.util.Collection;
 import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.Endpoint;
@@ -58,5 +59,9 @@ public interface AuthorizerServerInfo {
      */
     default MetadataServer metadataServer() {
         return MetadataServerFactory.none();
+    }
+
+    default KafkaHttpServerBinder httpServerBinder() {
+        return new KafkaHttpServerBinder();
     }
 }

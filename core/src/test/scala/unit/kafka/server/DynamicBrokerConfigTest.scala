@@ -17,10 +17,12 @@
 
 package kafka.server
 
+import java.time.Duration
 import java.{lang, util}
 import java.util.Properties
 import java.util.concurrent.CompletionStage
 
+import io.confluent.http.server.KafkaHttpServer
 import kafka.utils.TestUtils
 import kafka.zk.KafkaZkClient
 import org.apache.kafka.common.{Endpoint, Reconfigurable}
@@ -398,6 +400,52 @@ class DynamicBrokerConfigTest {
     props.put("super.users", "User:admin")
     kafkaServer.config.dynamicConfig.updateBrokerConfig(0, props)
     assertEquals("User:admin", authorizer.superUsers)
+  }
+
+  @Test
+  def testHttpServerConfig(): Unit = {
+    val props = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 9092)
+    val oldConfig =  KafkaConfig.fromProps(props)
+    val kafkaServer: KafkaServer = EasyMock.createMock(classOf[kafka.server.KafkaServer])
+
+    class TestKafkaHttpServer extends KafkaHttpServer with Reconfigurable {
+      override def isNew: Boolean = ???
+      override def isStarting: Boolean = ???
+      override def isRunning: Boolean = ???
+      override def isStopping: Boolean = ???
+      override def isTerminated: Boolean = ???
+      override def isFailed: Boolean = ???
+      override def start(): Unit = ???
+      override def stop(): Unit = ???
+      override def awaitStarted(): Unit = ???
+      override def awaitStarted(timeout: Duration): Boolean = ???
+      override def awaitStopped(): Unit = ???
+      override def awaitStopped(timeout: Duration): Boolean = ???
+
+      @volatile var foobar = ""
+
+      override def reconfigurableConfigs(): util.Set[String] = Set("foo.bar").asJava
+      override def validateReconfiguration(configs: util.Map[String, _]): Unit = {}
+      override def reconfigure(configs: util.Map[String, _]): Unit = {
+        foobar = configs.get("foo.bar").toString
+      }
+      override def configure(configs: util.Map[String, _]): Unit = {}
+    }
+
+    val httpServer = new TestKafkaHttpServer
+    EasyMock.expect(kafkaServer.config).andReturn(oldConfig).anyTimes()
+    EasyMock.expect(kafkaServer.authorizer).andReturn(None).anyTimes()
+    EasyMock.expect(kafkaServer.httpServer).andReturn(Some(httpServer)).anyTimes()
+    EasyMock.replay(kafkaServer)
+    try {
+      kafkaServer.config.dynamicConfig.addReconfigurables(kafkaServer)
+    } catch {
+      case _: Throwable => // We are only testing HTTP server reconfiguration, ignore any exceptions due to incomplete mock
+    }
+
+    props.put("foo.bar", "fozbaz")
+    kafkaServer.config.dynamicConfig.updateBrokerConfig(0, props)
+    assertEquals("fozbaz", httpServer.foobar)
   }
 
   @Test

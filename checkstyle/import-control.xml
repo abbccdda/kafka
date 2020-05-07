@@ -209,6 +209,10 @@
     <allow pkg="org.apache.kafka.common" />
     <allow pkg="org.apache.kafka.server" />
     <allow pkg="org.apache.kafka.test" />
+
+    <subpackage name="authorizer">
+      <allow pkg="io.confluent.http.server" />
+    </subpackage>
   </subpackage>
 
   <subpackage name="tools">
