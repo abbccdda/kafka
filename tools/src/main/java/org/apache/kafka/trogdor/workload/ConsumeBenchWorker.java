@@ -213,7 +213,7 @@ public class ConsumeBenchWorker implements TaskWorker {
         private final Optional<RecordBatchVerifier> recordBatchVerifier;
 
         private ConsumeMessages(ThreadSafeConsumer consumer, Optional<RecordBatchVerifier> recordBatchVerifier) {
-            this.latencyHistogram = new Histogram(5000);
+            this.latencyHistogram = new Histogram(10000);
             this.messageSizeHistogram = new Histogram(2 * 1024 * 1024);
             this.clientId = consumer.clientId();
             this.statusUpdaterFuture = executor.scheduleAtFixedRate(

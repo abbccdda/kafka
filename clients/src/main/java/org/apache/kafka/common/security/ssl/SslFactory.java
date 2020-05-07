@@ -48,7 +48,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.HashSet;
 
-public class SslFactory implements Reconfigurable {
+public class SslFactory implements Reconfigurable, Closeable {
     private static final Logger log = LoggerFactory.getLogger(SslFactory.class);
 
     private final Mode mode;
@@ -243,6 +243,11 @@ public class SslFactory implements Reconfigurable {
         if (srcMap.containsKey(key)) {
             destMap.put(key, srcMap.get(key));
         }
+    }
+
+    @Override
+    public void close() {
+        Utils.closeQuietly(sslEngineFactory, "close engine factory");
     }
 
     static class CertificateEntries {

@@ -3986,6 +3986,7 @@ public class KafkaAdminClientTest {
             ClientQuotaFilterComponent.ofEntityType(ClientQuotaEntity.USER));
     }
 
+    @Test
     public void testAlterClientQuotas() throws Exception {
         try (AdminClientUnitTestEnv env = mockClientEnv()) {
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());

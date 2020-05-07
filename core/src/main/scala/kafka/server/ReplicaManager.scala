@@ -1166,12 +1166,19 @@ class ReplicaManager(val config: KafkaConfig,
     var localReadableBytes: Long = 0
     var errorReadingData = false
 
+    def updateBrokerTopicStats(topic: String): Unit = {
+      brokerTopicStats.topicStats(topic).totalFetchRequestRate.mark()
+      brokerTopicStats.allTopicsStats.totalFetchRequestRate.mark()
+    }
+
     val localLogReadResultMap = new mutable.HashMap[TopicPartition, LogReadResult]
     val tierLogReadResultMap = new mutable.HashMap[TopicPartition, TierLogReadResult]
     var anyPartitionsNeedHwUpdate = false
 
     logReadResults.foreach {
       case (topicPartition: TopicPartition, logReadResult: LogReadResult) =>
+        updateBrokerTopicStats(topicPartition.topic)
+
         if (logReadResult.error != Errors.NONE)
           errorReadingData = true
         localReadableBytes = localReadableBytes + logReadResult.info.records.sizeInBytes
@@ -1181,6 +1188,8 @@ class ReplicaManager(val config: KafkaConfig,
         }
 
       case (topicPartition: TopicPartition, tierLogReadResult: TierLogReadResult) =>
+        updateBrokerTopicStats(topicPartition.topic)
+
         if (tierLogReadResult.error != Errors.NONE)
           errorReadingData = true
         tierLogReadResultMap.put(topicPartition, tierLogReadResult)
@@ -1266,9 +1275,6 @@ class ReplicaManager(val config: KafkaConfig,
       val offset = fetchInfo.fetchOffset
       val partitionFetchSize = fetchInfo.maxBytes
       val followerLogStartOffset = fetchInfo.logStartOffset
-
-      brokerTopicStats.topicStats(tp.topic).totalFetchRequestRate.mark()
-      brokerTopicStats.allTopicsStats.totalFetchRequestRate.mark()
 
       val adjustedMaxBytes = math.min(fetchInfo.maxBytes, limitBytes)
       try {

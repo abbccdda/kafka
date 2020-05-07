@@ -32,6 +32,7 @@ import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.errors.InvalidRequestException;
+import org.apache.kafka.common.errors.InvalidReplicationFactorException;
 import org.apache.kafka.common.errors.KafkaStorageException;
 import org.apache.kafka.common.errors.ReplicaNotAvailableException;
 import org.apache.kafka.common.errors.TimeoutException;
@@ -243,10 +244,12 @@ public class MockAdminClient extends AdminClient implements ConfluentAdmin {
                 continue;
             }
             int replicationFactor = newTopic.replicationFactor();
-            if (replicationFactor > brokers.size())
-                throw new IllegalArgumentException(
-                    String.format("NewTopic %s cannot have a replication factor of %d that is larger than the number of brokers %s",
-                        newTopic, replicationFactor, brokers));
+            if (replicationFactor > brokers.size()) {
+                future.completeExceptionally(new InvalidReplicationFactorException(
+                        String.format("Replication factor: %d is larger than brokers: %d", newTopic.replicationFactor(), brokers.size())));
+                createTopicResult.put(topicName, future);
+                continue;
+            }
 
             List<Node> replicas = new ArrayList<>(replicationFactor);
             for (int i = 0; i < replicationFactor; ++i) {

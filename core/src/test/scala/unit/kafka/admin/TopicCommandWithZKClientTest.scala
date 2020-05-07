@@ -19,7 +19,7 @@ package kafka.admin
 import kafka.admin.TopicCommand.{TopicCommandOptions, ZookeeperTopicService}
 import kafka.log.LogConfig
 import kafka.server.ConfigType
-import kafka.utils.{Logging, TestUtils}
+import kafka.utils.{Exit, Logging, TestUtils}
 import kafka.zk.{ConfigEntityChangeNotificationZNode, DeleteTopicsTopicZNode, ZooKeeperTestHarness}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.{ConfigException, ConfigResource}
@@ -663,5 +663,27 @@ class TopicCommandWithZKClientTest extends ZooKeeperTestHarness with Logging wit
   def testCreateMirrorInvalid(): Unit = {
     new TopicCommandOptions(Array("--create", "--topic", testTopicName, "--mirror-topic", testTopicName,
       "--link-name", "linked-cluster", "--replica-assignment", "3:0,5:1")).checkArgs()
+  }
+
+  @Test
+  def testCreateWithUnspecifiedReplicationFactorAndPartitionsWithZkClient(): Unit = {
+    assertExitCode(1, () =>
+      new TopicCommandOptions(Array("--create", "--zookeeper", "zk", "--topic", testTopicName)).checkArgs()
+    )
+  }
+
+  def assertExitCode(expected: Int, method: () => Unit): Unit = {
+    def mockExitProcedure(exitCode: Int, exitMessage: Option[String]): Nothing = {
+      assertEquals(expected, exitCode)
+      throw new RuntimeException
+    }
+    Exit.setExitProcedure(mockExitProcedure)
+    try {
+      intercept[RuntimeException] {
+        method()
+      }
+    } finally {
+      Exit.resetExitProcedure()
+    }
   }
 }

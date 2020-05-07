@@ -74,7 +74,7 @@ versions += [
   commonsCli: "1.4",
   commonsIo: "2.6",
   googlecloudstorage: "1.82.0",
-  gradle: "6.3",
+  gradle: "6.4",
   gradleVersionsPlugin: "0.28.0",
   grgit: "4.0.1",
   httpclient: "4.5.11",
