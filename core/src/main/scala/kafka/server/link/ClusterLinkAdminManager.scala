@@ -3,7 +3,6 @@
  */
 package kafka.server.link
 
-import java.time.Duration
 import java.util.{Properties, UUID}
 import java.util.concurrent.{CompletableFuture, ExecutionException}
 
@@ -12,13 +11,9 @@ import kafka.utils.{CoreUtils, Logging}
 import kafka.utils.Implicits._
 import kafka.zk.{AdminZkClient, KafkaZkClient}
 import org.apache.kafka.clients.admin.{Admin, DescribeClusterOptions}
-import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer}
-import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.acl.AclOperation
-import org.apache.kafka.common.internals.Topic
 import org.apache.kafka.common.errors.{ClusterAuthorizationException, ClusterLinkExistsException, ClusterLinkInUseException, ClusterLinkNotFoundException, InvalidConfigurationException, InvalidRequestException, UnsupportedVersionException}
 import org.apache.kafka.common.requests.{ApiError, ClusterLinkListing, NewClusterLink}
-import org.apache.kafka.common.serialization.ByteArrayDeserializer
 
 import scala.collection.JavaConverters._
 import scala.collection.Seq
@@ -170,25 +165,6 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
         expectedClusterId.foreach { ecid =>
           throw new InvalidRequestException(s"Expected cluster ID '$ecid' does not match due to no resolved cluster ID")
         }
-    }
-
-    // Issue a fetch request to the remote cluster to verify topic read access.
-    val partition = List(new TopicPartition(Topic.GROUP_METADATA_TOPIC_NAME, 0)).asJavaCollection
-    val consumerProps = new Properties()
-    consumerProps ++= props
-    consumerProps.put(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, "0")
-    consumerProps.put(ConsumerConfig.FETCH_MAX_BYTES_CONFIG, "1")
-    consumerProps.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, "0")
-    val consumer = new KafkaConsumer[Array[Byte], Array[Byte]](consumerProps,
-      new ByteArrayDeserializer(), new ByteArrayDeserializer())
-    try {
-      consumer.assign(partition)
-      consumer.seekToBeginning(partition)
-      consumer.poll(Duration.ofMillis(timeoutMs))
-    } catch {
-      case e: Throwable => throwExceptionFor(e)
-    } finally {
-      consumer.close()
     }
 
     linkClusterId
