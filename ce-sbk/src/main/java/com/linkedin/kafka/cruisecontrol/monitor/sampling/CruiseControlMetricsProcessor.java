@@ -35,6 +35,7 @@ import static com.linkedin.kafka.cruisecontrol.monitor.sampling.SamplingUtils.le
 public class CruiseControlMetricsProcessor {
   private static final Logger LOG = LoggerFactory.getLogger(CruiseControlMetricsProcessor.class);
   private static final long INIT_METRIC_TIMESTAMP = -1L;
+  private static final int MAX_PARTITION_ERROR_LOGS = 10;
   private final Map<Integer, BrokerLoad> _brokerLoad;
   // TODO: Use the cached number of cores in estimation of partition CPU utilization.
   private final Map<Integer, Short> _cachedNumCoresByBroker;
@@ -162,6 +163,7 @@ public class CruiseControlMetricsProcessor {
                                         Set<TopicPartition> partitionsDotNotHandled,
                                         Set<PartitionMetricSample> partitionMetricSamples) {
     int skippedPartition = 0;
+    int loggedPartitionErrors = 0;
     Map<Integer, Map<String, Integer>> leaderDistribution = leaderDistribution(cluster);
     for (TopicPartition tpDotNotHandled : partitionsDotNotHandled) {
       try {
@@ -174,7 +176,12 @@ public class CruiseControlMetricsProcessor {
           skippedPartition++;
         }
       } catch (Exception e) {
-        LOG.trace("Error building partition metric sample for {}.", tpDotNotHandled, e);
+        if (loggedPartitionErrors < MAX_PARTITION_ERROR_LOGS) {
+          LOG.error("Error building partition metric sample for {}.", tpDotNotHandled, e);
+          loggedPartitionErrors++;
+        } else {
+          LOG.trace("Error building partition metric sample for {}.", tpDotNotHandled, e);
+        }
         skippedPartition++;
       }
     }
