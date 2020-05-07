@@ -6,17 +6,18 @@ package kafka.server.link
 
 import java.util.{Collections, Properties}
 
-import kafka.server.KafkaConfig._
 import kafka.server.Defaults
+import kafka.server.KafkaConfig._
 import kafka.server.link.ClusterLinkConfigDefaults._
-import org.apache.kafka.clients.{ClientDnsLookup, CommonClientConfigs}
 import org.apache.kafka.clients.CommonClientConfigs._
+import org.apache.kafka.clients.{ClientDnsLookup, CommonClientConfigs}
 import org.apache.kafka.common.config.ConfigDef.ConfigKey
 import org.apache.kafka.common.config.ConfigDef.Importance.{HIGH, LOW, MEDIUM}
 import org.apache.kafka.common.config.ConfigDef.Range.atLeast
-import org.apache.kafka.common.config.ConfigDef.Type.{INT, LIST, LONG, STRING}
+import org.apache.kafka.common.config.ConfigDef.Type._
 import org.apache.kafka.common.config.ConfigDef.ValidString.in
 import org.apache.kafka.common.config.{AbstractConfig, ConfigDef, SaslConfigs}
+import org.apache.kafka.common.errors.InvalidConfigurationException
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.slf4j.{Logger, LoggerFactory}
 
@@ -27,6 +28,7 @@ object ClusterLinkConfigDefaults {
   val RetryBackoffMs = 100L
   val MetadataMaxAgeMs = 5 * 60 * 1000
   val RetryTimeoutMs = 5 * 60 * 1000
+  val aclSyncMsDefault = 5000
 }
 
 case class ClusterLinkConfig(props: java.util.Map[_, _])
@@ -35,6 +37,10 @@ case class ClusterLinkConfig(props: java.util.Map[_, _])
   val log: Logger = LoggerFactory.getLogger(getClass())
 
   val numClusterLinkFetchers = getInt(ClusterLinkConfig.NumClusterLinkFetchersProp)
+  val aclSyncEnable = getBoolean(ClusterLinkConfig.AclSyncEnableProp)
+  val aclFilters: Option[AclFiltersJson] = AclJson.parse(getString(
+    ClusterLinkConfig.AclFiltersProp))
+  val aclSyncMs = getInt(ClusterLinkConfig.AclSyncMsProp)
   val bootstrapServers = getList(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG)
   val dnsLookup = ClientDnsLookup.forConfig(getString(CommonClientConfigs.CLIENT_DNS_LOOKUP_CONFIG))
   val securityProtocol = SecurityProtocol.forName(getString(SECURITY_PROTOCOL_CONFIG))
@@ -65,6 +71,15 @@ object ClusterLinkConfig {
     " partitions are marked as failed. If the source topic is deleted and recreated within this timeout," +
     " the link may contain records from the old as well as the new topic."
 
+  val AclSyncEnableProp = "acl.sync.enable"
+  val AclSyncEnableDoc = "Whether or not to migrate ACLs"
+
+  val AclFiltersProp = "acl.filters"
+  val AclFiltersDoc = "JSON to denote the list of ACLs to be migrated."
+
+  val AclSyncMsProp = "acl.sync.ms"
+  val AclSyncMsDoc = "How often to refresh the ACLs."
+
   def main(args: Array[String]): Unit = {
     println(configDef.toHtml)
   }
@@ -72,6 +87,9 @@ object ClusterLinkConfig {
   private val configDef = new ConfigDef()
     .define(NumClusterLinkFetchersProp, INT, NumClusterLinkFetchers, LOW, NumClusterLinkFetchersDoc)
     .define(RetryTimeoutMsProp, INT, RetryTimeoutMs, MEDIUM, RetryTimeoutMsDoc)
+    .define(AclSyncEnableProp, BOOLEAN, false, LOW, AclSyncEnableDoc)
+    .define(AclFiltersProp, STRING, "", AclJson.VALIDATOR, LOW, AclFiltersDoc)
+    .define(AclSyncMsProp, INT, aclSyncMsDefault, LOW, AclSyncMsDoc)
     .define(BOOTSTRAP_SERVERS_CONFIG, LIST, Collections.emptyList, new ConfigDef.NonNullValidator, HIGH, BOOTSTRAP_SERVERS_DOC)
     .define(CLIENT_DNS_LOOKUP_CONFIG, STRING, ClientDnsLookup.USE_ALL_DNS_IPS.toString,
       in(ClientDnsLookup.DEFAULT.toString, ClientDnsLookup.USE_ALL_DNS_IPS.toString, ClientDnsLookup.RESOLVE_CANONICAL_BOOTSTRAP_SERVERS_ONLY.toString),
@@ -96,6 +114,13 @@ object ClusterLinkConfig {
 
   def configKeys: Map[String, ConfigKey] = configDef.configKeys.asScala.toMap
 
-  def validate(props: Properties): Unit = {}
-
+  def validate(props: Properties): Unit = {
+    val parsedProps = configDef.parse(props)
+    val aclSyncEnable = parsedProps.get(AclSyncEnableProp).asInstanceOf[Boolean]
+    val aclFilters: String = props.get(AclFiltersProp).asInstanceOf[String]
+    if (aclSyncEnable && AclJson.parse(aclFilters).isEmpty) {
+      throw new InvalidConfigurationException("ACL migration is enabled but acl.filters is not set."
+        +   " Please set acl.filters to proceed with ACL migration.")
+    }
+  }
 }

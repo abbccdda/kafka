@@ -5,12 +5,14 @@ package kafka.server.link
 
 import java.util.concurrent.{CompletableFuture, ExecutionException}
 
+import kafka.controller.KafkaController
 import kafka.utils.{CoreUtils, Logging}
 import kafka.zk.{AdminZkClient, KafkaZkClient}
-import org.apache.kafka.clients.admin.{ConfluentAdmin, Config, DescribeConfigsOptions, DescribeTopicsOptions, TopicDescription}
+import org.apache.kafka.clients.admin.{Config, ConfluentAdmin, DescribeConfigsOptions, DescribeTopicsOptions, TopicDescription}
 import org.apache.kafka.common.KafkaFuture
 import org.apache.kafka.common.config.ConfigResource
 import org.apache.kafka.common.requests.ApiError
+import org.apache.kafka.server.authorizer.Authorizer
 
 import scala.collection.JavaConverters._
 import scala.collection.Set
@@ -31,9 +33,13 @@ class ClusterLinkClientManager(val linkName: String,
                                val scheduler: ClusterLinkScheduler,
                                val zkClient: KafkaZkClient,
                                private var config: ClusterLinkConfig,
+                               private val authorizer: Option[Authorizer],
+                               private val controller: KafkaController,
                                private val adminFactory: ClusterLinkConfig => ConfluentAdmin) extends Logging {
 
   @volatile private var admin: Option[ConfluentAdmin] = None
+
+  private var clusterLinkSyncAcls: Option[ClusterLinkSyncAcls] = None
 
   // Protects `topics` and `config`.
   private val lock = new Object
@@ -46,9 +52,19 @@ class ClusterLinkClientManager(val linkName: String,
 
   def startup(): Unit = {
     setAdmin(Some(adminFactory(config)))
+    if (config.aclSyncEnable) {
+      authorizer.getOrElse(throw new IllegalArgumentException("ACL migration is enabled but "
+        + "authorizer.class.name is not set. Please set authorizer.class.name to proceed with ACL "
+        + "migration."))
+      config.aclFilters.getOrElse(throw new IllegalArgumentException("ACL migration is enabled "
+        + "but acl.filters is not set. Please set acl.filters to proceed with ACL migration."))
+      clusterLinkSyncAcls = Some(new ClusterLinkSyncAcls(this, config, controller))
+      clusterLinkSyncAcls.get.startup()
+    }
   }
 
   def shutdown(): Unit = {
+    clusterLinkSyncAcls.foreach(_.shutdown())
     setAdmin(None)
   }
 
@@ -82,6 +98,11 @@ class ClusterLinkClientManager(val linkName: String,
   }
 
   def getAdmin: ConfluentAdmin = admin.getOrElse(throw new IllegalStateException(s"Client manager for $linkName not initialized"))
+
+  def getAuthorizer: Option[Authorizer] = authorizer
+
+  // for testing purposes
+  def getSyncAclTask: Option[ClusterLinkSyncAcls] = clusterLinkSyncAcls
 
   private def setAdmin(newAdmin: Option[ConfluentAdmin]): Unit = {
     val oldAdmin = admin

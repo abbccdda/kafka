@@ -8,13 +8,10 @@ import java.util.concurrent.ExecutionException
 
 import joptsimple._
 import kafka.common.AdminCommandFailedException
-import kafka.server.link.ClusterLinkConfig
-import kafka.utils.CommandDefaultOptions
-import kafka.utils.CommandLineUtils
-import kafka.utils.Logging
-import org.apache.kafka.clients.admin.{AdminClient, AdminClientConfig, ConfluentAdmin, CreateClusterLinksOptions, DeleteClusterLinksOptions, ListClusterLinksOptions}
-import org.apache.kafka.common.errors.ClusterAuthorizationException
-import org.apache.kafka.common.errors.TimeoutException
+import kafka.server.link.{AclJson, ClusterLinkConfig}
+import kafka.utils.{CommandDefaultOptions, CommandLineUtils, Logging}
+import org.apache.kafka.clients.admin._
+import org.apache.kafka.common.errors.{ClusterAuthorizationException, TimeoutException}
 import org.apache.kafka.common.requests.NewClusterLink
 import org.apache.kafka.common.utils.{Exit, Utils}
 
@@ -53,6 +50,30 @@ object ClusterLinkCommand extends Logging {
       require(opts.options.has(opts.configFileOpt))
       Utils.loadProps(opts.options.valueOf(opts.configFileOpt))
     }
+
+    if (props.getProperty(ClusterLinkConfig.AclSyncEnableProp, "false").equals("true")) {
+      var jsonString = ""
+      if (opts.options.has(opts.aclFiltersJsonFileOpt)) {
+        jsonString = Utils.readFileAsString(opts.valueOf(opts.aclFiltersJsonFileOpt))
+      } else if (opts.options.has(opts.aclFiltersJsonOpt)) {
+        jsonString = opts.valueOf(opts.aclFiltersJsonOpt)
+      }
+      if (jsonString.trim.isEmpty) {
+        CommandLineUtils.printHelpAndExitIfNeeded(opts, s"${ClusterLinkConfig.AclSyncEnableProp}" +
+          s" is set to true but the acl filters JSON is not passed in. Please pass in the path to" +
+          s" the JSON file using the --acl-filters-json-file option and rerun the create link command.")
+      }
+      val json = AclJson.parse(jsonString)
+      json match {
+        case Some(_) => props.put(ClusterLinkConfig.AclFiltersProp, jsonString)
+        case None =>
+          CommandLineUtils.printHelpAndExitIfNeeded(opts,
+            s"${ClusterLinkConfig.AclSyncEnableProp} is set to true but the JSON file passed"
+              + s" has invalid values. Please put valid values in the JSON file and rerun the" +
+              s" create link command.")
+      }
+    }
+
     props.asScala.toMap
   }
 
@@ -152,6 +173,14 @@ private final class ClusterLinkCommandOptions(args: Array[String]) extends Comma
     .withRequiredArg
     .describedAs("cluster ID")
     .ofType(classOf[String])
+  val aclFiltersJsonFileOpt = parser.accepts("acl-filters-json-file", ClusterLinkConfig.AclFiltersDoc)
+    .withRequiredArg
+    .describedAs("path to ACL filters JSON file")
+    .ofType(classOf[String])
+  val aclFiltersJsonOpt = parser.accepts("acl-filters-json", ClusterLinkConfig.AclFiltersDoc)
+    .withRequiredArg
+    .describedAs("JSON of ACL filters")
+    .ofType(classOf[String])
   val configOpt = parser.accepts("config",
     "A cluster link configuration for the cluster link being created. The following is a list of valid configurations: " +
       nl + ClusterLinkConfig.configNames.map("\t" + _).mkString(nl) + nl +
@@ -217,7 +246,8 @@ private final class ClusterLinkCommandOptions(args: Array[String]) extends Comma
     if (args.length == 0)
       CommandLineUtils.printUsageAndDie(parser, "Create, list, or delete cluster links.")
     CommandLineUtils.printHelpAndExitIfNeeded(this, "This tool creates, lists, and deletes cluster links.")
-
+    CommandLineUtils.checkInvalidArgs(parser, options, aclFiltersJsonFileOpt, Set(listOpt, deleteOpt, forceOpt))
+    CommandLineUtils.checkInvalidArgs(parser, options, aclFiltersJsonOpt, Set(listOpt, deleteOpt, forceOpt))
     try {
       verifyArgs()
     } catch {

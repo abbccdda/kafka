@@ -6,13 +6,15 @@ package kafka.server.link
 
 import java.util.Properties
 
+import kafka.controller.KafkaController
 import kafka.utils.Implicits._
 import kafka.zk.KafkaZkClient
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.clients.admin.ConfluentAdmin
-import org.easymock.EasyMock.createNiceMock
-import org.junit.Test
+import org.apache.kafka.server.authorizer.Authorizer
+import org.easymock.EasyMock._
 import org.junit.Assert._
+import org.junit.Test
 import org.scalatest.Assertions.intercept
 
 class ClusterLinkClientManagerTest {
@@ -20,6 +22,8 @@ class ClusterLinkClientManagerTest {
   val scheduler: ClusterLinkScheduler = createNiceMock(classOf[ClusterLinkScheduler])
   val zkClient: KafkaZkClient = createNiceMock(classOf[KafkaZkClient])
   var clientManager: ClusterLinkClientManager = _
+  val authorizer: Authorizer = createNiceMock(classOf[Authorizer])
+  val controller: KafkaController = createNiceMock(classOf[KafkaController])
 
   @Test
   def testAdmin(): Unit = {
@@ -35,7 +39,7 @@ class ClusterLinkClientManagerTest {
       factoryAdmin
     }
 
-    val clientManager = newClientManager(linkName, factoryConfig, adminFactory)
+    val clientManager = newClientManager(linkName, factoryConfig, adminFactory, Some(authorizer), controller)
     assertEquals(0, factoryCalled)
 
     clientManager.startup()
@@ -64,7 +68,7 @@ class ClusterLinkClientManagerTest {
     val linkName = "test-link"
     val config = newConfig(Map(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG -> "localhost:1234"))
     def adminFactory(config: ClusterLinkConfig): ConfluentAdmin = createNiceMock(classOf[ConfluentAdmin])
-    val clientManager = newClientManager(linkName, config, adminFactory)
+    val clientManager = newClientManager(linkName, config, adminFactory, Some(authorizer), controller)
     val topics = List("topic0", "topic1", "topic2")
 
     clientManager.startup()
@@ -86,11 +90,101 @@ class ClusterLinkClientManagerTest {
       clientManager.shutdown()
     }
   }
+  @Test
+  def testAclSyncTaskStartup(): Unit = {
+    val linkName = "test-link"
+    val migrateAllAclsJson =
+      """{
+        | "aclFilters": [{
+        |  "resourceFilter": {
+        |      "resourceType": "any",
+        |      "patternType": "any"
+        |    },
+        |  "accessFilter": {
+        |     "operation": "any",
+        |     "permissionType": "any"
+        |    }
+        |  }]
+        | }""".stripMargin
+    val config = newConfig(Map(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG -> "localhost:1234",
+      ClusterLinkConfig.AclSyncEnableProp -> "true",
+      ClusterLinkConfig.AclFiltersProp -> migrateAllAclsJson))
+    def adminFactory(config: ClusterLinkConfig): ConfluentAdmin =
+      createNiceMock(classOf[ConfluentAdmin])
+
+    val clientManager = newClientManager(linkName, config, adminFactory, Some(authorizer),
+      controller)
+    clientManager.startup()
+
+    try {
+      assert(clientManager.getSyncAclTask.isDefined)
+    } finally {
+      clientManager.shutdown()
+    }
+  }
+
+  @Test
+  def testAclSyncTaskStartupWithNoAuthorizer(): Unit = {
+    val linkName = "test-link"
+    val migrateAllAclsJson =
+      """{
+        | "aclFilters": [{
+        |  "resourceFilter": {
+        |      "resourceType": "any",
+        |      "patternType": "any"
+        |    },
+        |  "accessFilter": {
+        |     "operation": "any",
+        |     "permissionType": "any"
+        |    }
+        |  }]
+        | }""".stripMargin
+    val config = newConfig(Map(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG -> "localhost:1234",
+      ClusterLinkConfig.AclSyncEnableProp -> "true",
+      ClusterLinkConfig.AclFiltersProp -> migrateAllAclsJson))
+    def adminFactory(config: ClusterLinkConfig): ConfluentAdmin =
+      createNiceMock(classOf[ConfluentAdmin])
+
+    val clientManager = newClientManager(linkName, config, adminFactory, None, controller)
+
+    try {
+      clientManager.startup()
+    } catch {
+      case e: IllegalArgumentException =>
+        assertEquals(e.getMessage, "ACL migration is enabled but authorizer.class.name is" +
+          " not set. Please set authorizer.class.name to proceed with ACL migration.")
+    }
+    finally {
+      clientManager.shutdown()
+    }
+  }
+
+  @Test
+  def testAclSyncTaskNoStartup(): Unit = {
+    val linkName = "test-link"
+    val config = newConfig(Map(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG -> "localhost:1234",
+      ClusterLinkConfig.AclSyncEnableProp -> "false"))
+    def adminFactory(config: ClusterLinkConfig): ConfluentAdmin =
+      createNiceMock(classOf[ConfluentAdmin])
+
+    val clientManager = newClientManager(linkName, config, adminFactory, Some(authorizer),
+      controller)
+    clientManager.startup()
+
+    try {
+      assert(clientManager.getSyncAclTask.isEmpty)
+    }
+    finally {
+      clientManager.shutdown()
+    }
+  }
 
   private def newClientManager(linkName: String,
                                config: ClusterLinkConfig,
-                               adminFactory: ClusterLinkConfig => ConfluentAdmin): ClusterLinkClientManager = {
-    new ClusterLinkClientManager(linkName, scheduler, zkClient, config, adminFactory)
+                               adminFactory: ClusterLinkConfig => ConfluentAdmin,
+                               authorizer: Option[Authorizer],
+                               controller: KafkaController) = {
+    new ClusterLinkClientManager(linkName, scheduler, zkClient, config,  authorizer, controller, adminFactory)
   }
 
   private def newConfig(configs: Map[String, String]): ClusterLinkConfig = {
@@ -98,5 +192,4 @@ class ClusterLinkClientManagerTest {
     props ++= configs
     new ClusterLinkConfig(props)
   }
-
 }

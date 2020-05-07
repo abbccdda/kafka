@@ -19,6 +19,7 @@ package org.apache.kafka.common.utils;
 import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.acl.AclPermissionType;
 import org.apache.kafka.common.config.SecurityConfig;
+import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.resource.ResourceType;
 import org.apache.kafka.common.security.auth.SecurityProviderCreator;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
@@ -35,11 +36,13 @@ public class SecurityUtils {
     private static final Logger LOGGER = LoggerFactory.getLogger(SecurityConfig.class);
 
     private static final Map<String, ResourceType> NAME_TO_RESOURCE_TYPES;
+    private static final Map<String, PatternType> NAME_TO_PATTERN_TYPES;
     private static final Map<String, AclOperation> NAME_TO_OPERATIONS;
     private static final Map<String, AclPermissionType> NAME_TO_PERMISSION_TYPES;
 
     static {
         NAME_TO_RESOURCE_TYPES = new HashMap<>(ResourceType.values().length);
+        NAME_TO_PATTERN_TYPES = new HashMap<>(PatternType.values().length);
         NAME_TO_OPERATIONS = new HashMap<>(AclOperation.values().length);
         NAME_TO_PERMISSION_TYPES = new HashMap<>(AclPermissionType.values().length);
 
@@ -47,6 +50,11 @@ public class SecurityUtils {
             String resourceTypeName = toPascalCase(resourceType.name());
             NAME_TO_RESOURCE_TYPES.put(resourceTypeName, resourceType);
             NAME_TO_RESOURCE_TYPES.put(resourceTypeName.toUpperCase(Locale.ROOT), resourceType);
+        }
+        for (PatternType patternType : PatternType.values()) {
+            String patternTypeName = toPascalCase(patternType.name());
+            NAME_TO_PATTERN_TYPES.put(patternTypeName, patternType);
+            NAME_TO_PATTERN_TYPES.put(patternTypeName.toUpperCase(Locale.ROOT), patternType);
         }
         for (AclOperation operation : AclOperation.values()) {
             String operationName = toPascalCase(operation.name());
@@ -99,6 +107,10 @@ public class SecurityUtils {
 
     public static ResourceType resourceType(String name) {
         return valueFromMap(NAME_TO_RESOURCE_TYPES, name, ResourceType.UNKNOWN);
+    }
+
+    public static PatternType patternType(String name) {
+        return valueFromMap(NAME_TO_PATTERN_TYPES, name, PatternType.UNKNOWN);
     }
 
     public static AclOperation operation(String name) {

@@ -428,7 +428,6 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         /* start replica manager */
         replicaManager = createReplicaManager(isShuttingDown, tierLogComponents)
         replicaManager.startup()
-        clusterLinkManager.startup(replicaManager, adminManager)
 
         // This broker registration delay is intended to be temporary and will be removed on completion of
         // this Jira.
@@ -493,6 +492,9 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
               ep.toJava -> CompletableFuture.completedFuture[Void](null)
             }.toMap
         }
+
+        /* Startup the clusterLinkManager once we have the authorizer and kafkaController */
+        clusterLinkManager.startup(replicaManager, adminManager, kafkaController, authorizer)
 
         val fetchManager = new FetchManager(Time.SYSTEM,
           new FetchSessionCache(config.maxIncrementalFetchSessionCacheSlots,

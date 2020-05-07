@@ -33,7 +33,7 @@ import java.util.Collection;
 public class DescribeAclsResult {
     private final KafkaFuture<Collection<AclBinding>> future;
 
-    DescribeAclsResult(KafkaFuture<Collection<AclBinding>> future) {
+    public DescribeAclsResult(KafkaFuture<Collection<AclBinding>> future) {
         this.future = future;
     }
 

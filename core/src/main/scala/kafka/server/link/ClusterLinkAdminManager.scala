@@ -14,8 +14,9 @@ import kafka.zk.{AdminZkClient, KafkaZkClient}
 import org.apache.kafka.clients.admin.{Admin, DescribeClusterOptions}
 import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer}
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.acl.AclOperation
 import org.apache.kafka.common.internals.Topic
-import org.apache.kafka.common.errors.{ClusterLinkExistsException, ClusterLinkInUseException, ClusterLinkNotFoundException, InvalidConfigurationException, InvalidRequestException, UnsupportedVersionException}
+import org.apache.kafka.common.errors.{ClusterAuthorizationException, ClusterLinkExistsException, ClusterLinkInUseException, ClusterLinkNotFoundException, InvalidConfigurationException, InvalidRequestException, UnsupportedVersionException}
 import org.apache.kafka.common.requests.{ApiError, ClusterLinkListing, NewClusterLink}
 import org.apache.kafka.common.serialization.ByteArrayDeserializer
 
@@ -147,7 +148,13 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
     }
 
     val linkClusterId = try {
-      Option(admin.describeCluster(new DescribeClusterOptions().timeoutMs(timeoutMs)).clusterId.get)
+      val aclSyncEnabled = new ClusterLinkConfig(props).aclSyncEnable
+      val describeResult = admin.describeCluster(new DescribeClusterOptions()
+        .includeAuthorizedOperations(aclSyncEnabled)
+        .timeoutMs(timeoutMs))
+      if (aclSyncEnabled && !describeResult.authorizedOperations().get.contains(AclOperation.DESCRIBE))
+        throw new ClusterAuthorizationException("ACL sync was requested, but link credentials don't have DESCRIBE access for the source cluster")
+      Option(describeResult.clusterId.get)
     } catch {
       case e: ExecutionException => throwExceptionFor(e.getCause)
       case e: Throwable => throwExceptionFor(e)

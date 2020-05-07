@@ -8,6 +8,7 @@ import java.util.Properties
 
 import kafka.api.KAFKA_2_3_IV1
 import kafka.cluster.Partition
+import kafka.controller.KafkaController
 import kafka.server.{AdminManager, KafkaConfig, ReplicaManager, ReplicaQuota}
 import kafka.tier.fetcher.TierStateFetcher
 import kafka.utils.Logging
@@ -18,6 +19,7 @@ import org.apache.kafka.common.errors._
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.utils.Time
+import org.apache.kafka.server.authorizer.Authorizer
 
 import scala.collection.{Map, mutable}
 
@@ -51,12 +53,21 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
   private val managers = mutable.Map[String, Managers]()
   val scheduler = if (brokerConfig.clusterLinkEnable) new ClusterLinkScheduler else null
   val admin = new ClusterLinkAdminManager(brokerConfig, clusterId, zkClient, this)
+
   private var replicaManager: ReplicaManager = _
   private var adminManager: AdminManager = _
 
-  def startup(replicaManager: ReplicaManager, adminManager: AdminManager): Unit = {
+  var controller: KafkaController = _
+  var authorizer: Option[Authorizer] = _
+
+  def startup(replicaManager: ReplicaManager,
+              adminManager: AdminManager,
+              controller: KafkaController,
+              authorizer: Option[Authorizer]): Unit = {
     this.replicaManager = replicaManager
     this.adminManager = adminManager
+    this.controller = controller
+    this.authorizer = authorizer
     if (brokerConfig.clusterLinkEnable)
       scheduler.startup()
   }
@@ -100,6 +111,7 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
         throw new ClusterLinkExistsException(s"Cluster link '$linkName' exists")
 
       val clientManager = new ClusterLinkClientManager(linkName, scheduler, zkClient, config,
+        authorizer, controller,
         (cfg: ClusterLinkConfig) => Admin.create(cfg.originals).asInstanceOf[ConfluentAdmin])
       clientManager.startup()
 

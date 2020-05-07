@@ -4,7 +4,8 @@
 
 package kafka.server.link
 
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.{CompletableFuture, TimeUnit}
+import java.util.function.BiConsumer
 
 import kafka.utils.{KafkaScheduler, Logging}
 import org.apache.kafka.common.KafkaFuture
@@ -22,6 +23,24 @@ class ClusterLinkScheduler extends KafkaScheduler(threads = 1, threadNamePrefix 
     */
   def scheduleWhenComplete[T](name: String, future: KafkaFuture[T], callback: () => Unit): Unit = {
     future.whenComplete(new KafkaFuture.BiConsumer[T, Throwable] {
+      def accept(obj: T, throwable: Throwable): Unit = {
+        scheduleOnce(name, callback)
+      }
+    })
+  }
+
+  /**
+   * This overloaded method takes in the type CompletableFuture instead of a KafkaFuture.
+   *
+   * Schedules the callback to be run when the future has completed in an asynchronous manner.
+   * The callback will be invoked from the scheduler's thread and should not block the thread.
+   *
+   * @param name name identifying the work
+   * @param future the future to wait for completion
+   * @param callback the callback to be invoked upon future completion
+   */
+  def scheduleWhenComplete[T](name: String, future: CompletableFuture[T], callback: () => Unit): Unit = {
+    future.whenComplete(new BiConsumer[T, Throwable] {
       def accept(obj: T, throwable: Throwable): Unit = {
         scheduleOnce(name, callback)
       }
@@ -106,6 +125,19 @@ object ClusterLinkScheduler {
       * @param callback the callback to be invoked upon future completion
       */
     protected def scheduleWhenComplete[T](future: KafkaFuture[T], callback: () => Boolean): Unit = {
+      scheduler.scheduleWhenComplete(name, future, wrap(callback))
+    }
+
+    /**
+     * This overloaded method takes in the type CompletableFuture instead of a KafkaFuture.
+     *
+     * Schedules the callback to be run when the future has completed. The callback should return `true` if
+     * the task has completed, otherwise `false` if there's outstanding work to be done.
+     *
+     * @param future the future to wait for completion
+     * @param callback the callback to be invoked upon future completion
+     */
+    protected def scheduleWhenComplete[T](future: CompletableFuture[T], callback: () => Boolean): Unit = {
       scheduler.scheduleWhenComplete(name, future, wrap(callback))
     }
 

@@ -4,6 +4,7 @@
 package kafka.admin
 
 import joptsimple.OptionException
+import kafka.server.link.ClusterLinkConfig
 import kafka.utils.TestUtils
 import org.apache.kafka.clients.admin.{CreateClusterLinksOptions, CreateClusterLinksResult, DeleteClusterLinksOptions, DeleteClusterLinksResult, ListClusterLinksOptions, ListClusterLinksResult, MockAdminClient}
 import org.apache.kafka.common.{KafkaFuture, Node}
@@ -35,7 +36,22 @@ final class ClusterLinkCommandTest {
     val result: CreateClusterLinksResult = EasyMock.createNiceMock(classOf[CreateClusterLinksResult])
     EasyMock.expect(result.all()).andReturn(future.asInstanceOf[KafkaFuture[Void]]).once()
 
-    val configs = Map("bootstrap.servers" -> "10.20.30.40:9092", "request.timeout.ms" -> "100000")
+    val json: String =
+      """{
+        | "aclFilters": [{
+        |  "resourceFilter": {
+        |      "resourceType": "any",
+        |      "patternType": "any"
+        |    },
+        |  "accessFilter": {
+        |     "operation": "any",
+        |     "permissionType": "any"
+        |    }
+        |  }]
+        | }""".stripMargin
+
+    val configs = Map("bootstrap.servers" -> "10.20.30.40:9092", "request.timeout.ms" -> "100000",
+      ClusterLinkConfig.AclSyncEnableProp -> "true", ClusterLinkConfig.AclFiltersProp -> json)
 
     val node = new Node(1, "localhost", 9092)
     val mockAdminClient = new TestAdminClient(node) {
@@ -54,7 +70,8 @@ final class ClusterLinkCommandTest {
 
     EasyMock.replay(result)
     val output = runCommand(Array("--create", "--link-name", linkName, "--cluster-id", clusterId,
-      "--config", configs.map(kv => kv._1 + "=" + kv._2).mkString(",")) ++ args, mockAdminClient)
+      "--acl-filters-json", json, "--config", configs.map(kv => kv._1 + "=" + kv._2).mkString(","))
+      ++ args, mockAdminClient)
     assertTrue(issuedCommand)
     EasyMock.reset(result)
 
