@@ -174,6 +174,7 @@ public class CCEmbeddedBrokerBuilder {
     props.put(KafkaConfig.LogCleanerDedupeBufferSizeProp(), Long.toString(_logCleanerDedupBufferSize));
     props.put(KafkaConfig.LogCleanerEnableProp(), Boolean.toString(_enableLogCleaner));
     props.put(KafkaConfig.OffsetsTopicReplicationFactorProp(), "1");
+    props.put("confluent.license.topic.replication.factor", "1");
     props.put(KafkaConfig.SslEndpointIdentificationAlgorithmProp(), "");
     if (_rack != null) {
       props.put(KafkaConfig.RackProp(), _rack);

@@ -65,6 +65,7 @@ public class EmbeddedKafka {
   public final TemporaryFolder tmpFolder;
   private final KafkaConfig kafkaConfig;
   private KafkaServer kafka;
+  private boolean isShutdown;
 
   /**
    * Creates and starts an embedded Kafka broker.
@@ -83,6 +84,7 @@ public class EmbeddedKafka {
     log.debug("Starting embedded Kafka broker (with log.dirs={} and ZK ensemble at {}) ...",
         logDir, kafkaConfig.zkConnect());
     kafka = TestUtils.createServer(kafkaConfig, time);
+    isShutdown = false;
     log.debug("Startup of embedded Kafka broker completed: {}", this);
   }
 
@@ -130,31 +132,34 @@ public class EmbeddedKafka {
    */
   @SuppressWarnings("deprecation")
   public void shutdownAndCleanup() {
-    log.debug("Shutting down embedded Kafka broker %s ...", this);
-    kafka.shutdown();
-    kafka.awaitShutdown();
-    kafka = null;
+    shutdown();
     log.debug("Removing logs.dir at {} ...", logDir);
     List<String> logDirs = Collections.singletonList(logDir.getAbsolutePath());
     CoreUtils.delete(scala.collection.JavaConverters.asScalaBuffer(logDirs));
     tmpFolder.delete();
-    log.debug("Shutdown of embedded Kafka broker completed %s.", this);
+    log.debug("Shutdown and cleanup of embedded Kafka broker completed %s.", this);
   }
 
   /**
    * Shutdown the broker, but keep the data
    */
   public void shutdown() {
+    if (isShutdown) {
+      log.debug("Embedded Kafka broker %s was already shut down. Skipping shutdown", this);
+      return;
+    }
     log.debug("Shutting down embedded Kafka broker %s ...", this);
     kafka.shutdown();
     kafka.awaitShutdown();
     kafka = null;
+    isShutdown = true;
     log.debug("Shutdown of embedded Kafka broker completed %s.", this);
   }
 
   public void startBroker(final MockTime time) {
     if (kafka == null) {
       kafka = TestUtils.createServer(kafkaConfig, time);
+      isShutdown = false;
       log.debug("Started embedded Kafka broker (with log.dirs={} and ZK ensemble at {}) ...",
                 logDir, kafkaConfig.zkConnect());
     }
