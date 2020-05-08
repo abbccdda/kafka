@@ -29,8 +29,8 @@ object ReplicationQuotaUtils {
           brokerConfig.contains(KafkaConfig.FollowerReplicationThrottledRateProp)
       }
       val topicConfig = adminZkClient.fetchEntityConfig(ConfigType.Topic, topic)
-      val hasReplicasProp = topicConfig.contains(LogConfig.LeaderReplicationThrottledReplicasProp) ||
-        topicConfig.contains(LogConfig.FollowerReplicationThrottledReplicasProp)
+      val hasReplicasProp = topicConfig.contains(KafkaConfig.LeaderReplicationThrottledReplicasProp) ||
+        topicConfig.contains(KafkaConfig.FollowerReplicationThrottledReplicasProp)
       !hasRateProp && !hasReplicasProp
     }, "Throttle limit/replicas was not unset")
   }
@@ -47,8 +47,8 @@ object ReplicationQuotaUtils {
       }
       //Check replicas assigned
       val topicConfig = adminZkClient.fetchEntityConfig(ConfigType.Topic, topic)
-      val leader = topicConfig.getProperty(LogConfig.LeaderReplicationThrottledReplicasProp).split(",").toSet
-      val follower = topicConfig.getProperty(LogConfig.FollowerReplicationThrottledReplicasProp).split(",").toSet
+      val leader = topicConfig.getProperty(KafkaConfig.LeaderReplicationThrottledReplicasProp).split(",").toSet
+      val follower = topicConfig.getProperty(KafkaConfig.FollowerReplicationThrottledReplicasProp).split(",").toSet
       val topicConfigAvailable = leader == throttledLeaders && follower == throttledFollowers
       brokerConfigAvailable && topicConfigAvailable
     }, "throttle limit/replicas was not set")

@@ -16,11 +16,20 @@ import com.linkedin.kafka.cruisecontrol.model.ReplicaPlacementInfo;
 import com.linkedin.kafka.cruisecontrol.monitor.LoadMonitor;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.NoopSampler;
 import com.yammer.metrics.core.MetricsRegistry;
-import kafka.log.LogConfig;
-import kafka.log.LogConfig$;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
+
 import kafka.server.ConfigType;
 import kafka.server.ConfigType$;
 import kafka.server.KafkaConfig;
+import kafka.server.KafkaConfig$;
 import kafka.zk.KafkaZkClient;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
@@ -51,16 +60,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-import java.util.Set;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUnitTestUtils.configResourcesForBrokers;
@@ -585,8 +585,8 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
       assertEquals(expectedReplicaThrottle, followerThrottle);
     } else {
       Properties throttledReplicaConfig = kafkaZkClient.getEntityConfigs(ConfigType.Topic(), entityName);
-      String throttledReplicaLeaderThrottle = throttledReplicaConfig.getProperty(LogConfig.LeaderReplicationThrottledReplicasProp());
-      String throttledReplicaFollowerThrottle = throttledReplicaConfig.getProperty(LogConfig.FollowerReplicationThrottledReplicasProp());
+      String throttledReplicaLeaderThrottle = throttledReplicaConfig.getProperty(KafkaConfig.LeaderReplicationThrottledReplicasProp());
+      String throttledReplicaFollowerThrottle = throttledReplicaConfig.getProperty(KafkaConfig.FollowerReplicationThrottledReplicasProp());
       assertEquals(expectedLeaderThrottle, throttledReplicaLeaderThrottle);
       assertEquals(expectedReplicaThrottle, throttledReplicaFollowerThrottle);
     }
@@ -720,8 +720,8 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     }
 
     Properties topicDynamicConfigs = new Properties();
-    topicDynamicConfigs.put(LogConfig$.MODULE$.LeaderReplicationThrottledReplicasProp(), String.format("0:%d", oldReplica));
-    topicDynamicConfigs.put(LogConfig$.MODULE$.FollowerReplicationThrottledReplicasProp(), String.format("0:%d", newReplica));
+    topicDynamicConfigs.put(KafkaConfig$.MODULE$.LeaderReplicationThrottledReplicasProp(), String.format("0:%d", oldReplica));
+    topicDynamicConfigs.put(KafkaConfig$.MODULE$.FollowerReplicationThrottledReplicasProp(), String.format("0:%d", newReplica));
     kafkaZkClient.setOrCreateEntityConfigs(ConfigType$.MODULE$.Topic(), TOPIC0, topicDynamicConfigs);
 
     Thread.sleep(500);
@@ -737,8 +737,8 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
       assertNull(dynamicConfig.get(KafkaConfig.FollowerReplicationThrottledRateProp()));
     }
     Properties topicConfig = kafkaZkClient.getEntityConfigs(ConfigType.Topic(), TOPIC0);
-    assertNull(topicConfig.get(LogConfig.LeaderReplicationThrottledReplicasProp()));
-    assertNull(topicConfig.get(LogConfig.FollowerReplicationThrottledReplicasProp()));
+    assertNull(topicConfig.get(KafkaConfig.LeaderReplicationThrottledReplicasProp()));
+    assertNull(topicConfig.get(KafkaConfig.FollowerReplicationThrottledReplicasProp()));
 
     executor.shutdown();
     KafkaCruiseControlUtils.closeKafkaZkClientWithTimeout(kafkaZkClient);

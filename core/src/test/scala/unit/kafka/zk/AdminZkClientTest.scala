@@ -246,8 +246,8 @@ class AdminZkClientTest extends ZooKeeperTestHarness with Logging with RackAware
       val props = new Properties()
       props.setProperty(LogConfig.MaxMessageBytesProp, messageSize.toString)
       props.setProperty(LogConfig.RetentionMsProp, retentionMs.toString)
-      props.setProperty(LogConfig.LeaderReplicationThrottledReplicasProp, throttledLeaders)
-      props.setProperty(LogConfig.FollowerReplicationThrottledReplicasProp, throttledFollowers)
+      props.setProperty(KafkaConfig.LeaderReplicationThrottledReplicasProp, throttledLeaders)
+      props.setProperty(KafkaConfig.FollowerReplicationThrottledReplicasProp, throttledFollowers)
       props
     }
 
@@ -304,7 +304,7 @@ class AdminZkClientTest extends ZooKeeperTestHarness with Logging with RackAware
     checkConfig(maxMessageSize, retentionMs, "0:0,1:0,2:0", "0:1,1:1,2:1", quotaManagerIsThrottled = true)
 
     //Now ensure updating to "" removes the throttled replica list also
-    adminZkClient.changeTopicConfig(topic, propsWith((LogConfig.FollowerReplicationThrottledReplicasProp, ""), (LogConfig.LeaderReplicationThrottledReplicasProp, "")))
+    adminZkClient.changeTopicConfig(topic, propsWith((KafkaConfig.FollowerReplicationThrottledReplicasProp, ""), (KafkaConfig.LeaderReplicationThrottledReplicasProp, "")))
     checkConfig(Defaults.MaxMessageSize, Defaults.RetentionMs, "", "",  quotaManagerIsThrottled = false)
   }
 

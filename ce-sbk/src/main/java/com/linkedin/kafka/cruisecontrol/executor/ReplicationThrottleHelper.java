@@ -8,7 +8,6 @@ import com.linkedin.cruisecontrol.common.utils.Utils;
 import com.linkedin.kafka.cruisecontrol.model.ReplicaPlacementInfo;
 import com.linkedin.kafka.cruisecontrol.monitor.LoadMonitor;
 import kafka.admin.AdminOperationException;
-import kafka.log.LogConfig;
 import kafka.server.ConfigType;
 import kafka.server.KafkaConfig;
 import kafka.zk.AdminZkClient;
@@ -48,8 +47,8 @@ class ReplicationThrottleHelper {
 
   static final String LEADER_THROTTLED_RATE = KafkaConfig.LeaderReplicationThrottledRateProp();
   static final String FOLLOWER_THROTTLED_RATE = KafkaConfig.FollowerReplicationThrottledRateProp();
-  static final String LEADER_THROTTLED_REPLICAS = LogConfig.LeaderReplicationThrottledReplicasProp();
-  static final String FOLLOWER_THROTTLED_REPLICAS = LogConfig.FollowerReplicationThrottledReplicasProp();
+  static final String LEADER_THROTTLED_REPLICAS = KafkaConfig.LeaderReplicationThrottledReplicasProp();
+  static final String FOLLOWER_THROTTLED_REPLICAS = KafkaConfig.FollowerReplicationThrottledReplicasProp();
 
   private final KafkaZkClient _kafkaZkClient;
   private final AdminZkClient _adminZkClient;
@@ -120,10 +119,10 @@ class ReplicationThrottleHelper {
         configResourceConfigEntry -> {
       ConfigEntry leaderConfig =
           configResourceConfigEntry.getValue().get(
-              LogConfig.LeaderReplicationThrottledReplicasProp());
+              KafkaConfig.LeaderReplicationThrottledReplicasProp());
       ConfigEntry followerConfig =
           configResourceConfigEntry.getValue().get(
-              LogConfig.FollowerReplicationThrottledReplicasProp());
+              KafkaConfig.FollowerReplicationThrottledReplicasProp());
       return (leaderConfig != null && leaderConfig.value() != null &&
               leaderConfig.value().equals("*"))
           && (followerConfig != null && followerConfig.value() != null &&
@@ -429,8 +428,8 @@ class ReplicationThrottleHelper {
     for (String topic : asJavaCollection(_kafkaZkClient.getAllTopicsInCluster(false))) {
       Properties configs = new Properties();
       configs.putAll(_kafkaZkClient.getEntityConfigs(ConfigType.Topic(), topic));
-      boolean removedLeaderReplicas = configs.remove(LogConfig.LeaderReplicationThrottledReplicasProp()) != null;
-      boolean removedFollowerReplicas = configs.remove(LogConfig.FollowerReplicationThrottledReplicasProp()) != null;
+      boolean removedLeaderReplicas = configs.remove(KafkaConfig.LeaderReplicationThrottledReplicasProp()) != null;
+      boolean removedFollowerReplicas = configs.remove(KafkaConfig.FollowerReplicationThrottledReplicasProp()) != null;
       if (removedLeaderReplicas || removedFollowerReplicas) {
         _kafkaZkClient.setOrCreateEntityConfigs(ConfigType.Topic(), topic, configs);
         ++throttledTopics;

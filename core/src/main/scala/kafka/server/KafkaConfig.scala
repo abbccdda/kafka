@@ -264,21 +264,26 @@ object Defaults {
   val BrokerStartupRegistrationDelay = 0
 
   /** ********* Quota Configuration ***********/
-  val ProducerQuotaBytesPerSecondDefault = ClientQuotaManagerConfig.QuotaBytesPerSecondDefault
-  val ConsumerQuotaBytesPerSecondDefault = ClientQuotaManagerConfig.QuotaBytesPerSecondDefault
-  val NumQuotaSamples: Int = ClientQuotaManagerConfig.DefaultNumQuotaSamples
-  val QuotaWindowSizeSeconds: Int = ClientQuotaManagerConfig.DefaultQuotaWindowSizeSeconds
-  val NumReplicationQuotaSamples: Int = ReplicationQuotaManagerConfig.DefaultNumQuotaSamples
-  val ReplicationQuotaWindowSizeSeconds: Int = ReplicationQuotaManagerConfig.DefaultQuotaWindowSizeSeconds
-  val LeaderReplicationThrottledRate: Long = ReplicationQuotaManagerConfig.QuotaBytesPerSecondDefault
-  val FollowerReplicationThrottledRate: Long = ReplicationQuotaManagerConfig.QuotaBytesPerSecondDefault
-  val LeaderReplicationThrottledReplicas: String = ReplicationQuotaManagerConfig.NoThrottledReplicasValue
-  val FollowerReplicationThrottledReplicas: String = ReplicationQuotaManagerConfig.NoThrottledReplicasValue
-  val NumAlterLogDirsReplicationQuotaSamples: Int = ReplicationQuotaManagerConfig.DefaultNumQuotaSamples
-  val AlterLogDirsReplicationQuotaWindowSizeSeconds: Int = ReplicationQuotaManagerConfig.DefaultQuotaWindowSizeSeconds
-  val NumClusterLinkReplicationQuotaSamples: Int = ReplicationQuotaManagerConfig.DefaultNumQuotaSamples
-  val ClusterLinkReplicationQuotaWindowSizeSeconds: Int = ReplicationQuotaManagerConfig.DefaultQuotaWindowSizeSeconds
+  // Always have 10 whole windows + 1 current window
+  val DefaultNumQuotaSamples = 11
+  val DefaultQuotaWindowSizeSeconds = 1
+  val QuotaBytesPerSecond: Long = Long.MaxValue
+  val NoThrottledReplicas = "none"
 
+  val ProducerQuotaBytesPerSecondDefault = QuotaBytesPerSecond
+  val ConsumerQuotaBytesPerSecondDefault = QuotaBytesPerSecond
+  val NumQuotaSamples: Int = DefaultNumQuotaSamples
+  val QuotaWindowSizeSeconds: Int = DefaultQuotaWindowSizeSeconds
+  val NumReplicationQuotaSamples: Int = DefaultNumQuotaSamples
+  val ReplicationQuotaWindowSizeSeconds: Int = DefaultQuotaWindowSizeSeconds
+  val LeaderReplicationThrottledRate: Long = QuotaBytesPerSecond
+  val FollowerReplicationThrottledRate: Long = QuotaBytesPerSecond
+  val LeaderReplicationThrottledReplicas: String = NoThrottledReplicas
+  val FollowerReplicationThrottledReplicas: String = NoThrottledReplicas
+  val NumAlterLogDirsReplicationQuotaSamples: Int = DefaultNumQuotaSamples
+  val AlterLogDirsReplicationQuotaWindowSizeSeconds: Int = DefaultQuotaWindowSizeSeconds
+  val NumClusterLinkReplicationQuotaSamples: Int = DefaultNumQuotaSamples
+  val ClusterLinkReplicationQuotaWindowSizeSeconds: Int = DefaultQuotaWindowSizeSeconds
 
   /** ********* Transaction Configuration ***********/
   val TransactionalIdExpirationMsDefault = 604800000

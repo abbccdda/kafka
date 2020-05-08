@@ -39,7 +39,7 @@ object DynamicConfig {
     val ClusterLinkIoMaxBytesPerSecondProp = "confluent.cluster.link.io.max.bytes.per.second"
 
     //Defaults
-    val DefaultAlterLogDirsIoThrottledRate = ReplicationQuotaManagerConfig.QuotaBytesPerSecondDefault
+    val DefaultAlterLogDirsIoThrottledRate = Defaults.QuotaBytesPerSecond
 
     //Documentation
     val ReplicaAlterLogDirsIoMaxBytesPerSecondDoc = "A long representing the upper bound (bytes/sec) on disk IO used for moving replica between log directories on the same broker. " +
@@ -64,8 +64,8 @@ object DynamicConfig {
     val RequestPercentageOverrideProp = "request_percentage"
 
     //Defaults
-    val DefaultProducerOverride = ClientQuotaManagerConfig.QuotaBytesPerSecondDefault
-    val DefaultConsumerOverride = ClientQuotaManagerConfig.QuotaBytesPerSecondDefault
+    val DefaultProducerOverride = Defaults.ProducerQuotaBytesPerSecondDefault
+    val DefaultConsumerOverride = Defaults.ConsumerQuotaBytesPerSecondDefault
     val DefaultRequestOverride = ClientQuotaManagerConfig.QuotaRequestPercentDefault
 
     //Documentation

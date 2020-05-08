@@ -21,7 +21,7 @@ import java.util.{Collections, HashMap, Properties}
 import com.yammer.metrics.core.{Histogram, Meter}
 import kafka.api.QuotaTestClients._
 import kafka.metrics.KafkaYammerMetrics
-import kafka.server.{ClientQuotaManager, ClientQuotaManagerConfig, DynamicConfig, KafkaConfig, KafkaServer, QuotaType}
+import kafka.server.{ClientQuotaManager, Defaults, DynamicConfig, KafkaConfig, KafkaServer, QuotaType}
 import kafka.utils.TestUtils
 import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer}
 import org.apache.kafka.clients.producer._
@@ -172,7 +172,7 @@ abstract class BaseQuotaTest extends IntegrationTestHarness {
 
     assertTrue("Should have been throttled", throttled)
     quotaTestClients.verifyConsumerClientThrottleTimeMetric(expectThrottle = true,
-      Some(ClientQuotaManagerConfig.DefaultQuotaWindowSizeSeconds * 1000.0))
+      Some(Defaults.DefaultQuotaWindowSizeSeconds * 1000.0))
 
     val exemptMetric = quotaTestClients.exemptRequestMetric
     assertNotNull("Exempt requests not recorded", exemptMetric)

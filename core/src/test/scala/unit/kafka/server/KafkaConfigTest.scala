@@ -968,9 +968,9 @@ class KafkaConfigTest {
           assertDynamic(kafkaConfigProp, false, () => config.segmentSpeculativePrefetchEnable)
         case LogConfig.MessageFormatVersionProp =>
         // not dynamically updatable
-        case LogConfig.FollowerReplicationThrottledReplicasProp =>
+        case KafkaConfig.FollowerReplicationThrottledReplicasProp =>
         // topic only config
-        case LogConfig.LeaderReplicationThrottledReplicasProp =>
+        case KafkaConfig.LeaderReplicationThrottledReplicasProp =>
         // topic only config
         case prop =>
           fail(prop + " must be explicitly checked for dynamic updatability. Note that LogConfig(s) require that KafkaConfig value lookups are dynamic and not static values.")

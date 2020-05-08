@@ -202,9 +202,9 @@ class ReplicationQuotasTest extends ZooKeeperTestHarness {
 
     //Either throttle the six leaders or the two followers
     if (settings.throttleLeader)
-      adminZkClient.changeTopicConfig(topic, propsWith(LeaderReplicationThrottledReplicasProp, "0:100,1:101,2:102,3:103,4:104,5:105" ))
+      adminZkClient.changeTopicConfig(topic, propsWith(KafkaConfig.LeaderReplicationThrottledReplicasProp, "0:100,1:101,2:102,3:103,4:104,5:105" ))
     else
-      adminZkClient.changeTopicConfig(topic, propsWith(FollowerReplicationThrottledReplicasProp, "0:106,1:106,2:106,3:107,4:107,5:107"))
+      adminZkClient.changeTopicConfig(topic, propsWith(KafkaConfig.FollowerReplicationThrottledReplicasProp, "0:106,1:106,2:106,3:107,4:107,5:107"))
 
     //Add data equally to each partition
     producer = createProducer(getBrokerListStrFromServers(brokers), acks = 1)
@@ -266,7 +266,7 @@ class ReplicationQuotasTest extends ZooKeeperTestHarness {
 
     //Set the throttle to only limit leader
     adminZkClient.changeBrokerConfig(Seq(100), propsWith(KafkaConfig.LeaderReplicationThrottledRateProp, throttle.toString))
-    adminZkClient.changeTopicConfig(topic, propsWith(LeaderReplicationThrottledReplicasProp, "0:100"))
+    adminZkClient.changeTopicConfig(topic, propsWith(KafkaConfig.LeaderReplicationThrottledReplicasProp, "0:100"))
 
     //Add data
     addData(msgCount, msg)

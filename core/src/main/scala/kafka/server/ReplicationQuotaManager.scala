@@ -41,9 +41,9 @@ import org.apache.kafka.common.utils.Time
   * @param allReplicasThrottled       true - all replicas on this broker for the specific quota type are throttled
   *                                   false - replica throttling relies on the topic-level dynamic config
   */
-case class ReplicationQuotaManagerConfig(quotaBytesPerSecond: Long = QuotaBytesPerSecondDefault,
-                                         numQuotaSamples: Int = DefaultNumQuotaSamples,
-                                         quotaWindowSizeSeconds: Int = DefaultQuotaWindowSizeSeconds,
+case class ReplicationQuotaManagerConfig(quotaBytesPerSecond: Long = Defaults.QuotaBytesPerSecond,
+                                         numQuotaSamples: Int = Defaults.DefaultNumQuotaSamples,
+                                         quotaWindowSizeSeconds: Int = Defaults.DefaultQuotaWindowSizeSeconds,
                                          allReplicasThrottled: Boolean = false)
 
 object ReplicationQuotaManagerConfig {
@@ -53,10 +53,6 @@ object ReplicationQuotaManagerConfig {
    */
   val NoThrottledReplicasValue = "none"
   val AllThrottledReplicasValue = "*"
-  val QuotaBytesPerSecondDefault: Long = Long.MaxValue
-  // Always have 10 whole windows + 1 current window
-  val DefaultNumQuotaSamples = 11
-  val DefaultQuotaWindowSizeSeconds = 1
   // Purge sensors after 1 hour of inactivity
   val InactiveSensorExpirationTimeSeconds = 3600
 

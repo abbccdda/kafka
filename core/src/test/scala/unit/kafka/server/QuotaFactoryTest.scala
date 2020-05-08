@@ -1,6 +1,6 @@
 package unit.kafka.server
 
-import kafka.server.{BrokerBackpressureConfig, KafkaConfig, QuotaFactory, QuotaType, ReplicationQuotaManagerConfig}
+import kafka.server.{BrokerBackpressureConfig, Defaults, KafkaConfig, QuotaFactory, QuotaType, ReplicationQuotaManagerConfig}
 import kafka.utils.TestUtils
 import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.junit.Test
@@ -47,7 +47,7 @@ class QuotaFactoryTest {
     val config = QuotaFactory.replicationConfig(KafkaConfig.fromProps(props), QuotaType.AlterLogDirsReplication)
 
     assertFalse("Expected no log dir replicas to be throttled", config.allReplicasThrottled)
-    assertEquals(ReplicationQuotaManagerConfig.QuotaBytesPerSecondDefault, config.quotaBytesPerSecond)
+    assertEquals(Defaults.QuotaBytesPerSecond, config.quotaBytesPerSecond)
   }
 
   @Test
