@@ -109,6 +109,8 @@ import org.apache.kafka.common.quota.ClientQuotaEntity;
 import org.apache.kafka.common.quota.ClientQuotaFilter;
 import org.apache.kafka.common.quota.ClientQuotaFilterComponent;
 import org.apache.kafka.common.requests.AlterClientQuotasResponse;
+import org.apache.kafka.common.requests.AlterMirrorsRequest;
+import org.apache.kafka.common.requests.AlterMirrorsResponse;
 import org.apache.kafka.common.requests.AlterPartitionReassignmentsResponse;
 import org.apache.kafka.common.requests.ApiError;
 import org.apache.kafka.common.requests.ClusterLinkListing;
@@ -3762,6 +3764,98 @@ public class KafkaAdminClientTest {
             assertEquals(linkNames.size(), result.result().size());
             TestUtils.assertFutureError(result.result().get(linkNameNotFound), ClusterLinkNotFoundException.class);
             TestUtils.assertFutureError(result.result().get(linkNameAuthorizationFailed), ClusterAuthorizationException.class);
+        }
+    }
+
+    @Test
+    public void testAlterMirrors() throws Exception {
+        Node node0 = new Node(0, "localhost", 8121);
+        final Cluster cluster = new Cluster("mockClusterId", singletonList(node0), Collections.emptyList(),
+                Collections.<String>emptySet(), Collections.<String>emptySet(), node0);
+
+        try (AdminClientUnitTestEnv env = mockClientEnv()) {
+            env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
+
+            List<String> topics = Arrays.asList("mirror-1", "mirror-2");
+
+            List<AlterMirrorsRequest.Op> ops = new ArrayList<>(topics.size());
+            List<AlterMirrorsResponse.Result.OrError> responseData = new ArrayList<>(topics.size());
+            for (String topic : topics) {
+                ops.add(new AlterMirrorsRequest.StopTopicMirrorOp(topic));
+                responseData.add(new AlterMirrorsResponse.Result.OrError(new AlterMirrorsResponse.StopTopicMirrorResult()));
+            }
+
+            env.kafkaClient().prepareResponse(new AlterMirrorsResponse(responseData, 0));
+
+            AlterMirrorsResult result = env.adminClient().alterMirrors(ops, new AlterMirrorsOptions());
+            assertEquals(topics.size(), result.result().size());
+
+            AlterMirrorsResponse.Result subResult0 = result.result().get(0).get();
+            assertTrue(subResult0 instanceof AlterMirrorsResponse.StopTopicMirrorResult);
+
+            AlterMirrorsResponse.Result subResult1 = result.result().get(1).get();
+            assertTrue(subResult1 instanceof AlterMirrorsResponse.StopTopicMirrorResult);
+        }
+    }
+
+    @Test
+    public void testAlterMirrorsRetriableErrors() throws Exception {
+        Node node0 = new Node(0, "localhost", 8121);
+        final Cluster cluster = new Cluster("mockClusterId", singletonList(node0), Collections.emptyList(),
+                Collections.<String>emptySet(), Collections.<String>emptySet(), node0);
+
+        try (AdminClientUnitTestEnv env = mockClientEnv()) {
+            env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
+
+            String topic = "mirror";
+
+            List<AlterMirrorsRequest.Op> ops = singletonList(new AlterMirrorsRequest.StopTopicMirrorOp(topic));
+
+            env.kafkaClient().prepareResponse(new AlterMirrorsResponse(ops, 0, Errors.NOT_CONTROLLER.exception()));
+
+            env.kafkaClient().prepareResponse(MetadataResponse.prepareResponse(
+                cluster.nodes(),
+                cluster.clusterResource().clusterId(),
+                cluster.controller().id(),
+                Collections.emptyList()));
+
+            AlterMirrorsResponse.Result.OrError responseData =
+                new AlterMirrorsResponse.Result.OrError(new AlterMirrorsResponse.StopTopicMirrorResult());
+            env.kafkaClient().prepareResponse(new AlterMirrorsResponse(singletonList(responseData), 0));
+
+            AlterMirrorsResult result = env.adminClient().alterMirrors(ops, new AlterMirrorsOptions());
+            assertEquals(1, result.result().size());
+
+            AlterMirrorsResponse.Result subResult = result.result().get(0).get();
+            assertTrue(subResult instanceof AlterMirrorsResponse.StopTopicMirrorResult);
+        }
+    }
+
+    @Test
+    public void testAlterMirrorsNonRetriableErrors() throws Exception {
+        Node node0 = new Node(0, "localhost", 8121);
+        final Cluster cluster = new Cluster("mockClusterId", singletonList(node0), Collections.emptyList(),
+                Collections.<String>emptySet(), Collections.<String>emptySet(), node0);
+
+        try (AdminClientUnitTestEnv env = mockClientEnv()) {
+            env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
+
+            String unknownTopic = "unknown-topic";
+            String topicAuthorizationFailed = "topic-authorization-failed";
+
+            List<AlterMirrorsResponse.Result.OrError> responseData = Arrays.asList(
+                new AlterMirrorsResponse.Result.OrError(new ApiError(Errors.UNKNOWN_TOPIC_OR_PARTITION, "")),
+                new AlterMirrorsResponse.Result.OrError(new ApiError(Errors.TOPIC_AUTHORIZATION_FAILED, "")));
+            env.kafkaClient().prepareResponse(new AlterMirrorsResponse(responseData, 0));
+
+            List<AlterMirrorsRequest.Op> ops = Arrays.asList(
+                new AlterMirrorsRequest.StopTopicMirrorOp(unknownTopic),
+                new AlterMirrorsRequest.StopTopicMirrorOp(topicAuthorizationFailed));
+
+            AlterMirrorsResult result = env.adminClient().alterMirrors(ops, new AlterMirrorsOptions());
+            assertEquals(2, result.result().size());
+            TestUtils.assertFutureError(result.result().get(0), UnknownTopicOrPartitionException.class);
+            TestUtils.assertFutureError(result.result().get(1), TopicAuthorizationException.class);
         }
     }
 

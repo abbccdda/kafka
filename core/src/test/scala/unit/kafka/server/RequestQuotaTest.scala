@@ -591,6 +591,9 @@ class RequestQuotaTest extends BaseRequestTest {
         case ApiKeys.INITIATE_SHUTDOWN =>
           new InitiateShutdownRequest.Builder(Long.MaxValue);
 
+        case ApiKeys.ALTER_MIRRORS =>
+          new AlterMirrorsRequest.Builder(List.empty.asJava, false, 1000);
+
         case _ =>
           maybeBuildInternalRequest(apiKey)
     }

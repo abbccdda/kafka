@@ -262,6 +262,8 @@ public abstract class AbstractRequest implements AbstractRequestResponse {
                 return new ListClusterLinksRequest(struct, apiVersion);
             case DELETE_CLUSTER_LINKS:
                 return new DeleteClusterLinksRequest(struct, apiVersion);
+            case ALTER_MIRRORS:
+                return new AlterMirrorsRequest(struct, apiVersion);
             case TIER_LIST_OFFSET:
                 return new TierListOffsetRequest(struct, apiVersion);
             case CONFLUENT_LEADER_AND_ISR:

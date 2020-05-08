@@ -1,0 +1,25 @@
+//
+// Copyright 2020 Confluent Inc.
+//
+
+{
+  "apiKey": 10006,
+  "type": "request",
+  "name": "AlterMirrorsRequest",
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": [
+    { "name": "Ops", "type": "[]OpData", "versions": "0+",
+      "about": "The mirror control operations.", "fields": [
+      { "name": "StopTopicMirror", "type": "[]StopTopicMirrorData", "versions": "0+", "nullableVersions": "0+",
+        "about": "Promotes a topic mirror to be a mutable topic in an unclean manner.", "fields": [
+        { "name": "Topic", "type": "string", "versions": "0+", "entityType": "topicName",
+          "about": "The mirror topic's name." }
+      ]}
+    ]},
+    { "name": "ValidateOnly", "type": "bool", "versions": "0+",
+      "about": "Whether to validate that the cluster links can be created, but not actually create them." },
+    { "name": "TimeoutMs", "type": "int32", "versions": "0+",
+      "about": "The time, in milliseconds, to allow for request completion." }
+  ]
+}

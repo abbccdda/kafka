@@ -201,6 +201,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         case ApiKeys.LIST_CLUSTER_LINKS => handleListClusterLinksRequest(request)
         case ApiKeys.DELETE_CLUSTER_LINKS => handleDeleteClusterLinksRequest(request)
         case ApiKeys.INITIATE_SHUTDOWN => handleInitiateShutdownRequest(request)
+        case ApiKeys.ALTER_MIRRORS => handleAlterMirrorsRequest(request)
         case _ if request.header.apiKey.isInternal => handleInternalRequest(request)
       }
     } catch {
@@ -3215,6 +3216,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         createClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.CLUSTER_AUTHORIZATION_FAILED.exception))
 
     } else {
+      val timeoutMs = createClusterLinksRequest.timeoutMs
       val newClusterLinks = createClusterLinksRequest.newClusterLinks.asScala
       val futures = newClusterLinks.map { ncl =>
         val linkName = ncl.linkName
@@ -3222,7 +3224,7 @@ class KafkaApis(val requestChannel: RequestChannel,
           if (newClusterLinks.count(_.linkName == linkName) > 1)
             throw new InvalidRequestException(s"Duplicate link name $linkName")
           clusterLinkAdminManager.createClusterLink(ncl,
-            createClusterLinksRequest.validateOnly, createClusterLinksRequest.validateLink, createClusterLinksRequest.timeoutMs)
+            createClusterLinksRequest.validateOnly, createClusterLinksRequest.validateLink, timeoutMs)
         } catch {
           case e: Throwable =>
             val result = new CompletableFuture[Void]()
@@ -3232,7 +3234,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         linkName -> future
       }.toMap
 
-      CompletableFuture.allOf(futures.values.toArray:_*).whenComplete((_, _) => {
+      clusterLinkAdminManager.purgatory.tryCompleteElseWatch(timeoutMs, futures.values.toSeq, () => {
         val result = futures.map { case (linkName, future) =>
           def handleError(e: Throwable): ApiError = {
             error(s"Error processing cluster link creation request for '$linkName'", e)
@@ -3320,7 +3322,52 @@ class KafkaApis(val requestChannel: RequestChannel,
     }
   }
 
-  // private package for testing
+  def handleAlterMirrorsRequest(request: RequestChannel.Request): Unit = {
+    val alterMirrorsRequest = request.body[AlterMirrorsRequest]
+
+    if (!controller.isActive) {
+      sendResponseMaybeThrottle(request, requestThrottleMs =>
+        alterMirrorsRequest.getErrorResponse(requestThrottleMs, Errors.NOT_CONTROLLER.exception))
+
+    } else {
+      val timeoutMs = alterMirrorsRequest.timeoutMs
+      val futures = alterMirrorsRequest.ops.asScala.map { op =>
+        try {
+          val topic = op match {
+            case subOp: AlterMirrorsRequest.StopTopicMirrorOp => Some(subOp.topic())
+            case _ => None
+          }
+          if (!topic.forall(t => authorize(request.context, ALTER, TOPIC, t)))
+            throw new TopicAuthorizationException(s"Failed to authorize topic '$topic'")
+          clusterLinkAdminManager.alterMirror(op, alterMirrorsRequest.validateOnly)
+        } catch {
+          case e: Throwable =>
+            val result = new CompletableFuture[AlterMirrorsResponse.Result]()
+            result.completeExceptionally(e)
+            result
+        }
+      }
+
+      clusterLinkAdminManager.purgatory.tryCompleteElseWatch(timeoutMs, futures, () => {
+        val results = futures.map { future =>
+          def handleError(e: Throwable): AlterMirrorsResponse.Result.OrError = {
+            error(s"Error processing alter mirrors request", e)
+            new AlterMirrorsResponse.Result.OrError(ApiError.fromThrowable(e))
+          }
+          try {
+            new AlterMirrorsResponse.Result.OrError(future.get)
+          } catch {
+            case e: ExecutionException => handleError(e.getCause)
+            case e: Throwable => handleError(e)
+          }
+        }.toList.asJava
+
+        sendResponseMaybeThrottle(request, requestThrottleMs =>
+          new AlterMirrorsResponse(results, requestThrottleMs))
+      })
+    }
+  }
+
   private[server] def authorize(requestContext: RequestContext,
                         operation: AclOperation,
                         resourceType: ResourceType,

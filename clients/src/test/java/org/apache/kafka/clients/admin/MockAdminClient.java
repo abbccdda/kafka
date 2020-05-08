@@ -41,6 +41,7 @@ import org.apache.kafka.common.internals.KafkaFutureImpl;
 import org.apache.kafka.common.requests.DescribeLogDirsResponse;
 import org.apache.kafka.common.quota.ClientQuotaAlteration;
 import org.apache.kafka.common.quota.ClientQuotaFilter;
+import org.apache.kafka.common.requests.AlterMirrorsRequest;
 import org.apache.kafka.common.requests.NewClusterLink;
 
 import java.util.ArrayList;
@@ -809,6 +810,12 @@ public class MockAdminClient extends AdminClient implements ConfluentAdmin {
     @Confluent
     @Override
     public DeleteClusterLinksResult deleteClusterLinks(Collection<String> linkNames, DeleteClusterLinksOptions options) {
+        throw new UnsupportedOperationException("Not implement yet");
+    }
+
+    @Confluent
+    @Override
+    public AlterMirrorsResult alterMirrors(List<AlterMirrorsRequest.Op> ops, AlterMirrorsOptions options) {
         throw new UnsupportedOperationException("Not implement yet");
     }
 

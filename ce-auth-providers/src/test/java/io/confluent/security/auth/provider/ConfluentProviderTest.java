@@ -43,6 +43,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import org.apache.kafka.clients.admin.AlterMirrorsOptions;
+import org.apache.kafka.clients.admin.AlterMirrorsResult;
 import org.apache.kafka.clients.admin.Config;
 import org.apache.kafka.clients.admin.ConfigEntry;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
@@ -69,8 +71,9 @@ import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
-import org.apache.kafka.common.resource.PatternType;
+import org.apache.kafka.common.requests.AlterMirrorsRequest;
 import org.apache.kafka.common.requests.NewClusterLink;
+import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.Utils;
@@ -680,6 +683,11 @@ public class ConfluentProviderTest {
 
     @Override
     public DeleteClusterLinksResult deleteClusterLinks(Collection<String> linkNames, DeleteClusterLinksOptions options) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public AlterMirrorsResult alterMirrors(List<AlterMirrorsRequest.Op> ops, AlterMirrorsOptions options) {
         throw new UnsupportedOperationException();
     }
   }

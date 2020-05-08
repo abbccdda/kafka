@@ -49,6 +49,35 @@ class ClusterLinkTopicStateTest {
     val data = result.asInstanceOf[ClusterLinkTopicState.Mirror]
     assertEquals(linkName, data.linkName)
     assertEquals(timeMs, data.timeMs)
+    assertTrue(data.shouldSync)
+  }
+
+  @Test
+  def testFailedMirror(): Unit = {
+    val linkName = "test-link"
+    val timeMs = Time.SYSTEM.milliseconds()
+    val state = new ClusterLinkTopicState.FailedMirror(linkName, timeMs)
+
+    val result = ClusterLinkTopicState.fromJsonString(state.toJsonString)
+    val data = result.asInstanceOf[ClusterLinkTopicState.FailedMirror]
+    assertEquals(linkName, data.linkName)
+    assertEquals(timeMs, data.timeMs)
+    assertFalse(data.shouldSync)
+  }
+
+  @Test
+  def testStoppedMirror(): Unit = {
+    val linkName = "test-link"
+    val logEndOffsets = List[Long](12345, 23456, 34567)
+    val timeMs = Time.SYSTEM.milliseconds()
+    val state = new ClusterLinkTopicState.StoppedMirror(linkName, logEndOffsets.toSeq, timeMs)
+
+    val result = ClusterLinkTopicState.fromJsonString(state.toJsonString)
+    val data = result.asInstanceOf[ClusterLinkTopicState.StoppedMirror]
+    assertEquals(linkName, data.linkName)
+    assertEquals(logEndOffsets, data.logEndOffsets)
+    assertEquals(timeMs, data.timeMs)
+    assertFalse(data.shouldSync)
   }
 
   @Test(expected = classOf[IllegalStateException])

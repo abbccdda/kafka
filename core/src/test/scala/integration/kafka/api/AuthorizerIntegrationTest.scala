@@ -230,7 +230,8 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
     ApiKeys.CREATE_CLUSTER_LINKS -> ((resp: ListClusterLinksResponse) => Errors.forCode(resp.data.errorCode)),
     ApiKeys.DELETE_CLUSTER_LINKS -> ((resp: DeleteClusterLinksResponse) => Errors.forCode(
       resp.data.entries.asScala.find(e => e.linkName == linkName).get.errorCode)),
-    ApiKeys.INITIATE_SHUTDOWN -> ((resp: InitiateShutdownResponse) => Errors.forCode(resp.data.errorCode()))
+    ApiKeys.INITIATE_SHUTDOWN -> ((resp: InitiateShutdownResponse) => Errors.forCode(resp.data.errorCode())),
+    ApiKeys.ALTER_MIRRORS -> ((resp: AlterMirrorsResponse) => Errors.forCode(resp.data.ops.asScala.head.errorCode))
   )
 
   val requestKeysToAcls = Map[ApiKeys, Map[ResourcePattern, Set[AccessControlEntry]]](
@@ -279,7 +280,8 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
     ApiKeys.CREATE_CLUSTER_LINKS -> clusterAlterAcl,
     ApiKeys.LIST_CLUSTER_LINKS -> clusterDescribeAcl,
     ApiKeys.DELETE_CLUSTER_LINKS -> clusterAlterAcl,
-    ApiKeys.INITIATE_SHUTDOWN -> clusterAlterAcl
+    ApiKeys.INITIATE_SHUTDOWN -> clusterAlterAcl,
+    ApiKeys.ALTER_MIRRORS -> topicAlterAcl
   )
 
   @Before
@@ -615,6 +617,9 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
   private def deleteClusterLinksRequest = new DeleteClusterLinksRequest.Builder(Collections.singleton(linkName), false, true).build()
 
   private def initiateShutdownRequest = new InitiateShutdownRequest.Builder(brokerEpoch).build()
+
+  private def alterMirrorsRequest = new AlterMirrorsRequest.Builder(
+    Collections.singletonList(new AlterMirrorsRequest.StopTopicMirrorOp(topic)), false, 10000).build()
 
   @Test
   def testAuthorizationWithTopicExisting(): Unit = {
@@ -1679,6 +1684,30 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
     // The reset should NOT be in a finally block, because there are some errors cases where an exception can be thrown and yet a shutdown thread is created and started.
     // In those error cases, we could reset the exit procedure before the shutdown happens and the started thread could actually shut down the JVM
     Exit.resetExitProcedure()
+  }
+
+  @Test
+  def testUnauthorizedAlterMirrorsWithoutAlter(): Unit = {
+    createTopic(topic)
+    val alterMirrorsResponse = connectAndReceive[AlterMirrorsResponse](alterMirrorsRequest)
+    assertEquals(Errors.TOPIC_AUTHORIZATION_FAILED, Errors.forCode(alterMirrorsResponse.data.ops.get(0).errorCode))
+  }
+
+  @Test
+  def testUnauthorizedAlterMirrorsWithDescribe(): Unit = {
+    createTopic(topic)
+    addAndVerifyAcls(Set(new AccessControlEntry(clientPrincipalString, WildcardHost, DESCRIBE, ALLOW)), topicResource)
+    val alterMirrorsResponse = connectAndReceive[AlterMirrorsResponse](alterMirrorsRequest)
+    assertEquals(Errors.TOPIC_AUTHORIZATION_FAILED, Errors.forCode(alterMirrorsResponse.data.ops.get(0).errorCode))
+  }
+
+  @Test
+  def testAlterMirrorsWithWildCardAuth(): Unit = {
+    createTopic(topic)
+    addAndVerifyAcls(Set(new AccessControlEntry(clientPrincipalString, WildcardHost, ALTER, ALLOW)), topicResource)
+    val alterMirrorsResponse = connectAndReceive[AlterMirrorsResponse](alterMirrorsRequest)
+    // Invalid request indicates authorization succeeded, but topic is not mirrored.
+    assertEquals(Errors.INVALID_REQUEST, Errors.forCode(alterMirrorsResponse.data.ops.get(0).errorCode))
   }
 
   @Test(expected = classOf[TransactionalIdAuthorizationException])

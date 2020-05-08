@@ -45,7 +45,8 @@ object ClusterLinkTopicState {
 
   private val mirrorKey = "mirror"
   private val failedMirrorKey = "failed_mirror"
-  private val stateKeys = List(mirrorKey, failedMirrorKey)
+  private val stoppedMirrorKey = "stopped_mirror"
+  private val stateKeys = List(mirrorKey, failedMirrorKey, stoppedMirrorKey)
 
   /**
     * Indicates an active mirroring setup, where the local topic is the destination.
@@ -95,6 +96,40 @@ object ClusterLinkTopicState {
   }
 
   /**
+    * Indicates a mirror that has been stopped, i.e. the local topic is mutable and behaves as
+    * a normal topic.
+    *
+    * Note this state is recorded for re-synchronization purposes. For example, assume that the
+    * local topic was the destination but a fail-over event occurs, and records are produced to
+    * the local topics. The topics will have diverged, as there may be unreplicated records on the
+    * remote topic, and newly appended records on the local topic. The log end offsets for every
+    * partition are recorded so that, if the remote topic is set to mirror this one, then it's
+    * known to which offset the logs were in-sync.
+    *
+    * @param linkName the name of the cluster link that the topic mirrors from
+    * @param logEndOffsets the log end offsets of every partition, in ascending partition order
+    * @param timeMs the time, in milliseconds, at which the state transition occurred
+    */
+  case class StoppedMirror(linkName: String,
+                           logEndOffsets: Seq[Long],
+                           timeMs: Long = Time.SYSTEM.milliseconds())
+      extends ClusterLinkTopicState {
+
+    override def state: String = stoppedMirrorKey
+
+    override def shouldSync: Boolean = false
+
+    override def toMap: Map[String, _] = {
+      Map(
+        "version" -> 1,
+        "time_ms" -> timeMs,
+        "link_name" -> linkName,
+        "log_end_offsets" -> logEndOffsets.asJava
+      )
+    }
+  }
+
+  /**
     * Constructs and returns the JSON string representing the topic state.
     *
     * @return the JSON string
@@ -103,6 +138,7 @@ object ClusterLinkTopicState {
     val name = state match {
       case cfg: ClusterLinkTopicState.Mirror => mirrorKey
       case cfg: ClusterLinkTopicState.FailedMirror => failedMirrorKey
+      case cfg: ClusterLinkTopicState.StoppedMirror => stoppedMirrorKey
       case _ => throw new IllegalStateException("Unexpected cluster link topic state")
     }
 
@@ -142,6 +178,12 @@ object ClusterLinkTopicState {
             val timeMs = jsonOpt("time_ms").to[Long]
             val linkName = jsonOpt("link_name").to[String]
             FailedMirror(linkName, timeMs)
+          case `stoppedMirrorKey` =>
+            validateVersion(1, jsonOpt("version").to[Int])
+            val timeMs = jsonOpt("time_ms").to[Long]
+            val linkName = jsonOpt("link_name").to[String]
+            val logEndOffsets = jsonOpt("log_end_offsets").to[Seq[Long]]
+            new StoppedMirror(linkName, logEndOffsets, timeMs)
           case _ =>
             // During rolling upgrade, we should ensure that some brokers with new states cannot
             // put the link into a state not known by other brokers. For now, mark this as failed.
@@ -160,6 +202,7 @@ object ClusterLinkTopicState {
     state match {
       case `mirrorKey` => Mirror(linkName)
       case `failedMirrorKey` => FailedMirror(linkName)
+      case `stoppedMirrorKey` => StoppedMirror(linkName, Seq.empty)
       case _ => FailedMirror(linkName) // If we don't understand the state, don't sync.
     }
   }

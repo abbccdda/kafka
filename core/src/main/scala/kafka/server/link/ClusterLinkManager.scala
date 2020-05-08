@@ -55,8 +55,8 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
   val admin = new ClusterLinkAdminManager(brokerConfig, clusterId, zkClient, this)
 
   private var replicaManager: ReplicaManager = _
-  private var adminManager: AdminManager = _
 
+  var adminManager: AdminManager = _
   var controller: KafkaController = _
   var authorizer: Option[Authorizer] = _
 
@@ -228,6 +228,7 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
     }
     if (scheduler != null)
       scheduler.shutdown()
+    admin.shutdown()
     info("shutdown completed")
   }
 
