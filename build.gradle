@@ -2096,7 +2096,6 @@ project(':connect:basic-auth-extension') {
 
 project(':ce-sbk') {
   apply plugin: 'scala'
-  apply plugin: "org.scoverage"
   archivesBaseName = "ce-sbk_${versions.baseScala}"
 
   sourceSets {
