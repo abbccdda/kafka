@@ -15,9 +15,10 @@ import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSample
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
 import kafka.server.KafkaConfig;
-import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.Endpoint;
+import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
+import org.apache.kafka.common.errors.InvalidRequestException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.collection.JavaConverters;
@@ -28,9 +29,11 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -60,8 +63,33 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     // access is serialized through here (in particular for startup/shutdown).
     private final ExecutorService ccRunner;
     private final DataBalancerMetricsRegistry dataBalancerMetricsRegistry;
-    private volatile KafkaCruiseControl cruiseControl;
+
+    // Visible for testing
+    volatile KafkaCruiseControl cruiseControl;
     private Semaphore abortStartupCheck  = new Semaphore(0);
+
+    /**
+     * If we have following timeline:
+     *
+     * ----+------+-------+------+------
+     *     |Sa    |Se     |Ta    |Te
+     *
+     * where,
+     *
+     * Sa = start arrives (submitted to executor). Events processed after this are, by the SingleThreadExecutor,
+     *      guaranteed to be handled after this event completes.
+     * Se = start executes. After this, it's running or failed.
+     * Ta = sTop arrives (submitted to executor). Events processed after this are guaranteed to be handled
+     *      after this instance shuts down.
+     * Te = stop executes.
+     *
+     * In the absence of errors, (Sa,Ta) is the safe time to submit requests. (Requests will execute in the time (Se, Ta)
+     *
+     * In the presence of errors, requests submitted between (Sa, Se) will fail as CruiseControl will not be ready
+     * to serve request. The error will get reported asynchronously.
+     */
+    // Visible for testing
+    volatile boolean canAcceptRequests = false;
 
     public ConfluentDataBalanceEngine(DataBalancerMetricsRegistry dataBalancerMetricsRegistry) {
         this(dataBalancerMetricsRegistry,
@@ -81,7 +109,8 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     public synchronized void onActivation(KafkaConfig kafkaConfig)  {
         LOG.info("DataBalancer: Scheduling DataBalanceEngine Startup");
         abortStartupCheck.drainPermits();
-        ccRunner.submit(() -> startCruiseControl(kafkaConfig));
+        canAcceptRequests = true;
+        ccRunner.submit(() -> startCruiseControl(kafkaConfig, this::createKafkaCruiseControl));
     }
 
     @Override
@@ -90,7 +119,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
 
         // If startup is in progress, abort it
         abortStartupCheck.release();
-
+        canAcceptRequests = false;
         ccRunner.submit(this::stopCruiseControl, null);
     }
 
@@ -105,6 +134,23 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         ccRunner.submit(() -> updateThrottleHelper(newThrottle));
     }
 
+    @Override
+    public void removeBroker(int brokerToRemove, Optional<Long> brokerToRemoveEpoch) {
+        LOG.info("DataBalancer: Scheduling DataBalanceEngine broker removal: {}", brokerToRemove);
+        if (!canAcceptRequests) {
+            String msg = String.format("Received request to remove broker %d while SBK is not started.", brokerToRemove);
+            LOG.error(msg);
+            throw new InvalidRequestException(msg);
+        }
+
+        // XXX: CNKAF-649: This will get handled in next PR. Return success for now without doing anything
+    }
+
+    /**
+     * Returns if CruiseControl is active and can work on balancing cluster. Its different to
+     * {@code #canAcceptRequests} in the sense we can accept requests even though CruiseControl hasn't
+     * been started (say start event arrived but hasn't been processed yet).
+     */
     @Override
     public boolean isActive() {
         return cruiseControl != null;
@@ -123,7 +169,9 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
      *
      * @param kafkaConfig -- the broker configuration, from which the CruiseControl config will be derived
      */
-    private void startCruiseControl(KafkaConfig kafkaConfig) {
+    // Visible for testing
+    void startCruiseControl(KafkaConfig kafkaConfig,
+                            Function<KafkaCruiseControlConfig, KafkaCruiseControl> kafkaCruiseControlCreator) {
         if (cruiseControl != null) {
             LOG.warn("DataBalanceEngine already running when startUp requested.");
             return;
@@ -133,7 +181,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         try {
             KafkaCruiseControlConfig config = generateCruiseControlConfig(kafkaConfig);
             checkStartupComponentsReady(config);
-            KafkaCruiseControl newCruiseControl = new KafkaCruiseControl(config, dataBalancerMetricsRegistry);
+            KafkaCruiseControl newCruiseControl = kafkaCruiseControlCreator.apply(config);
             newCruiseControl.startUp();
             this.cruiseControl = newCruiseControl;
             LOG.info("DataBalancer: DataBalanceEngine started");
@@ -144,6 +192,12 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
             LOG.warn("Unable to start up DataBalanceEngine", e);
             this.cruiseControl = null;
         }
+    }
+
+    // This method abstracts "new" call so that unit test can mock this part out
+    // and test startCruiseControl method
+    private KafkaCruiseControl createKafkaCruiseControl(KafkaCruiseControlConfig config) {
+        return new KafkaCruiseControl(config, dataBalancerMetricsRegistry);
     }
 
     /**
@@ -172,9 +226,12 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     void stopCruiseControl() {
         if (cruiseControl != null) {
             LOG.info("DataBalancer: Starting DataBalanceEngine Shutdown");
+
             try {
                 cruiseControl.userTriggeredStopExecution();
                 cruiseControl.shutdown();
+            } catch (Exception ex) {
+                LOG.warn("Unable to stop DataBalanceEngine", ex);
             } finally {
                 cruiseControl = null;
                 dataBalancerMetricsRegistry.clearShortLivedMetrics();
@@ -182,7 +239,6 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
             }
         }
     }
-
 
     /**
      * The function forms a regex expression by performing OR operation on the topic names and topic prefixes

@@ -114,9 +114,15 @@ object ControllerState {
     def value = Byte.MaxValue
   }
 
+  case object RemoveBroker extends ControllerState {
+    def value: Byte = (Byte.MaxValue - 1).toByte
+
+    override protected def hasRateAndTimeMetric: Boolean = false
+  }
+
   val values: Seq[ControllerState] = Seq(Idle, ControllerChange, BrokerChange, TopicChange, TopicDeletion,
     AlterPartitionReassignment, AutoLeaderBalance, ManualLeaderBalance, ControlledShutdown, IsrChange,
     LeaderAndIsrResponseReceived, LogDirChange, ControllerShutdown, UncleanLeaderElectionEnable,
     TopicUncleanLeaderElectionEnable, ListPartitionReassignment, UpdateMetadataResponseReceived,
-    CompleteTopicDeletion)
+    CompleteTopicDeletion, RemoveBroker)
 }

@@ -1904,6 +1904,10 @@ class TestDataBalancer extends DataBalanceManager {
     throttleConfig = newConfig.getLong(ConfluentConfigs.BALANCER_THROTTLE_CONFIG);
   }
 
+  override def removeBroker(brokerToRemove: Int, brokerToRemoveEpoch: Option[java.lang.Long]): Unit = {
+    // do nothing
+  }
+
   def verifyBalancerConfigs(selfHealingExpected: Boolean, throttleExpected: Long): Unit = {
     assertEquals(selfHealingExpected, selfHealingConfig)
     assertEquals(throttleExpected, throttleConfig)

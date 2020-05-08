@@ -12,8 +12,10 @@ import kafka.server.KafkaConfig;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.Option;
 
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 public class KafkaDataBalanceManager implements DataBalanceManager {
@@ -156,5 +158,18 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
         if (!kafkaConfig.getLong(ConfluentConfigs.BALANCER_THROTTLE_CONFIG).equals(oldConfig.getLong(ConfluentConfigs.BALANCER_THROTTLE_CONFIG))) {
             balanceEngine.updateThrottle(kafkaConfig.getLong(ConfluentConfigs.BALANCER_THROTTLE_CONFIG));
         }
+    }
+
+    @Override
+    public synchronized void removeBroker(int brokerToRemove, Option<Long> brokerToRemoveEpoch) {
+        if (!balanceEngine.isActive()) {
+            String msg = String.format("Received request to remove broker %d while SBK is not started.", brokerToRemove);
+            LOG.error(msg);
+            throw new IllegalStateException(msg);
+        }
+
+        Optional<Long> brokerEpoch = brokerToRemoveEpoch.isEmpty() ? Optional.empty()
+                : Optional.of(brokerToRemoveEpoch.get());
+        balanceEngine.removeBroker(brokerToRemove, brokerEpoch);
     }
 }

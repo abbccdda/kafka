@@ -38,6 +38,8 @@ import org.junit.Test;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
+import scala.collection.JavaConverters;
+import scala.collection.Seq;
 
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
@@ -46,7 +48,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionHandler;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -56,12 +60,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.mockito.internal.verification.VerificationModeFactory.times;
 
 public class ConfluentDataBalanceEngineTest  {
@@ -74,16 +80,39 @@ public class ConfluentDataBalanceEngineTest  {
     @Mock
     private DataBalancerMetricsRegistry mockMetricsRegistry;
 
+    // Spy over executor service returned by currentThreadExecutorService
+    private ExecutorService executorService;
+
+    /**
+     * An executor service class that we can mock and also runs the task in the thread that
+     * submits the task by using {@code java.util.concurrent.RejectedExecutionHandler} passed to it.
+     *
+     * @see #currentThreadExecutorService()
+     */
+    public static class RejectedExecutorService extends ThreadPoolExecutor {
+        public RejectedExecutorService(int corePoolSize,
+                                       int maximumPoolSize,
+                                       long keepAliveTime,
+                                       TimeUnit unit,
+                                       BlockingQueue<Runnable> workQueue,
+                                       RejectedExecutionHandler handler) {
+            super(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, handler);
+        }
+
+        @Override
+        public void execute(Runnable command) {
+            // `rejectedExecution` will throw RejectedExectionException that will be handled
+            // by RejectedExecutionHandler. We use `CallersRunsPolicy` which responds by running the
+            // task in calling thread, making the execution synchronous from caller perspective.
+            getRejectedExecutionHandler().rejectedExecution(command, this);
+        }
+    }
+
     // Kind of a mock to replace the SingleThreadExecutorService with something that just runs in the current
     // thread, guaranteeing completion. (Only usable with the CruiseControl mock, above.)
     private static ExecutorService currentThreadExecutorService() {
         ThreadPoolExecutor.CallerRunsPolicy callerRunsPolicy = new ThreadPoolExecutor.CallerRunsPolicy();
-        return new ThreadPoolExecutor(0, 1, 0L, TimeUnit.SECONDS, new SynchronousQueue<Runnable>(), callerRunsPolicy) {
-            @Override
-            public void execute(Runnable command) {
-                callerRunsPolicy.rejectedExecution(command, this);
-            }
-        };
+        return new RejectedExecutorService(0, 1, 0L, TimeUnit.SECONDS, new SynchronousQueue<>(), callerRunsPolicy);
     }
 
     @Before
@@ -99,7 +128,8 @@ public class ConfluentDataBalanceEngineTest  {
     }
 
     private ConfluentDataBalanceEngine getTestDataBalanceEngine() {
-        return new ConfluentDataBalanceEngine(mockMetricsRegistry, mockCruiseControl, currentThreadExecutorService());
+        executorService = Mockito.spy(currentThreadExecutorService());
+        return new ConfluentDataBalanceEngine(mockMetricsRegistry, mockCruiseControl, executorService);
     }
 
     @Test
@@ -462,7 +492,6 @@ public class ConfluentDataBalanceEngineTest  {
             ConfluentDataBalanceEngine.STARTUP_COMPONENTS.clear();
             ConfluentDataBalanceEngine.STARTUP_COMPONENTS.add(ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent.class.getName());
 
-            KafkaConfig config = mock(KafkaConfig.class);
             KafkaCruiseControlConfig ccConfig = mock(KafkaCruiseControlConfig.class);
 
             ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent.block = true;
@@ -550,10 +579,76 @@ public class ConfluentDataBalanceEngineTest  {
     @Test
     public void testDeactivation() {
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
+        dbe.canAcceptRequests = true;
         dbe.onDeactivation();
         verify(mockCruiseControl).shutdown();  // Shutdown should have been called
         verify(mockCruiseControl).userTriggeredStopExecution();
         verify(mockMetricsRegistry).clearShortLivedMetrics();
+
+        assertFalse("DatabalanceEngine is not stopped", dbe.canAcceptRequests);
+    }
+
+    /**
+     * Test starting cruise control when its already there is a no-op.
+     */
+    @Test
+    public void testStartCruiseControlNoOp() {
+        ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
+        dbe.startCruiseControl(null, null);
+
+        assertSame(dbe.cruiseControl, mockCruiseControl);
+    }
+
+    @Test
+    public void testStartCruiseControlSuccess() {
+        List<String> startupComponents = ConfluentDataBalanceEngine.STARTUP_COMPONENTS;
+        try {
+            ConfluentDataBalanceEngine.STARTUP_COMPONENTS.clear();
+            KafkaConfig config = mock(KafkaConfig.class);
+            List<String> logDirs = Collections.singletonList("/log_dir");
+            when(config.logDirs()).thenReturn((Seq<String>) JavaConverters.asScalaBuffer(logDirs));
+            when(config.originalsWithPrefix(Mockito.anyString())).thenReturn(
+                    Collections.singletonMap(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG, "bootstrap_server"));
+
+            ConfluentDataBalanceEngine dbe = new ConfluentDataBalanceEngine(
+                    mockMetricsRegistry, null, currentThreadExecutorService());
+
+            dbe.startCruiseControl(config, kafkaconfig -> mockCruiseControl);
+            verify(mockCruiseControl).startUp();
+        } finally {
+            // Restore components
+            ConfluentDataBalanceEngine.STARTUP_COMPONENTS.addAll(startupComponents);
+        }
+    }
+
+    @Test
+    public void testStartCruiseControlFailed() {
+        List<String> startupComponents = ConfluentDataBalanceEngine.STARTUP_COMPONENTS;
+        try {
+            ConfluentDataBalanceEngine.STARTUP_COMPONENTS.clear();
+            KafkaConfig config = mock(KafkaConfig.class);
+
+            ConfluentDataBalanceEngine dbe = new ConfluentDataBalanceEngine(
+                    mockMetricsRegistry, null, currentThreadExecutorService());
+
+            dbe.startCruiseControl(config, kafkaconfig -> mockCruiseControl);
+            verify(mockCruiseControl, never()).startUp();
+        } finally {
+            // Restore components
+            ConfluentDataBalanceEngine.STARTUP_COMPONENTS.addAll(startupComponents);
+        }
+    }
+
+    @Test
+    public void testOnActivation() {
+        KafkaConfig config = mock(KafkaConfig.class);
+
+        ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
+        Mockito.doReturn(null).when(executorService).submit(Mockito.any(Runnable.class));
+
+        dbe.onActivation(config);
+        verify(executorService).submit(Mockito.any(Runnable.class));
+        assertTrue("DatabalanceEngine is not started", dbe.canAcceptRequests);
     }
 
     @Test
@@ -571,4 +666,3 @@ public class ConfluentDataBalanceEngineTest  {
         verify(mockCruiseControl, never()).updateThrottle(anyLong());
     }
 }
-

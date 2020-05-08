@@ -8,7 +8,7 @@ import io.confluent.security.test.utils.RbacClusters;
 import org.apache.kafka.clients.admin.KafkaAdminClient;
 import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.errors.ClusterAuthorizationException;
-import org.apache.kafka.common.errors.UnsupportedVersionException;
+import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.Utils;
@@ -87,8 +87,6 @@ public class RbacSbkIntegrationTest {
     }
 
 
-    // TODO Currently the removeBrokers API returns UnsupportedVersionException. Need to update the below code
-    //  after completing server side implementation
     private void verifyRemoveBrokersAPIAccess(String user, boolean authorized) throws Throwable {
         KafkaTestUtils.ClientBuilder clientBuilder = rbacClusters.clientBuilder(user);
         try (KafkaAdminClient adminClient = (KafkaAdminClient) clientBuilder.buildAdminClient()) {
@@ -96,7 +94,8 @@ public class RbacSbkIntegrationTest {
             if (!authorized)
                 TestUtils.assertFutureError(future, ClusterAuthorizationException.class);
             else
-                TestUtils.assertFutureError(future, UnsupportedVersionException.class);
+                // This fails as we try to remove broker having partitions with RF = 1.
+                TestUtils.assertFutureError(future, InvalidRequestException.class);
         }
     }
 }

@@ -21,7 +21,7 @@ import java.util.concurrent.TimeUnit
 import kafka.admin.AdminOperationException
 import kafka.api._
 import kafka.common._
-import kafka.controller.KafkaController.{AlterReassignmentsCallback, ElectLeadersCallback, ListReassignmentsCallback}
+import kafka.controller.KafkaController.{AlterReassignmentsCallback, ElectLeadersCallback, ListReassignmentsCallback, RemoveBrokerResultCallback}
 import kafka.cluster.Observer
 import kafka.log.LogConfig
 import kafka.metrics.{KafkaMetricsGroup, KafkaTimer}
@@ -62,6 +62,7 @@ object KafkaController extends Logging {
   type ElectLeadersCallback = Map[TopicPartition, Either[ApiError, Int]] => Unit
   type ListReassignmentsCallback = Either[Map[TopicPartition, ReplicaAssignment], ApiError] => Unit
   type AlterReassignmentsCallback = Either[Map[TopicPartition, ApiError], ApiError] => Unit
+  type RemoveBrokerResultCallback = Option[ApiError] => Unit
 }
 
 class KafkaController(val config: KafkaConfig,
@@ -1882,6 +1883,27 @@ class KafkaController(val config: KafkaConfig,
     }
   }
 
+  private def processRemoveBroker(brokerToRemove: Int, callback: RemoveBrokerResultCallback): Unit = {
+    if (!isActive) {
+      callback(Some(new ApiError(Errors.NOT_CONTROLLER)))
+    } else {
+      val results = dataBalancer.map { db =>
+        try {
+          db.removeBroker(brokerToRemove,
+            controllerContext.liveBrokerIdAndEpochs.get(brokerToRemove).map(java.lang.Long.valueOf))
+          None
+        } catch {
+          case e: Throwable => Some(new ApiError(Errors.forException(e)))
+        }
+      }.getOrElse {
+        error("Databalancer state is not setup correctly on controller.")
+        Some(new ApiError(Errors.UNKNOWN_SERVER_ERROR))
+      }
+
+      callback(results)
+    }
+  }
+
   private def processIsrChangeNotification(): Unit = {
     def processUpdateNotifications(partitions: Seq[TopicPartition]): Unit = {
       val liveBrokers: Seq[Int] = controllerContext.liveOrShuttingDownBrokerIds.toSeq
@@ -1945,6 +1967,10 @@ class KafkaController(val config: KafkaConfig,
   def alterPartitionReassignments(partitions: Map[TopicPartition, Option[ReplicaAssignment.Assignment]],
                                   callback: AlterReassignmentsCallback): Unit = {
     eventManager.put(ApiPartitionReassignment(partitions, callback))
+  }
+
+  def removeBroker(brokerToRemove: Int, callback: RemoveBrokerResultCallback): Unit = {
+    eventManager.put(RemoveBroker(brokerToRemove, callback))
   }
 
   private def preemptReplicaLeaderElection(
@@ -2108,6 +2134,8 @@ class KafkaController(val config: KafkaConfig,
           processIsrChangeNotification()
         case Startup =>
           processStartup()
+        case RemoveBroker(brokerToRemove: Int, callback: RemoveBrokerResultCallback) =>
+          processRemoveBroker(brokerToRemove, callback)
         case CompleteTopicDeletion(topic) =>
           processCompleteTopicDeletion(topic)
       }
@@ -2368,6 +2396,10 @@ case class ListPartitionReassignments(partitionsOpt: Option[Set[TopicPartition]]
   override def state: ControllerState = ControllerState.ListPartitionReassignment
 }
 
+case class RemoveBroker(brokerToRemove: Int,
+                        callback: RemoveBrokerResultCallback) extends ControllerEvent {
+  override def state: ControllerState = ControllerState.RemoveBroker
+}
 
 // Used only in test cases
 abstract class MockEvent(val state: ControllerState) extends ControllerEvent {
