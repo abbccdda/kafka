@@ -233,7 +233,7 @@ public class SslTransportLayerTest {
         // Create a server with endpoint validation enabled on the server SSL engine
         SslChannelBuilder serverChannelBuilder = new TestSslChannelBuilder(Mode.SERVER) {
             @Override
-            protected TestSslTransportLayer newTransportLayer(String id, SelectionKey key, SSLEngine sslEngine) throws IOException {
+            protected TestSslTransportLayer newTransportLayer(String id, SelectionKey key, SSLEngine sslEngine) {
                 SSLParameters sslParams = sslEngine.getSSLParameters();
                 sslParams.setEndpointIdentificationAlgorithm("HTTPS");
                 sslEngine.setSSLParameters(sslParams);
@@ -1284,14 +1284,14 @@ public class SslTransportLayerTest {
 
         @Override
         protected SslTransportLayer buildTransportLayer(SslFactory sslFactory, String id, SelectionKey key,
-                                                        String host, ChannelMetadataRegistry metadataRegistry) throws IOException {
+                                                        ChannelMetadataRegistry metadataRegistry) {
             SocketChannel socketChannel = (SocketChannel) key.channel();
-            SSLEngine sslEngine = sslFactory.createSslEngine(host, socketChannel.socket().getPort());
+            SSLEngine sslEngine = sslFactory.createSslEngine(socketChannel.socket());
             TestSslTransportLayer transportLayer = newTransportLayer(id, key, sslEngine);
             return transportLayer;
         }
 
-        protected TestSslTransportLayer newTransportLayer(String id, SelectionKey key, SSLEngine sslEngine) throws IOException {
+        protected TestSslTransportLayer newTransportLayer(String id, SelectionKey key, SSLEngine sslEngine) {
             return new TestSslTransportLayer(id, key, sslEngine);
         }
 
@@ -1314,7 +1314,7 @@ public class SslTransportLayerTest {
             private final AtomicLong numFlushesRemaining;
             private final AtomicInteger numDelayedFlushesRemaining;
 
-            public TestSslTransportLayer(String channelId, SelectionKey key, SSLEngine sslEngine) throws IOException {
+            public TestSslTransportLayer(String channelId, SelectionKey key, SSLEngine sslEngine) {
                 super(channelId, key, sslEngine, new DefaultChannelMetadataRegistry());
                 this.netReadBufSize = new ResizeableBufferSize(netReadBufSizeOverride);
                 this.netWriteBufSize = new ResizeableBufferSize(netWriteBufSizeOverride);

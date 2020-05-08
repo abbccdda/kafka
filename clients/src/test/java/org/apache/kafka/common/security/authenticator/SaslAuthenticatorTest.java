@@ -17,6 +17,7 @@
 package org.apache.kafka.common.security.authenticator;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
@@ -392,7 +393,7 @@ public class SaslAuthenticatorTest {
             saslClientConfigs.put(SaslConfigs.SASL_MECHANISM, "DIGEST-MD5");
             createSelector(securityProtocol, saslClientConfigs);
             selector2 = selector;
-            InetSocketAddress addr = new InetSocketAddress("127.0.0.1", server.port());
+            InetSocketAddress addr = new InetSocketAddress("localhost", server.port());
             selector.connect(node2, addr, BUFFER_SIZE, BUFFER_SIZE);
             NetworkTestUtils.checkClientConnection(selector, node2, 100, 10);
             selector = null; // keeps it from being closed when next one is created
@@ -402,7 +403,7 @@ public class SaslAuthenticatorTest {
             saslClientConfigs.put(SaslConfigs.SASL_MECHANISM, "SCRAM-SHA-256");
             createSelector(securityProtocol, saslClientConfigs);
             selector3 = selector;
-            selector.connect(node3, new InetSocketAddress("127.0.0.1", server.port()), BUFFER_SIZE, BUFFER_SIZE);
+            selector.connect(node3, new InetSocketAddress("localhost", server.port()), BUFFER_SIZE, BUFFER_SIZE);
             NetworkTestUtils.checkClientConnection(selector, node3, 100, 10);
             server.verifyAuthenticationMetrics(3, 0);
             
@@ -1772,6 +1773,89 @@ public class SaslAuthenticatorTest {
         createAndCheckClientAuthenticationFailure(securityProtocol,
                 "node-" + OAuthBearerLoginModule.OAUTHBEARER_MECHANISM, OAuthBearerLoginModule.OAUTHBEARER_MECHANISM,
                 "{\"status\":\"insufficient_scope\", \"scope\":\"[LOGIN_TO_KAFKA]\"}");
+    }
+
+    /**
+     * Tests that server certificate with SubjectAltName containing the valid hostname
+     * is accepted by a client that connects using the hostname and validates server endpoint.
+     */
+    @Test
+    public void testValidEndpointIdentificationSanDns() throws Exception {
+        String node = "0";
+        SecurityProtocol securityProtocol = SecurityProtocol.SASL_SSL;
+        configureMechanisms("PLAIN", Arrays.asList("PLAIN"));
+        server = createEchoServer(securityProtocol);
+        saslClientConfigs.put(SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG, "HTTPS");
+        createSelector(securityProtocol, saslClientConfigs);
+        InetSocketAddress addr = new InetSocketAddress("localhost", server.port());
+        selector.connect(node, addr, BUFFER_SIZE, BUFFER_SIZE);
+
+        NetworkTestUtils.checkClientConnection(selector, node, 100, 10);
+        server.verifyAuthenticationMetrics(1, 0);
+    }
+
+    /**
+     * Tests that server certificate with SubjectAltName containing valid IP address
+     * is accepted by a client that connects using IP address and validates server endpoint.
+     */
+    @Test
+    public void testValidEndpointIdentificationSanIp() throws Exception {
+        String node = "0";
+        SecurityProtocol securityProtocol = SecurityProtocol.SASL_SSL;
+        serverCertStores = new CertStores(true, "server", InetAddress.getByName("127.0.0.1"));
+        clientCertStores = new CertStores(false, "client", InetAddress.getByName("127.0.0.1"));
+        saslServerConfigs = serverCertStores.getTrustingConfig(clientCertStores);
+        saslClientConfigs = clientCertStores.getTrustingConfig(serverCertStores);
+        configureMechanisms("PLAIN", Arrays.asList("PLAIN"));
+        server = createEchoServer(securityProtocol);
+        saslClientConfigs.put(SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG, "HTTPS");
+        createSelector(securityProtocol, saslClientConfigs);
+        InetSocketAddress addr = new InetSocketAddress("127.0.0.1", server.port());
+        selector.connect(node, addr, BUFFER_SIZE, BUFFER_SIZE);
+
+        NetworkTestUtils.checkClientConnection(selector, node, 100, 10);
+    }
+
+    /**
+     * Tests that server certificate with CN containing valid hostname
+     * is accepted by a client that connects using hostname and validates server endpoint.
+     */
+    @Test
+    public void testValidEndpointIdentificationCN() throws Exception {
+        String node = "0";
+        SecurityProtocol securityProtocol = SecurityProtocol.SASL_SSL;
+        serverCertStores = new CertStores(true, "localhost");
+        clientCertStores = new CertStores(false, "localhost");
+        saslServerConfigs = serverCertStores.getTrustingConfig(clientCertStores);
+        saslClientConfigs = clientCertStores.getTrustingConfig(serverCertStores);
+        configureMechanisms("PLAIN", Arrays.asList("PLAIN"));
+        server = createEchoServer(securityProtocol);
+        saslClientConfigs.put(SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG, "HTTPS");
+        createSelector(securityProtocol, saslClientConfigs);
+        InetSocketAddress addr = new InetSocketAddress("localhost", server.port());
+        selector.connect(node, addr, BUFFER_SIZE, BUFFER_SIZE);
+
+        NetworkTestUtils.checkClientConnection(selector, node, 100, 10);
+    }
+
+    /**
+     * Tests that hostname verification is performed on the host name or address
+     * specified by the client without using reverse DNS lookup. Certificate is
+     * created with hostname, client connection uses IP address. Endpoint validation
+     * must fail.
+     */
+    @Test
+    public void testEndpointIdentificationNoReverseLookup() throws Exception {
+        String node = "0";
+        SecurityProtocol securityProtocol = SecurityProtocol.SASL_SSL;
+        configureMechanisms("PLAIN", Arrays.asList("PLAIN"));
+        server = createEchoServer(securityProtocol);
+        saslClientConfigs.put(SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG, "HTTPS");
+        createSelector(securityProtocol, saslClientConfigs);
+        InetSocketAddress addr = new InetSocketAddress("127.0.0.1", server.port());
+        selector.connect(node, addr, BUFFER_SIZE, BUFFER_SIZE);
+
+        NetworkTestUtils.waitForChannelClose(selector, node, ChannelState.State.AUTHENTICATION_FAILED);
     }
 
     private void verifySaslAuthenticateHeaderInterop(boolean enableHeaderOnServer, boolean enableHeaderOnClient,

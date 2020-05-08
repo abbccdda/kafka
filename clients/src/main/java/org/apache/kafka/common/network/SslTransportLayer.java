@@ -92,7 +92,7 @@ public class SslTransportLayer implements TransportLayer {
 
     public static SslTransportLayer create(String channelId, SelectionKey key, SSLEngine sslEngine,
                                            ChannelMetadataRegistry metadataRegistry,
-                                           Closeable closeableSslEngine) throws IOException {
+                                           Closeable closeableSslEngine) {
         return new SslTransportLayer(channelId, key, sslEngine, metadataRegistry, closeableSslEngine);
     }
 

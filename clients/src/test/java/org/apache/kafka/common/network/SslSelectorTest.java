@@ -382,11 +382,10 @@ public class SslSelectorTest extends SelectorTest {
 
         @Override
         protected SslTransportLayer buildTransportLayer(SslFactory sslFactory, String id, SelectionKey key,
-                                                        String host, ChannelMetadataRegistry metadataRegistry) throws IOException {
+                                                        ChannelMetadataRegistry metadataRegistry) {
             SocketChannel socketChannel = (SocketChannel) key.channel();
-            SSLEngine sslEngine = sslFactory.createSslEngine(host, socketChannel.socket().getPort());
-            TestSslTransportLayer transportLayer = new TestSslTransportLayer(id, key, sslEngine, metadataRegistry);
-            return transportLayer;
+            SSLEngine sslEngine = sslFactory.createSslEngine(socketChannel.socket());
+            return new TestSslTransportLayer(id, key, sslEngine, metadataRegistry);
         }
 
         /*
@@ -398,7 +397,7 @@ public class SslSelectorTest extends SelectorTest {
             boolean muteSocket = false;
 
             public TestSslTransportLayer(String channelId, SelectionKey key, SSLEngine sslEngine,
-                                         ChannelMetadataRegistry metadataRegistry) throws IOException {
+                                         ChannelMetadataRegistry metadataRegistry) {
                 super(channelId, key, sslEngine, metadataRegistry);
                 transportLayers.put(channelId, this);
             }
