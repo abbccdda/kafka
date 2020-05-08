@@ -92,7 +92,7 @@ import org.apache.kafka.server.authorizer._
 import scala.compat.java8.OptionConverters._
 import scala.jdk.CollectionConverters._
 import scala.collection.mutable.ArrayBuffer
-import scala.collection.{IterableView, Map, Seq, Set, immutable, mutable}
+import scala.collection.{Map, Seq, Set, immutable, mutable}
 import scala.util.{Failure, Success, Try}
 
 
@@ -2720,7 +2720,7 @@ class KafkaApis(val requestChannel: RequestChannel,
      * has broker in its replica set. As # brokers < # of partitions by order of magnitude, for a broker
      * that is part of a balanced cluster the condition should be hit in O(# brokers) case.
      */
-    val topicPartitionsList: IterableView[Seq[PartitionInfo], Iterable[_]] =
+    val topicPartitionsList =
       clusterMetadata.topics.asScala.view.map {
         topic => clusterMetadata.partitionsForTopic(topic).asScala
       }

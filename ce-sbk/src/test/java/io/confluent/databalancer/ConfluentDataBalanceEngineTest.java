@@ -471,7 +471,6 @@ public class ConfluentDataBalanceEngineTest  {
             ConfluentDataBalanceEngine.STARTUP_COMPONENTS.clear();
             ConfluentDataBalanceEngine.STARTUP_COMPONENTS.add(ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent.class.getName());
 
-            KafkaConfig config = mock(KafkaConfig.class);
             KafkaCruiseControlConfig ccConfig = mock(KafkaCruiseControlConfig.class);
 
             ConfluentDataBalanceEngine cc = getTestDataBalanceEngine();
@@ -600,6 +599,7 @@ public class ConfluentDataBalanceEngineTest  {
     }
 
     @Test
+    @SuppressWarnings("deprecation") // JavaConverters is deprecated in scala 2.13
     public void testStartCruiseControlSuccess() {
         List<String> startupComponents = ConfluentDataBalanceEngine.STARTUP_COMPONENTS;
         try {
