@@ -21,6 +21,7 @@ import org.junit.Test;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
+import scala.Option;
 
 import java.util.ArrayList;
 import java.util.Map;
@@ -28,6 +29,7 @@ import java.util.Properties;
 
 import static org.junit.Assert.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -227,5 +229,41 @@ public class KafkaDataBalanceManagerTest {
 
         verify(mockActiveDataBalanceEngine).shutdown();
         verify(mockInactiveDataBalanceEngine).shutdown();
+    }
+
+    @Test(expected = IllegalStateException.class)
+    public void testRemoveBrokerNotActive() {
+        dataBalancer = new KafkaDataBalanceManager(initConfig,
+                new KafkaDataBalanceManager.DataBalanceEngineFactory(mockActiveDataBalanceEngine, mockInactiveDataBalanceEngine),
+                mockDbMetrics);
+        dataBalancer.removeBroker(2, Option.<Long>apply(25L));
+    }
+
+    /**
+     * Confirm that remove broker api call is processed successfully
+     */
+    @Test
+    public void testRemoveBrokerAccepted() {
+        dataBalancer = new KafkaDataBalanceManager(initConfig,
+                new KafkaDataBalanceManager.DataBalanceEngineFactory(mockActiveDataBalanceEngine, mockInactiveDataBalanceEngine),
+                mockDbMetrics);
+        dataBalancer.onElection();
+
+        dataBalancer.removeBroker(1, Option.<Long>apply(15L));
+        verify(mockActiveDataBalanceEngine).removeBroker(anyInt(), any());
+    }
+
+    /**
+     * Check that we can remove broker that isn't alive.
+     */
+    @Test
+    public void testRemoveNotAliveBroker() {
+        dataBalancer = new KafkaDataBalanceManager(initConfig,
+                new KafkaDataBalanceManager.DataBalanceEngineFactory(mockActiveDataBalanceEngine, mockInactiveDataBalanceEngine),
+                mockDbMetrics);
+        dataBalancer.onElection();
+
+        dataBalancer.removeBroker(1, Option.<Long>apply(null));
+        verify(mockActiveDataBalanceEngine).removeBroker(anyInt(), any());
     }
 }

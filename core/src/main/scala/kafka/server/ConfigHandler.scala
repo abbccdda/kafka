@@ -87,8 +87,8 @@ class TopicConfigHandler(private val replicaManager: ReplicaManager, kafkaConfig
         debug(s"Removing $prop from broker ${kafkaConfig.brokerId} for topic $topic")
       }
     }
-    updateThrottledList(LogConfig.LeaderReplicationThrottledReplicasProp, quotas.leader)
-    updateThrottledList(LogConfig.FollowerReplicationThrottledReplicasProp, quotas.follower)
+    updateThrottledList(KafkaConfig.LeaderReplicationThrottledReplicasProp, quotas.leader)
+    updateThrottledList(KafkaConfig.FollowerReplicationThrottledReplicasProp, quotas.follower)
 
     if (Try(topicConfig.getProperty(KafkaConfig.UncleanLeaderElectionEnableProp).toBoolean).getOrElse(false)) {
       kafkaController.enableTopicUncleanLeaderElection(topic)

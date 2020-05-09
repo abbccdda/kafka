@@ -25,7 +25,7 @@ class ClusterLinkSyncAcls (val clientManager: ClusterLinkClientManager, config: 
     config.aclSyncMs) {
 
   // set of last seen AclBindings from source cluster
-  private var currentAclSet = mutable.Set[AclBinding]()
+  private val currentAclSet = mutable.Set[AclBinding]()
 
   // integer counting number of tasks outstanding for acl migration
   private var tasksOutstanding = 0
@@ -46,7 +46,7 @@ class ClusterLinkSyncAcls (val clientManager: ClusterLinkClientManager, config: 
     if (controller.isActive) {
       val aclFilterJson = config.aclFilters.get
       val aclFilterList = AclJson.toAclBindingFilters(aclFilterJson)
-      var describeAclsResultList = ListBuffer[Option[DescribeAclsResult]]()
+      val describeAclsResultList = ListBuffer[Option[DescribeAclsResult]]()
       for (aclFilter <- aclFilterList) {
         val describeAclsResult = try {
           trace("Attempting to retrieve ACLs from source cluster...")
@@ -83,11 +83,8 @@ class ClusterLinkSyncAcls (val clientManager: ClusterLinkClientManager, config: 
    */
   private def updateAcls(futureList: ListBuffer[KafkaFuture[util.Collection[AclBinding]]]):
   Boolean = {
-    var describeAclResultSet = mutable.Set[AclBinding]()
-    for (future <- futureList) {
-      val aclBindingSet = future.get().asScala.toSet
-      describeAclResultSet = describeAclResultSet.union(aclBindingSet)
-    }
+    val describeAclResultSet = mutable.Set[AclBinding]()
+    futureList.foreach { future => describeAclResultSet ++= future.get().asScala }
     val deletedAcls = currentAclSet.diff(describeAclResultSet)
     val addedAcls = describeAclResultSet.diff(currentAclSet)
     clientManager.getAuthorizer.foreach { auth =>
@@ -135,10 +132,10 @@ class ClusterLinkSyncAcls (val clientManager: ClusterLinkClientManager, config: 
   private def addAclsAndLogCreationWarnings(aclCreateResultList: List[CompletableFuture[AclCreateResult]],
                                             createdAclList: List[AclBinding],
                                             addedAclSet: mutable.Set[AclBinding]): Boolean = {
-    var addedAcls = addedAclSet
-    for (i <- aclCreateResultList.indices) {
+    val addedAcls = addedAclSet
+    aclCreateResultList.zip(createdAclList).foreach { case (future, createdList) =>
       try {
-        val createdAcl = aclCreateResultList(i).get
+        val createdAcl = future.get()
         if (createdAcl.exception.isPresent) {
           warn("Encountered the following exception while trying to create ACL: " +
             createdAcl.exception.get())
@@ -147,7 +144,7 @@ class ClusterLinkSyncAcls (val clientManager: ClusterLinkClientManager, config: 
           // we try again on the next refresh. Since the list of results are returned in the order
           // we called them, we can assume the size of both lists are the same and there is an exact
           // correlation between the indices. Therefore we can use i to update the added acl set.
-          addedAcls -= createdAclList(i)
+          addedAcls -= createdList
         }
       } catch {
         case e: Throwable =>
@@ -159,7 +156,7 @@ class ClusterLinkSyncAcls (val clientManager: ClusterLinkClientManager, config: 
           // and there is an exact correlation between the indices. Therefore we can use i to update
           // the added acl set. While we don't except the future to throw an error, this is here
           // just in case as to not disrupt the cluster link.
-          addedAcls -= createdAclList(i)
+          addedAcls -= createdList
       }
     }
     currentAclSet ++= addedAcls
@@ -176,10 +173,10 @@ class ClusterLinkSyncAcls (val clientManager: ClusterLinkClientManager, config: 
   private def deleteAclsAndLogDeletionWarnings(aclDeleteResultList: List[CompletableFuture[AclDeleteResult]],
                                                deletedAclSet: mutable.Set[AclBinding],
                                                deletedAclFilterList: List[AclBindingFilter]): Boolean = {
-    var deletedAcls = deletedAclSet
-    for (i <- aclDeleteResultList.indices) {
+    val deletedAcls = deletedAclSet
+    aclDeleteResultList.zip(deletedAclFilterList).foreach { case(future, filter) =>
       try{
-        val aclDeleteResult: AclDeleteResult = aclDeleteResultList(i).get()
+        val aclDeleteResult: AclDeleteResult = future.get()
         val aclBindingDeleteResultList: util.Collection[AclDeleteResult.AclBindingDeleteResult]
         = aclDeleteResult.aclBindingDeleteResults()
         for (aclBindingDeleteResult <- aclBindingDeleteResultList.asScala) {
@@ -202,11 +199,7 @@ class ClusterLinkSyncAcls (val clientManager: ClusterLinkClientManager, config: 
           // can use i in this case to grab the corresponding filter and then delete all AclBindings
           // match that filter. While we don't except the future to throw an error, this is here
           // just in case so we don't disrupt the cluster link.
-          for (acl <- deletedAcls) {
-            if (deletedAclFilterList(i).matches(acl)) {
-              deletedAcls -= acl
-            }
-          }
+          deletedAcls --= deletedAcls.filter(filter.matches)
       }
     }
     currentAclSet --= deletedAcls

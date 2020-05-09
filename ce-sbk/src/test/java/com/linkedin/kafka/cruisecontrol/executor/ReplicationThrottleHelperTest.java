@@ -9,8 +9,8 @@ import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils;
 import com.linkedin.kafka.cruisecontrol.metricsreporter.utils.CCKafkaIntegrationTestHarness;
 import com.linkedin.kafka.cruisecontrol.model.ReplicaPlacementInfo;
 import com.linkedin.kafka.cruisecontrol.monitor.LoadMonitor;
-import kafka.log.LogConfig;
 import kafka.server.ConfigType;
+import kafka.server.KafkaConfig;
 import kafka.zk.AdminZkClient;
 import kafka.zk.KafkaZkClient;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
@@ -219,15 +219,15 @@ public class ReplicationThrottleHelperTest extends CCKafkaIntegrationTestHarness
     Map<String, List<ConfigEntry>> staticThrottleConfigs = new HashMap<>();
     for (Integer brokerId : expectedThrottledBrokers) {
       staticThrottleConfigs.put(brokerId.toString(), Arrays.asList(
-              new ConfigEntry(LogConfig.FollowerReplicationThrottledReplicasProp(), "*"),
-              new ConfigEntry(LogConfig.LeaderReplicationThrottledReplicasProp(), "*")
+              new ConfigEntry(KafkaConfig.FollowerReplicationThrottledReplicasProp(), "*"),
+              new ConfigEntry(KafkaConfig.LeaderReplicationThrottledReplicasProp(), "*")
       ));
     }
     // Kafka can return null values for sensitive configs or configs that are not set
     for (Integer brokerId: expectedEmptyStaticThrottledBrokers) {
       staticThrottleConfigs.put(brokerId.toString(), Arrays.asList(
-              new ConfigEntry(LogConfig.FollowerReplicationThrottledReplicasProp(), null),
-              new ConfigEntry(LogConfig.LeaderReplicationThrottledReplicasProp(), null)
+              new ConfigEntry(KafkaConfig.FollowerReplicationThrottledReplicasProp(), null),
+              new ConfigEntry(KafkaConfig.LeaderReplicationThrottledReplicasProp(), null)
       ));
     }
     KafkaCruiseControlUnitTestUtils.mockDescribeConfigs(adminClient, configResourcesForBrokers(expectedThrottledBrokers), staticThrottleConfigs);
@@ -278,15 +278,15 @@ public class ReplicationThrottleHelperTest extends CCKafkaIntegrationTestHarness
     Map<String, List<ConfigEntry>> staticThrottleConfigs = new HashMap<>();
     for (Integer brokerId : expectedStaticThrottledBrokers) {
       staticThrottleConfigs.put(brokerId.toString(), Arrays.asList(
-              new ConfigEntry(LogConfig.FollowerReplicationThrottledReplicasProp(), "*"),
-              new ConfigEntry(LogConfig.LeaderReplicationThrottledReplicasProp(), "*")
+              new ConfigEntry(KafkaConfig.FollowerReplicationThrottledReplicasProp(), "*"),
+              new ConfigEntry(KafkaConfig.LeaderReplicationThrottledReplicasProp(), "*")
       ));
     }
     // Kafka can return null values for sensitive configs or configs that are not set
     for (Integer brokerId: expectedEmptyStaticThrottledBrokers) {
       staticThrottleConfigs.put(brokerId.toString(), Arrays.asList(
-              new ConfigEntry(LogConfig.FollowerReplicationThrottledReplicasProp(), null),
-              new ConfigEntry(LogConfig.LeaderReplicationThrottledReplicasProp(), null)
+              new ConfigEntry(KafkaConfig.FollowerReplicationThrottledReplicasProp(), null),
+              new ConfigEntry(KafkaConfig.LeaderReplicationThrottledReplicasProp(), null)
       ));
     }
     KafkaCruiseControlUnitTestUtils.mockDescribeConfigs(adminClient, configResourcesForBrokers(Arrays.asList(0, 1, 2)), staticThrottleConfigs);

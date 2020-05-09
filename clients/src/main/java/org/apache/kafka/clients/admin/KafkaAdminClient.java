@@ -148,6 +148,8 @@ import org.apache.kafka.common.requests.AlterClientQuotasRequest;
 import org.apache.kafka.common.requests.AlterClientQuotasResponse;
 import org.apache.kafka.common.requests.AlterConfigsRequest;
 import org.apache.kafka.common.requests.AlterConfigsResponse;
+import org.apache.kafka.common.requests.AlterMirrorsRequest;
+import org.apache.kafka.common.requests.AlterMirrorsResponse;
 import org.apache.kafka.common.requests.AlterPartitionReassignmentsRequest;
 import org.apache.kafka.common.requests.AlterPartitionReassignmentsResponse;
 import org.apache.kafka.common.requests.AlterReplicaLogDirsRequest;
@@ -4326,6 +4328,41 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
             }, now);
 
         return new DeleteClusterLinksResult(Collections.unmodifiableMap(results));
+    }
+
+    @Confluent
+    @Override
+    public AlterMirrorsResult alterMirrors(List<AlterMirrorsRequest.Op> ops, AlterMirrorsOptions options) {
+        List<KafkaFutureImpl<AlterMirrorsResponse.Result>> results = new ArrayList<>(ops.size());
+        for (AlterMirrorsRequest.Op op : ops) {
+            results.add(new KafkaFutureImpl<>());
+        }
+
+        final long now = time.milliseconds();
+        runnable.call(new Call("alterMirrors", calcDeadlineMs(now, options.timeoutMs()),
+                new ControllerNodeProvider()) {
+
+                @Override
+                AlterMirrorsRequest.Builder createRequest(int timeoutMs) {
+                    return new AlterMirrorsRequest.Builder(ops, options.validateOnly(), timeoutMs);
+                }
+
+                @Override
+                void handleResponse(AbstractResponse abstractResponse) {
+                    AlterMirrorsResponse response = (AlterMirrorsResponse) abstractResponse;
+                    if (response.errorCounts().getOrDefault(Errors.NOT_CONTROLLER, 0) > 0) {
+                      handleNotControllerError(Errors.NOT_CONTROLLER);
+                    }
+                    response.complete(results);
+                }
+
+                @Override
+                void handleFailure(Throwable throwable) {
+                    completeAllExceptionally(results, throwable);
+                }
+            }, now);
+
+        return new AlterMirrorsResult(Collections.unmodifiableList(results));
     }
 
     /**

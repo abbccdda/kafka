@@ -83,9 +83,10 @@ import org.apache.kafka.common.resource.{PatternType, Resource, ResourcePattern,
 import org.apache.kafka.common.security.auth.{KafkaPrincipal, SecurityProtocol}
 import org.apache.kafka.common.security.token.delegation.{DelegationToken, TokenInformation}
 import org.apache.kafka.common.utils.{ProducerIdAndEpoch, Time, Utils}
-import org.apache.kafka.common.{Node, TopicPartition}
+import org.apache.kafka.common.{Node, PartitionInfo, TopicPartition}
 import org.apache.kafka.common.record.FileRecords.FileTimestampAndOffset
 import org.apache.kafka.common.message.MetadataResponseData.{MetadataResponsePartition, MetadataResponseTopic}
+import org.apache.kafka.common.message.RemoveBrokersResponseData.RemoveBrokerResponse
 import org.apache.kafka.server.authorizer._
 
 import scala.compat.java8.OptionConverters._
@@ -200,6 +201,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         case ApiKeys.LIST_CLUSTER_LINKS => handleListClusterLinksRequest(request)
         case ApiKeys.DELETE_CLUSTER_LINKS => handleDeleteClusterLinksRequest(request)
         case ApiKeys.INITIATE_SHUTDOWN => handleInitiateShutdownRequest(request)
+        case ApiKeys.ALTER_MIRRORS => handleAlterMirrorsRequest(request)
         case _ if request.header.apiKey.isInternal => handleInternalRequest(request)
       }
     } catch {
@@ -2679,13 +2681,97 @@ class KafkaApis(val requestChannel: RequestChannel,
   def handleRemoveBrokersRequest(request: RequestChannel.Request): Unit = {
     authorizeClusterOperation(request, ALTER)
 
-    sendResponseMaybeThrottle(request, throttleTimeMs =>
-      new RemoveBrokersResponse(
-        new RemoveBrokersResponseData()
-          .setThrottleTimeMs(throttleTimeMs)
-          .setErrorCode(Errors.UNSUPPORTED_VERSION.code()).setErrorMessage(Errors.UNSUPPORTED_VERSION.message())
+    if (!controller.isActive) {
+      throw new NotControllerException(s"Remove broker request can only be handled by controller. " +
+        s"This broker ($brokerId) isn't the controller currently.");
+    }
+
+    val removeBrokersRequest = request.body[RemoveBrokersRequest]
+    val brokersToRemove = removeBrokersRequest.data.brokersToRemove.asScala.toList.map(_.brokerId())
+    if (brokersToRemove.isEmpty) {
+      throw new InvalidRequestException("At least one broker id need to be specified.")
+    }
+
+    // Check if broker ids are valid
+    val invalidBrokers = brokersToRemove.filter(_ < 0)
+    if (invalidBrokers.nonEmpty) {
+      throw new InvalidRequestException(s"Invalid broker ids specified: $invalidBrokers")
+    }
+
+    if (brokersToRemove.size != 1) {
+      val errMsg = s"Only one broker can be removed at a time. Multiple broker ids specified: $brokersToRemove"
+      throw new InvalidRequestException(errMsg)
+    }
+
+    val brokerToRemove = brokersToRemove.head
+    val clusterMetadata = metadataCache.getClusterMetadata(clusterId, request.context.listenerName)
+
+    /**
+     * The code below creates a lazy collection. We will be going over all partitions to validate two things:
+     *
+     * 1. No partition that are on broker to be removed have RF = 1, and
+     * 2. If its a valid broker id. i.e the broker to remove has a partition on it or is alive
+     *
+     * As going over all partitions is costly, we create a lazy collection. As RF == 1 check can be made
+     * at topic level, combined with fact there aren't many RF = 1 topics and we need to find first RF = 1
+     * partition on the broker to be removed, the check is O(# topics) and lesser in practice.
+     *
+     * For invalid broker check, most of the time the api will be called with broker in alive set. When
+     * broker is not alive, the code goes over all partitions and stops the check when we find one that
+     * has broker in its replica set. As # brokers < # of partitions by order of magnitude, for a broker
+     * that is part of a balanced cluster the condition should be hit in O(# brokers) case.
+     */
+    val topicPartitionsList =
+      clusterMetadata.topics.asScala.view.map {
+        topic => clusterMetadata.partitionsForTopic(topic).asScala
+      }
+
+    // Check if we have RF = 1 partition on broker we are removing.
+    val partitionsWithReplicationFactorOne = topicPartitionsList.filter { partitions: Seq[PartitionInfo] =>
+          // As replication factor is same for all partitions of a topic, we only check for first one
+          partitions.headOption.exists { partitionInfo =>
+            partitionInfo.replicas().length == 1  // We don't care for observers here
+          }
+        }.filter { partitions: Seq[PartitionInfo] =>
+          partitions.exists { partitionInfo =>
+            partitionInfo.replicas.exists(_.id == brokerToRemove)
+          }
+        }
+
+    if (partitionsWithReplicationFactorOne.nonEmpty) {
+      // Can't get rid of only replica. This may result in partition unavailability/data loss
+      throw new InvalidRequestException(s"Can't remove broker $brokersToRemove as this will result in " +
+        s"partitions becoming unavailable: ${partitionsWithReplicationFactorOne.head}")
+    }
+
+    if (metadataCache.getAliveBroker(brokerToRemove).isEmpty) {
+      val partitionWithRemovedBroker = topicPartitionsList.filter { partitions: Seq[PartitionInfo] =>
+        partitions.exists { partitionInfo =>
+          (partitionInfo.replicas ++ partitionInfo.observers).exists(broker => broker.id == brokerToRemove)
+        }
+      }
+      if (partitionWithRemovedBroker.isEmpty)
+        throw new InvalidRequestException(s"Unknown broker id specified: $brokersToRemove")
+    }
+
+    def sendResponseCallback(result: Option[ApiError]): Unit = {
+      val responseData = result match {
+        case Some(apiError) => new RemoveBrokersResponseData()
+          .setErrorMessage(apiError.message)
+          .setErrorCode(apiError.error.code)
+
+        case None =>
+          new RemoveBrokersResponseData().setBrokersToRemove(
+            List(new RemoveBrokerResponse().setBrokerId(brokerToRemove)).asJava
+          )
+      }
+
+      sendResponseMaybeThrottle(request, requestThrottleMs =>
+        new RemoveBrokersResponse(responseData.setThrottleTimeMs(requestThrottleMs))
       )
-    )
+    }
+
+    controller.removeBroker(brokerToRemove, sendResponseCallback)
   }
 
   def handleListPartitionReassignmentsRequest(request: RequestChannel.Request): Unit = {
@@ -3130,6 +3216,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         createClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.CLUSTER_AUTHORIZATION_FAILED.exception))
 
     } else {
+      val timeoutMs = createClusterLinksRequest.timeoutMs
       val newClusterLinks = createClusterLinksRequest.newClusterLinks.asScala
       val futures = newClusterLinks.map { ncl =>
         val linkName = ncl.linkName
@@ -3137,7 +3224,7 @@ class KafkaApis(val requestChannel: RequestChannel,
           if (newClusterLinks.count(_.linkName == linkName) > 1)
             throw new InvalidRequestException(s"Duplicate link name $linkName")
           clusterLinkAdminManager.createClusterLink(ncl,
-            createClusterLinksRequest.validateOnly, createClusterLinksRequest.validateLink, createClusterLinksRequest.timeoutMs)
+            createClusterLinksRequest.validateOnly, createClusterLinksRequest.validateLink, timeoutMs)
         } catch {
           case e: Throwable =>
             val result = new CompletableFuture[Void]()
@@ -3147,7 +3234,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         linkName -> future
       }.toMap
 
-      CompletableFuture.allOf(futures.values.toArray:_*).whenComplete((_, _) => {
+      clusterLinkAdminManager.purgatory.tryCompleteElseWatch(timeoutMs, futures.values.toSeq, () => {
         val result = futures.map { case (linkName, future) =>
           def handleError(e: Throwable): ApiError = {
             error(s"Error processing cluster link creation request for '$linkName'", e)
@@ -3235,7 +3322,52 @@ class KafkaApis(val requestChannel: RequestChannel,
     }
   }
 
-  // private package for testing
+  def handleAlterMirrorsRequest(request: RequestChannel.Request): Unit = {
+    val alterMirrorsRequest = request.body[AlterMirrorsRequest]
+
+    if (!controller.isActive) {
+      sendResponseMaybeThrottle(request, requestThrottleMs =>
+        alterMirrorsRequest.getErrorResponse(requestThrottleMs, Errors.NOT_CONTROLLER.exception))
+
+    } else {
+      val timeoutMs = alterMirrorsRequest.timeoutMs
+      val futures = alterMirrorsRequest.ops.asScala.map { op =>
+        try {
+          val topic = op match {
+            case subOp: AlterMirrorsRequest.StopTopicMirrorOp => Some(subOp.topic())
+            case _ => None
+          }
+          if (!topic.forall(t => authorize(request.context, ALTER, TOPIC, t)))
+            throw new TopicAuthorizationException(s"Failed to authorize topic '$topic'")
+          clusterLinkAdminManager.alterMirror(op, alterMirrorsRequest.validateOnly)
+        } catch {
+          case e: Throwable =>
+            val result = new CompletableFuture[AlterMirrorsResponse.Result]()
+            result.completeExceptionally(e)
+            result
+        }
+      }
+
+      clusterLinkAdminManager.purgatory.tryCompleteElseWatch(timeoutMs, futures, () => {
+        val results = futures.map { future =>
+          def handleError(e: Throwable): AlterMirrorsResponse.Result.OrError = {
+            error(s"Error processing alter mirrors request", e)
+            new AlterMirrorsResponse.Result.OrError(ApiError.fromThrowable(e))
+          }
+          try {
+            new AlterMirrorsResponse.Result.OrError(future.get)
+          } catch {
+            case e: ExecutionException => handleError(e.getCause)
+            case e: Throwable => handleError(e)
+          }
+        }.toList.asJava
+
+        sendResponseMaybeThrottle(request, requestThrottleMs =>
+          new AlterMirrorsResponse(results, requestThrottleMs))
+      })
+    }
+  }
+
   private[server] def authorize(requestContext: RequestContext,
                         operation: AclOperation,
                         resourceType: ResourceType,

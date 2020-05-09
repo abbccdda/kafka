@@ -114,7 +114,7 @@ object QuotaFactory extends Logging {
     val throttleRate = quotaType match {
       case QuotaType.LeaderReplication => cfg.ReplicationLeaderThrottleRate
       case QuotaType.FollowerReplication => cfg.ReplicationFollowerThrottleRate
-      case _ => ReplicationQuotaManagerConfig.QuotaBytesPerSecondDefault
+      case _ => Defaults.QuotaBytesPerSecond
     }
     val replicasAreThrottled = quotaType match {
       case QuotaType.LeaderReplication => cfg.ReplicationLeaderReplicasAreThrottled

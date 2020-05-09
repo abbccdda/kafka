@@ -3,22 +3,18 @@
  */
 package kafka.server.link
 
-import java.time.Duration
 import java.util.{Properties, UUID}
 import java.util.concurrent.{CompletableFuture, ExecutionException}
 
-import kafka.server.KafkaConfig
+import kafka.server.{DelayedFuturePurgatory, KafkaConfig}
 import kafka.utils.{CoreUtils, Logging}
 import kafka.utils.Implicits._
 import kafka.zk.{AdminZkClient, KafkaZkClient}
 import org.apache.kafka.clients.admin.{Admin, DescribeClusterOptions}
-import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer}
-import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.acl.AclOperation
 import org.apache.kafka.common.internals.Topic
-import org.apache.kafka.common.errors.{ClusterAuthorizationException, ClusterLinkExistsException, ClusterLinkInUseException, ClusterLinkNotFoundException, InvalidConfigurationException, InvalidRequestException, UnsupportedVersionException}
-import org.apache.kafka.common.requests.{ApiError, ClusterLinkListing, NewClusterLink}
-import org.apache.kafka.common.serialization.ByteArrayDeserializer
+import org.apache.kafka.common.errors.{ClusterAuthorizationException, ClusterLinkExistsException, ClusterLinkInUseException, ClusterLinkNotFoundException, InvalidConfigurationException, InvalidRequestException, UnknownTopicOrPartitionException, UnsupportedVersionException}
+import org.apache.kafka.common.requests.{AlterMirrorsResponse, AlterMirrorsRequest, ApiError, ClusterLinkListing, NewClusterLink}
 
 import scala.collection.JavaConverters._
 import scala.collection.Seq
@@ -31,6 +27,11 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
   this.logIdent = "[Cluster Link Admin Manager on Broker " + config.brokerId + "]: "
 
   private val adminZkClient = new AdminZkClient(zkClient)
+  val purgatory = new DelayedFuturePurgatory(purgatoryName = "ClusterLink", brokerId = config.brokerId)
+
+  def shutdown(): Unit = {
+    purgatory.shutdown()
+  }
 
   def createClusterLink(newClusterLink: NewClusterLink,
                         validateOnly: Boolean,
@@ -106,6 +107,43 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
     }
   }
 
+  def alterMirror(op: AlterMirrorsRequest.Op, validateOnly: Boolean): CompletableFuture[AlterMirrorsResponse.Result] = {
+    val result = new CompletableFuture[AlterMirrorsResponse.Result]()
+
+    op match {
+      case subOp: AlterMirrorsRequest.StopTopicMirrorOp =>
+        val topic = subOp.topic
+        Topic.validate(topic)
+        if (!clusterLinkManager.adminManager.metadataCache.contains(topic))
+          throw new UnknownTopicOrPartitionException(s"Topic $topic not found")
+
+        // Validate the mirror can be stopped.
+        val newClusterLink = zkClient.getClusterLinkForTopics(Set(subOp.topic)).get(subOp.topic) match {
+          case Some(clusterLink) =>
+            val linkName = clusterLink.linkName
+            clusterLink match {
+              case _: ClusterLinkTopicState.Mirror | _: ClusterLinkTopicState.FailedMirror =>
+                // TODO: Save the log end offsets. For now, an empty array is a valid state.
+                new ClusterLinkTopicState.StoppedMirror(linkName, List.empty[Long])
+              case _: ClusterLinkTopicState.StoppedMirror =>
+                throw new InvalidRequestException(s"Topic '${subOp.topic}' has already stopped its mirror from '$linkName'")
+            }
+
+          case None =>
+            throw new InvalidRequestException(s"Topic '${subOp.topic}' is not mirrored")
+        }
+
+        if (!validateOnly)
+          zkClient.setTopicClusterLink(subOp.topic, Some(newClusterLink))
+        result.complete(new AlterMirrorsResponse.StopTopicMirrorResult())
+
+      case _ =>
+        throw new UnsupportedVersionException(s"Unknown alter mirrors op type")
+    }
+
+    result
+  }
+
   private def finishCreateClusterLink(linkName: String, linkClusterId: Option[String], props: Properties, validateOnly: Boolean): Unit = {
     if (!validateOnly) {
       adminZkClient.createClusterLink(linkName, UUID.randomUUID(), linkClusterId, props)
@@ -170,25 +208,6 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
         expectedClusterId.foreach { ecid =>
           throw new InvalidRequestException(s"Expected cluster ID '$ecid' does not match due to no resolved cluster ID")
         }
-    }
-
-    // Issue a fetch request to the remote cluster to verify topic read access.
-    val partition = List(new TopicPartition(Topic.GROUP_METADATA_TOPIC_NAME, 0)).asJavaCollection
-    val consumerProps = new Properties()
-    consumerProps ++= props
-    consumerProps.put(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, "0")
-    consumerProps.put(ConsumerConfig.FETCH_MAX_BYTES_CONFIG, "1")
-    consumerProps.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, "0")
-    val consumer = new KafkaConsumer[Array[Byte], Array[Byte]](consumerProps,
-      new ByteArrayDeserializer(), new ByteArrayDeserializer())
-    try {
-      consumer.assign(partition)
-      consumer.seekToBeginning(partition)
-      consumer.poll(Duration.ofMillis(timeoutMs))
-    } catch {
-      case e: Throwable => throwExceptionFor(e)
-    } finally {
-      consumer.close()
     }
 
     linkClusterId

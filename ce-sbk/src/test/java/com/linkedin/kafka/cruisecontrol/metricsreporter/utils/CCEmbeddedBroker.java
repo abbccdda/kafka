@@ -101,8 +101,4 @@ public class CCEmbeddedBroker implements AutoCloseable {
     CCKafkaTestUtils.quietly(this::awaitShutdown);
     CCKafkaTestUtils.quietly(() -> FileUtils.forceDelete(_logDir));
   }
-
-  public static CCEmbeddedBrokerBuilder newServer() {
-    return new CCEmbeddedBrokerBuilder();
-  }
 }

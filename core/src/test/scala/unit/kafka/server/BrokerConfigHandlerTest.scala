@@ -3,7 +3,7 @@ package unit.kafka.server
 import java.util.Properties
 
 import kafka.server.QuotaFactory.QuotaManagers
-import kafka.server.{BrokerConfigHandler, KafkaConfig, QuotaFactory, ReplicationQuotaManagerConfig}
+import kafka.server.{BrokerConfigHandler, Defaults, KafkaConfig, QuotaFactory, ReplicationQuotaManagerConfig}
 import org.junit.{Before, Test}
 import org.junit.Assert.{assertEquals, assertFalse, assertTrue}
 import kafka.utils.TestUtils
@@ -35,11 +35,11 @@ class BrokerConfigHandlerTest {
     val props = new Properties
     props.put(KafkaConfig.LeaderReplicationThrottledRateProp, "333")
     props.put(KafkaConfig.FollowerReplicationThrottledRateProp, "444")
-    assertEquals(ReplicationQuotaManagerConfig.QuotaBytesPerSecondDefault, quotaManagers.alterLogDirs.upperBound())
+    assertEquals(Defaults.QuotaBytesPerSecond, quotaManagers.alterLogDirs.upperBound())
     configHandler.processConfigChanges("0", props)
     assertEquals(333, quotaManagers.leader.upperBound())
     assertEquals(444, quotaManagers.follower.upperBound())
-    assertEquals(ReplicationQuotaManagerConfig.QuotaBytesPerSecondDefault, quotaManagers.alterLogDirs.upperBound())
+    assertEquals(Defaults.QuotaBytesPerSecond, quotaManagers.alterLogDirs.upperBound())
   }
 
   @Test

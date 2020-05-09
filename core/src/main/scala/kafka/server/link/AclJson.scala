@@ -64,7 +64,7 @@ object AclJson {
   JSON_SERDE.registerModule(DefaultScalaModule)
 
   def toAclBindingFilters(json: AclFiltersJson): mutable.ListBuffer[AclBindingFilter] = {
-    var aclBindingFilterList: mutable.ListBuffer[AclBindingFilter] = mutable.ListBuffer[AclBindingFilter]()
+    val aclBindingFilterList: mutable.ListBuffer[AclBindingFilter] = mutable.ListBuffer[AclBindingFilter]()
     for (aclFilter <- json.aclFilters) {
       val resourceType: ResourceType = SecurityUtils.resourceType(aclFilter.resourceFilter.resourceType)
       val pattern: PatternType = SecurityUtils.patternType(aclFilter.resourceFilter.patternType)

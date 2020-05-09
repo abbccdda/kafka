@@ -1157,6 +1157,9 @@ class Partition(val topicPartition: TopicPartition,
     val (info, leaderHWIncremented) = inReadLock(leaderIsrUpdateLock) {
       leaderLogIfLocal match {
         case Some(leaderLog) =>
+          if (linkedUpdatesOnly)
+            throw new InvalidRequestException(s"Cannot append records to read-only mirror topic '${topicPartition.topic}'")
+
           val minIsr = leaderLog.config.minInSyncReplicas
           val inSyncSize = inSyncReplicaIds.size
 

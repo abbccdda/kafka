@@ -570,6 +570,19 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
   }
 
   /**
+   * Sets the topic's cluster link state.
+   * @param topic the topic whose cluster link state is being set
+   * @param clusterLink the topic's cluster link state to set
+   * @throws KeeperException if there is an error while setting the cluster link state
+   */
+  def setTopicClusterLink(topic: String, clusterLink: Option[ClusterLinkTopicState]): Unit = {
+    getReplicaAssignmentAndTopicIdForTopics(Set(topic)).foreach {
+      case TopicIdReplicaAssignment(topic, topicId, assignments, _) =>
+        setTopicAssignment(topic, topicId, assignments, clusterLink)
+    }
+  }
+
+  /**
    * Gets the log dir event notifications as strings. These strings are the znode names and not the absolute znode path.
    * @return sequence of znode names and not the absolute znode path.
    */

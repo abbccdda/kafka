@@ -53,18 +53,14 @@ case class ClientSensors(metricTags: Map[String, String], quotaSensor: Sensor, t
  *
  */
 case class ClientQuotaManagerConfig(quotaBytesPerSecondDefault: Long =
-                                        ClientQuotaManagerConfig.QuotaBytesPerSecondDefault,
+                                        Defaults.QuotaBytesPerSecond,
                                     numQuotaSamples: Int =
-                                        ClientQuotaManagerConfig.DefaultNumQuotaSamples,
+                                        Defaults.DefaultNumQuotaSamples,
                                     quotaWindowSizeSeconds: Int =
-                                        ClientQuotaManagerConfig.DefaultQuotaWindowSizeSeconds,
+                                        Defaults.DefaultQuotaWindowSizeSeconds,
                                     backpressureConfig: BrokerBackpressureConfig = BrokerBackpressureConfig())
 
 object ClientQuotaManagerConfig {
-  val QuotaBytesPerSecondDefault = Long.MaxValue
-  // Always have 10 whole windows + 1 current window
-  val DefaultNumQuotaSamples = 11
-  val DefaultQuotaWindowSizeSeconds = 1
   // Purge sensors after 1 hour of inactivity
   val InactiveSensorExpirationTimeSeconds  = 3600
   val QuotaRequestPercentDefault = Int.MaxValue.toDouble

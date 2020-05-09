@@ -123,6 +123,7 @@ public class MultiTenantApis {
       case LIST_CLUSTER_LINKS:
       case DELETE_CLUSTER_LINKS:
       case INITIATE_SHUTDOWN:
+      case ALTER_MIRRORS:
         return false;
 
       default:

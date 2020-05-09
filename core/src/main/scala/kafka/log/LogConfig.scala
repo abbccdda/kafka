@@ -115,8 +115,8 @@ case class LogConfig(props: java.util.Map[_, _], overriddenConfigs: Set[String] 
   val messageFormatVersion = ApiVersion(getString(LogConfig.MessageFormatVersionProp))
   val messageTimestampType = TimestampType.forName(getString(LogConfig.MessageTimestampTypeProp))
   val messageTimestampDifferenceMaxMs = getLong(LogConfig.MessageTimestampDifferenceMaxMsProp).longValue
-  val LeaderReplicationThrottledReplicas = getList(LogConfig.LeaderReplicationThrottledReplicasProp)
-  val FollowerReplicationThrottledReplicas = getList(LogConfig.FollowerReplicationThrottledReplicasProp)
+  val LeaderReplicationThrottledReplicas = getList(KafkaConfig.LeaderReplicationThrottledReplicasProp)
+  val FollowerReplicationThrottledReplicas = getList(KafkaConfig.FollowerReplicationThrottledReplicasProp)
   val messageDownConversionEnable = getBoolean(LogConfig.MessageDownConversionEnableProp)
   val tierEnable = getBoolean(LogConfig.TierEnableProp)
   val tierLocalHotsetBytes = getLong(LogConfig.TierLocalHotsetBytesProp)
@@ -198,10 +198,6 @@ object LogConfig {
   val ValueSchemaValidationStrategyProp = ConfluentTopicConfig.VALUE_SUBJECT_NAME_STRATEGY_CONFIG
   val TopicPlacementConstraintsProp = ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG
   val SegmentSpeculativePrefetchEnableProp = ConfluentTopicConfig.SEGMENT_SPECULATIVE_PREFETCH_ENABLE_CONFIG
-
-  // Leave these out of TopicConfig for now as they are replication quota configs
-  val LeaderReplicationThrottledReplicasProp = "leader.replication.throttled.replicas"
-  val FollowerReplicationThrottledReplicasProp = "follower.replication.throttled.replicas"
 
   val SegmentSizeDoc = TopicConfig.SEGMENT_BYTES_DOC
   val SegmentMsDoc = TopicConfig.SEGMENT_MS_DOC
@@ -368,10 +364,10 @@ object LogConfig {
         KafkaConfig.LogMessageTimestampTypeProp)
       .define(MessageTimestampDifferenceMaxMsProp, LONG, Defaults.MessageTimestampDifferenceMaxMs,
         atLeast(0), MEDIUM, MessageTimestampDifferenceMaxMsDoc, KafkaConfig.LogMessageTimestampDifferenceMaxMsProp)
-      .define(LeaderReplicationThrottledReplicasProp, LIST, Defaults.LeaderReplicationThrottledReplicas, ThrottledReplicaListValidator, MEDIUM,
-        LeaderReplicationThrottledReplicasDoc, LeaderReplicationThrottledReplicasProp)
-      .define(FollowerReplicationThrottledReplicasProp, LIST, Defaults.FollowerReplicationThrottledReplicas, ThrottledReplicaListValidator, MEDIUM,
-        FollowerReplicationThrottledReplicasDoc, FollowerReplicationThrottledReplicasProp)
+      .define(KafkaConfig.LeaderReplicationThrottledReplicasProp, LIST, Defaults.LeaderReplicationThrottledReplicas, ThrottledReplicaListValidator, MEDIUM,
+        LeaderReplicationThrottledReplicasDoc, KafkaConfig.LeaderReplicationThrottledReplicasProp)
+      .define(KafkaConfig.FollowerReplicationThrottledReplicasProp, LIST, Defaults.FollowerReplicationThrottledReplicas, ThrottledReplicaListValidator, MEDIUM,
+        FollowerReplicationThrottledReplicasDoc, KafkaConfig.FollowerReplicationThrottledReplicasProp)
       .define(MessageDownConversionEnableProp, BOOLEAN, Defaults.MessageDownConversionEnable, LOW,
         MessageDownConversionEnableDoc, KafkaConfig.LogMessageDownConversionEnableProp)
 

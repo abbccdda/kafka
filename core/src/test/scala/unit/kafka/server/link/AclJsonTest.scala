@@ -1,7 +1,7 @@
 package unit.kafka.server.link
 
 import kafka.server.link.AclJson
-import org.junit.Assert.{assertEquals, assertFalse, assertNull, assertThrows, assertTrue}
+import org.junit.Assert.{assertEquals, assertNull, assertThrows, assertTrue}
 import org.junit.Test
 
 class AclJsonTest {

@@ -18,6 +18,8 @@ package org.apache.kafka.common.protocol;
 
 import org.apache.kafka.common.message.AddPartitionsToTxnRequestData;
 import org.apache.kafka.common.message.AddPartitionsToTxnResponseData;
+import org.apache.kafka.common.message.AlterMirrorsRequestData;
+import org.apache.kafka.common.message.AlterMirrorsResponseData;
 import org.apache.kafka.common.message.AlterPartitionReassignmentsRequestData;
 import org.apache.kafka.common.message.AlterPartitionReassignmentsResponseData;
 import org.apache.kafka.common.message.ApiMessageType;
@@ -248,6 +250,7 @@ public enum ApiKeys {
     LIST_CLUSTER_LINKS(10003, "ListClusterLinks", ListClusterLinksRequestData.SCHEMAS, ListClusterLinksResponseData.SCHEMAS),
     DELETE_CLUSTER_LINKS(10004, "DeleteClusterLinks", DeleteClusterLinksRequestData.SCHEMAS, DeleteClusterLinksResponseData.SCHEMAS),
     INITIATE_SHUTDOWN(10005, "InitiateShutdown", InitiateShutdownRequestData.SCHEMAS, InitiateShutdownResponseData.SCHEMAS),
+    ALTER_MIRRORS(10006, "AlterMirrors", AlterMirrorsRequestData.SCHEMAS, AlterMirrorsResponseData.SCHEMAS),
 
     // The following APIs are deprecated and will be removed in a future release
     CONFLUENT_LEADER_AND_ISR(32766, "ConfluentLeaderAndIsr", true, ConfluentLeaderAndIsrRequestData.SCHEMAS,

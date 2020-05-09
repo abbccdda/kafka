@@ -26,6 +26,8 @@ trait DataBalanceManager {
   def shutdown() : Unit
 
   def updateConfig(oldConfig: KafkaConfig, newConfig: KafkaConfig): Unit
+
+  def removeBroker(brokerToRemove: Int, brokerToRemoveEpoch: Option[java.lang.Long]): Unit
 }
 
 object DataBalanceManager {

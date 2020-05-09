@@ -118,9 +118,9 @@ public class MetricsUtils {
    */
   public static CruiseControlMetric toCruiseControlMetric(long now,
                                                           int brokerId,
-                                                          com.yammer.metrics.core.MetricName metricName,
+                                                          YammerMetricWrapper metricWrapper,
                                                           double value) {
-    return toCruiseControlMetric(now, brokerId, metricName, value, null);
+    return toCruiseControlMetric(now, brokerId, metricWrapper, value, null);
   }
 
 
@@ -130,14 +130,14 @@ public class MetricsUtils {
    */
   public static CruiseControlMetric toCruiseControlMetric(long now,
                                                           int brokerId,
-                                                          com.yammer.metrics.core.MetricName metricName,
+                                                          YammerMetricWrapper metricWrapper,
                                                           double value,
                                                           String attribute) {
     CruiseControlMetric ccm =
-        toCruiseControlMetric(now, brokerId, metricName.getName(), yammerMetricScopeToTags(metricName.getScope()), value, attribute);
+        toCruiseControlMetric(now, brokerId, metricWrapper.metricName().getName(), metricWrapper.tags(), value, attribute);
     if (ccm == null) {
       throw new IllegalArgumentException(String.format("Cannot convert yammer metric %s to a Cruise Control metric for "
-                                                       + "broker %d at time %d for tag %s", metricName, brokerId, now, attribute));
+                                                       + "broker %d at time %d for tag %s", metricWrapper.metricName(), brokerId, now, attribute));
     }
     return ccm;
   }
@@ -160,15 +160,19 @@ public class MetricsUtils {
     String group = metricName.group();
     String name = metricName.name();
     String type = metricName.tags().get(TYPE_KEY);
-    return isInterested(group, name, type, metricName.tags());
+    return isInterestedServerMetric(group, name, type) || isInterestedLogMetric(group, name, type) ||
+            isInterestedNetworkMetric(group, name, type, metricName.tags());
   }
 
   /**
    * Check if a yammer metric name is an interested metric
    */
-  public static boolean isInterested(com.yammer.metrics.core.MetricName metricName) {
-    return isInterested(metricName.getGroup(), metricName.getName(), metricName.getType(),
-                        yammerMetricScopeToTags(metricName.getScope()));
+  public static boolean isInterested(YammerMetricWrapper metricWrapper) {
+    String group = metricWrapper.metricName().getGroup();
+    String name = metricWrapper.metricName().getName();
+    String type = metricWrapper.metricName().getType();
+    return isInterestedServerMetric(group, name, type) || isInterestedLogMetric(group, name, type) ||
+            isInterestedNetworkMetric(metricWrapper);
   }
 
   /**
@@ -188,20 +192,30 @@ public class MetricsUtils {
     }
   }
 
-  /**
-   * Check if a metric is an interested metric.
-   */
-  private static boolean isInterested(String group, String name, String type, Map<String, String> tags) {
-    if (group.equals(KAFKA_SERVER)) {
-      return (INTERESTED_TOPIC_METRIC_NAMES.contains(name) && BROKER_TOPIC_METRICS_GROUP.equals(type)) || (
-          INTERESTED_SERVER_METRIC_NAMES.contains(name) && REQUEST_KAFKA_HANDLER_POOL_GROUP.equals(type));
-    } else if (group.equals(KAFKA_NETWORK) && INTERESTED_NETWORK_METRIC_NAMES.contains(name)) {
-      return REQUEST_CHANNEL_GROUP.equals(type)
-                    || (REQUEST_METRICS_GROUP.equals(type) && INTERESTED_REQUEST_TYPE.contains(tags.get(REQUEST_TYPE_KEY)));
-    } else if (group.equals(KAFKA_LOG) && INTERESTED_LOG_METRIC_NAMES.contains(name)) {
-      return LOG_GROUP.equals(type) || LOG_FLUSH_STATS_GROUP.equals(type);
-    }
-    return false;
+  private static boolean isInterestedServerMetric(String group, String name, String type) {
+    return group.equals(KAFKA_SERVER) && (
+            (INTERESTED_TOPIC_METRIC_NAMES.contains(name) && BROKER_TOPIC_METRICS_GROUP.equals(type)) ||
+                    (INTERESTED_SERVER_METRIC_NAMES.contains(name) && REQUEST_KAFKA_HANDLER_POOL_GROUP.equals(type)));
+  }
+
+  private static boolean isInterestedLogMetric(String group, String name, String type) {
+    return group.equals(KAFKA_LOG) && INTERESTED_LOG_METRIC_NAMES.contains(name) &&
+            (LOG_GROUP.equals(type) || LOG_FLUSH_STATS_GROUP.equals(type));
+  }
+
+  private static boolean isInterestedNetworkMetric(String group, String name, String type, Map<String, String> tags) {
+    return group.equals(KAFKA_NETWORK) && INTERESTED_NETWORK_METRIC_NAMES.contains(name) && (
+            REQUEST_CHANNEL_GROUP.equals(type) ||
+                    (REQUEST_METRICS_GROUP.equals(type) && INTERESTED_REQUEST_TYPE.contains(tags.get(REQUEST_TYPE_KEY))));
+  }
+
+  private static boolean isInterestedNetworkMetric(YammerMetricWrapper metricWrapper) {
+    String group = metricWrapper.metricName().getGroup();
+    String name = metricWrapper.metricName().getName();
+    String type = metricWrapper.metricName().getType();
+    return group.equals(KAFKA_NETWORK) && INTERESTED_NETWORK_METRIC_NAMES.contains(name) && (
+            REQUEST_CHANNEL_GROUP.equals(type) ||
+                    (REQUEST_METRICS_GROUP.equals(type) && INTERESTED_REQUEST_TYPE.contains(metricWrapper.tags().get(REQUEST_TYPE_KEY))));
   }
 
   /**

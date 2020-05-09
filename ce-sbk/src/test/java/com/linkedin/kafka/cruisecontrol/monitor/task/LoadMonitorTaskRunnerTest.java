@@ -41,7 +41,9 @@ import org.apache.kafka.common.utils.Time;
 import org.easymock.EasyMock;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.Timeout;
 import scala.Option$;
 
 import static org.junit.Assert.assertEquals;
@@ -55,10 +57,14 @@ public class LoadMonitorTaskRunnerTest extends CCKafkaIntegrationTestHarness {
   private static final int NUM_WINDOWS = 5;
   private static final int NUM_TOPICS = 100;
   private static final int NUM_PARTITIONS = 4;
+  private static final String TEST_TOPIC_NAME = "LoadMonitorTaskRunnerTest";
   private static final long SAMPLING_INTERVAL = KafkaCruiseControlConfig.DEFAULT_METRIC_SAMPLING_INTERVAL_MS;
   private static final MetricDef METRIC_DEF = KafkaMetricDef.commonMetricDef();
   // Using autoTick = 1
   private static final Time TIME = new MockTime(1L);
+
+  @Rule
+  final public Timeout globalTimeout = Timeout.millis(120000);
 
   private MetricsRegistry metricsRegistry;
   @Before
@@ -70,7 +76,7 @@ public class LoadMonitorTaskRunnerTest extends CCKafkaIntegrationTestHarness {
                                                                               false);
     AdminZkClient adminZkClient = new AdminZkClient(kafkaZkClient);
     for (int i = 0; i < NUM_TOPICS; i++) {
-      adminZkClient.createTopic("topic-" + i, NUM_PARTITIONS, 1, new Properties(), RackAwareMode.Safe$.MODULE$, false, Option$.MODULE$.empty());
+      adminZkClient.createTopic(TEST_TOPIC_NAME + "-" + i, NUM_PARTITIONS, 1, new Properties(), RackAwareMode.Safe$.MODULE$, false, Option$.MODULE$.empty());
     }
     KafkaCruiseControlUtils.closeKafkaZkClientWithTimeout(kafkaZkClient);
     metricsRegistry = new MetricsRegistry();
@@ -103,16 +109,15 @@ public class LoadMonitorTaskRunnerTest extends CCKafkaIntegrationTestHarness {
     LoadMonitorTaskRunner loadMonitorTaskRunner =
         new LoadMonitorTaskRunner(config, fetcherManager, mockPartitionMetricSampleAggregator,
                                   mockBrokerMetricSampleAggregator, metadataClient, TIME);
-    while (metadataClient.cluster().topics().size() < NUM_TOPICS) {
-      Thread.sleep(10);
-      metadataClient.refreshMetadata();
-    }
+
+    awaitTopicCreation(metadataClient);
+
     loadMonitorTaskRunner.start(true);
 
     Set<TopicPartition> partitionsToSample = new HashSet<>(NUM_TOPICS * NUM_PARTITIONS);
     for (int i = 0; i < NUM_TOPICS; i++) {
       for (int j = 0; j < NUM_PARTITIONS; j++) {
-        partitionsToSample.add(new TopicPartition("topic-" + i, j));
+        partitionsToSample.add(new TopicPartition(TEST_TOPIC_NAME + "-" + i, j));
       }
     }
 
@@ -121,9 +126,12 @@ public class LoadMonitorTaskRunnerTest extends CCKafkaIntegrationTestHarness {
     while (!partitionsToSample.isEmpty() && System.currentTimeMillis() < startMs + 10000) {
       PartitionMetricSample sample = sampleQueue.poll();
       if (sample != null) {
-        assertTrue("The topic partition should have been sampled and sampled only once.",
-            partitionsToSample.contains(sample.entity().tp()));
-        partitionsToSample.remove(sample.entity().tp());
+        TopicPartition tp = sample.entity().tp();
+        if (tp.topic().contains(TEST_TOPIC_NAME)) {
+          assertTrue(String.format("The topic partition %s should have been sampled and sampled only once.", tp),
+              partitionsToSample.contains(tp));
+          partitionsToSample.remove(tp);
+        }
       }
     }
     assertTrue("Did not see sample for partitions " + Arrays.toString(partitionsToSample.toArray()),
@@ -135,7 +143,7 @@ public class LoadMonitorTaskRunnerTest extends CCKafkaIntegrationTestHarness {
   }
 
   @Test
-  public void testSamplingError() {
+  public void testSamplingError() throws InterruptedException {
     KafkaCruiseControlConfig config = new KafkaCruiseControlConfig(getLoadMonitorProperties());
     MetadataClient metadataClient = new MetadataClient(config, -1L, TIME);
     MockPartitionMetricSampleAggregator mockMetricSampleAggregator =
@@ -150,9 +158,9 @@ public class LoadMonitorTaskRunnerTest extends CCKafkaIntegrationTestHarness {
     LoadMonitorTaskRunner loadMonitorTaskRunner =
         new LoadMonitorTaskRunner(config, fetcherManager, mockMetricSampleAggregator, mockBrokerMetricSampleAggregator,
                                   metadataClient, TIME);
-    while (metadataClient.cluster().topics().size() < 100) {
-      metadataClient.refreshMetadata();
-    }
+
+    awaitTopicCreation(metadataClient);
+
     loadMonitorTaskRunner.start(true);
 
     int numSamples = 0;
@@ -160,7 +168,7 @@ public class LoadMonitorTaskRunnerTest extends CCKafkaIntegrationTestHarness {
     BlockingQueue<PartitionMetricSample> sampleQueue = mockMetricSampleAggregator.metricSampleQueue();
     while (numSamples < (NUM_PARTITIONS * NUM_TOPICS) * 10 && System.currentTimeMillis() < startMs + 10000) {
       PartitionMetricSample sample = sampleQueue.poll();
-      if (sample != null) {
+      if (sample != null && sample.entity().tp().topic().contains(TEST_TOPIC_NAME)) {
         numSamples++;
       }
     }
@@ -171,6 +179,15 @@ public class LoadMonitorTaskRunnerTest extends CCKafkaIntegrationTestHarness {
     loadMonitorTaskRunner.shutdown();
     metadataClient.close();
   }
+
+  private void awaitTopicCreation(MetadataClient metadataClient) throws InterruptedException {
+    while (NUM_TOPICS != metadataClient.cluster().topics().stream()
+        .filter(tpName -> tpName.contains(TEST_TOPIC_NAME)).count()) {
+      Thread.sleep(10);
+      metadataClient.refreshMetadata();
+    }
+  }
+
 
   private Properties getLoadMonitorProperties() {
     Properties props = KafkaCruiseControlUnitTestUtils.getKafkaCruiseControlProperties();

@@ -16,7 +16,6 @@
  */
 package org.apache.kafka.common.network;
 
-import javax.net.ssl.SSLEngine;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.config.SslConfigs;
@@ -61,6 +60,7 @@ import org.ietf.jgss.GSSName;
 import org.ietf.jgss.Oid;
 import org.slf4j.Logger;
 
+import javax.net.ssl.SSLEngine;
 import javax.security.auth.Subject;
 import javax.security.auth.kerberos.KerberosPrincipal;
 import java.io.IOException;
@@ -247,8 +247,7 @@ public class SaslChannelBuilder implements ChannelBuilder, ListenerReconfigurabl
     protected TransportLayer buildTransportLayer(String id, SelectionKey key, SocketChannel socketChannel,
                                                  ChannelMetadataRegistry metadataRegistry) throws IOException {
         if (this.securityProtocol == SecurityProtocol.SASL_SSL) {
-            SSLEngine sslEngine = sslFactory.createSslEngine(socketChannel.socket().getInetAddress().getHostName(),
-                socketChannel.socket().getPort());
+            SSLEngine sslEngine = sslFactory.createSslEngine(socketChannel.socket());
             return SslTransportLayer.create(id, key,
                 sslEngine,
                 metadataRegistry,

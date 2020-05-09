@@ -7,8 +7,8 @@ import java.io.File
 import java.nio.file.{Files, StandardCopyOption}
 import java.time.Duration
 import java.util
-import java.util.concurrent.TimeUnit
 import java.util.{Collections, Properties}
+import java.util.concurrent.{ExecutionException, TimeUnit}
 
 import kafka.api.{IntegrationTestHarness, KafkaSasl, SaslSetup}
 import kafka.controller.ReplicaAssignment
@@ -23,6 +23,7 @@ import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer}
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, ProducerRecord}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.{ConfigDef, ConfigResource, SaslConfigs, SslConfigs, TopicConfig}
+import org.apache.kafka.common.errors.InvalidRequestException
 import org.apache.kafka.common.requests.NewClusterLink
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.security.scram.ScramCredential
@@ -309,6 +310,32 @@ class ClusterLinkIntegrationTest extends Logging {
     assertTrue(maxMessageSize.nonEmpty)
     assertNotEquals("100000", maxMessageSize.get.value)
     verifyMirror(topic)
+  }
+
+  @Test
+  def testDestReadOnly(): Unit = {
+    sourceCluster.createTopic(topic, numPartitions, replicationFactor = 2)
+
+    // Create a mirror and produce some records.
+    destCluster.createClusterLink(linkName, sourceCluster, metadataMaxAgeMs = 10000L)
+    destCluster.linkTopic(topic, numPartitions, linkName)
+    produceToSourceCluster(4)
+    waitForMirror(topic)
+
+    // Attempt to produce to the mirror.
+    val producer = destCluster.createProducer()
+    try {
+      producer.send(new ProducerRecord(topic, 0, 0, "key".getBytes, "value".getBytes)).get(15, TimeUnit.SECONDS)
+    } catch {
+      case e: ExecutionException =>
+        assertTrue(e.getCause.isInstanceOf[InvalidRequestException])
+    } finally {
+      producer.close()
+    }
+
+    // Produce more records to the source and verify we see no additional records.
+    produceToSourceCluster(4)
+    waitForMirror(topic)
   }
 
   private def verifyMirror(topic: String): Unit = {

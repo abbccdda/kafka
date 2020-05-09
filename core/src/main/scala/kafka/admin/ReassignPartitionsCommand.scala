@@ -71,9 +71,9 @@ object ReassignPartitionsCommand extends Logging {
 
   // Throttles that are set at the level of an individual topic.
   private[admin] val topicLevelLeaderThrottle =
-    LogConfig.LeaderReplicationThrottledReplicasProp
+    KafkaConfig.LeaderReplicationThrottledReplicasProp
   private[admin] val topicLevelFollowerThrottle =
-    LogConfig.FollowerReplicationThrottledReplicasProp
+    KafkaConfig.FollowerReplicationThrottledReplicasProp
   private[admin] val topicLevelThrottles = Seq(
     topicLevelLeaderThrottle,
     topicLevelFollowerThrottle

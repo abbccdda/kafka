@@ -13,6 +13,7 @@ import org.apache.kafka.common.Confluent;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclBindingFilter;
+import org.apache.kafka.common.requests.AlterMirrorsRequest;
 import org.apache.kafka.common.requests.NewClusterLink;
 
 /**
@@ -224,4 +225,25 @@ public interface ConfluentAdmin extends Admin {
      */
     @Confluent
     DeleteClusterLinksResult deleteClusterLinks(Collection<String> linkNames, DeleteClusterLinksOptions options);
+
+    /**
+     * Performs a state alteration for topic mirroring.
+     * <p>
+     * The future of the individual alter mirror ops should be used for obtaining the result.
+     * <p>
+     * The following exceptions can be anticipated when calling {@code get()} on the futures obtained from
+     * the returned {@code alterMirrorsResult}:
+     * <ul>
+     *   <li>{@link org.apache.kafka.common.errors.ClusterAuthorizationException}
+     *   If the authenticated user didn't have {@code ALTER} access to the cluster.</li>
+     *   <li>{@link org.apache.kafka.common.errors.TimeoutException}
+     *   If the request timed out before the controller could complete the mirror operation.</li>
+     * </ul>
+     *
+     * @param ops The mirror alteration operations.
+     * @param options The options to use when controlling mirrors.
+     * @return The AlterMirrorsResult.
+     */
+    @Confluent
+    AlterMirrorsResult alterMirrors(List<AlterMirrorsRequest.Op> ops, AlterMirrorsOptions options);
 }

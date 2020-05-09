@@ -205,7 +205,7 @@ public class SaslAuthenticatorFailureDelayTest {
 
     private void createClientConnection(SecurityProtocol securityProtocol, String node) throws Exception {
         createSelector(securityProtocol, saslClientConfigs);
-        InetSocketAddress addr = new InetSocketAddress("127.0.0.1", server.port());
+        InetSocketAddress addr = new InetSocketAddress("localhost", server.port());
         selector.connect(node, addr, BUFFER_SIZE, BUFFER_SIZE);
     }
 
@@ -213,7 +213,7 @@ public class SaslAuthenticatorFailureDelayTest {
                                                            String mechanism, String expectedErrorMessage) throws Exception {
         ChannelState finalState = createAndCheckClientConnectionFailure(securityProtocol, node);
         Exception exception = finalState.exception();
-        assertTrue("Invalid exception class " + exception.getClass(), exception instanceof SaslAuthenticationException);
+        assertTrue("Invalid exception class " + exception, exception instanceof SaslAuthenticationException);
         if (expectedErrorMessage == null)
             expectedErrorMessage = "Authentication failed due to invalid credentials with SASL mechanism " + mechanism;
         assertEquals(expectedErrorMessage, exception.getMessage());

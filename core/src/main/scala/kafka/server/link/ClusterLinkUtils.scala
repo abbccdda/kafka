@@ -7,6 +7,7 @@ import java.util.Properties
 import java.util.concurrent.{CompletableFuture, ExecutionException}
 
 import kafka.log.LogConfig
+import kafka.server.KafkaConfig
 import kafka.utils.Logging
 import org.apache.kafka.clients.admin.Config
 import org.apache.kafka.common.errors.{InvalidClusterLinkException, InvalidConfigurationException, InvalidRequestException, TimeoutException, UnsupportedVersionException}
@@ -77,8 +78,8 @@ object ClusterLinkUtils extends Logging {
     LogConfig.PreferTierFetchMsProp,
 
     // Rebalance throttling
-    LogConfig.LeaderReplicationThrottledReplicasProp,
-    LogConfig.FollowerReplicationThrottledReplicasProp
+    KafkaConfig.LeaderReplicationThrottledReplicasProp,
+    KafkaConfig.FollowerReplicationThrottledReplicasProp
   )
 
   private val nonDefaultConfigs = List(

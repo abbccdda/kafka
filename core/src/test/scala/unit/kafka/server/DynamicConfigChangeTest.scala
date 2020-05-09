@@ -264,11 +264,11 @@ class DynamicConfigChangeTest extends KafkaServerTestHarness {
     val props: Properties = new Properties()
 
     //Given
-    props.put(LeaderReplicationThrottledReplicasProp, "0:101,0:102,1:101,1:102")
+    props.put(KafkaConfig.LeaderReplicationThrottledReplicasProp, "0:101,0:102,1:101,1:102")
 
     //When/Then
-    assertEquals(Seq(0,1), configHandler.parseThrottledPartitions(props, 102, LeaderReplicationThrottledReplicasProp))
-    assertEquals(Seq(), configHandler.parseThrottledPartitions(props, 103, LeaderReplicationThrottledReplicasProp))
+    assertEquals(Seq(0,1), configHandler.parseThrottledPartitions(props, 102, KafkaConfig.LeaderReplicationThrottledReplicasProp))
+    assertEquals(Seq(), configHandler.parseThrottledPartitions(props, 103, KafkaConfig.LeaderReplicationThrottledReplicasProp))
   }
 
   @Test
@@ -277,10 +277,10 @@ class DynamicConfigChangeTest extends KafkaServerTestHarness {
     val props: Properties = new Properties()
 
     //Given
-    props.put(LeaderReplicationThrottledReplicasProp, "*")
+    props.put(KafkaConfig.LeaderReplicationThrottledReplicasProp, "*")
 
     //When
-    val result = configHandler.parseThrottledPartitions(props, 102, LeaderReplicationThrottledReplicasProp)
+    val result = configHandler.parseThrottledPartitions(props, 102, KafkaConfig.LeaderReplicationThrottledReplicasProp)
 
     //Then
     assertEquals(AllReplicas, result)
@@ -292,10 +292,10 @@ class DynamicConfigChangeTest extends KafkaServerTestHarness {
     val props: Properties = new Properties()
 
     //Given
-    props.put(LeaderReplicationThrottledReplicasProp, "none")
+    props.put(KafkaConfig.LeaderReplicationThrottledReplicasProp, "none")
 
     //When
-    val result = configHandler.parseThrottledPartitions(props, 102, LeaderReplicationThrottledReplicasProp)
+    val result = configHandler.parseThrottledPartitions(props, 102, KafkaConfig.LeaderReplicationThrottledReplicasProp)
 
     //Then
     assertEquals(NoReplicas, result)
@@ -307,10 +307,10 @@ class DynamicConfigChangeTest extends KafkaServerTestHarness {
     val props: Properties = new Properties()
 
     //Given
-    props.put(FollowerReplicationThrottledReplicasProp, "")
+    props.put(KafkaConfig.FollowerReplicationThrottledReplicasProp, "")
 
     //When
-    val result = configHandler.parseThrottledPartitions(props, 102, FollowerReplicationThrottledReplicasProp)
+    val result = configHandler.parseThrottledPartitions(props, 102, KafkaConfig.FollowerReplicationThrottledReplicasProp)
 
     //Then
     assertEquals(Seq(), result)
@@ -328,6 +328,6 @@ class DynamicConfigChangeTest extends KafkaServerTestHarness {
   }
 
   def parse(configHandler: TopicConfigHandler, value: String): Seq[Int] = {
-    configHandler.parseThrottledPartitions(CoreUtils.propsWith(LeaderReplicationThrottledReplicasProp, value), 102, LeaderReplicationThrottledReplicasProp)
+    configHandler.parseThrottledPartitions(CoreUtils.propsWith(KafkaConfig.LeaderReplicationThrottledReplicasProp, value), 102, KafkaConfig.LeaderReplicationThrottledReplicasProp)
   }
 }

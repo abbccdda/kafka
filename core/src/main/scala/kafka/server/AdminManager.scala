@@ -66,7 +66,6 @@ class AdminManager(val config: KafkaConfig,
   this.logIdent = "[Admin Manager on Broker " + config.brokerId + "]: "
 
   private val topicPurgatory = DelayedOperationPurgatory[DelayedOperation]("topic", config.brokerId)
-  private val fetchMirrorTopicInfoPurgatory = new DelayedFuturePurgatory(purgatoryName = "FetchMirrorTopicInfo", brokerId = config.brokerId)
   private val adminZkClient = new AdminZkClient(zkClient)
 
   private val createTopicPolicy =
@@ -139,7 +138,7 @@ class AdminManager(val config: KafkaConfig,
         }.toMap
 
         // 3. When fetching all remote topics has completed, perform the topic creation with the remote topic information.
-        fetchMirrorTopicInfoPurgatory.tryCompleteElseWatch(timeout, mirrorInfo.values.toSeq, () => {
+        clusterLinkManager.admin.purgatory.tryCompleteElseWatch(timeout, mirrorInfo.values.toSeq, () => {
           doCreateTopics(timeout, validateOnly, toCreate, includeConfigsAndMetadata, responseCallback, createTopicId, Some(mirrorInfo))
         })
       }
@@ -817,7 +816,6 @@ class AdminManager(val config: KafkaConfig,
 
   def shutdown(): Unit = {
     topicPurgatory.shutdown()
-    fetchMirrorTopicInfoPurgatory.shutdown()
     CoreUtils.swallow(createTopicPolicy.foreach(_.close()), this)
     CoreUtils.swallow(alterConfigPolicy.foreach(_.close()), this)
   }

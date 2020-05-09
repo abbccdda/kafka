@@ -26,7 +26,7 @@ import java.util.concurrent.TimeUnit
 
 import kafka.api.LeaderAndIsr
 import kafka.api.{ApiVersion, KAFKA_0_10_2_IV0, KAFKA_2_2_IV1}
-import kafka.cluster.Partition
+import kafka.cluster.{Broker, Partition}
 import kafka.controller.{KafkaController, ReplicaAssignment}
 import kafka.coordinator.group.GroupCoordinatorConcurrencyTest.JoinGroupCallback
 import kafka.coordinator.group.GroupCoordinatorConcurrencyTest.SyncGroupCallback
@@ -43,8 +43,8 @@ import kafka.tier.fetcher.ReclaimableMemoryRecords
 import kafka.utils.{MockTime, TestUtils}
 import kafka.zk.KafkaZkClient
 import org.apache.kafka.common.acl.AclOperation
-import org.apache.kafka.common.{IsolationLevel, Node, TopicPartition}
-import org.apache.kafka.common.errors.UnsupportedVersionException
+import org.apache.kafka.common.{Cluster, IsolationLevel, Node, PartitionInfo, TopicPartition}
+import org.apache.kafka.common.errors.{InvalidRequestException, NotControllerException, UnsupportedVersionException}
 import org.apache.kafka.common.internals.Topic
 import org.apache.kafka.common.memory.MemoryPool
 import org.apache.kafka.common.message.JoinGroupRequestData.JoinGroupRequestProtocol
@@ -52,6 +52,7 @@ import org.apache.kafka.common.message.LeaveGroupRequestData.MemberIdentity
 import org.apache.kafka.common.message.ListPartitionReassignmentsRequestData.ListPartitionReassignmentsTopics
 import org.apache.kafka.common.message.ListPartitionReassignmentsResponseData.OngoingPartitionReassignment
 import org.apache.kafka.common.message.OffsetDeleteRequestData.{OffsetDeleteRequestPartition, OffsetDeleteRequestTopic, OffsetDeleteRequestTopicCollection}
+import org.apache.kafka.common.message.RemoveBrokersRequestData.BrokerId
 import org.apache.kafka.common.message.StopReplicaRequestData.{StopReplicaPartitionState, StopReplicaTopicState}
 import org.apache.kafka.common.message.UpdateMetadataRequestData.{UpdateMetadataBroker, UpdateMetadataEndpoint, UpdateMetadataPartitionState}
 import org.apache.kafka.common.message._
@@ -116,7 +117,8 @@ class KafkaApisTest {
   def createKafkaApis(interBrokerProtocolVersion: ApiVersion = ApiVersion.latestVersion,
                       enableSaslPlaintext: Boolean = false,
                       interBrokerSecurityProtocol: Option[SecurityProtocol] = None,
-                      authorizer: Option[Authorizer] = None): KafkaApis = {
+                      authorizer: Option[Authorizer] = None,
+                      metadataCache: MetadataCache = this.metadataCache): KafkaApis = {
     val properties = TestUtils.createBrokerConfig(brokerId, "zk",
       enableSaslPlaintext = enableSaslPlaintext,
       interBrokerSecurityProtocol = interBrokerSecurityProtocol)
@@ -1909,6 +1911,184 @@ class KafkaApisTest {
       .asInstanceOf[StopReplicaResponse]
     assertEquals(expectedError, stopReplicaResponse.error())
     EasyMock.verify(replicaManager)
+  }
+
+  @Test(expected = classOf[NotControllerException])
+  def testRemoveBrokerNotController(): Unit = {
+    // Test only controller role can handle this api call
+    val request = new RemoveBrokersRequest.Builder(Collections.emptySet()).build(0);
+    val requestChannelRequest = buildRequest(request)
+    createKafkaApis().handleRemoveBrokersRequest(requestChannelRequest)
+  }
+
+  @Test(expected = classOf[InvalidRequestException])
+  def testRemoveBrokerNoBrokers(): Unit = {
+    EasyMock.expect(controller.isActive).andReturn(true)
+    EasyMock.replay(controller)
+    // Test when no broker is specified to remove broker api
+    val request = new RemoveBrokersRequest.Builder(Collections.emptySet()).build(0);
+    val requestChannelRequest = buildRequest(request)
+    createKafkaApis().handleRemoveBrokersRequest(requestChannelRequest)
+  }
+
+  @Test(expected = classOf[InvalidRequestException])
+  def testRemoveBrokerInvalidBrokers(): Unit = {
+    EasyMock.expect(controller.isActive).andReturn(true)
+    EasyMock.replay(controller)
+    // Test when invalid broker id is specified to remove broker api
+    val brokerId = new BrokerId().setBrokerId(-1)
+    val request = new RemoveBrokersRequest.Builder(Collections.singleton(brokerId)).build(0);
+    val requestChannelRequest = buildRequest(request)
+    createKafkaApis().handleRemoveBrokersRequest(requestChannelRequest)
+  }
+
+  @Test(expected = classOf[InvalidRequestException])
+  def testRemoveBrokerMultipleBrokers(): Unit = {
+    EasyMock.expect(controller.isActive).andReturn(true)
+    EasyMock.replay(controller)
+    // Test when multiple broker ids are specified
+    val brokerId_1 = new BrokerId().setBrokerId(1)
+    val brokerId_2 = new BrokerId().setBrokerId(2)
+    val brokerIds = Set(brokerId_1, brokerId_2).asJava
+    val request = new RemoveBrokersRequest.Builder(brokerIds).build(0);
+    val requestChannelRequest = buildRequest(request)
+    createKafkaApis().handleRemoveBrokersRequest(requestChannelRequest)
+  }
+
+  /**
+   * Test if we get error when we try to remove a broker hosting RF = 1 partition
+   */
+  @Test(expected = classOf[InvalidRequestException])
+  def testRemoveBrokerReplicationFactorException(): Unit = {
+    EasyMock.expect(controller.isActive).andReturn(true)
+    EasyMock.expect(controller.removeBroker(anyObject(), anyObject()))
+    EasyMock.replay(controller)
+
+    setupBasicMetadataCache("topic-1", 5)
+
+    val brokerId = new BrokerId().setBrokerId(0)
+    val request = new RemoveBrokersRequest.Builder(Collections.singleton(brokerId)).build(0);
+    val requestChannelRequest = buildRequest(request)
+    createKafkaApis().handleRemoveBrokersRequest(requestChannelRequest)
+  }
+
+  /**
+   * Confirm that we can remove a broker if it doesn't host a partition with RF = 1, even
+   * though other nodes in the cluster have them.
+   */
+  @Test
+  def testRemoveBrokerReplicationFactorSuccess(): Unit = {
+
+    EasyMock.expect(controller.isActive).andReturn(true)
+
+    val nodes = (1 to 5).map(id => new Node(id, "host" + id, id))
+    val replicas = nodes.slice(0, 3).toArray
+    val brokerToRemove = nodes.head
+    val nextBroker = nodes.tail.head
+    val partition_1 = new PartitionInfo("topic-1", 0, brokerToRemove, replicas, replicas)
+    val partition_2 = new PartitionInfo("topic-2", 0, nextBroker, Array(nextBroker), Array(nextBroker))
+    val partitions = Set(partition_1, partition_2).asJava
+    val cluster = new Cluster("clusterId",
+      nodes.asJava,
+      partitions,
+      Collections.emptySet(),   // unauthorized topics
+      Collections.emptySet())   // internal topics
+
+    val metadataCache: MetadataCache = EasyMock.createNiceMock(classOf[MetadataCache])
+    EasyMock.expect(metadataCache.getClusterMetadata(anyString(), anyObject(classOf[ListenerName]))).andReturn(cluster)
+    EasyMock.expect(metadataCache.getAliveBroker(brokerToRemove.id))
+      .andReturn(Some(new Broker(brokerToRemove.id, Seq.empty, Some("rack-1"))))
+
+    EasyMock.replay(controller, metadataCache)
+
+    val brokerId = new BrokerId().setBrokerId(brokerToRemove.id)
+    val request = new RemoveBrokersRequest.Builder(Collections.singleton(brokerId)).build(0);
+    val requestChannelRequest = buildRequest(request)
+    createKafkaApis(metadataCache = metadataCache).handleRemoveBrokersRequest(requestChannelRequest)
+    EasyMock.verify(controller)
+  }
+
+  /**
+   * Test if we get error when we try to remove a broker that doesn't exist in cluster
+   */
+  @Test(expected = classOf[InvalidRequestException])
+  def testRemoveUnknownBroker(): Unit = {
+    EasyMock.expect(controller.isActive).andReturn(true)
+    EasyMock.replay(controller)
+
+    setupBasicMetadataCache("topic-1", 5)
+
+    // Test when broker to remove doesn't exist
+    val brokerId = new BrokerId().setBrokerId(15)
+    val request = new RemoveBrokersRequest.Builder(Collections.singleton(brokerId)).build(0);
+    val requestChannelRequest = buildRequest(request)
+    createKafkaApis().handleRemoveBrokersRequest(requestChannelRequest)
+  }
+
+  /**
+   * Test that we can remove a dead broker hosting partitions.
+   */
+  @Test
+  def testRemoveNonAliveBroker(): Unit = {
+    EasyMock.expect(controller.isActive).andReturn(true)
+
+    val nodes = (1 to 5).map(id => new Node(id, "host" + id, id))
+    val replicas = nodes.slice(0, 3).toArray
+    val brokerToRemove = nodes.head
+    val partition_1 = new PartitionInfo("topic-1", 0, brokerToRemove, replicas, replicas)
+    val partition_2 = new PartitionInfo("topic-2", 0, brokerToRemove, replicas, replicas)
+    val partitions = Set(partition_1, partition_2).asJava
+    val cluster = new Cluster("clusterId",
+      nodes.asJava,
+      partitions,
+      Collections.emptySet(),   // unauthorized topics
+      Collections.emptySet())   // internal topics
+
+    val metadataCache: MetadataCache = EasyMock.createNiceMock(classOf[MetadataCache])
+    EasyMock.expect(metadataCache.getClusterMetadata(anyString(), anyObject(classOf[ListenerName]))).andReturn(cluster)
+    EasyMock.expect(metadataCache.getAliveBroker(brokerToRemove.id))
+      .andReturn(None)
+
+    EasyMock.replay(controller, metadataCache)
+
+    val brokerId = new BrokerId().setBrokerId(brokerToRemove.id)
+    val request = new RemoveBrokersRequest.Builder(Collections.singleton(brokerId)).build(0);
+    val requestChannelRequest = buildRequest(request)
+    createKafkaApis(metadataCache = metadataCache).handleRemoveBrokersRequest(requestChannelRequest)
+    EasyMock.verify(controller)
+  }
+
+  /**
+   * Test if remove brokers passes event to controller successfully if all input parameters are good
+   */
+  @Test
+  def testRemoveBroker(): Unit = {
+    EasyMock.expect(controller.isActive).andReturn(true)
+
+    val nodes = (1 to 5).map(id => new Node(id, "host" + id, id))
+    val replicas = nodes.slice(0, 3).toArray
+    val brokerToRemove = nodes.head
+    val partition_1 = new PartitionInfo("topic-1", 0, brokerToRemove, replicas, replicas)
+    val partition_2 = new PartitionInfo("topic-2", 0, brokerToRemove, replicas, replicas)
+    val partitions = Set(partition_1, partition_2).asJava
+    val cluster = new Cluster("clusterId",
+      nodes.asJava,
+      partitions,
+      Collections.emptySet(),   // unauthorized topics
+      Collections.emptySet())   // internal topics
+
+    val metadataCache: MetadataCache = EasyMock.createNiceMock(classOf[MetadataCache])
+    EasyMock.expect(metadataCache.getClusterMetadata(anyString(), anyObject(classOf[ListenerName]))).andReturn(cluster)
+    EasyMock.expect(metadataCache.getAliveBroker(brokerToRemove.id))
+      .andReturn(Some(new Broker(brokerToRemove.id, Seq.empty, Some("rack-1"))))
+
+    EasyMock.replay(controller, metadataCache)
+    // Test when broker to remove contains partition with RF = 1
+    val brokerId = new BrokerId().setBrokerId(brokerToRemove.id)
+    val request = new RemoveBrokersRequest.Builder(Collections.singleton(brokerId)).build(0);
+    val requestChannelRequest = buildRequest(request)
+    createKafkaApis(metadataCache = metadataCache).handleRemoveBrokersRequest(requestChannelRequest)
+    EasyMock.verify(controller)
   }
 
   /**

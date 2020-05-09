@@ -165,7 +165,8 @@ class RbacTest(EndToEndTest, KafkaPathResolverMixin):
                           authorizer_class_name="io.confluent.kafka.security.ldap.authorizer.LdapAuthorizer",
                           server_prop_overides=[
                               ["confluent.license.topic.replication.factor", "3"],
-                              ["ldap.authorizer.java.naming.provider.url", self.minildap.ldap_url]
+                              ["ldap.authorizer.java.naming.provider.url", self.minildap.ldap_url],
+                              ["confluent.security.event.logger.enable", "false"]
                           ])
 
         self.set_acls("Group:" + RbacTest.CLIENT_GROUP)

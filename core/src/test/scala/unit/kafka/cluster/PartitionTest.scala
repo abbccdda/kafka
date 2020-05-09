@@ -35,7 +35,7 @@ import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.utils._
 import org.apache.kafka.common.IsolationLevel
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.errors.{ApiException, OffsetNotAvailableException, ReplicaNotAvailableException}
+import org.apache.kafka.common.errors.{ApiException, InvalidRequestException, OffsetNotAvailableException, ReplicaNotAvailableException}
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.record.FileRecords.{FileTimestampAndOffset, TimestampAndOffset}
@@ -48,6 +48,7 @@ import org.mockito.Mockito.{atLeastOnce, doAnswer, doNothing, mock, spy, times, 
 import org.scalatest.Assertions.assertThrows
 import org.mockito.ArgumentMatchers
 import org.mockito.invocation.InvocationOnMock
+import org.scalatest.Assertions.intercept
 
 import scala.jdk.CollectionConverters._
 import scala.collection.mutable.ListBuffer
@@ -1199,10 +1200,10 @@ class PartitionTest {
     assertEquals(expected, timestampAndOffset.asInstanceOf[FileTimestampAndOffset].offset)
   }
 
-  def createRecords(records: Iterable[SimpleRecord], baseOffset: Long, partitionLeaderEpoch: Int = 0): MemoryRecords = {
+  def createRecords(records: Iterable[SimpleRecord], baseOffset: Long, partitionLeaderEpoch: Int = 0, timestampType: TimestampType = TimestampType.LOG_APPEND_TIME): MemoryRecords = {
     val buf = ByteBuffer.allocate(DefaultRecordBatch.sizeInBytes(records.asJava))
     val builder = MemoryRecords.builder(
-      buf, RecordBatch.CURRENT_MAGIC_VALUE, CompressionType.NONE, TimestampType.LOG_APPEND_TIME,
+      buf, RecordBatch.CURRENT_MAGIC_VALUE, CompressionType.NONE, timestampType,
       baseOffset, time.milliseconds, partitionLeaderEpoch)
     records.foreach(builder.append)
     builder.build()
@@ -2410,6 +2411,63 @@ class PartitionTest {
     partition.maybeShrinkIsr()
     assertEquals(Set(brokerId), partition.inSyncReplicaIds)
     assertEquals(true, partition.getIsUncleanLeader)
+  }
+
+  @Test
+  def testClusterLinkAppendDisallowed(): Unit = {
+    val controllerEpoch = 3
+    val topicPartition = new TopicPartition("test", 1)
+    val replicas = Seq(0, 1, 2)
+    val origins = Seq(AppendOrigin.Coordinator, AppendOrigin.Client)
+
+    def newRecord(): MemoryRecords =
+      createRecords(List(new SimpleRecord("k".getBytes, "v".getBytes)), baseOffset = 0, timestampType = TimestampType.CREATE_TIME)
+
+    // No cluster link set. Verify the partition can accept records.
+    val leaderState1 = new LeaderAndIsrPartitionState()
+      .setControllerEpoch(controllerEpoch)
+      .setLeader(0)
+      .setLeaderEpoch(1)
+      .setIsr(replicas.map(Int.box).asJava)
+      .setZkVersion(1)
+      .setReplicas(replicas.map(Int.box).asJava)
+      .setIsNew(true)
+    assertTrue(partition.makeLeader(leaderState1, offsetCheckpoints))
+    origins.foreach { origin =>
+      partition.appendRecordsToLeader(newRecord(), origin, requiredAcks = 0)
+    }
+
+    // Set the cluster link. The partition should not accept new records.
+    val leaderState2 = new LeaderAndIsrPartitionState()
+      .setControllerEpoch(controllerEpoch)
+      .setLeader(0)
+      .setLeaderEpoch(2)
+      .setIsr(replicas.map(Int.box).asJava)
+      .setZkVersion(1)
+      .setReplicas(replicas.map(Int.box).asJava)
+      .setIsNew(false)
+      .setClusterLink("test-link")
+      .setClusterLinkTopicState("mirror")
+    assertFalse(partition.makeLeader(leaderState2, offsetCheckpoints))
+    origins.foreach { origin =>
+      intercept[InvalidRequestException] {
+        partition.appendRecordsToLeader(newRecord(), origin, requiredAcks = 0)
+      }
+    }
+
+    // Remove the cluster link. The partition should be mutable again.
+    val leaderState3 = new LeaderAndIsrPartitionState()
+      .setControllerEpoch(controllerEpoch)
+      .setLeader(0)
+      .setLeaderEpoch(3)
+      .setIsr(replicas.map(Int.box).asJava)
+      .setZkVersion(1)
+      .setReplicas(replicas.map(Int.box).asJava)
+      .setIsNew(false)
+    assertFalse(partition.makeLeader(leaderState3, offsetCheckpoints))
+    origins.foreach { origin =>
+      partition.appendRecordsToLeader(newRecord(), origin, requiredAcks = 0)
+    }
   }
 
   private def seedLogData(log: AbstractLog, numRecords: Int, leaderEpoch: Int): Unit = {
