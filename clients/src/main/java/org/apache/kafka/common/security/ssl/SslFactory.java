@@ -196,8 +196,11 @@ public class SslFactory implements Reconfigurable, Closeable {
         return createSslEngine(peerHost(socket), socket.getPort());
     }
 
-    // Package private for testing
-    SSLEngine createSslEngine(String peerHost, int peerPort) {
+    /**
+     * Prefer `createSslEngine(Socket)` if a `Socket` instance is available. If using this overload,
+     * avoid reverse DNS resolution in the computation of `peerHost`.
+     */
+    public SSLEngine createSslEngine(String peerHost, int peerPort) {
         if (sslEngineFactory == null) {
             throw new IllegalStateException("SslFactory has not been configured.");
         }
