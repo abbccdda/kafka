@@ -17,10 +17,10 @@ import com.yammer.metrics.core.MetricName;
 import com.yammer.metrics.core.MetricsRegistry;
 import com.yammer.metrics.core.Timer;
 import io.confluent.telemetry.ResourceBuilderFacade;
-import io.confluent.telemetry.TelemetryResourceType;
 import io.confluent.telemetry.Context;
 import io.confluent.telemetry.MetricKey;
 import io.confluent.telemetry.exporter.TestExporter;
+import io.confluent.telemetry.reporter.KafkaServerMetricsReporter;
 import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.metrics.v1.MetricDescriptor.Type;
 import io.opencensus.proto.metrics.v1.SummaryValue;
@@ -45,7 +45,7 @@ public class YammerMetricsCollectorTest {
   private MetricName metricName;
 
   private final Context context = new Context(
-      new ResourceBuilderFacade(TelemetryResourceType.KAFKA)
+      new ResourceBuilderFacade(KafkaServerMetricsReporter.RESOURCE_TYPE_KAFKA)
           .withVersion("mockVersion")
           .withId("mockId")
           .build()

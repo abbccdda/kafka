@@ -7,8 +7,8 @@ import static org.junit.Assert.assertThrows;
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.confluent.telemetry.MetricBuilderFacade;
 import io.confluent.telemetry.ResourceBuilderFacade;
-import io.confluent.telemetry.TelemetryResourceType;
 import io.confluent.telemetry.MetricsUtils;
+import io.confluent.telemetry.reporter.KafkaServerMetricsReporter;
 import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.metrics.v1.MetricDescriptor.Type;
 import io.opencensus.proto.metrics.v1.Point;
@@ -31,7 +31,7 @@ public class ProtoToJsonTest {
     Clock clock = Clock.fixed(now, ZoneId.systemDefault());
     Point point = Point.newBuilder().setInt64Value(100L).setTimestamp(MetricsUtils.now(clock)).build();
     Metric metric = new MetricBuilderFacade()
-        .withResource(new ResourceBuilderFacade(TelemetryResourceType.KAFKA)
+        .withResource(new ResourceBuilderFacade(KafkaServerMetricsReporter.RESOURCE_TYPE_KAFKA)
             .withVersion("mockVersion")
             .withId("mockId")
             .build())

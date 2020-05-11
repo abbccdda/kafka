@@ -95,24 +95,22 @@ public class KafkaServerMetricsReporterIntegrationTest extends MetricReporterClu
 
                 // Check the resource labels are present
                 Resource resource = m.getResource();
-                assertEquals(TelemetryResourceType.KAFKA.toCanonicalString(), resource.getType());
+                assertEquals("kafka", resource.getType());
 
                 resourceLabels = resource.getLabelsMap();
                 assertEquals(
                     servers.get(0).clusterId(),
-                    resourceLabels.get(TelemetryResourceType.KAFKA.prefixLabel(KafkaServerMetricsReporter.LABEL_CLUSTER_ID))
+                    resourceLabels.get(KafkaServerMetricsReporter.RESOURCE_TYPE_KAFKA + "." + KafkaServerMetricsReporter.LABEL_CLUSTER_ID)
                 );
 
                 assertTrue(
                     brokerRacks.contains(
-                        resourceLabels.get(TelemetryResourceType.KAFKA.prefixLabel(
-                            KafkaServerMetricsReporter.LABEL_BROKER_RACK))
-                    )
+                        resourceLabels.get(KafkaServerMetricsReporter.RESOURCE_TYPE_KAFKA + "." + KafkaServerMetricsReporter.LABEL_BROKER_RACK))
                 );
 
                 assertTrue(
                     brokerIds.contains(
-                        resourceLabels.get(TelemetryResourceType.KAFKA.prefixLabel(KafkaServerMetricsReporter.LABEL_BROKER_ID))
+                        resourceLabels.get(KafkaServerMetricsReporter.RESOURCE_TYPE_KAFKA + "." + KafkaServerMetricsReporter.LABEL_BROKER_ID)
                     )
                 );
 

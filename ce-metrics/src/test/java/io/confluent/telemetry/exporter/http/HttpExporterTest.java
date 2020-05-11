@@ -3,6 +3,7 @@ package io.confluent.telemetry.exporter.http;
 import com.google.common.collect.ImmutableMap;
 
 import io.confluent.shaded.io.reactivex.Observable;
+import io.confluent.telemetry.reporter.KafkaServerMetricsReporter;
 import org.assertj.core.data.Offset;
 import org.junit.Rule;
 import org.junit.Test;
@@ -16,7 +17,6 @@ import java.util.Map;
 import java.util.Optional;
 
 import io.confluent.telemetry.ResourceBuilderFacade;
-import io.confluent.telemetry.TelemetryResourceType;
 import io.confluent.telemetry.client.BufferingAsyncTelemetryHttpClient;
 import io.confluent.telemetry.client.BufferingAsyncTelemetryHttpClientStats;
 import io.opencensus.proto.agent.metrics.v1.ExportMetricsServiceRequest;
@@ -76,7 +76,7 @@ public class HttpExporterTest {
 
         HttpExporter exporter = new HttpExporter(new HttpExporterConfig(minimalConfig));
 
-        Resource resource = new ResourceBuilderFacade(TelemetryResourceType.KAFKA)
+        Resource resource = new ResourceBuilderFacade(KafkaServerMetricsReporter.RESOURCE_TYPE_KAFKA)
             .withLabel("resource_label", "123")
             .withVersion("mockVersion")
             .withId("mockId")

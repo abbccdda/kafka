@@ -1,7 +1,5 @@
 package io.confluent.telemetry.reporter;
 
-import static io.confluent.telemetry.TelemetryResourceType.KAFKA;
-
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -57,6 +55,9 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
     @VisibleForTesting
     public static final String LABEL_BROKER_RACK = "broker.rack";
 
+    @VisibleForTesting
+    public static final String RESOURCE_TYPE_KAFKA = "kafka";
+
     private ConfluentTelemetryConfig originalConfig;
     private ConfluentTelemetryConfig config;
 
@@ -84,7 +85,7 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
             return;
         }
 
-        ResourceBuilderFacade resourceBuilderFacade = new ResourceBuilderFacade(KAFKA)
+        ResourceBuilderFacade resourceBuilderFacade = new ResourceBuilderFacade(RESOURCE_TYPE_KAFKA)
             .withVersion(AppInfoParser.getVersion())
             .withId(clusterResource.clusterId())
             .withNamespacedLabel(LABEL_CLUSTER_ID, clusterResource.clusterId())
