@@ -8,7 +8,7 @@ import kafka.utils.Json
 import org.apache.kafka.common.utils.Time
 
 import scala.collection.Map
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 abstract class ClusterLinkTopicState {
 

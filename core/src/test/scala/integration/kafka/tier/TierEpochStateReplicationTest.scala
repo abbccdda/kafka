@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 import kafka.log.AbstractLog
 import kafka.server.KafkaConfig._
-import kafka.server.epoch.{LeaderEpochFileCache, EpochEntry}
+import kafka.server.epoch.LeaderEpochFileCache
 import kafka.server.{KafkaServer, KafkaConfig}
 import kafka.utils.{TestUtils, Logging}
 import kafka.utils.TestUtils._
@@ -30,14 +30,10 @@ import kafka.zk.ZooKeeperTestHarness
 import org.apache.kafka.clients.producer.{ProducerRecord, KafkaProducer}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.{TopicConfig, ConfluentTopicConfig}
-import org.apache.kafka.common.record.RecordBatch
 import org.apache.kafka.common.utils.Exit
-import org.apache.kafka.common.utils.Exit.Procedure
 import org.junit.Assert.{assertEquals, assertFalse, assertTrue}
 import org.junit.{Before, After, Test}
 
-import scala.collection.JavaConverters._
-import scala.collection.mutable.{ListBuffer => Buffer}
 import scala.collection.Seq
 
 class TierEpochStateReplicationTest extends ZooKeeperTestHarness with Logging {
@@ -49,15 +45,13 @@ class TierEpochStateReplicationTest extends ZooKeeperTestHarness with Logging {
   val exited = new AtomicBoolean(false)
 
   @Before
-  override def setUp() {
-    Exit.setExitProcedure(new Procedure {
-      override def execute(statusCode: Int, message: String): Unit = exited.set(true)
-    })
+  override def setUp(): Unit = {
+    Exit.setExitProcedure((_, _) => exited.set(true))
     super.setUp()
   }
 
   @After
-  override def tearDown() {
+  override def tearDown(): Unit = {
     producer.close()
     TestUtils.shutdownServers(brokers)
     super.tearDown()
@@ -157,12 +151,6 @@ class TierEpochStateReplicationTest extends ZooKeeperTestHarness with Logging {
   private def epochCache(broker: KafkaServer): LeaderEpochFileCache = {
     val log = getLog(broker, 0)
     log.leaderEpochCache.get
-  }
-
-  private def latestRecord(leader: KafkaServer, offset: Int = -1, partition: Int = 0): RecordBatch = {
-    val segment = getLog(leader, partition).activeSegment
-    val records = segment.read(0, Integer.MAX_VALUE).records
-    records.batches().asScala.toSeq.last
   }
 
   private def awaitISR(tp: TopicPartition, numReplicas: Int): Unit = {

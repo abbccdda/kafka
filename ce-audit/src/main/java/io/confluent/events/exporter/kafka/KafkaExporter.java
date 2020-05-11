@@ -73,6 +73,7 @@ public class KafkaExporter implements Exporter {
   public KafkaExporter() {
   }
 
+  @SuppressWarnings("unchecked")
   @Override
   public void configure(Map<String, ?> configs) {
     this.eventLogConfig = new EventLoggerConfig(configs);
@@ -118,6 +119,7 @@ public class KafkaExporter implements Exporter {
     ensureTopicsWithMetadata();
   }
 
+  @SuppressWarnings("unchecked")
   @Override
   public void append(CloudEvent event) throws RuntimeException {
     try {

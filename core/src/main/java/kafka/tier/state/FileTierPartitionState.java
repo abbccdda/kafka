@@ -441,6 +441,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     }
 
     // callers must take FileTierPartitionState.lock
+    @SuppressWarnings("deprecation")
     private void maybeOpenChannel() throws IOException {
         if (tieringEnabled && !state.status.isOpen()) {
             Path flushedFilePath = flushedFilePath(basePath);

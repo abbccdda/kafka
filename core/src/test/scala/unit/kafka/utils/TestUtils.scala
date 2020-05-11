@@ -50,7 +50,6 @@ import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, Produce
 import org.apache.kafka.common.{KafkaFuture, TopicPartition}
 import org.apache.kafka.common.acl.{AccessControlEntry, AccessControlEntryFilter, AclBinding, AclBindingFilter}
 import org.apache.kafka.common.config.ConfigResource
-import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException
 import org.apache.kafka.common.header.Header
 import org.apache.kafka.common.internals.Topic
@@ -168,7 +167,7 @@ object TestUtils extends Logging {
     // replication factor may break existing tests with smaller number of brokers
     val licenseReplicationProp = "confluent.license.topic.replication.factor"
     val brokerConfig = if (!config.originals.containsKey(licenseReplicationProp)) {
-      new KafkaConfig((config.originals.asScala + (licenseReplicationProp -> "1")).asJava)
+      new KafkaConfig((config.originals.asScala ++ Map(licenseReplicationProp -> "1")).asJava)
     } else
       config
 

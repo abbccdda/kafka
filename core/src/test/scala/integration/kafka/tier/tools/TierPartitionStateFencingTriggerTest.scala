@@ -39,7 +39,7 @@ import org.junit.Assert.{assertEquals, assertTrue}
 import org.mockito.Mockito._
 import org.scalatest.Assertions.assertThrows
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.mutable.ListBuffer
 import scala.collection.mutable.Map
 

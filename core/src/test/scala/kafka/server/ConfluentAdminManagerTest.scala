@@ -12,7 +12,7 @@ import org.junit.Test
 import org.mockito.Mockito._
 import org.scalatest.Assertions.intercept
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.compat.java8.OptionConverters._
 
 class ConfluentAdminManagerTest {

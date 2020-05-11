@@ -30,7 +30,6 @@ import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.record.Records
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.config.internals.ConfluentConfigs
-import org.apache.kafka.server.interceptor.RecordInterceptor
 import org.apache.kafka.test.InterceptorUtils
 import org.junit.Assert._
 import org.junit.Test

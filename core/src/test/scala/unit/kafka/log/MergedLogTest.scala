@@ -29,13 +29,12 @@ import org.apache.kafka.common.record.{CompressionType, MemoryRecords, RecordBat
 import org.apache.kafka.common.record.ControlRecordType
 import org.apache.kafka.common.record.EndTransactionMarker
 import org.apache.kafka.common.record.FileRecords.FileTimestampAndOffset
-import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
 import org.apache.kafka.common.utils.{Time, Utils}
 import org.junit.Assert.{assertEquals, assertTrue, fail}
 import org.junit.{After, Before, Test}
 import org.mockito.Mockito._
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.util.Try
 
 class MergedLogTest {
@@ -58,7 +57,7 @@ class MergedLogTest {
   }
 
   @After
-  def tearDown() {
+  def tearDown(): Unit = {
     brokerTopicStats.close()
     Utils.delete(tmpDir)
   }
@@ -1266,7 +1265,7 @@ class MergedLogTest {
       Utils.delete(deletedDir)
     }
 
-    verifyZeroInteractions(tierTopicConsumer)
+    verifyNoInteractions(tierTopicConsumer)
   }
 
   @Test
@@ -1329,7 +1328,7 @@ class MergedLogTest {
   }
 
   private def metricValue(name: String): Long = {
-    KafkaYammerMetrics.defaultRegistry.allMetrics.asScala.filterKeys(_.getName == name).values.headOption.get.asInstanceOf[Gauge[Long]].value()
+    KafkaYammerMetrics.defaultRegistry.allMetrics.asScala.filter(_._1.getName == name).values.headOption.get.asInstanceOf[Gauge[Long]].value()
   }
 }
 

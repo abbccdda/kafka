@@ -30,6 +30,7 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+@SuppressWarnings("unchecked")
 public class OrderedKeyProtoSerdeTest {
 
   private final static Long A_LONG = 1029309L;

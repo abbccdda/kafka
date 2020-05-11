@@ -17,13 +17,13 @@ import kafka.tier.tasks.TierTasksConfig
 import kafka.tier.topic.TierTopicManager
 import kafka.utils.{MockTime, TestUtils}
 import org.apache.kafka.common.TopicPartition
-import org.junit.Assert.{assertEquals, assertTrue}
+import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.mockito.Mockito.{mock, when}
 import org.mockito.invocation.InvocationOnMock
 import org.mockito.stubbing.Answer
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.concurrent.ExecutionContext.Implicits.global
 
 class TierArchiverTest {
@@ -178,6 +178,6 @@ class TierArchiverTest {
   }
 
   private def metricValue[T](name: String): T = {
-    KafkaYammerMetrics.defaultRegistry.allMetrics.asScala.filterKeys(_.getName == name).values.headOption.get.asInstanceOf[Gauge[T]].value()
+    KafkaYammerMetrics.defaultRegistry.allMetrics.asScala.filter(_._1.getName == name).values.headOption.get.asInstanceOf[Gauge[T]].value()
   }
 }

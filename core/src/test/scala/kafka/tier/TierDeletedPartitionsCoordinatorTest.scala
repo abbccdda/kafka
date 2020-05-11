@@ -23,7 +23,7 @@ import org.mockito.ArgumentMatcher
 import org.mockito.ArgumentMatchers
 import org.mockito.Mockito._
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.mutable
 
 class TierDeletedPartitionsCoordinatorTest {

@@ -2416,7 +2416,6 @@ class PartitionTest {
   @Test
   def testClusterLinkAppendDisallowed(): Unit = {
     val controllerEpoch = 3
-    val topicPartition = new TopicPartition("test", 1)
     val replicas = Seq(0, 1, 2)
     val origins = Seq(AppendOrigin.Coordinator, AppendOrigin.Client)
 

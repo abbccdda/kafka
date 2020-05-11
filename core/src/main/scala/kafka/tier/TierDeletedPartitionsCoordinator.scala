@@ -19,7 +19,7 @@ import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.record.{FileRecords, MemoryRecords}
 import org.apache.kafka.common.utils.Time
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.mutable
 import scala.compat.java8.OptionConverters._
 

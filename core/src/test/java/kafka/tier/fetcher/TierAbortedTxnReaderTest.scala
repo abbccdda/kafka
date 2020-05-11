@@ -5,7 +5,7 @@ import kafka.log.{AbortedTxn, Log}
 import org.apache.kafka.common.utils.ByteBufferInputStream
 import org.junit.Test
 import org.junit.Assert
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 class TierAbortedTxnReaderTest {
   private def roundTrip(abortedTxns: Seq[AbortedTxn]): Unit = {

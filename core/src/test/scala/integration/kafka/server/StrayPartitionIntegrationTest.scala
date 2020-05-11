@@ -15,7 +15,7 @@ import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.junit.Assert._
 import org.junit.Test
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.util.Random
 
 class StrayPartitionIntegrationTest extends IntegrationTestHarness {

@@ -62,7 +62,7 @@ public class AuditLogUtils {
     String requestName;
     int requestType = requestContext.requestType();
     if (requestType < 0) {
-      if (requestContext.MDS.equals(requestContext.requestSource())) {
+      if (RequestContext.MDS.equals(requestContext.requestSource())) {
         requestName = "Authorize";
       } else {
         throw new RuntimeException("Got unexpected requestType not from MDS: " + requestType);

@@ -171,9 +171,8 @@ public class OrderedKeyPrefixedProtoSerde<
   @Override
   public byte[] fromJson(String json) {
     Gson gson = new Gson();
-    JsonParser parser = new JsonParser();
     try {
-      JsonObject root = parser.parse(json).getAsJsonObject();
+      JsonObject root = JsonParser.parseString(json).getAsJsonObject();
       JsonElement protoJson = root.get("proto");
       String protoJsonStr = gson.toJson(protoJson);
       String prefixStr = root.get("prefix").getAsString();
@@ -192,12 +191,11 @@ public class OrderedKeyPrefixedProtoSerde<
   @Override
   public String toJson(Bytes key) {
     Gson gson = new Gson();
-    JsonParser parser = new JsonParser();
     E msgPrefix = extractPrefix(key);
     T msg = toProto(key);
     JsonObject root = new JsonObject();
     root.add("prefix", new JsonPrimitive(msgPrefix.getValueDescriptor().getName()));
-    root.add("proto", parser.parse(protoToJson(msg)));
+    root.add("proto", JsonParser.parseString(protoToJson(msg)));
     return gson.toJson(root);
   }
 }

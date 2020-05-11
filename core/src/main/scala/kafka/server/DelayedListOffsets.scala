@@ -7,7 +7,7 @@ package kafka.server
 import java.util
 import java.util.Optional
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.compat.java8.OptionConverters._
 import kafka.tier.fetcher.PendingOffsetForTimestamp
 import org.apache.kafka.common.TopicPartition

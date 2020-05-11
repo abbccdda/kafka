@@ -16,6 +16,7 @@ import org.scalatest.FunSuite
 import org.scalatestplus.junit.JUnitRunner
 import org.scalatestplus.scalacheck.Checkers
 
+import scala.annotation.nowarn
 import scala.collection.immutable.Queue
 import scala.util.{Failure, Success, Try}
 
@@ -43,6 +44,7 @@ object UpdatableQueueSpec extends Commands {
                    values: Map[QueueEntry#Key, QueueEntry] = Map(),
                    closed: Boolean = false)
 
+  @nowarn("cat=deprecation")
   override def canCreateNewSut(newState: State,
                                initSuts: Traversable[State],
                                runningSuts: Traversable[UpdatableQueue[QueueEntry]]): Boolean = {

@@ -11,7 +11,7 @@ import kafka.controller.ReplicaAssignment
 import org.apache.kafka.common.errors.InvalidConfigurationException
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.ApiError
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.{Map, Seq, mutable}
 import scala.compat.java8.OptionConverters._
 
@@ -178,10 +178,10 @@ object Observer {
    * then throw exception as we want constraints to produce disjoint set.
    */
   private[cluster] def mergeReplicaLists(brokerList1: Seq[Int], brokerList2: Seq[Int]): Seq[Int] = {
-    val commonReplicas = brokerList1.view.intersect(brokerList2)
-    if (commonReplicas.nonEmpty) {
-      throw new InvalidConfigurationException(s"Replica with ids (${commonReplicas.force}) satisfy more than one placement constraints.")
-    }
+    val commonReplicas = brokerList1.intersect(brokerList2)
+    if (commonReplicas.nonEmpty)
+      throw new InvalidConfigurationException(s"Replica with ids ($commonReplicas) satisfy more than one placement constraints.")
+
     brokerList1 ++ brokerList2
   }
 

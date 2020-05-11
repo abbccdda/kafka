@@ -24,7 +24,7 @@ import org.apache.kafka.common.internals.Topic
 import org.junit.Assert._
 import org.junit.Test
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 /* Temporary integration test until we have a more substantial Tiered Storage integration test with archiving. */
 class TierTopicManagerIntegrationTest extends KafkaServerTestHarness {

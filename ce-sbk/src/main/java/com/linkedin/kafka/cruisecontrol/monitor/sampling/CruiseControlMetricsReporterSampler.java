@@ -189,6 +189,7 @@ public class CruiseControlMetricsReporterSampler implements MetricSampler {
     return false;
   }
 
+  @SuppressWarnings("deprecation")
   @Override
   public void configure(Map<String, ?> configs) {
     int numSamplers = (Integer) configs.get(KafkaCruiseControlConfig.NUM_METRIC_FETCHERS_CONFIG);

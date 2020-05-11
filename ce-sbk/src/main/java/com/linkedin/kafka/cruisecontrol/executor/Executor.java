@@ -207,6 +207,7 @@ public class Executor {
         config.getLong(KafkaCruiseControlConfig.DEFAULT_REPLICATION_THROTTLE_CONFIG));
   }
 
+  @SuppressWarnings("deprecation")
   public void startUp() {
     // There is a possibility that one execution batch from a previous execution is still ongoing when the
     // Executor starts. Spin up a thread to monitor it and mark it done when it finishes

@@ -40,7 +40,7 @@ import org.mockito.Mockito.{mock, when}
 import org.mockito.invocation.InvocationOnMock
 import org.mockito.stubbing.Answer
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 class TierIntegrationTest {
   private val mockTime = new MockTime()
@@ -262,7 +262,7 @@ class TierIntegrationTest {
 
     // eventually, we would have tiered all segments
     archiveAndMaterializeUntilTrue(() => {
-      logs.forall(_.tierableLogSegments.isEmpty) && logs.forall(_.tieredLogSegments.toIterator.nonEmpty)
+      logs.forall(_.tierableLogSegments.isEmpty) && logs.forall(_.tieredLogSegments.nonEmpty)
     }, s"Expected all logs to eventually become tiered", tierTopicManager, consumerSupplier)
   }
 
@@ -433,9 +433,7 @@ class TierIntegrationTest {
       when(partition.log).thenReturn(Some(log))
       partition
     }
-    when(replicaManager.leaderPartitionsIterator).thenAnswer(new Answer[Iterator[Partition]] {
-      override def answer(invocation: InvocationOnMock): Iterator[Partition] = partitions.toIterator
-    })
+    when(replicaManager.leaderPartitionsIterator).thenAnswer(_ => partitions.iterator)
 
     replicaManager
   }
@@ -466,7 +464,7 @@ class TierIntegrationTest {
   }
 
   private def metricValue(name: String): Long = {
-    KafkaYammerMetrics.defaultRegistry.allMetrics.asScala.filterKeys(_.getName == name).values.head.asInstanceOf[Gauge[Long]].value()
+    KafkaYammerMetrics.defaultRegistry.allMetrics.asScala.filter(_._1.getName == name).values.head.asInstanceOf[Gauge[Long]].value()
   }
 
   private def tierPartitionState(partition: TopicPartition): TierPartitionState = {

@@ -8,7 +8,6 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kafka.server.KafkaConfig
 import kafka.utils.TestUtils
 import org.apache.kafka.common.utils.Exit
-import org.apache.kafka.common.utils.Exit.Procedure
 import org.junit.{After, Before}
 import org.junit.Assert
 
@@ -21,15 +20,13 @@ class TierFeatureAdminIntegrationTest extends PlaintextAdminIntegrationTest {
   this.serverConfig.setProperty(KafkaConfig.TierBackendProp, "mock")
 
   @Before
-  override def setUp() {
-    Exit.setExitProcedure(new Procedure {
-      override def execute(statusCode: Int, message: String): Unit = exited.set(true)
-    })
+  override def setUp(): Unit = {
+    Exit.setExitProcedure((_, _) => exited.set(true))
     super.setUp()
   }
 
   @After
-  override def tearDown() {
+  override def tearDown(): Unit = {
     super.tearDown()
     Assert.assertFalse(exited.get())
   }

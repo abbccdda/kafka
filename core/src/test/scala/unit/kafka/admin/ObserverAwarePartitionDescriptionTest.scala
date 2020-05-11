@@ -9,7 +9,7 @@ import org.apache.kafka.common.{Node, TopicPartitionInfo}
 import org.junit.Assert._
 import org.junit.Test
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 class ObserverAwarePartitionDescriptionTest {
   private val topic = "foo"
@@ -28,8 +28,8 @@ class ObserverAwarePartitionDescriptionTest {
       0,
       leader.map(nodes).orNull,
       nodes.values.toList.asJava,
-      nodes.filterKeys(observers.contains).values.toList.asJava,
-      nodes.filterKeys(isr.contains).values.toList.asJava
+      nodes.filter { case (k, _) => observers.contains(k) }.values.toList.asJava,
+      nodes.filter { case (k, _) => isr.contains(k) }.values.toList.asJava
     )
   }
 

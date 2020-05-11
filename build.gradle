@@ -232,12 +232,8 @@ subprojects {
     options.compilerArgs << "-Xlint:-rawtypes"
     options.compilerArgs << "-Xlint:-serial"
     options.compilerArgs << "-Xlint:-try"
-    if (!project.name.equals('ce-serializers') &&
-        !project.name.equals('ce-audit')) {
-      // Do not enable -Werror for subprojects with automatically generated code.
-      // We can't fix the warnings in automatically generated code.
-      options.compilerArgs << "-Werror"
-    }
+    options.compilerArgs << "-Werror"
+
     // --release is the recommended way to select the target release, but it's only supported in Java 9 so we also
     // set --source and --target via `sourceCompatibility` and `targetCompatibility`. If/when Gradle supports `--release`
     // natively (https://github.com/gradle/gradle/issues/2510), we should switch to that.
@@ -537,6 +533,8 @@ subprojects {
 
     if (versions.baseScala != '2.12') {
       scalaCompileOptions.additionalParameters += ["-opt-warnings"]
+      // Scala 2.13.2 introduces compiler warnings suppression, which is a pre-requisite for -Xfatal-warnings
+      scalaCompileOptions.additionalParameters += ["-Xfatal-warnings"]
     }
 
     // these options are valid for Scala versions < 2.13 only

@@ -56,7 +56,6 @@ import org.apache.kafka.common.resource.ResourceType._
 import org.apache.kafka.common.resource.{PatternType, Resource, ResourcePattern, ResourcePatternFilter, ResourceType}
 import org.apache.kafka.common.security.auth.{AuthenticationContext, KafkaPrincipal, KafkaPrincipalBuilder, SecurityProtocol}
 import org.apache.kafka.common.utils.Exit
-import org.apache.kafka.common.utils.Exit.Procedure
 import org.apache.kafka.common.{ElectionType, IsolationLevel, Node, TopicPartition, requests}
 import org.apache.kafka.test.{TestUtils => JTestUtils}
 import org.junit.Assert._
@@ -1669,10 +1668,10 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
   @Test
   def testInitiateShutdownWithWildCardAuth(): Unit = {
     val exited = new AtomicBoolean(false)
-    Exit.setExitProcedure((_: Int, _: String) => {
+    Exit.setExitProcedure { (_, _) =>
       exited.set(true)
       throw new Exception()
-    })
+    }
 
     addAndVerifyAcls(Set(new AccessControlEntry(clientPrincipalString, WildcardHost, ALTER, ALLOW)), clusterResource)
     val initiateShutdownResponse = connectAndReceive[InitiateShutdownResponse](initiateShutdownRequest)

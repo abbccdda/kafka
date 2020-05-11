@@ -22,11 +22,11 @@ import org.mockito.invocation.InvocationOnMock
 import org.mockito.stubbing.Answer
 import org.scalatest.Assertions.assertThrows
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 class TierTopicConsumerTest {
-  private type ConsumerSupplier = MockConsumerSupplier[Array[Byte], Array[Byte]]
-  private type ProducerSupplier = MockProducerSupplier[Array[Byte], Array[Byte]]
+  type ConsumerSupplier = MockConsumerSupplier[Array[Byte], Array[Byte]]
+  type ProducerSupplier = MockProducerSupplier[Array[Byte], Array[Byte]]
 
   private val clusterId = "mycluster"
   private val tempDir = TestUtils.tempDir()

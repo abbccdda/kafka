@@ -44,6 +44,7 @@ public class TierFetcher implements BrokerReconfigurable {
     final FetchOffsetCache cache;
     private final MemoryTracker memoryTracker;
 
+    @SuppressWarnings("deprecation")
     public TierFetcher(Time time,
                        TierFetcherConfig tierFetcherConfig,
                        TierObjectStore tierObjectStore,
@@ -163,6 +164,7 @@ public class TierFetcher implements BrokerReconfigurable {
     }
 
     // dynamic configuration
+    @SuppressWarnings("deprecation")
     public static scala.collection.Set<String> reconfigurableConfigs =
             scala.collection.JavaConverters.asScalaSet(new HashSet<>(Arrays.asList(KafkaConfig.TierFetcherMemoryPoolSizeBytesProp())));
     @Override

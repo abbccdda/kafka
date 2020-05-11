@@ -17,8 +17,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 import kafka.admin.AclCommand;
-import kafka.security.auth.Alter$;
-import kafka.security.auth.ClusterAction$;
 import kafka.security.authorizer.AclAuthorizer;
 import kafka.server.KafkaConfig$;
 import kafka.server.KafkaServer;
@@ -30,6 +28,7 @@ import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 
+@SuppressWarnings("deprecation")
 public class EventLogClusters {
 
   private final EventLogClusters.Config config;
@@ -123,9 +122,9 @@ public class EventLogClusters {
     String zkConnect = kafkaCluster.zkConnect();
     KafkaPrincipal brokerPrincipal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, brokerUser);
     AclCommand.main(SecurityTestUtils
-        .clusterAclArgs(zkConnect, brokerPrincipal, ClusterAction$.MODULE$.name()));
-    AclCommand
-        .main(SecurityTestUtils.clusterAclArgs(zkConnect, brokerPrincipal, Alter$.MODULE$.name()));
+        .clusterAclArgs(zkConnect, brokerPrincipal, kafka.security.auth.ClusterAction$.MODULE$.name()));
+    AclCommand.main(SecurityTestUtils.clusterAclArgs(zkConnect, brokerPrincipal,
+        kafka.security.auth.Alter$.MODULE$.name()));
     AclCommand.main(SecurityTestUtils.topicBrokerReadAclArgs(zkConnect, brokerPrincipal));
   }
 

@@ -14,7 +14,7 @@ import org.apache.kafka.common.config.ConfigResource
 import org.apache.kafka.common.requests.ApiError
 import org.apache.kafka.server.authorizer.Authorizer
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.Set
 import scala.collection.mutable
 

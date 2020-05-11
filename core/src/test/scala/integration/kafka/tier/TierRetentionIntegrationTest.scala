@@ -8,12 +8,11 @@ import kafka.utils.TestUtils
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.utils.Exit
-import org.apache.kafka.common.utils.Exit.Procedure
 import org.junit.{Before, Test}
 import org.junit.After
 import org.junit.Assert.{assertEquals, assertFalse, assertTrue}
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 class TierRetentionIntegrationTest extends IntegrationTestHarness {
   serverConfig.setProperty(KafkaConfig.TierFeatureProp, "true")
@@ -35,15 +34,13 @@ class TierRetentionIntegrationTest extends IntegrationTestHarness {
 
   @Before
   override def setUp(): Unit = {
-    Exit.setExitProcedure(new Procedure {
-      override def execute(statusCode: Int, message: String): Unit = exited.set(true)
-    })
+    Exit.setExitProcedure((_, _) => exited.set(true))
     super.setUp()
     createTopic(topic, numPartitions, numReplicas)
   }
 
   @After
-  override def tearDown() {
+  override def tearDown(): Unit = {
     super.tearDown()
     assertFalse(exited.get())
   }

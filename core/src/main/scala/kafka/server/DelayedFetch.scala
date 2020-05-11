@@ -28,7 +28,7 @@ import org.apache.kafka.common.replica.ClientMetadata
 import org.apache.kafka.common.requests.FetchRequest.PartitionData
 
 import scala.collection._
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 case class FetchPartitionStatus(startOffsetMetadata: LogOffsetMetadata, fetchInfo: PartitionData) {
 

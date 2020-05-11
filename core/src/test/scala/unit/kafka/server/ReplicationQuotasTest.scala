@@ -19,7 +19,6 @@ package kafka.server
 
 import java.util.Properties
 
-import kafka.log.LogConfig._
 import kafka.server.KafkaConfig.fromProps
 import kafka.server.QuotaType._
 import kafka.utils.TestUtils._

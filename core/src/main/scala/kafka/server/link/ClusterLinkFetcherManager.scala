@@ -166,7 +166,7 @@ class ClusterLinkFetcherManager(linkName: String,
       debug(s"onNewMetadata linkedPartitions ${linkedPartitions.keySet} unassigned $unassignedPartitions : $newCluster")
 
       val updatedPartitionCounts = mutable.Map[String, Int]()
-      linkedPartitions.asScala.filterKeys(_.partition == 0).foreach { case (tp, state) =>
+      linkedPartitions.asScala.keys.iterator.filter(_.partition == 0).foreach { tp =>
         val topic = tp.topic
         try {
           metadata.maybeThrowExceptionForTopic(topic)

@@ -30,7 +30,7 @@ import org.junit.{After, Before, Test}
 import org.junit.Assert.{assertEquals, assertFalse, assertTrue}
 import org.scalatest.Assertions.intercept
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 class KafkaServerTest extends ZooKeeperTestHarness {
 
@@ -38,10 +38,10 @@ class KafkaServerTest extends ZooKeeperTestHarness {
 
   @Before
   override def setUp(): Unit = {
-    Exit.setExitProcedure((_: Int, _: String) => {
+    Exit.setExitProcedure { (_, _) =>
       exited.set(true)
       throw new Exception()
-    })
+    }
     super.setUp()
   }
 
@@ -81,8 +81,7 @@ class KafkaServerTest extends ZooKeeperTestHarness {
   }
 
   private def metricValue(name: String): Long = {
-    println(KafkaYammerMetrics.defaultRegistry.allMetrics.asScala.filterKeys(_.getName == name).keys.map(_.getName).toList)
-    KafkaYammerMetrics.defaultRegistry.allMetrics.asScala.filterKeys(_.getName == name)
+    KafkaYammerMetrics.defaultRegistry.allMetrics.asScala.filter(_._1.getName == name)
       .values.headOption.getOrElse(throw new Exception(s"Could not find metric $name"))
       .asInstanceOf[Gauge[Long]].value()
   }

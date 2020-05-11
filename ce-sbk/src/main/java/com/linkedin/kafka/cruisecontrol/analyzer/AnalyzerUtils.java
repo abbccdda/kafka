@@ -200,6 +200,7 @@ public class AnalyzerUtils {
    * @return The P value that the various derived resources come from the same probability distribution. The probability
    * that the null hypothesis is correct.
    */
+  @SuppressWarnings("deprecation")
   public static double[] testDifference(double[][] orig, double[][] optimized) {
     int nResources = RawAndDerivedResource.values().length;
     if (orig.length != nResources) {

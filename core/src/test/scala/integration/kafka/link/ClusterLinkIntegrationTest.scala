@@ -30,7 +30,7 @@ import org.apache.kafka.common.security.scram.ScramCredential
 import org.junit.Assert.{assertEquals, assertNotEquals, assertTrue}
 import org.junit.{After, Before, Test}
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.{Map, Seq, mutable}
 
 class ClusterLinkIntegrationTest extends Logging {

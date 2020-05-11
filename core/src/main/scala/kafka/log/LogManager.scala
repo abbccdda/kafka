@@ -1098,7 +1098,7 @@ class LogManager(logDirs: Seq[File],
   // checkpoint operation writes to the log directory
   private[log] def checkpointTierState(isFinalCheckpoint: Boolean): Unit = logCreationOrDeletionLock synchronized {
     if (allLogs.nonEmpty && checkpointTierState)
-      tierLogComponents.topicConsumerOpt.foreach(_.commitPositions(allLogs.map(_.tierPartitionState).toIterator.asJava))
+      tierLogComponents.topicConsumerOpt.foreach(_.commitPositions(allLogs.map(_.tierPartitionState).iterator.asJava))
 
     if (isFinalCheckpoint)
       checkpointTierState = false

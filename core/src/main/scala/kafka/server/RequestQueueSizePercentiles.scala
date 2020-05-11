@@ -10,7 +10,7 @@ import org.apache.kafka.common.metrics.{JmxReporter, Metrics}
 import org.apache.kafka.common.metrics.stats.{Percentile, Percentiles}
 import org.apache.kafka.common.metrics.stats.Percentiles.BucketSizing
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 object RequestQueueSizePercentiles {
   val MetricGroup = "request-queue-metrics"

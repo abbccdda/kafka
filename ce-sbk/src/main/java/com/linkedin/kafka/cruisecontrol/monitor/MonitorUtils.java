@@ -178,6 +178,7 @@ public class MonitorUtils {
    * @param kafkaZkClient the KafkaZkClient class used to check ongoing partition reassignments.
    * @return Whether there are no ongoing partition reassignments.
    */
+  @SuppressWarnings("deprecation")
   public static boolean ensureTopicNotUnderPartitionReassignment(KafkaZkClient kafkaZkClient, String topic) {
     int attempt = 0;
     while (JavaConverters.asJavaCollection(kafkaZkClient.getPartitionReassignment().keys()).stream()
@@ -200,6 +201,7 @@ public class MonitorUtils {
    * @param kafkaZkClient the KafkaZkClient class used to check ongoing partition reassignments.
    * @return Whether there are no ongoing partition reassignments.
    */
+  @SuppressWarnings("deprecation")
   public static boolean ensureNoPartitionUnderPartitionReassignment(KafkaZkClient kafkaZkClient) {
     int attempt = 0;
     while (kafkaZkClient.getPartitionReassignment().size() > 0) {

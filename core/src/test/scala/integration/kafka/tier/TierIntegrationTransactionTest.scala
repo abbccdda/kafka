@@ -21,11 +21,10 @@ import org.apache.kafka.clients.producer.{ProducerConfig, ProducerRecord}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.{ConfluentTopicConfig, TopicConfig}
 import org.apache.kafka.common.utils.Exit
-import org.apache.kafka.common.utils.Exit.Procedure
 import org.junit.{Assert, Before, Test}
 import org.junit.After
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 class TierIntegrationTransactionTest extends IntegrationTestHarness {
   override protected def brokerCount: Int = 1
@@ -55,10 +54,7 @@ class TierIntegrationTransactionTest extends IntegrationTestHarness {
 
   @Before
   override def setUp(): Unit = {
-
-    Exit.setExitProcedure(new Procedure {
-      override def execute(statusCode: Int, message: String): Unit = exited.set(true)
-    })
+    Exit.setExitProcedure((_, _) => exited.set(true))
 
     super.setUp()
     val props = new Properties
@@ -73,7 +69,7 @@ class TierIntegrationTransactionTest extends IntegrationTestHarness {
   }
 
   @After
-  override def tearDown() {
+  override def tearDown(): Unit = {
     super.tearDown()
     Assert.assertFalse(exited.get())
   }

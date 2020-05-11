@@ -26,7 +26,7 @@ import org.junit.{After, Before, Test}
 import org.mockito.Mockito.{mock, when}
 import org.scalatest.Assertions.assertThrows
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.mutable.ListBuffer
 import scala.collection.Seq
 import scala.concurrent.ExecutionException
@@ -1088,7 +1088,7 @@ class FileTierPartitionStateTest {
   }
 
   @Test
-  def testStateUpdateFailureFencingEnabled() {
+  def testStateUpdateFailureFencingEnabled(): Unit = {
     val objectId = UUID.randomUUID
     val nextOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
     assertEquals(AppendResult.ACCEPTED, state.append(new TierTopicInitLeader(tpid, 0, objectId, 0), nextOffsetAndEpoch))
@@ -1112,7 +1112,7 @@ class FileTierPartitionStateTest {
   }
 
   @Test
-  def testStateUpdateFailureFencingFlushMechanism_ViaBadEvent() {
+  def testStateUpdateFailureFencingFlushMechanism_ViaBadEvent(): Unit = {
     // --- BEFORE FENCING ---
     val objectId1 = UUID.randomUUID
     var nextOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
@@ -1212,7 +1212,7 @@ class FileTierPartitionStateTest {
   }
 
   @Test
-  def testStateUpdateFailureFencingFlushMechanism_ViaPartitionFenceEvent() {
+  def testStateUpdateFailureFencingFlushMechanism_ViaPartitionFenceEvent(): Unit = {
     // --- BEFORE FENCING ---
     val objectId1 = UUID.randomUUID
     val nextOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
@@ -1282,7 +1282,7 @@ class FileTierPartitionStateTest {
   }
 
   @Test
-  def testStateUpdateFailureFencingFlush_DuringAbsentHeader() {
+  def testStateUpdateFailureFencingFlush_DuringAbsentHeader(): Unit = {
     // --- BEFORE FENCING ---
     val objectId = UUID.randomUUID
     val nextOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()

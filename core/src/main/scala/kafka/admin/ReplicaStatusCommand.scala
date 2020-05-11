@@ -19,7 +19,7 @@ import org.apache.kafka.common.internals.Topic
 import org.apache.kafka.common.replica.ReplicaStatus
 import org.apache.kafka.common.utils.Utils
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.mutable
 import scala.concurrent.duration._
 import scala.collection.Seq

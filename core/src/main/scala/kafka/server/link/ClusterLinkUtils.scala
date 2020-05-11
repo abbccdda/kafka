@@ -14,7 +14,7 @@ import org.apache.kafka.common.errors.{InvalidClusterLinkException, InvalidConfi
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopic
 import org.apache.kafka.common.requests.CreateTopicsRequest.NO_NUM_PARTITIONS
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 object ClusterLinkUtils extends Logging {
 

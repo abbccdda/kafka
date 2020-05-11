@@ -33,7 +33,7 @@ import org.apache.kafka.common.requests.{AbstractRequest, AbstractResponse, List
 import org.junit.Assert.{assertFalse, assertTrue}
 
 import scala.annotation.nowarn
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.Seq
 import scala.reflect.ClassTag
 
@@ -163,7 +163,7 @@ abstract class BaseRequestTest extends IntegrationTestHarness {
       .build(version)
     val response = connectAndReceive[ListOffsetResponse](request, brokerSocketServer(leaderId))
     assertTrue("Error returned by ListOffsetRequest", response.responseData().get(topicPartition).error == Errors.NONE)
-    val offsets = asScalaBuffer(response.responseData().get(topicPartition).offsets)
+    val offsets = response.responseData.get(topicPartition).offsets.asScala
     assertFalse("Offsets in ListOffsetResponse must fall within the range [logStartOffset, logEndOffset]",
       offsets.exists(_ < log.logStartOffset) || offsets.exists(_ > log.logEndOffset))
     assertTrue("Expected logStartOffset to be present at ListOffsetResponse", offsets.contains(log.logStartOffset))

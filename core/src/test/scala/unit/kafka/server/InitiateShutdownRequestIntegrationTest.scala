@@ -21,7 +21,7 @@ class InitiateShutdownRequestIntegrationTest extends BaseRequestTest {
 
   @Before
   override def setUp(): Unit = {
-    Exit.setExitProcedure((_: Int, _: String) => {
+    Exit.setExitProcedure((_, _) => {
       exited.set(true)
       throw new Exception()
     })

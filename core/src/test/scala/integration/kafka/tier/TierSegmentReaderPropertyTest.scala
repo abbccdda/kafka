@@ -22,7 +22,7 @@ import org.scalatest.FunSuite
 import org.scalatestplus.junit.JUnitRunner
 import org.scalatestplus.scalacheck.Checkers
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.compat.java8.OptionConverters._
 
 /**

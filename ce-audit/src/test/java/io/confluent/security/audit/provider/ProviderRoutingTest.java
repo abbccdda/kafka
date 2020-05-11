@@ -47,6 +47,7 @@ import org.apache.kafka.common.utils.SecurityUtils;
 import org.apache.kafka.common.utils.Utils;
 import org.junit.Test;
 
+@SuppressWarnings("unchecked")
 // Test routing
 public class ProviderRoutingTest {
 

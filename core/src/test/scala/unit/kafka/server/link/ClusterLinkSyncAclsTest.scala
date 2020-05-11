@@ -27,7 +27,7 @@ import org.easymock.EasyMock._
 import org.easymock.{EasyMock => EM}
 import org.junit.{After, Before, Test}
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 class ClusterLinkSyncAclsTest {
 

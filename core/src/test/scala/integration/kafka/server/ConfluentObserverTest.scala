@@ -23,7 +23,8 @@ import org.junit.Assert._
 import org.junit.{After, Before, Test}
 import org.scalatest.Assertions.intercept
 
-import scala.collection.JavaConverters._
+import scala.annotation.nowarn
+import scala.jdk.CollectionConverters._
 import scala.collection.Map
 import scala.collection.Seq
 import scala.compat.java8.OptionConverters._
@@ -689,6 +690,7 @@ final class ConfluentObserverTest extends ZooKeeperTestHarness {
 object ConfluentObserverTest {
   case class BasicConstraint(count: Int, rack: String)
 
+  @nowarn("cat=deprecation")
   private[server] def alterTopicConfigs(adminClient: Admin, topic: String, topicConfigs: Properties): AlterConfigsResult = {
     val configEntries = topicConfigs.asScala.map { case (k, v) => new ConfigEntry(k, v) }.toList.asJava
     val newConfig = new Config(configEntries)

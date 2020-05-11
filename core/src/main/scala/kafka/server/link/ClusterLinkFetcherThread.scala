@@ -17,7 +17,7 @@ import org.apache.kafka.common.requests.{FetchRequest, ListOffsetRequest, Offset
 import org.apache.kafka.common.utils.{LogContext, Time}
 import org.apache.kafka.common.{IsolationLevel, TopicPartition}
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.Map
 
 object ClusterLinkFetcherThread {

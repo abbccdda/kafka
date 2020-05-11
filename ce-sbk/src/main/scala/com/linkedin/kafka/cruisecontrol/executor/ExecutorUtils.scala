@@ -16,7 +16,7 @@ import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.UnsupportedVersionException
 import org.slf4j.{Logger, LoggerFactory}
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.mutable
 import scala.collection.Seq
 
@@ -41,13 +41,13 @@ object ExecutorUtils {
                                       executorAdminUtils: ExecutorAdminUtils,
                                       kafkaZkClient: KafkaZkClient,
                                       reassignmentTasks: java.util.List[ExecutionTask],
-                                      config: KafkaCruiseControlConfig) {
+                                      config: KafkaCruiseControlConfig): Unit = {
     if (reassignmentTasks != null && !reassignmentTasks.isEmpty) {
       val partitionsToReassign = reassignmentTasks.asScala.map(_.proposal.topicPartition()).toSet
       val (inProgressTargetReplicaReassignment: Map[TopicPartition, Seq[Int]], supportsAdminApi: Boolean) =
         fetchTargetReplicasBeingReassigned(adminClient, kafkaZkClient, Some(partitionsToReassign))
 
-      var newReplicaAssignments = if (supportsAdminApi)
+      val newReplicaAssignments = if (supportsAdminApi)
         mutable.Map.empty[TopicPartition, Seq[Int]]
       else
         // ZK reassignment is not incremental so we need to reissue everything
@@ -129,7 +129,7 @@ object ExecutorUtils {
     }
   }
 
-  def executePreferredLeaderElection(kafkaZkClient: KafkaZkClient, tasks: java.util.List[ExecutionTask]) {
+  def executePreferredLeaderElection(kafkaZkClient: KafkaZkClient, tasks: java.util.List[ExecutionTask]): Unit = {
     val partitionsToExecute = tasks.asScala.map(task =>
       new TopicPartition(task.proposal.topic, task.proposal.partitionId)).toSet
 
@@ -138,7 +138,7 @@ object ExecutorUtils {
   }
 
   def partitionsBeingReassigned(adminClient: Admin, kafkaZkClient: KafkaZkClient): util.Set[TopicPartition] =
-    setAsJavaSet(fetchTargetReplicasBeingReassigned(adminClient, kafkaZkClient, None)._1.keySet)
+    fetchTargetReplicasBeingReassigned(adminClient, kafkaZkClient, None)._1.keySet.asJava
 
   /**
    * Fetches the partitions being reassigned in the cluster
@@ -176,7 +176,7 @@ object ExecutorUtils {
   }
 
   def ongoingLeaderElection(kafkaZkClient: KafkaZkClient): util.Set[TopicPartition] = {
-    setAsJavaSet(kafkaZkClient.getPreferredReplicaElection)
+    kafkaZkClient.getPreferredReplicaElection.asJava
   }
 
   def changeBrokerConfig(adminZkClient: AdminZkClient, brokerId: Int, config: Properties): Unit = {
@@ -188,6 +188,6 @@ object ExecutorUtils {
   }
 
   def getAllLiveBrokerIdsInCluster(kafkaZkClient: KafkaZkClient): java.util.List[java.lang.Integer] = {
-    seqAsJavaList(kafkaZkClient.getAllBrokersInCluster.map(_.id : java.lang.Integer))
+    kafkaZkClient.getAllBrokersInCluster.map(_.id : java.lang.Integer).asJava
   }
 }

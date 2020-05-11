@@ -26,6 +26,7 @@ import static junit.framework.TestCase.assertNotNull;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 
+@SuppressWarnings("unchecked")
 public class OrderedKeyPrefixedProtoSerdeTest {
 
   private final static ImmutableMap<AnEnum, ImmutableList<Integer>> FIELDMAP = ImmutableMap.<AnEnum, ImmutableList<Integer>>builder()

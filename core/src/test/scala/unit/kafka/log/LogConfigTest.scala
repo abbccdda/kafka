@@ -31,7 +31,7 @@ import org.junit.{Assert, Test}
 import org.junit.Assert._
 import org.scalatest.Assertions._
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 class LogConfigTest {
 

@@ -5,7 +5,6 @@ import java.nio.ByteBuffer
 import java.util.{Optional, UUID}
 
 import com.amazonaws.services.s3.AmazonS3
-import com.amazonaws.services.s3.model.{InitiateMultipartUploadResult, UploadPartResult}
 import com.amazonaws.services.s3.model.PutObjectRequest
 import kafka.tier.TopicIdPartition
 import org.junit.Assert._
@@ -15,7 +14,7 @@ import org.mockito.ArgumentMatchers.any
 import org.mockito.Captor
 import org.mockito.Mockito.{mock, times, verify, when}
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 class S3TierObjectStoreTest {
   @Test

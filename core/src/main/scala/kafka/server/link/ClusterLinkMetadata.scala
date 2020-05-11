@@ -10,7 +10,7 @@ import org.apache.kafka.common.internals.ClusterResourceListeners
 import org.apache.kafka.common.requests.MetadataRequest
 import org.apache.kafka.common.utils.LogContext
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 object ClusterLinkMetadata {
   def throttleTimeSensorName(linkName: String): String = s"linked-fetcher-throttle-time-$linkName"

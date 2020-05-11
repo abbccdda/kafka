@@ -93,6 +93,7 @@ public class TierTopicManagerCommitter {
     /**
      * Flush TierPartition files to disk and then write consumer offsets to disk.
      */
+    @SuppressWarnings("deprecation")
     public synchronized void flush(Iterator<TierPartitionState> tierPartitionStateIterator) {
         // take a copy of the positions so that we don't commit positions later than what we will flush.
         Map<Integer, OffsetAndEpoch> flushPositions = new HashMap<>(partitionToPosition);
@@ -154,6 +155,7 @@ public class TierTopicManagerCommitter {
         return commitPath(logDir) + ".tmp";
     }
 
+    @SuppressWarnings("deprecation")
     private void clearTempFiles() {
         for (String logDir : config.logDirs) {
             try {
@@ -165,6 +167,7 @@ public class TierTopicManagerCommitter {
         }
     }
 
+    @SuppressWarnings("deprecation")
     static Map<Integer, OffsetAndEpoch> committed(String logDir, LogDirFailureChannel logDirFailureChannel) {
         try (FileReader fr = new FileReader(commitPath(logDir))) {
             try (BufferedReader br = new BufferedReader(fr)) {
@@ -228,6 +231,7 @@ public class TierTopicManagerCommitter {
     }
 
     // package-private for testing
+    @SuppressWarnings("deprecation")
     void writeOffsets(VersionInfo versionInfo, Map<Integer, OffsetAndEpoch> offsets) {
         for (String logDir : config.logDirs) {
             try {

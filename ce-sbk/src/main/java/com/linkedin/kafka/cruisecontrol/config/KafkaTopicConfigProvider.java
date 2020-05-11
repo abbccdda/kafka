@@ -37,6 +37,7 @@ public class KafkaTopicConfigProvider implements TopicConfigProvider {
     }
   }
 
+  @SuppressWarnings("deprecation")
   @Override
   public Map<String, Properties> allTopicConfigs() {
     KafkaZkClient kafkaZkClient = KafkaCruiseControlUtils.createKafkaZkClient(_connectString,

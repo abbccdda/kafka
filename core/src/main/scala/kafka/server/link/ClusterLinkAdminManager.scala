@@ -16,7 +16,7 @@ import org.apache.kafka.common.internals.Topic
 import org.apache.kafka.common.errors.{ClusterAuthorizationException, ClusterLinkExistsException, ClusterLinkInUseException, ClusterLinkNotFoundException, InvalidConfigurationException, InvalidRequestException, UnknownTopicOrPartitionException, UnsupportedVersionException}
 import org.apache.kafka.common.requests.{AlterMirrorsResponse, AlterMirrorsRequest, ApiError, ClusterLinkListing, NewClusterLink}
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.Seq
 
 class ClusterLinkAdminManager(val config: KafkaConfig,

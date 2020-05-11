@@ -12,7 +12,6 @@
   */
 package kafka.admin
 
-import kafka.log.LogConfig
 import kafka.server.{ConfigType, KafkaConfig, KafkaServer}
 import kafka.utils.TestUtils
 import kafka.zk.AdminZkClient

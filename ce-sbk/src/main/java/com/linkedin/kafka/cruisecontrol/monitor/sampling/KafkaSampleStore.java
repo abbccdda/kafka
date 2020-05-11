@@ -336,7 +336,7 @@ public class KafkaSampleStore implements SampleStore {
    * @param topicDescription The description of the topic ot apply the change.
    * @param partitionCount The target partition count of the topic.
    */
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings({"unchecked", "deprecation"})
   private static void maybeIncreaseTopicPartitionCount(KafkaZkClient kafkaZkClient,
                                                        AdminZkClient adminZkClient,
                                                        String topic,
@@ -501,7 +501,7 @@ public class KafkaSampleStore implements SampleStore {
   @Override
   public void close() {
     _shutdown = true;
-    _producer.close(300L, TimeUnit.SECONDS);
+    _producer.close(Duration.ofSeconds(300L));
   }
 
   private void prepareConsumers() {

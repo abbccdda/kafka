@@ -28,9 +28,7 @@ import kafka.server.{ConfigEntityName, ConfigType, KafkaConfig}
 import kafka.utils.{Exit, Logging}
 import kafka.zk.{AdminZkClient, BrokerInfo, KafkaZkClient, ZooKeeperTestHarness}
 import org.apache.kafka.clients.admin._
-import org.apache.kafka.common.config.{ConfigException, ConfigResource}
 import org.apache.kafka.common.config.ConfluentTopicConfig
-import org.apache.kafka.common.internals.KafkaFutureImpl
 import org.apache.kafka.common.Node
 import org.apache.kafka.common.config.{ConfigException, ConfigResource}
 import org.apache.kafka.common.errors.InvalidConfigurationException

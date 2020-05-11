@@ -15,7 +15,7 @@ import org.apache.kafka.common.acl.{AclBinding, AclBindingFilter}
 import org.apache.kafka.common.errors.AuthorizationException
 import org.apache.kafka.server.authorizer.{AclCreateResult, AclDeleteResult}
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 

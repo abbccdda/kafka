@@ -46,6 +46,7 @@ public class TierTopicManagerConfig {
         this.logDirs = logDirs;
     }
 
+    @SuppressWarnings("deprecation")
     public TierTopicManagerConfig(KafkaConfig config,
                                   Supplier<Map<String, Object>> interBrokerClientConfigs,
                                   String clusterId) {

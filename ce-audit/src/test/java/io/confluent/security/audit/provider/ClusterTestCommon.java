@@ -131,6 +131,7 @@ abstract class ClusterTestCommon {
       long timeoutMs, Predicate<AuditLogEntry>... predicates) {
     long startMs = System.currentTimeMillis();
 
+    @SuppressWarnings("varargs")
     HashSet<Predicate<AuditLogEntry>> remainingPredicates = new HashSet<>(
         Arrays.asList(predicates));
     while (System.currentTimeMillis() - startMs < timeoutMs && !remainingPredicates.isEmpty()) {

@@ -13,7 +13,7 @@ import org.apache.kafka.common.requests.{TierListOffsetRequest, TierListOffsetRe
 import org.junit.Assert._
 import org.junit.Test
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 class TierListOffsetRequestTest extends BaseRequestTest {
 

@@ -13,7 +13,7 @@ import org.apache.kafka.common.network.{ChannelBuilders, NetworkReceive, Selecta
 import org.apache.kafka.common.security.JaasContext
 import org.apache.kafka.common.utils.{LogContext, Time}
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.Map
 
 

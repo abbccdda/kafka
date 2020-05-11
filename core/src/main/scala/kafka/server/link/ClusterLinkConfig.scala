@@ -21,7 +21,7 @@ import org.apache.kafka.common.errors.InvalidConfigurationException
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.slf4j.{Logger, LoggerFactory}
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 object ClusterLinkConfigDefaults {
   val NumClusterLinkFetchers = 1

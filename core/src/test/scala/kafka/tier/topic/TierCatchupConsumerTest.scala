@@ -18,7 +18,7 @@ import org.junit.{Before, Test}
 import org.mockito.Mockito.{mock, when}
 import org.scalatest.Assertions.assertThrows
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 class TierCatchupConsumerTest {
   private val topicIdPartitions = TierTestUtils.randomTopicIdPartitions(3, 5)

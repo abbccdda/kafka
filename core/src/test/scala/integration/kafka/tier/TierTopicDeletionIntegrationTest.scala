@@ -14,11 +14,10 @@ import kafka.utils.TestUtils
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.utils.Exit
-import org.apache.kafka.common.utils.Exit.Procedure
 import org.junit.Assert.{assertFalse, assertTrue}
 import org.junit.{After, Before, Test}
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 class TierTopicDeletionIntegrationTest extends IntegrationTestHarness {
   override protected def brokerCount: Int = 3
@@ -43,15 +42,13 @@ class TierTopicDeletionIntegrationTest extends IntegrationTestHarness {
 
   @Before
   override def setUp(): Unit = {
-    Exit.setExitProcedure(new Procedure {
-      override def execute(statusCode: Int, message: String): Unit = exited.set(true)
-    })
+    Exit.setExitProcedure((_, _) => exited.set(true))
     super.setUp()
     createTopic(topic, numPartitions, numReplicas)
   }
 
   @After
-  override def tearDown() {
+  override def tearDown(): Unit = {
     super.tearDown()
     assertFalse(exited.get())
   }

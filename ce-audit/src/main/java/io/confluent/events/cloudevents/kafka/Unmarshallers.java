@@ -51,6 +51,7 @@ public class Unmarshallers {
   private Unmarshallers() {
   }
 
+  @SuppressWarnings("unchecked")
   public static <T extends Message, A extends Attributes> DataUnmarshaller<byte[], T, A>
   binaryUmarshaller(T instance) {
 
@@ -72,6 +73,7 @@ public class Unmarshallers {
     };
   }
 
+  @SuppressWarnings("unchecked")
   public static <T extends Message> HeadersStep<AttributesImpl, T, byte[]> binaryProto(T instance) {
 
     Class<T> type = (Class<T>) instance.getClass();

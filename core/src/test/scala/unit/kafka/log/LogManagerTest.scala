@@ -41,7 +41,7 @@ import org.mockito.Mockito.{doAnswer, spy}
 import org.mockito.invocation.InvocationOnMock
 import org.mockito.stubbing.Answer
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.mutable
 import scala.util.{Failure, Try}
 

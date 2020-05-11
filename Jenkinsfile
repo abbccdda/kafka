@@ -44,9 +44,9 @@ def job = {
         passwordVariable: 'ORG_GRADLE_PROJECT_mavenPassword'
     )]) {
 
-        stage("Check compilation compatibility with Scala 2.12") {
+        stage("Check compilation compatibility with Scala 2.13") {
             sh "./gradlew clean assemble spotlessScalaCheck checkstyleMain checkstyleTest spotbugsMain " +
-                    "--no-daemon --stacktrace -PxmlSpotBugsReport=true -PscalaVersion=2.12"
+                    "--no-daemon --stacktrace -PxmlSpotBugsReport=true -PscalaVersion=2.13"
         }
 
         stage("Compile and validate") {

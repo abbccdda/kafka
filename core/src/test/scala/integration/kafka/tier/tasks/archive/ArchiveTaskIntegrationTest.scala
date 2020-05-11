@@ -10,7 +10,6 @@ import java.util.concurrent.{CompletableFuture, ConcurrentHashMap, ExecutorServi
 
 import kafka.log.{AbstractLog, Log, LogTest, TierLogComponents}
 import kafka.server.{BrokerTopicStats, KafkaConfig, LogDirFailureChannel, ReplicaManager}
-import kafka.server.LogDirFailureChannel
 import kafka.tier.{TierTestUtils, TopicIdPartition}
 import kafka.tier.domain.{AbstractTierMetadata, TierTopicInitLeader}
 import kafka.tier.fetcher.CancellationContext
@@ -25,7 +24,7 @@ import org.junit.Assert.{assertEquals, assertFalse, assertTrue}
 import org.junit.{After, Before, Test}
 import org.mockito.Mockito._
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.compat.java8.FutureConverters._
 import scala.concurrent.duration._
 import scala.concurrent.{Await, ExecutionContext, Future}

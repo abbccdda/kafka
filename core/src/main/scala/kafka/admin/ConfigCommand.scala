@@ -30,7 +30,7 @@ import kafka.utils.{CommandDefaultOptions, CommandLineUtils, Exit, PasswordEncod
 import kafka.utils.Implicits._
 import kafka.zk.{AdminZkClient, KafkaZkClient}
 import org.apache.kafka.clients.CommonClientConfigs
-import org.apache.kafka.clients.admin.{Admin, AdminClient => JAdminClient, AlterClientQuotasOptions, AlterConfigOp, AlterConfigsOptions, ConfigEntry, ConfluentAdmin, DescribeClusterOptions, DescribeConfigsOptions, ListClusterLinksOptions, ListTopicsOptions, Config => JConfig}
+import org.apache.kafka.clients.admin.{Admin, AlterClientQuotasOptions, AlterConfigOp, AlterConfigsOptions, ConfigEntry, ConfluentAdmin, DescribeClusterOptions, DescribeConfigsOptions, ListClusterLinksOptions, ListTopicsOptions, AdminClient => JAdminClient, Config => JConfig}
 import org.apache.kafka.common.config.ConfigResource
 import org.apache.kafka.common.config.ConfluentTopicConfig
 import org.apache.kafka.common.config.types.Password
@@ -42,6 +42,7 @@ import org.apache.kafka.common.security.scram.internals.{ScramCredentialUtils, S
 import org.apache.kafka.common.utils.{Sanitizer, Time, Utils}
 import org.apache.zookeeper.client.ZKClientConfig
 
+import scala.annotation.nowarn
 import scala.jdk.CollectionConverters._
 import scala.collection._
 import scala.compat.java8.OptionConverters._
@@ -318,6 +319,7 @@ object ConfigCommand extends Config {
     }
   }
 
+  @nowarn("cat=deprecation")
   private[admin] def alterConfig(adminClient: Admin, opts: ConfigCommandOptions): Unit = {
     val entityTypes = opts.entityTypes
     val entityNames = opts.entityNames

@@ -19,7 +19,7 @@ class StateSeek(state: FileTierPartitionState,
                 error: AtomicReference[Throwable],
                 latestStartOffset: AtomicLong)
   extends Runnable {
-  def run() {
+  def run(): Unit = {
     while (!shutdown.get()) {
       try {
         val offset = latestStartOffset.get()
@@ -46,7 +46,7 @@ class StateScan(state: FileTierPartitionState,
                 error: AtomicReference[Throwable],
                 latestStartOffset: AtomicLong)
   extends Runnable {
-  def run() {
+  def run(): Unit = {
     var accum = 0L
     var prevSize = 0L
     while (!shutdown.get()) {

@@ -29,7 +29,6 @@ import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.{ConfluentTopicConfig, TopicConfig}
 import org.apache.kafka.common.utils.Exit
-import org.apache.kafka.common.utils.Exit.Procedure
 import org.junit.Assert.{assertEquals, assertFalse}
 import org.junit.{After, Before, Test}
 
@@ -50,15 +49,13 @@ class TierEpochStateRevolvingReplicationTest extends IntegrationTestHarness with
   serverConfig.put(KafkaConfig.LogCleanupIntervalMsProp, "5")
 
   @Before
-  override def setUp() {
-    Exit.setExitProcedure(new Procedure {
-      override def execute(statusCode: Int, message: String): Unit = exited.set(true)
-    })
+  override def setUp(): Unit = {
+    Exit.setExitProcedure((_, _) => exited.set(true))
     super.setUp()
   }
 
   @After
-  override def tearDown() {
+  override def tearDown(): Unit = {
     assertFalse(exited.get())
     super.tearDown()
   }

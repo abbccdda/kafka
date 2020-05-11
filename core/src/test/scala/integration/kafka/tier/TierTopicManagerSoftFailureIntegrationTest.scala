@@ -18,7 +18,7 @@ import org.apache.kafka.common.internals.Topic
 import org.junit.Test
 import org.junit.Assert.assertEquals
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 class TierTopicManagerSoftFailureIntegrationTest extends IntegrationTestHarness {
   override protected def brokerCount: Int = 1

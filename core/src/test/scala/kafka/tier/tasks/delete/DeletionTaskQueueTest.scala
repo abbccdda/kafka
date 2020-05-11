@@ -26,7 +26,7 @@ import org.junit.Test
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.{mock, when}
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.mutable
 import scala.concurrent.Await
 import scala.concurrent.ExecutionContext.Implicits.global

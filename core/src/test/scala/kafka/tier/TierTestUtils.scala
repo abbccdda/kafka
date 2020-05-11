@@ -21,7 +21,7 @@ import org.apache.kafka.common.record.MemoryRecords.RecordFilter
 import org.apache.kafka.common.record.{BufferSupplier, MemoryRecords, Record, RecordBatch, SimpleRecord}
 import org.junit.Assert.assertTrue
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 object TierTestUtils {
   private var tierTopicOffsetAndEpoch = new OffsetAndEpoch(-1, Optional.empty())

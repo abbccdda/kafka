@@ -21,7 +21,7 @@ import java.util
 import java.util.ServiceLoader
 
 import org.apache.kafka.server.license.LicenseValidator
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 // This dummy validator is enabled only in tests which don't have a dependency on `ce-licensing`
 object DummyLicenseValidator {

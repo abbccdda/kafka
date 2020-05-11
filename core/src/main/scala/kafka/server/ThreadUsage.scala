@@ -10,7 +10,7 @@ import org.apache.kafka.common.MetricName
 import org.apache.kafka.common.metrics._
 import org.apache.kafka.common.metrics.stats.Rate
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.Seq
 
 sealed trait ThreadType { def name: String }

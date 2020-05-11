@@ -35,6 +35,7 @@ public class DefaultMetricSamplerPartitionAssignor implements MetricSamplerParti
 
   }
 
+  @SuppressWarnings("deprecation")
   @Override
   public List<Set<TopicPartition>> assignPartitions(Cluster cluster, int numMetricFetchers) {
     if (numMetricFetchers != SUPPORTED_NUM_METRIC_FETCHER) {

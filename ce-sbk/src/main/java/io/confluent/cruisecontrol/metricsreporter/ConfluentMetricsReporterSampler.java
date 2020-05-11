@@ -352,6 +352,7 @@ public class ConfluentMetricsReporterSampler implements MetricSampler {
                 metricName.getMBeanName());
     }
 
+    @SuppressWarnings("deprecation")
     @Override
     public void configure(Map<String, ?> configs) {
 

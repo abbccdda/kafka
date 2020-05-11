@@ -41,6 +41,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
+@SuppressWarnings("unchecked")
 @Category(IntegrationTest.class)
 public class KafkaExporterTest {
 

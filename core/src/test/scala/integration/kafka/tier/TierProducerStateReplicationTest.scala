@@ -52,7 +52,7 @@ class TierProducerStateReplicationTest extends IntegrationTestHarness with Loggi
   }
 
   @Before
-  override def setUp() {
+  override def setUp(): Unit = {
     super.setUp()
     val topicProps = new Properties()
     topicProps.put(ConfluentTopicConfig.TIER_ENABLE_CONFIG, "true")

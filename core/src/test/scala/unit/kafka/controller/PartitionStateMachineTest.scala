@@ -31,7 +31,7 @@ import org.junit.Assert._
 import org.junit.{Before, Test}
 import org.mockito.Mockito
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.Map
 
 class PartitionStateMachineTest {

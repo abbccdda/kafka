@@ -34,7 +34,7 @@ import org.mockito.ArgumentMatchers
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.when
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 final class ObserverPartitionTest {
   import ObserverPartitionTest._

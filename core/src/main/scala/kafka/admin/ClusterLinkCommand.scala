@@ -15,7 +15,7 @@ import org.apache.kafka.common.errors.{ClusterAuthorizationException, TimeoutExc
 import org.apache.kafka.common.requests.NewClusterLink
 import org.apache.kafka.common.utils.{Exit, Utils}
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 object ClusterLinkCommand extends Logging {
 

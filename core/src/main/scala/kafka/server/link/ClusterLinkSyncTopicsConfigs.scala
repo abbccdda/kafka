@@ -9,7 +9,7 @@ import org.apache.kafka.clients.admin.Config
 import org.apache.kafka.common.KafkaFuture
 import org.apache.kafka.common.config.ConfigResource
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.Map
 import scala.collection.mutable
 

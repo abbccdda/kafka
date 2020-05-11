@@ -21,7 +21,6 @@ import java.util.Optional
 import java.util.concurrent.ExecutionException
 
 import kafka.common.AdminCommandFailedException
-import kafka.log.LogConfig
 import kafka.server.{ConfigType, DynamicConfig, KafkaConfig}
 import kafka.utils.{CommandDefaultOptions, CommandLineUtils, CoreUtils, Exit, Json, Logging}
 import kafka.utils.json.JsonValue

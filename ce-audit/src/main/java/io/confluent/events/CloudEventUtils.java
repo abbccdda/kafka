@@ -14,6 +14,7 @@ public class CloudEventUtils {
    * Return the JSON string for this CloudEvent
    */
   // TODO(sumit): rename this to: toStructuredString
+  @SuppressWarnings("unchecked")
   public static String toJsonString(CloudEvent event) {
     Optional<byte[]> b = Marshallers.structuredProto().withEvent(() -> event).marshal()
         .getPayload();

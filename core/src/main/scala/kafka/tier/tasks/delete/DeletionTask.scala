@@ -21,10 +21,10 @@ import kafka.tier.topic.TierTopicAppender
 import kafka.utils.Logging
 import org.apache.kafka.common.utils.Time
 
-import collection.JavaConverters._
 import scala.collection.mutable
 import scala.compat.java8.FutureConverters._
 import scala.concurrent.{ExecutionContext, Future, blocking}
+import scala.jdk.CollectionConverters._
 import scala.util.Try
 
 final class DeletionTask(override val ctx: CancellationContext,

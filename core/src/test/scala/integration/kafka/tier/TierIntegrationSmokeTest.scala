@@ -27,7 +27,7 @@ import org.junit.Assert.{assertEquals, assertFalse, assertTrue}
 import org.junit.{Before, Test}
 import org.junit.After
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 class TierIntegrationSmokeTest extends IntegrationTestHarness {
   override protected def brokerCount: Int = 1
@@ -61,7 +61,7 @@ class TierIntegrationSmokeTest extends IntegrationTestHarness {
   }
 
   @After
-  override def tearDown() {
+  override def tearDown(): Unit = {
     super.tearDown()
     assertFalse(exited.get())
   }

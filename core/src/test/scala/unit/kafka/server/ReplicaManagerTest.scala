@@ -31,7 +31,6 @@ import kafka.metrics.KafkaYammerMetrics
 import kafka.server.HostedPartition.Online
 import kafka.server.QuotaFactory.UnboundedQuota
 import kafka.server.checkpoints.LazyOffsetCheckpoints
-import kafka.server.epoch.LeaderEpochFileCache
 import kafka.server.epoch.util.ReplicaFetcherMockBlockingSend
 import kafka.tier.domain.TierTopicInitLeader
 import kafka.tier.state.TierPartitionState.AppendResult
