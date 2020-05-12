@@ -147,6 +147,10 @@ public class MultiTenantApis {
         return TenantContext.ValueType.GROUP;
       } else if (field.name.equals(CommonFields.TRANSACTIONAL_ID.name)) {
         return TenantContext.ValueType.TRANSACTIONAL_ID;
+      } else if (field.name.equals(CommonFields.LINK_NAME.name)) {
+        return TenantContext.ValueType.LINK_NAME;
+      } else if (field.name.equals(CommonFields.MIRROR_TOPIC.name)) {
+        return TenantContext.ValueType.TOPIC;
       }
     }
     return null;
@@ -266,6 +270,13 @@ public class MultiTenantApis {
           if (field == null) {
             return Optional.some(
                 new AclTenantTransformer(type, TenantTransform.ADD_PREFIX, ApiKeys.DESCRIBE_ACLS));
+          }
+          break;
+
+        case DELETE_CLUSTER_LINKS:
+          if (field != null && field.name.equals("link_names")) {
+            return Optional.some(
+                new ArrayTenantTransformer(type, TenantTransform.ADD_PREFIX));
           }
           break;
 
@@ -597,6 +608,8 @@ public class MultiTenantApis {
       ConfigResource.Type resourceType = ConfigResource.Type.forId(struct.getByte(resourceTypeField));
       switch (resourceType) {
         case TOPIC:
+          return true;
+        case CLUSTER_LINK:
           return true;
         default:
           return false;

@@ -178,4 +178,8 @@ public class TaggedFields extends DocumentedType {
     public String documentation() {
         return "Represents a series of tagged fields.";
     }
+
+    public Map<Integer, Field> fields() {
+        return Collections.unmodifiableMap(fields);
+    }
 }

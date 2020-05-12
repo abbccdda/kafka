@@ -3,15 +3,22 @@
 package io.confluent.kafka.multitenant.schema;
 
 import io.confluent.kafka.multitenant.utils.Optional;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.NavigableMap;
+import java.util.TreeMap;
 import org.apache.kafka.common.errors.ApiException;
 import org.apache.kafka.common.protocol.types.ArrayOf;
 import org.apache.kafka.common.protocol.types.BoundField;
 import org.apache.kafka.common.protocol.types.CompactArrayOf;
 import org.apache.kafka.common.protocol.types.Field;
 import org.apache.kafka.common.protocol.types.ProtocolInternals;
+import org.apache.kafka.common.protocol.types.RawTaggedField;
 import org.apache.kafka.common.protocol.types.Schema;
 import org.apache.kafka.common.protocol.types.SchemaException;
 import org.apache.kafka.common.protocol.types.Struct;
+import org.apache.kafka.common.protocol.types.TaggedFields;
 import org.apache.kafka.common.protocol.types.Type;
 
 import java.nio.ByteBuffer;
@@ -155,6 +162,18 @@ public class TransformableSchema<T extends TransformContext> implements Transfor
     return new TransformableSchema<>(schema, transformableFields);
   }
 
+  private static <T extends TransformContext> TransformableTaggedFields<T> buildTransformableTaggedFields(
+      TaggedFields taggedFields, FieldSelector<T> selector) {
+    Map<Integer, Field> fields = taggedFields.fields();
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    Map<Integer, TransformableType<T>> transformableFields = new HashMap<>(fields.size());
+    fields.forEach((tag, field) -> {
+      TransformableType<T> transformableType = buildTransformableType(field, field.type, selector);
+      transformableFields.put(tag, transformableType);
+    });
+    return new TransformableTaggedFields<T>(transformableFields);
+  }
+
   private static <T extends TransformContext> TransformableType<T> buildTransformableType(
       Field field, Type type, FieldSelector<T> selector) {
     Optional<TransformableType<T>> optionalTransformableType =
@@ -169,6 +188,8 @@ public class TransformableSchema<T extends TransformContext> implements Transfor
     } else if (type instanceof CompactArrayOf) {
       return new TransformableCompactArrayOf<>(buildTransformableType(field, type.arrayElementType().get(),
           selector), type.isNullable());
+    } else if (type instanceof TaggedFields) {
+      return buildTransformableTaggedFields((TaggedFields) type, selector);
     } else {
       return new TypeForwarder<>(type);
     }
@@ -293,4 +314,80 @@ public class TransformableSchema<T extends TransformContext> implements Transfor
 
   }
 
+  public static class TransformableTaggedFields<T extends TransformContext> implements TransformableType<T> {
+
+    private final Map<Integer, TransformableType<T>> fields;
+
+    public TransformableTaggedFields(Map<Integer, TransformableType<T>> fields) {
+      this.fields = fields;
+    }
+
+    @SuppressWarnings("unchecked")
+    @Override
+    public void write(ByteBuffer buffer, Object o, T ctx) {
+      NavigableMap<Integer, Object> objects = (NavigableMap<Integer, Object>) o;
+      ByteUtils.writeUnsignedVarint(objects.size(), buffer);
+      for (Map.Entry<Integer, Object> entry : objects.entrySet()) {
+        Integer tag = entry.getKey();
+        ByteUtils.writeUnsignedVarint(tag, buffer);
+        TransformableType<T> type = fields.get(tag);
+        if (type == null) {
+          RawTaggedField value = (RawTaggedField) entry.getValue();
+          ByteUtils.writeUnsignedVarint(value.data().length, buffer);
+          buffer.put(value.data());
+        } else {
+          ByteUtils.writeUnsignedVarint(type.sizeOf(entry.getValue(), ctx), buffer);
+          type.write(buffer, entry.getValue(), ctx);
+        }
+      }
+    }
+
+    @Override
+    public Object read(ByteBuffer buffer, T ctx) {
+      int numTaggedFields = ByteUtils.readUnsignedVarint(buffer);
+      if (numTaggedFields == 0) {
+        return Collections.emptyNavigableMap();
+      }
+      NavigableMap<Integer, Object> objects = new TreeMap<>();
+      int prevTag = -1;
+      for (int i = 0; i < numTaggedFields; i++) {
+        int tag = ByteUtils.readUnsignedVarint(buffer);
+        if (tag <= prevTag) {
+          throw new RuntimeException("Invalid or out-of-order tag " + tag);
+        }
+        prevTag = tag;
+        int size = ByteUtils.readUnsignedVarint(buffer);
+        TransformableType<T> type = fields.get(tag);
+        if (type == null) {
+          byte[] bytes = new byte[size];
+          buffer.get(bytes);
+          objects.put(tag, new RawTaggedField(tag, bytes));
+        } else {
+          objects.put(tag, type.read(buffer, ctx));
+        }
+      }
+      return objects;
+    }
+
+    @SuppressWarnings("unchecked")
+    @Override
+    public int sizeOf(Object o, T ctx) {
+      int size = 0;
+      NavigableMap<Integer, Object> objects = (NavigableMap<Integer, Object>) o;
+      size += ByteUtils.sizeOfUnsignedVarint(objects.size());
+      for (Map.Entry<Integer, Object> entry : objects.entrySet()) {
+        Integer tag = entry.getKey();
+        size += ByteUtils.sizeOfUnsignedVarint(tag);
+        TransformableType<T> type = fields.get(tag);
+        if (type == null) {
+          RawTaggedField value = (RawTaggedField) entry.getValue();
+          size += value.data().length + ByteUtils.sizeOfUnsignedVarint(value.data().length);
+        } else {
+          int valueSize = type.sizeOf(entry.getValue(), ctx);
+          size += valueSize + ByteUtils.sizeOfUnsignedVarint(valueSize);
+        }
+      }
+      return size;
+    }
+  }
 }
