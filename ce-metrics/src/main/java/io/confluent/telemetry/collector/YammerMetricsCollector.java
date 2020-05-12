@@ -122,18 +122,25 @@ public class YammerMetricsCollector implements MetricsCollector {
                 log.trace("Processing {}", metricName);
 
                 if (metric instanceof Gauge) {
-                    collectGauge(name, labels, (Gauge) metric).ifPresent(exporter::emit);
+                    collectGauge(name, labels, ((Gauge<?>) metric).value()).ifPresent(exporter::emit);
                 } else if (metric instanceof Counter) {
-                    collectCounter(name, labels, (Counter) metric).ifPresent(exporter::emit);
+                    long count = ((Counter) metric).count();
+                    collectCounter(name, labels, count).ifPresent(exporter::emit);
                     // Derived metric, results in a name like /delta.
-                    collectDelta(name, labels, ((Counter) metric).count(), metricAddedInstant).ifPresent(exporter::emit);
+                    collectDelta(name, labels, count, metricAddedInstant).ifPresent(exporter::emit);
                 } else if (metric instanceof Meter) {
-                    // Only collect the counters and append "/total" to the end.
+                    // Only collect counters and 1min rate
+                    Meter meter = (Meter) metric;
+                    long count = meter.count();
+                    double rateOneMinute = meter.oneMinuteRate();
+
                     String meterName = name + "/total";
                     // Derived metric, results in a name like /total.
-                    collectMeter(meterName, labels, (Meter) metric).ifPresent(exporter::emit);
+                    collectMeter(meterName, labels, count).ifPresent(exporter::emit);
                     // Derived metric, results in a name like /total/delta.
-                    collectDelta(meterName, labels, ((Meter) metric).count(), metricAddedInstant).ifPresent(exporter::emit);
+                    collectDelta(meterName, labels, count, metricAddedInstant).ifPresent(exporter::emit);
+                    // Derived metric, results in a name like /rate/1_min.
+                    collectGauge(name + "/rate/1_min", labels, rateOneMinute).ifPresent(exporter::emit);
                 } else if (metric instanceof Timer) {
                     collectTimer(name, labels, (Timer) metric).ifPresent(exporter::emit);
                     // Derived metric, results in a name like /time/delta
@@ -172,46 +179,45 @@ public class YammerMetricsCollector implements MetricsCollector {
         return this.getClass().getCanonicalName();
     }
 
-    private Optional<Metric> collectGauge(String metricName, Map<String, String> labels, com.yammer.metrics.core.Gauge gauge) {
+    private Optional<Metric> collectGauge(String metricName, Map<String, String> labels, Object gaugeValue) {
         if (!isWhitelist(new MetricKey(metricName, labels))) {
             return Optional.empty();
         }
 
         // Figure out which gauge instance and call the right method to get value
-        Object value = gauge.value();
         Point.Builder point = Point.newBuilder().setTimestamp(MetricsUtils.now(clock));
 
-        if (value instanceof Integer || value instanceof Long) {
-            point.setInt64Value(((Number) value).longValue());
+        if (gaugeValue instanceof Integer || gaugeValue instanceof Long) {
+            point.setInt64Value(((Number) gaugeValue).longValue());
             return Optional.of(context
                 .metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.GAUGE_INT64, labels, point.build()));
 
-        } else if (value instanceof Float || value instanceof Double) {
-            point.setDoubleValue(((Number) value).doubleValue());
+        } else if (gaugeValue instanceof Float || gaugeValue instanceof Double) {
+            point.setDoubleValue(((Number) gaugeValue).doubleValue());
             return Optional.of(context
                 .metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.GAUGE_DOUBLE, labels, point.build()));
 
-        } else if (value instanceof Boolean) {
-            point.setInt64Value(((Boolean) value) ? 1 : 0);
+        } else if (gaugeValue instanceof Boolean) {
+            point.setInt64Value(((Boolean) gaugeValue) ? 1 : 0);
             return Optional.of(context
                 .metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.GAUGE_INT64, labels, point.build()));
 
         } else {
             // Ignoring Gauge (gauge.getKey()) with unhandled type.
-            log.debug("Ignoring {} value = {}", metricName, value);
+            log.debug("Ignoring {} value = {}", metricName, gaugeValue);
             return Optional.empty();
         }
 
     }
 
-    private Optional<Metric> collectCounter(String metricName, Map<String, String> labels, Counter counter) {
+    private Optional<Metric> collectCounter(String metricName, Map<String, String> labels, long counterValue) {
         if (!isWhitelist(new MetricKey(metricName, labels))) {
             return Optional.empty();
         }
 
         Point point = Point.newBuilder()
                 .setTimestamp(MetricsUtils.now(clock))
-                .setInt64Value(counter.count())
+                .setInt64Value(counterValue)
                 .build();
         return Optional.of(context.metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.CUMULATIVE_INT64, labels, point));
     }
@@ -273,14 +279,14 @@ public class YammerMetricsCollector implements MetricsCollector {
     }
 
 
-    private Optional<Metric> collectMeter(String metricName, Map<String, String> labels, Meter meter) {
+    private Optional<Metric> collectMeter(String metricName, Map<String, String> labels, long meterCount) {
         if (!isWhitelist(new MetricKey(metricName, labels))) {
             return Optional.empty();
         }
 
         Point point = Point.newBuilder()
                 .setTimestamp(MetricsUtils.now(clock))
-                .setInt64Value(meter.count())
+                .setInt64Value(meterCount)
                 .build();
         return Optional.of(context.metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.CUMULATIVE_INT64, labels, point));
     }

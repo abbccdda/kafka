@@ -95,17 +95,26 @@ public class YammerMetricsCollectorTest {
     collector.collect(exporter);
     List<Metric> result = exporter.emittedMetrics();
 
-    assertEquals("Should get exactly 2 metrics", 2, result.size());
+    assertEquals("Should get exactly 2 metrics", 3, result.size());
 
 
     // meter (counter) metric
-    Metric meterMetric = result.stream()
+    Metric counterMetric = result.stream()
         .filter(m -> m.getMetricDescriptor().getName().equals("test-domain/type1/name1/total"))
         .findFirst().get();
 
-    assertEquals("Resource should match", context.getResource(), meterMetric.getResource());
-    assertEquals("Type should match", Type.CUMULATIVE_INT64, meterMetric.getMetricDescriptor().getType());
-    assertEquals("values should match", 100L, meterMetric.getTimeseries(0).getPoints(0).getInt64Value());
+    assertEquals("Resource should match", context.getResource(), counterMetric.getResource());
+    assertEquals("Type should match", Type.CUMULATIVE_INT64, counterMetric.getMetricDescriptor().getType());
+    assertEquals("values should match", 100L, counterMetric.getTimeseries(0).getPoints(0).getInt64Value());
+
+    // meter (counter) metric
+    Metric rateMetric = result.stream()
+        .filter(m -> m.getMetricDescriptor().getName().equals("test-domain/type1/name1/rate/1_min"))
+        .findFirst().get();
+
+    assertEquals("Resource should match", context.getResource(), rateMetric.getResource());
+    assertEquals("Type should match", Type.GAUGE_DOUBLE, rateMetric.getMetricDescriptor().getType());
+    assertEquals("values should match", 0.0, rateMetric.getTimeseries(0).getPoints(0).getDoubleValue(), 0.0);
 
 
     // getAndSet metric.
@@ -548,7 +557,7 @@ public class YammerMetricsCollectorTest {
     List<Metric> result = exporter.emittedMetrics();
 
     // no-filter shall result in all 11 data metrics.
-    assertThat(result).hasSize(11);
+    assertThat(result).hasSize(12);
 
     exporter.reset();
     collector = collectorBuilder
@@ -557,7 +566,7 @@ public class YammerMetricsCollectorTest {
     collector.collect(exporter);
     result = exporter.emittedMetrics();
     // Drop complete metrics for Gauge type.
-    assertThat(result).hasSize(10);
+    assertThat(result).hasSize(11);
 
     exporter.reset();
     collector = collectorBuilder
@@ -566,7 +575,7 @@ public class YammerMetricsCollectorTest {
     collector.collect(exporter);
     result = exporter.emittedMetrics();
     // Drop complete metrics for Counter type.
-    assertThat(result).hasSize(9);
+    assertThat(result).hasSize(10);
 
     exporter.reset();
     collector = collectorBuilder
@@ -584,7 +593,7 @@ public class YammerMetricsCollectorTest {
     collector.collect(exporter);
     result = exporter.emittedMetrics();
     // Drop complete metrics for Timer type.
-    assertThat(result).hasSize(8);
+    assertThat(result).hasSize(9);
 
     exporter.reset();
     collector = collectorBuilder
@@ -593,7 +602,7 @@ public class YammerMetricsCollectorTest {
     collector.collect(exporter);
     result = exporter.emittedMetrics();
     // Drop complete metrics for Histogram type.
-    assertThat(result).hasSize(8);
+    assertThat(result).hasSize(9);
 
     exporter.reset();
     collector = collectorBuilder
@@ -602,7 +611,7 @@ public class YammerMetricsCollectorTest {
     collector.collect(exporter);
     result = exporter.emittedMetrics();
     // Drop all delta derived metrics. Just capture all 5 metrics non-derived metrics.
-    assertThat(result).hasSize(5);
+    assertThat(result).hasSize(6);
 
     exporter.reset();
     collector = collectorBuilder
@@ -611,7 +620,7 @@ public class YammerMetricsCollectorTest {
     collector.collect(exporter);
     result = exporter.emittedMetrics();
     // Drop one of Meter derived metric.
-    assertThat(result).hasSize(10);
+    assertThat(result).hasSize(11);
 
     exporter.reset();
     collector = collectorBuilder
@@ -620,7 +629,7 @@ public class YammerMetricsCollectorTest {
     collector.collect(exporter);
     result = exporter.emittedMetrics();
     // Drop '/total/delta' derived metrics from Meter, Timer, Histogram.
-    assertThat(result).hasSize(8);
+    assertThat(result).hasSize(9);
 
     exporter.reset();
     collector = collectorBuilder
@@ -629,7 +638,7 @@ public class YammerMetricsCollectorTest {
     collector.collect(exporter);
     result = exporter.emittedMetrics();
     // Drop '/time/delta' derived metrics from Timer and Histogram.
-    assertThat(result).hasSize(9);
+    assertThat(result).hasSize(10);
   }
 
   @Test
