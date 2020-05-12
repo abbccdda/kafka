@@ -544,15 +544,15 @@ class ObserverTest {
       brokers, TopicPlacement.parse(placementJson).asScala, numPartitions = 15,
       replicationFactor = 3, fixedStartIndex = 2, startPartitionId = 3)
 
-    // Confirm that first partition has assignment of (2, 1, 3, 4) and observer have (12, 11, 13)
+    // Confirm that partition `5` has assignment of (2, 1, 3, 4) and observer have (12, 11, 13)
     // This is because fixedStartIndex = 2, which picks the third broker (zero based indexing) in the list
     // of replica and observer broker as first broker. Then the second broker will be 4th in the list starting
     // with the third as startPartitionId = 3.
     // To take replica as an example, broker list is (0, 1, 2, 3, 4). The third in the list is 2, so the
     // assignment will start with 2. Then the 4th broker after 2 is 1 (skipping 3, 4, and 0). This creates
     // assignment of (2, 1, 3, 4)
-    assertEquals(Seq(2, 1, 3, 4), partitionAssignment.values.head.replicas.slice(0, 4))
-    assertEquals(Seq(12, 11, 13), partitionAssignment.values.head.observers)
+    assertEquals(Seq(2, 1, 3, 4), partitionAssignment(5).replicas.slice(0, 4))
+    assertEquals(Seq(12, 11, 13), partitionAssignment(5).observers)
 
     // Test if replica and observer assignment was done as per placement constraint
     partitionAssignment.values.map(_.replicas).foreach { assignedBrokers => {
