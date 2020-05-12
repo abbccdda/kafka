@@ -380,8 +380,8 @@ public class AnomalyDetector {
     private boolean isAnomalyInProgressReadyToFix(AnomalyType anomalyType) {
       LoadMonitorTaskRunner.LoadMonitorTaskRunnerState loadMonitorTaskRunnerState = _loadMonitor.taskRunnerState();
 
-      // Fixing anomalies is possible only when (1) the state is not in and unavailable state ( e.g. loading or
-      // bootstrapping) and (2) the completeness requirements are met for all goals.
+      // Fixing anomalies is possible only when (1) the state is not in and unavailable state ( e.g. loading)
+      // and (2) the completeness requirements are met for all goals.
       if (!ViolationUtils.isLoadMonitorReady(loadMonitorTaskRunnerState)) {
         LOG.info("Skipping {} fix because load monitor is in {} state.", anomalyType, loadMonitorTaskRunnerState);
         _anomalyDetectorState.onAnomalyHandle(_anomalyInProgress, AnomalyState.Status.LOAD_MONITOR_NOT_READY);

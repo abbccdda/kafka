@@ -24,7 +24,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import static com.linkedin.kafka.cruisecontrol.monitor.task.LoadMonitorTaskRunner.LoadMonitorTaskRunnerState.NOT_STARTED;
-import static com.linkedin.kafka.cruisecontrol.monitor.task.LoadMonitorTaskRunner.LoadMonitorTaskRunnerState.BOOTSTRAPPING;
 import static com.linkedin.kafka.cruisecontrol.monitor.task.LoadMonitorTaskRunner.LoadMonitorTaskRunnerState.TRAINING;
 import static com.linkedin.kafka.cruisecontrol.monitor.task.LoadMonitorTaskRunner.LoadMonitorTaskRunnerState.LOADING;
 import static com.linkedin.kafka.cruisecontrol.monitor.task.LoadMonitorTaskRunner.LoadMonitorTaskRunnerState.RUNNING;
@@ -52,13 +51,12 @@ public class LoadMonitorTaskRunner {
   private final long _configuredWindowMs;
 
   private AtomicReference<LoadMonitorTaskRunnerState> _state;
-  private volatile double _bootstrapProgress;
   private volatile boolean _awaitingPauseSampling;
   // The reason for pausing or resuming metric sampling.
   private volatile String _reasonOfLatestPauseOrResume;
 
   public enum LoadMonitorTaskRunnerState {
-    NOT_STARTED, RUNNING, PAUSED, SAMPLING, BOOTSTRAPPING, TRAINING, LOADING
+    NOT_STARTED, RUNNING, PAUSED, SAMPLING, TRAINING, LOADING
   }
 
   /**
@@ -121,71 +119,8 @@ public class LoadMonitorTaskRunner {
     _configuredWindowMs = config.getLong(KafkaCruiseControlConfig.PARTITION_METRICS_WINDOW_MS_CONFIG);
 
     _state = new AtomicReference<>(NOT_STARTED);
-    _bootstrapProgress = -1.0;
     _awaitingPauseSampling = false;
     _reasonOfLatestPauseOrResume = null;
-  }
-
-  /**
-   * Bootstrap to load the workload snapshot from the stored MetricSamples from external source.
-   * This function does not refresh metadata and does not retry.
-   *
-   * @param startMs the starting time of the period to bootstrap.
-   * @param endMs the end time of the period to bootstrap.
-   * @param clearMetrics clear the existing metric samples.
-   */
-  public void bootstrap(long startMs, long endMs, boolean clearMetrics) {
-
-    if (_state.compareAndSet(RUNNING, BOOTSTRAPPING)) {
-      _samplingScheduler.submit(new BootstrapTask(startMs, endMs, clearMetrics, _metadataClient,
-          _partitionMetricSampleAggregator,
-                                                  this, _metricFetcherManager, _sampleStore, _configuredNumWindows,
-                                                  _configuredWindowMs, _samplingIntervalMs, _time));
-    } else {
-      throw new IllegalStateException("Cannot bootstrap because the load monitor in " + _state.get() + " state.");
-    }
-  }
-
-  /**
-   * Bootstrap to load the workload snapshot from the stored MetricSamples from external source.
-   * This function does not refresh metadata and does not retry.
-   *
-   * @param startMs the starting time of the period to bootstrap.
-   * @param clearMetrics clear the existing metric samples.
-   */
-  public void bootstrap(long startMs, boolean clearMetrics) {
-
-    if (_state.compareAndSet(RUNNING, BOOTSTRAPPING)) {
-      _samplingScheduler.submit(new BootstrapTask(startMs, clearMetrics, _metadataClient,
-          _partitionMetricSampleAggregator,
-                                                  this, _metricFetcherManager, _sampleStore, _configuredNumWindows,
-                                                  _configuredWindowMs, _samplingIntervalMs, _time));
-    } else {
-      throw new IllegalStateException("Cannot bootstrap because the load monitor in " + _state.get() + " state.");
-    }
-  }
-
-  /**
-   * Bootstrap to load the workload snapshot from the stored MetricSamples from external source.
-   * This function does not refresh metadata and does not retry.
-   *
-   * @param clearMetrics clear the existing metric samples.
-   */
-  public void bootstrap(boolean clearMetrics) {
-    if (_state.compareAndSet(RUNNING, BOOTSTRAPPING)) {
-      _samplingScheduler.submit(new BootstrapTask(clearMetrics, _metadataClient, _partitionMetricSampleAggregator,
-                                                  this, _metricFetcherManager, _sampleStore, _configuredNumWindows,
-                                                  _configuredWindowMs, _samplingIntervalMs, _time));
-    } else {
-      throw new IllegalStateException("Cannot bootstrap because the load monitor is in " + _state.get() + " state.");
-    }
-  }
-
-  /**
-   * Get the bootstrap progress.
-   */
-  public double bootStrapProgress() {
-    return _bootstrapProgress;
   }
 
   /**
@@ -321,7 +256,4 @@ public class LoadMonitorTaskRunner {
     _state.set(newState);
   }
 
-  void setBootstrapProgress(double progress) {
-    _bootstrapProgress = progress;
-  }
 }

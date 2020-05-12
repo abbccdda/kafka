@@ -14,13 +14,12 @@ public class ViolationUtils {
   }
 
   /**
-   * Check whether the load monitor state is ready -- i.e. not in loading or bootstrapping state.
+   * Check whether the load monitor state is ready -- i.e. not in loading state
    *
    * @param loadMonitorTaskRunnerState Load monitor task runner state.
    * @return True if the load monitor is ready, false otherwise.
    */
   public static boolean isLoadMonitorReady(LoadMonitorTaskRunner.LoadMonitorTaskRunnerState loadMonitorTaskRunnerState) {
-    return !(loadMonitorTaskRunnerState == LoadMonitorTaskRunner.LoadMonitorTaskRunnerState.LOADING
-           || loadMonitorTaskRunnerState == LoadMonitorTaskRunner.LoadMonitorTaskRunnerState.BOOTSTRAPPING);
+    return !(loadMonitorTaskRunnerState == LoadMonitorTaskRunner.LoadMonitorTaskRunnerState.LOADING);
   }
 }

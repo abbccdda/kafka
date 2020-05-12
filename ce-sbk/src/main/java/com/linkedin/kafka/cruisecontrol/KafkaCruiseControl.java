@@ -13,9 +13,7 @@ import com.linkedin.kafka.cruisecontrol.async.progress.OperationProgress;
 import com.linkedin.kafka.cruisecontrol.common.KafkaCruiseControlThreadFactory;
 import com.linkedin.kafka.cruisecontrol.common.MetadataClient;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
-import com.linkedin.kafka.cruisecontrol.config.TopicConfigProvider;
 import com.linkedin.kafka.cruisecontrol.detector.AnomalyDetector;
-import com.linkedin.kafka.cruisecontrol.detector.notifier.AnomalyType;
 import com.linkedin.kafka.cruisecontrol.exception.KafkaCruiseControlException;
 import com.linkedin.kafka.cruisecontrol.executor.ExecutionProposal;
 import com.linkedin.kafka.cruisecontrol.executor.Executor;
@@ -25,46 +23,35 @@ import com.linkedin.kafka.cruisecontrol.model.Broker;
 import com.linkedin.kafka.cruisecontrol.model.ClusterModel;
 import com.linkedin.kafka.cruisecontrol.model.ModelParameters;
 import com.linkedin.kafka.cruisecontrol.model.ModelUtils;
-import com.linkedin.kafka.cruisecontrol.model.ReplicaPlacementInfo;
 import com.linkedin.kafka.cruisecontrol.monitor.LoadMonitor;
 import com.linkedin.kafka.cruisecontrol.monitor.ModelCompletenessRequirements;
 import com.linkedin.kafka.cruisecontrol.monitor.MonitorUtils;
 import com.linkedin.kafka.cruisecontrol.monitor.metricdefinition.KafkaMetricDef;
 import com.linkedin.kafka.cruisecontrol.servlet.response.CruiseControlState;
-import com.linkedin.kafka.cruisecontrol.servlet.response.stats.BrokerStats;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import org.apache.kafka.common.Cluster;
-import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.utils.SystemTime;
 import org.apache.kafka.common.utils.Time;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.InputStream;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.ensureDisJoint;
 import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.isKafkaAssignerMode;
-import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.populateRackInfoForReplicationFactorChange;
 import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.sanityCheckBrokersHavingOfflineReplicasOnBadDisks;
-import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.sanityCheckNoOfflineReplica;
 import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.sanityCheckNonExistingGoal;
 import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.sanityCheckOfflineReplicaPresence;
 import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.shouldRefreshClusterAndGeneration;
-import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.topicsForReplicationFactorChange;
-import static com.linkedin.kafka.cruisecontrol.model.Disk.State.DEMOTED;
 import static com.linkedin.kafka.cruisecontrol.servlet.response.CruiseControlState.SubState.ANALYZER;
 import static com.linkedin.kafka.cruisecontrol.servlet.response.CruiseControlState.SubState.ANOMALY_DETECTOR;
 import static com.linkedin.kafka.cruisecontrol.servlet.response.CruiseControlState.SubState.EXECUTOR;
@@ -84,21 +71,6 @@ public class KafkaCruiseControl {
   private final AnomalyDetector _anomalyDetector;
   private final Time _time;
 
-  private static final String VERSION;
-  private static final String COMMIT_ID;
-
-  // Referenced similar method to get software version in Kafka code.
-  static {
-    Properties props = new Properties();
-    try (InputStream resourceStream = KafkaCruiseControl.class.getResourceAsStream("/cruise-control/cruise-control-version.properties")) {
-      props.load(resourceStream);
-    } catch (Exception e) {
-      LOG.warn("Error while loading cruise-control-version.properties :" + e.getMessage());
-    }
-    VERSION = props.getProperty("version", "unknown").trim();
-    COMMIT_ID = props.getProperty("commitId", "unknown").trim();
-    LOG.info("COMMIT INFO: " + VERSION + "---" + COMMIT_ID);
-  }
   /**
    * Construct the Cruise Control
    *
@@ -334,88 +306,6 @@ public class KafkaCruiseControl {
   }
 
   /**
-   * Add brokers
-   * @param brokerIds The broker ids.
-   * @param dryRun Whether it is a dry run or not.
-   * @param throttleAddedBrokers Whether throttle the brokers that are being added.
-   * @param goals The goal names (i.e. each matching {@link Goal#name()}) to be met when adding the brokers.
-   *              When empty all goals will be used.
-   * @param requirements The cluster model completeness requirements.
-   * @param operationProgress The progress of the job to update.
-   * @param allowCapacityEstimation Allow capacity estimation in cluster model if the requested broker capacity is unavailable.
-   * @param concurrentInterBrokerPartitionMovements The maximum number of concurrent inter-broker partition movements per broker
-   *                                                (if null, use num.concurrent.partition.movements.per.broker).
-   * @param concurrentLeaderMovements The maximum number of concurrent leader movements
-   *                                  (if null, use num.concurrent.leader.movements).
-   * @param skipHardGoalCheck True if the provided {@code goals} do not have to contain all hard goals, false otherwise.
-   * @param excludedTopics Topics excluded from partition movement (if null, use topics.excluded.from.partition.movement)
-   * @param replicaMovementStrategy The strategy used to determine the execution order of generated replica movement tasks
-   *                                (if null, use default.replica.movement.strategies).
-   * @param replicationThrottle The replication throttle (bytes/second) to apply to both leaders and followers
-   *                            when adding brokers (if null, no throttling is applied).
-   * @param uuid UUID of the execution.
-   * @param excludeRecentlyDemotedBrokers Exclude recently demoted brokers from proposal generation for leadership transfer.
-   * @param excludeRecentlyRemovedBrokers Exclude recently removed brokers from proposal generation for replica transfer.
-   * @return The optimization result.
-   * @throws KafkaCruiseControlException When any exception occurred during the broker addition.
-   */
-  public OptimizerResult addBrokers(Set<Integer> brokerIds,
-                                                  boolean dryRun,
-                                                  boolean throttleAddedBrokers,
-                                                  List<String> goals,
-                                                  ModelCompletenessRequirements requirements,
-                                                  OperationProgress operationProgress,
-                                                  boolean allowCapacityEstimation,
-                                                  Integer concurrentInterBrokerPartitionMovements,
-                                                  Integer concurrentLeaderMovements,
-                                                  boolean skipHardGoalCheck,
-                                                  Pattern excludedTopics,
-                                                  ReplicaMovementStrategy replicaMovementStrategy,
-                                                  Long replicationThrottle,
-                                                  String uuid,
-                                                  boolean excludeRecentlyDemotedBrokers,
-                                                  boolean excludeRecentlyRemovedBrokers) throws KafkaCruiseControlException {
-    sanityCheckDryRun(dryRun);
-    sanityCheckHardGoalPresence(goals, skipHardGoalCheck);
-    List<Goal> goalsByPriority = goalsByPriority(goals);
-    ModelCompletenessRequirements modelCompletenessRequirements =
-        modelCompletenessRequirements(goalsByPriority).weaker(requirements);
-    try (AutoCloseable ignored = _loadMonitor.acquireForModelGeneration(operationProgress)) {
-      sanityCheckBrokerPresence(brokerIds);
-      ClusterModel clusterModel = _loadMonitor.clusterModel(_time.milliseconds(),
-                                                            modelCompletenessRequirements,
-                                                            operationProgress);
-      sanityCheckBrokersHavingOfflineReplicasOnBadDisks(goals, clusterModel);
-      brokerIds.forEach(id -> clusterModel.setBrokerState(id, Broker.State.NEW));
-      OptimizerResult result = getProposals(clusterModel,
-                                            goalsByPriority,
-                                            operationProgress,
-                                            allowCapacityEstimation,
-                                            excludedTopics,
-                                            excludeRecentlyDemotedBrokers,
-                                            excludeRecentlyRemovedBrokers,
-                                            false,
-                                            Collections.emptySet());
-      if (!dryRun) {
-        executeProposals(result.goalProposals(),
-                         throttleAddedBrokers ? Collections.emptySet() : brokerIds,
-                         isKafkaAssignerMode(goals),
-                         concurrentInterBrokerPartitionMovements,
-                         null,
-                         concurrentLeaderMovements,
-                         replicaMovementStrategy,
-                         replicationThrottle,
-                         uuid);
-      }
-      return result;
-    } catch (KafkaCruiseControlException kcce) {
-      throw kcce;
-    } catch (Exception e) {
-      throw new KafkaCruiseControlException(e);
-    }
-  }
-
-  /**
    * Sanity check that if current request is not a dryrun, there is
    * (1) no ongoing execution in current Cruise Control deployment.
    * (2) no ongoing partition reassignment, which could be triggered by other admin tools or previous Cruise Control deployment.
@@ -502,107 +392,74 @@ public class KafkaCruiseControl {
     return result;
   }
 
+
   /**
-   * Demote given brokers by making all the replicas on these brokers the least preferred replicas for leadership election
-   * within their corresponding partitions and then triggering a preferred leader election on the partitions to migrate
-   * the leader replicas off the brokers.
-   *
-   * The result of the broker demotion is not guaranteed to be able to move all the leaders away from the
-   * given brokers. The operation is with best effort. There are various possibilities that some leaders
-   * cannot be migrated (e.g. no other broker is in the ISR).
-   *
-   * Also, this method is stateless, i.e. a demoted broker will not remain in a demoted state after this
-   * operation. If there is another broker failure, the leader may be moved to the demoted broker again
-   * by Kafka controller.
-   *
-   * @param brokerIds The id of brokers to be demoted.
-   * @param brokerIdAndLogdirs The logdir of disks to be demoted.
-   * @param dryRun Whether it is a dry run or not.
-   * @param operationProgress The progress of the job to report.
+   * Add brokers
+   * @param brokerIds The broker ids.
+   * @param requirements The cluster model completeness requirements.
+   * @param operationProgress The progress of the job to update.
    * @param allowCapacityEstimation Allow capacity estimation in cluster model if the requested broker capacity is unavailable.
+   * @param concurrentInterBrokerPartitionMovements The maximum number of concurrent inter-broker partition movements per broker
+   *                                                (if null, use num.concurrent.partition.movements.per.broker).
    * @param concurrentLeaderMovements The maximum number of concurrent leader movements
    *                                  (if null, use num.concurrent.leader.movements).
-   * @param skipUrpDemotion Whether operate on partitions which are currently under replicated.
-   * @param excludeFollowerDemotion Whether operate on the partitions which only have follower replicas on the brokers.
    * @param replicaMovementStrategy The strategy used to determine the execution order of generated replica movement tasks
    *                                (if null, use default.replica.movement.strategies).
    * @param replicationThrottle The replication throttle (bytes/second) to apply to both leaders and followers
-   *                            when demoting brokers (if null, no throttling is applied).
+   *                            when adding brokers (if null, no throttling is applied).
    * @param uuid UUID of the execution.
-   * @param excludeRecentlyDemotedBrokers Exclude recently demoted brokers from proposal generation for leadership transfer.
-   * @return the optimization result.
-   * @throws KafkaCruiseControlException When any exception occurred during the broker demotion.
+   * @param excludeRecentlyRemovedBrokers Exclude recently removed brokers from proposal generation for replica transfer.
+   * @return The optimization result.
+   * @throws KafkaCruiseControlException When any exception occurred during the broker addition.
    */
-  public OptimizerResult demoteBrokers(Set<Integer> brokerIds,
-                                       Map<Integer, Set<String>> brokerIdAndLogdirs,
-                                       boolean dryRun,
-                                       OperationProgress operationProgress,
-                                       boolean allowCapacityEstimation,
-                                       Integer concurrentLeaderMovements,
-                                       boolean skipUrpDemotion,
-                                       boolean excludeFollowerDemotion,
-                                       ReplicaMovementStrategy replicaMovementStrategy,
-                                       Long replicationThrottle,
-                                       String uuid,
-                                       boolean excludeRecentlyDemotedBrokers)
-      throws KafkaCruiseControlException {
-    sanityCheckDryRun(dryRun);
-    PreferredLeaderElectionGoal goal = new PreferredLeaderElectionGoal(skipUrpDemotion,
-                                                                       excludeFollowerDemotion,
-                                                                       skipUrpDemotion ? kafkaCluster() : null);
+  public OptimizerResult addBrokers(Set<Integer> brokerIds,
+                                    ModelCompletenessRequirements requirements,
+                                    OperationProgress operationProgress,
+                                    boolean allowCapacityEstimation,
+                                    Integer concurrentInterBrokerPartitionMovements,
+                                    Integer concurrentLeaderMovements,
+                                    ReplicaMovementStrategy replicaMovementStrategy,
+                                    Long replicationThrottle,
+                                    String uuid,
+                                    boolean excludeRecentlyRemovedBrokers) throws KafkaCruiseControlException {
+    List<String> goals = Collections.emptyList();
+
+    List<Goal> goalsByPriority = goalsByPriority(goals);
+    ModelCompletenessRequirements modelCompletenessRequirements =
+        modelCompletenessRequirements(goalsByPriority).weaker(requirements);
     try (AutoCloseable ignored = _loadMonitor.acquireForModelGeneration(operationProgress)) {
-      ensureDisJoint(brokerIds, brokerIdAndLogdirs.keySet(),
-                     "Attempt to demote the broker and its disk in the same request is not allowed.");
-      Set<Integer> brokersToCheckPresence = new HashSet<>(brokerIds);
-      brokersToCheckPresence.addAll(brokerIdAndLogdirs.keySet());
-      sanityCheckBrokerPresence(brokersToCheckPresence);
-      ClusterModel clusterModel = brokerIdAndLogdirs.isEmpty() ? _loadMonitor.clusterModel(_time.milliseconds(),
-                                                                                           goal.clusterModelCompletenessRequirements(),
-                                                                                           operationProgress) :
-                                                                 _loadMonitor.clusterModel(-1,
-                                                                                           _time.milliseconds(),
-                                                                                           goal.clusterModelCompletenessRequirements(),
-                                                                                           true,
-                                                                                           operationProgress);
-      brokerIds.forEach(id -> clusterModel.setBrokerState(id, Broker.State.DEMOTED));
-      brokerIdAndLogdirs.forEach((brokerid, logdirs) -> {
-        Broker broker = clusterModel.broker(brokerid);
-        for (String logdir : logdirs) {
-          if (broker.disk(logdir) == null) {
-            throw new IllegalStateException(String.format("Broker %d does not have logdir %s.", brokerid, logdir));
-          }
-          broker.disk(logdir).setState(DEMOTED);
-        }
-      });
-      List<Goal> goalsByPriority = goalsByPriority(Collections.singletonList(goal.getClass().getSimpleName()));
+      sanityCheckBrokerPresence(brokerIds);
+      ClusterModel clusterModel = _loadMonitor.clusterModel(_time.milliseconds(),
+          modelCompletenessRequirements,
+          operationProgress);
+      sanityCheckBrokersHavingOfflineReplicasOnBadDisks(goals, clusterModel);
+      brokerIds.forEach(id -> clusterModel.setBrokerState(id, Broker.State.NEW));
+
       OptimizerResult result = getProposals(clusterModel,
-                                            goalsByPriority,
-                                            operationProgress,
-                                            allowCapacityEstimation,
-                                            null,
-                                            excludeRecentlyDemotedBrokers,
-                                            false,
-                                            false,
-                                            Collections.emptySet());
-      if (!dryRun) {
-        executeDemotion(result.goalProposals(), brokerIds, concurrentLeaderMovements, replicaMovementStrategy,
-                        replicationThrottle, uuid);
-      }
+          goalsByPriority,
+          operationProgress,
+          allowCapacityEstimation,
+          null,
+          true,
+          excludeRecentlyRemovedBrokers,
+          false,
+          Collections.emptySet());
+
+      executeProposals(result.goalProposals(),
+          Collections.emptySet(),
+          isKafkaAssignerMode(goals),
+          concurrentInterBrokerPartitionMovements,
+          null,
+          concurrentLeaderMovements,
+          replicaMovementStrategy,
+          replicationThrottle,
+          uuid);
       return result;
     } catch (KafkaCruiseControlException kcce) {
       throw kcce;
     } catch (Exception e) {
       throw new KafkaCruiseControlException(e);
     }
-  }
-
-  /**
-   * Get the broker load stats from the cache. null will be returned if their is no cached broker load stats.
-   * @param allowCapacityEstimation Allow capacity estimation in cluster model if the requested broker capacity is unavailable.
-   * @return The cached broker load statistics.
-   */
-  public BrokerStats cachedBrokerLoadStats(boolean allowCapacityEstimation) {
-    return _loadMonitor.cachedBrokerLoadStats(allowCapacityEstimation);
   }
 
   /**
@@ -663,114 +520,6 @@ public class KafkaCruiseControl {
     } catch (Exception e) {
       throw new KafkaCruiseControlException(e);
     }
-  }
-
-  /**
-   * Bootstrap the load monitor for a given period.
-   *
-   * @param startMs the starting time of the bootstrap period, or null if no time period will be used.
-   * @param endMs the end time of the bootstrap period, or null if no end time is specified.
-   * @param clearMetrics clear the existing metric samples.
-   */
-  public void bootstrap(Long startMs, Long endMs, boolean clearMetrics) {
-    if (startMs != null && endMs != null) {
-      // Bootstrap the load monitor for a given period.
-      _loadMonitor.bootstrap(startMs, endMs, clearMetrics);
-    } else if (startMs != null) {
-      // Bootstrap the load monitor from the given timestamp until it catches up -- i.e. clears all metric samples.
-      _loadMonitor.bootstrap(startMs, clearMetrics);
-    } else {
-      // Bootstrap the load monitor with the most recent metric samples until it catches up -- clears all metric samples.
-      _loadMonitor.bootstrap(clearMetrics);
-    }
-  }
-
-  /**
-   * Pause all the activities of the load monitor. The load monitor can only be paused when it is in
-   * RUNNING state.
-   *
-   * @param reason The reason for pausing metric sampling.
-   */
-  public void pauseMetricSampling(String reason) {
-    _loadMonitor.pauseMetricSampling(reason);
-  }
-
-  /**
-   * Train the load model with metric samples.
-   * @param startMs training period starting time.
-   * @param endMs training period end time.
-   */
-  public void train(Long startMs, Long endMs) {
-    _loadMonitor.train(startMs, endMs);
-  }
-
-  /**
-   * Enable or disable self healing for the given anomaly type in the anomaly detector.
-   *
-   * @param anomalyType Type of anomaly for which to enable or disable self healing.
-   * @param isSelfHealingEnabled True if self healing is enabled for the given anomaly type, false otherwise.
-   * @return The old value of self healing for the given anomaly type.
-   */
-  public boolean setSelfHealingFor(AnomalyType anomalyType, boolean isSelfHealingEnabled) {
-    return _anomalyDetector.setSelfHealingFor(anomalyType, isSelfHealingEnabled);
-  }
-
-  /**
-   * Drop the given brokers from the recently removed/demoted brokers.
-   *
-   * @param brokersToDrop Brokers to drop from the recently removed or demoted brokers.
-   * @param isRemoved True to drop recently removed brokers, false to drop recently demoted brokers
-   * @return {@code true} if any elements were removed from the requested set of brokers.
-   */
-  public boolean dropRecentBrokers(Set<Integer> brokersToDrop, boolean isRemoved) {
-    return isRemoved ? _executor.dropRecentlyRemovedBrokers(brokersToDrop) : _executor.dropRecentlyDemotedBrokers(brokersToDrop);
-  }
-
-  /**
-   * Get {@link Executor#recentlyRemovedBrokers()} if isRemoved is true, {@link Executor#recentlyDemotedBrokers()} otherwise.
-   *
-   * @param isRemoved True to get recently removed brokers, false to get recently demoted brokers
-   * @return IDs of requested brokers.
-   */
-  public Set<Integer> recentBrokers(boolean isRemoved) {
-    return isRemoved ? _executor.recentlyRemovedBrokers() : _executor.recentlyDemotedBrokers();
-  }
-
-  /**
-   * Dynamically set the inter-broker partition movement concurrency per broker.
-   *
-   * @param requestedInterBrokerPartitionMovementConcurrency The maximum number of concurrent inter-broker partition movements
-   *                                                         per broker.
-   */
-  public void setRequestedInterBrokerPartitionMovementConcurrency(Integer requestedInterBrokerPartitionMovementConcurrency) {
-    _executor.setRequestedInterBrokerPartitionMovementConcurrency(requestedInterBrokerPartitionMovementConcurrency);
-  }
-
-  /**
-   * Dynamically set the intra-broker partition movement concurrency.
-   *
-   * @param requestedIntraBrokerPartitionMovementConcurrency The maximum number of concurrent intra-broker partition movements.
-   */
-  public void setRequestedIntraBrokerPartitionMovementConcurrency(Integer requestedIntraBrokerPartitionMovementConcurrency) {
-    _executor.setRequestedIntraBrokerPartitionMovementConcurrency(requestedIntraBrokerPartitionMovementConcurrency);
-  }
-
-  /**
-   * Dynamically set the leadership movement concurrency.
-   *
-   * @param requestedLeadershipMovementConcurrency The maximum number of concurrent leader movements.
-   */
-  public void setRequestedLeadershipMovementConcurrency(Integer requestedLeadershipMovementConcurrency) {
-    _executor.setRequestedLeadershipMovementConcurrency(requestedLeadershipMovementConcurrency);
-  }
-
-  /**
-   * Resume the activities of the load monitor.
-   *
-   * @param reason The reason for resuming metric sampling.
-   */
-  public void resumeMetricSampling(String reason) {
-    _loadMonitor.resumeMetricSampling(reason);
   }
 
   /**
@@ -1018,164 +767,10 @@ public class KafkaCruiseControl {
   }
 
   /**
-   * Execute the given balancing proposals for demote operations.
-   * @param proposals The given balancing proposals
-   * @param demotedBrokers Brokers to be demoted.
-   * @param concurrentLeaderMovements The maximum number of concurrent leader movements
-   *                                  (if null, use num.concurrent.leader.movements).
-   * @param replicaMovementStrategy The strategy used to determine the execution order of generated replica movement tasks
-   *                                (if null, use default.replica.movement.strategies).
-   * @param replicationThrottle The replication throttle (bytes/second) to apply to both leaders and followers
-   *                            when executing demote operations (if null, no throttling is applied).
-   * @param uuid UUID of the execution.
-   */
-  private void executeDemotion(Set<ExecutionProposal> proposals,
-                               Set<Integer> demotedBrokers,
-                               Integer concurrentLeaderMovements,
-                               ReplicaMovementStrategy replicaMovementStrategy,
-                               Long replicationThrottle,
-                               String uuid) {
-    if (hasProposalsToExecute(proposals, uuid)) {
-      // (1) Kafka Assigner mode is irrelevant for demoting. (2) Ensure that replica swaps within partitions, which are
-      // prerequisites for broker demotion and does not trigger data move, are throttled by concurrentLeaderMovements.
-      int concurrentSwaps = concurrentLeaderMovements != null
-                            ? concurrentLeaderMovements
-                            : _config.getInt(KafkaCruiseControlConfig.NUM_CONCURRENT_LEADER_MOVEMENTS_CONFIG);
-
-      // Set the execution mode, add execution proposals, and start execution.
-      _executor.setExecutionMode(false);
-      _executor.executeDemoteProposals(proposals, demotedBrokers, _loadMonitor, concurrentSwaps, concurrentLeaderMovements,
-                                       replicaMovementStrategy, replicationThrottle, uuid);
-    }
-  }
-
-  /**
    * Request the executor to stop any ongoing execution.
    */
   public synchronized void userTriggeredStopExecution() {
     _executor.userTriggeredStopExecution();
-  }
-
-  /**
-   * Update configuration of topics which match topic patterns. Currently only support changing topic's replication factor.
-   *
-   * If partition's current replication factor is less than target replication factor, new replicas are added to the partition
-   * in two steps.
-   * <ol>
-   *   <li>
-   *    Tentatively add new replicas in a rack-aware, round-robin way.
-   *    There are two scenarios that rack awareness property is not guaranteed.
-   *    <ul>
-   *      <li> If metadata does not have rack information about brokers, then it is only guaranteed that new replicas are
-   *      added to brokers, which currently do not host any replicas of partition.</li>
-   *      <li> If replication factor to set for the topic is larger than number of racks in the cluster and
-   *      skipTopicRackAwarenessCheck is set to true, then rack awareness property is ignored.</li>
-   *    </ul>
-   *   </li>
-   *   <li>
-   *     Further optimize new replica's location with provided {@link Goal} list.
-   *   </li>
-   * </ol>
-   *
-   * If partition's current replication factor is larger than target replication factor, remove one or more follower replicas
-   * from the partition. Replicas are removed following the reverse order of position in partition's replica list.
-   *
-   * @param topicPatternByReplicationFactor The name patterns of topic to apply the change with the target replication factor.
-   *                                        If no topic in the cluster matches the patterns, an exception will be thrown.
-   * @param goals The goals to be met during the new replica assignment. When empty all goals will be used.
-   * @param skipTopicRackAwarenessCheck Whether ignore rack awareness property if number of rack in cluster is less
-   *                                    than target replication factor.
-   * @param requirements The cluster model completeness requirements.
-   * @param operationProgress The progress of the job to report.
-   * @param allowCapacityEstimation Allow capacity estimation in cluster model if the requested broker capacity is unavailable.
-   * @param concurrentInterBrokerPartitionMovements The maximum number of concurrent inter-broker partition movements per broker
-   *                                                (if null, use num.concurrent.partition.movements.per.broker).
-   * @param concurrentLeaderMovements The maximum number of concurrent leader movements
-   *                                  (if null, use num.concurrent.leader.movements).
-   * @param skipHardGoalCheck True if the provided {@code goals} do not have to contain all hard goals, false otherwise.
-   * @param replicaMovementStrategy The strategy used to determine the execution order of generated replica movement tasks
-   *                                (if null, use default.replica.movement.strategies).
-   * @param replicationThrottle The replication throttle (bytes/second) to apply to both leaders and followers
-   *                            when executing demote operations (if null, no throttling is applied).
-   * @param excludeRecentlyDemotedBrokers Exclude recently demoted brokers from proposal generation for leadership transfer.
-   * @param excludeRecentlyRemovedBrokers Exclude recently removed brokers from proposal generation for replica transfer.
-   * @param dryRun Whether it is a dry run or not.
-   * @param uuid UUID of the execution.
-   *
-   * @return The optimization result.
-   * @throws KafkaCruiseControlException When any exception occurred during the topic configuration updating.
-   */
-  public OptimizerResult updateTopicReplicationFactor(Map<Short, Pattern> topicPatternByReplicationFactor,
-                                                                    List<String> goals,
-                                                                    boolean skipTopicRackAwarenessCheck,
-                                                                    ModelCompletenessRequirements requirements,
-                                                                    OperationProgress operationProgress,
-                                                                    boolean allowCapacityEstimation,
-                                                                    Integer concurrentInterBrokerPartitionMovements,
-                                                                    Integer concurrentLeaderMovements,
-                                                                    boolean skipHardGoalCheck,
-                                                                    ReplicaMovementStrategy replicaMovementStrategy,
-                                                                    Long replicationThrottle,
-                                                                    boolean excludeRecentlyDemotedBrokers,
-                                                                    boolean excludeRecentlyRemovedBrokers,
-                                                                    boolean dryRun,
-                                                                    String uuid)
-      throws KafkaCruiseControlException {
-    sanityCheckDryRun(dryRun);
-    sanityCheckHardGoalPresence(goals, skipHardGoalCheck);
-    List<Goal> goalsByPriority = goalsByPriority(goals);
-
-    Cluster cluster = kafkaCluster();
-    // Ensure there is no offline replica in the cluster.
-    sanityCheckNoOfflineReplica(cluster);
-    Map<Short, Set<String>> topicsToChangeByReplicationFactor = topicsForReplicationFactorChange(topicPatternByReplicationFactor, cluster);
-
-    // Generate cluster model and get proposal
-    OptimizerResult result;
-    Map<String, List<Integer>> brokersByRack = new HashMap<>();
-    Map<Integer, String> rackByBroker = new HashMap<>();
-    ModelCompletenessRequirements completenessRequirements = modelCompletenessRequirements(goalsByPriority).weaker(requirements);
-    try (AutoCloseable ignored = _loadMonitor.acquireForModelGeneration(operationProgress)) {
-      ExecutorState executorState = _executor.state();
-      Set<Integer> excludedBrokersForLeadership = excludeRecentlyDemotedBrokers ? executorState.recentlyDemotedBrokers()
-                                                                                : Collections.emptySet();
-      Set<Integer> excludedBrokersForReplicaMove = excludeRecentlyRemovedBrokers ? executorState.recentlyRemovedBrokers()
-                                                                                 : Collections.emptySet();
-      populateRackInfoForReplicationFactorChange(topicsToChangeByReplicationFactor, cluster, excludedBrokersForReplicaMove,
-                                                 skipTopicRackAwarenessCheck, brokersByRack, rackByBroker);
-
-      ClusterModel clusterModel = _loadMonitor.clusterModel(-1,
-                                                            _time.milliseconds(),
-                                                            completenessRequirements,
-                                                            operationProgress);
-      sanityCheckCapacityEstimation(allowCapacityEstimation, clusterModel.capacityEstimationInfoByBrokerId());
-      Map<TopicPartition, List<ReplicaPlacementInfo>> initReplicaDistribution = clusterModel.getReplicaDistribution();
-
-      // First try to add and remove replicas to achieve the replication factor for topics of interest.
-      clusterModel.createOrDeleteReplicas(topicsToChangeByReplicationFactor, brokersByRack, rackByBroker, cluster);
-
-      // Then further optimize the location of newly added replicas based on goals. Here we restrict the replica movement to
-      // only considering newly added replicas, in order to minimize the total bytes to move.
-      result = _goalOptimizer.optimizations(clusterModel,
-                                            goalsByPriority,
-                                            operationProgress,
-                                            null,
-                                            excludedBrokersForLeadership,
-                                            excludedBrokersForReplicaMove,
-                                            false,
-                                            Collections.emptySet(),
-                                            initReplicaDistribution,
-                                            true);
-      if (!dryRun) {
-        executeProposals(result.goalProposals(), Collections.emptySet(), false, concurrentInterBrokerPartitionMovements,
-                         0, concurrentLeaderMovements, replicaMovementStrategy, replicationThrottle, uuid);
-      }
-    } catch (KafkaCruiseControlException kcce) {
-      throw kcce;
-    } catch (Exception e) {
-      throw new KafkaCruiseControlException(e);
-    }
-    return result;
   }
 
   /**
@@ -1201,42 +796,6 @@ public class KafkaCruiseControl {
 
   public ExecutorState.State executionState() {
     return _executor.state().state();
-  }
-
-  /**
-   * Get the cluster information from Kafka metadata.
-   */
-  public Cluster kafkaCluster() {
-    return _loadMonitor.kafkaCluster();
-  }
-
-  /**
-   * Get the topic config provider.
-   */
-  public TopicConfigProvider topicConfigProvider() {
-    return _loadMonitor.topicConfigProvider();
-  }
-
-  /**
-   * Get the Kafka Cruise Control Version
-   */
-  public static String cruiseControlVersion() {
-    return VERSION;
-  }
-
-  /**
-   * Get the Kafka Cruise Control's current code's commit id
-   */
-  public static String cruiseControlCommitId() {
-    return COMMIT_ID;
-  }
-
-  /**
-   * Get the default model completeness requirement for Cruise Control. This is the combination of the
-   * requirements of all the goals.
-   */
-  public ModelCompletenessRequirements defaultModelCompletenessRequirements() {
-    return _goalOptimizer.defaultModelCompletenessRequirements();
   }
 
   private ModelCompletenessRequirements modelCompletenessRequirements(Collection<Goal> overrides) {
