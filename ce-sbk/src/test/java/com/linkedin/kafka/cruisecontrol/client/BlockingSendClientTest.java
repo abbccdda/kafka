@@ -26,6 +26,8 @@ import java.net.SocketTimeoutException;
 import java.util.Optional;
 import java.util.Properties;
 
+
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -69,7 +71,7 @@ public class BlockingSendClientTest {
   }
 
   @Test
-  public void testNetworkClientNotReadyThrowsSocketTimeoutException() throws Exception {
+  public void testNetworkClientNotReadyThrowsConnectionExceptionCausedBySocketTimeoutException() throws Exception {
     when(mockNetworkClient.isReady(mockTargetBroker, timeTickMs)).thenReturn(false);
     when(mockNetworkClient.isReady(mockTargetBroker, timeTickMs * 2)).thenReturn(false);
 
@@ -77,8 +79,34 @@ public class BlockingSendClientTest {
         (int) socketTimeoutMs, time, mockNetworkClient, Optional.empty());
     try {
       sendClient.sendShutdownRequest(new InitiateShutdownRequest.Builder(1));
-      fail("Expected sendShutdownRequest() to throw a SocketTimeoutException");
-    } catch (SocketTimeoutException e) {
+      fail("Expected sendShutdownRequest() to throw a ConnectionException");
+    } catch (ConnectionException e) {
+      assertTrue("Expected the ConnectionException's cause to be SocketTimeoutException",
+          e.getCause() instanceof SocketTimeoutException);
+      verify(mockNetworkClient, times(1)).close(mockTargetBroker.idString());
+      verify(mockNetworkClient, times(1)).isReady(mockTargetBroker, timeTickMs);
+      verify(mockNetworkClient, times(2)).isReady(mockTargetBroker, timeTickMs * 2);
+    }
+  }
+
+  /**
+   * Internally, the #{@link NetworkClient} can throw exceptions itself while connecting.
+   * We should catch them and re-throw as #{@link ConnectionException}
+   */
+  @Test
+  public void testNetworkClientFailedConnectionThrowsConnectionExceptionCausedByIOException() throws Exception {
+    when(mockNetworkClient.isReady(mockTargetBroker, timeTickMs)).thenReturn(false);
+    when(mockNetworkClient.isReady(mockTargetBroker, timeTickMs * 2)).thenReturn(false);
+    when(mockNetworkClient.connectionFailed(mockTargetBroker)).thenReturn(true);
+
+    BlockingSendClient sendClient = new BlockingSendClient(mockTargetBroker, config,
+        (int) socketTimeoutMs, time, mockNetworkClient, Optional.empty());
+    try {
+      sendClient.sendShutdownRequest(new InitiateShutdownRequest.Builder(1));
+      fail("Expected sendShutdownRequest() to throw a ConnectionException");
+    } catch (ConnectionException e) {
+      assertTrue("Expected the ConnectionException's cause to be IOException",
+          e.getCause() instanceof IOException);
       verify(mockNetworkClient, times(1)).close(mockTargetBroker.idString());
       verify(mockNetworkClient, times(1)).isReady(mockTargetBroker, timeTickMs);
       verify(mockNetworkClient, times(2)).isReady(mockTargetBroker, timeTickMs * 2);

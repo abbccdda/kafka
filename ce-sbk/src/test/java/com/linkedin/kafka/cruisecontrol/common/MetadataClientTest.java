@@ -7,7 +7,6 @@ package com.linkedin.kafka.cruisecontrol.common;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUnitTestUtils;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import org.apache.kafka.clients.admin.AdminClient;
-import org.apache.kafka.clients.admin.DescribeClusterResult;
 import org.apache.kafka.clients.admin.DescribeTopicsOptions;
 import org.apache.kafka.clients.admin.DescribeTopicsResult;
 import org.apache.kafka.clients.admin.ListTopicsResult;
@@ -241,26 +240,9 @@ public class MetadataClientTest {
 
   private void mockDescribeCluster(AdminClient mockAdminClient, int expectedTimeoutMs)
       throws InterruptedException, ExecutionException, java.util.concurrent.TimeoutException {
-    DescribeClusterResult mockDescribeClusterResult = EasyMock.mock(DescribeClusterResult.class);
-
-    KafkaFuture<String> mockClusterIdFuture = EasyMock.mock(KafkaFuture.class);
-    EasyMock.expect(mockClusterIdFuture.get(expectedTimeoutMs, TimeUnit.MILLISECONDS))
-        .andReturn("cluster-1");
-    EasyMock.expect(mockDescribeClusterResult.clusterId()).andReturn(mockClusterIdFuture);
-    KafkaFuture<Node> mockControllerFuture = EasyMock.mock(KafkaFuture.class);
-    EasyMock.expect(mockControllerFuture.get(expectedTimeoutMs, TimeUnit.MILLISECONDS))
-        .andReturn(new Node(0, "host0", 100));
-    EasyMock.expect(mockDescribeClusterResult.controller()).andReturn(mockControllerFuture);
-
-    KafkaFuture<Collection<Node>> mockNodesFuture = EasyMock.mock(KafkaFuture.class);
-    EasyMock.expect(mockNodesFuture.get(expectedTimeoutMs, TimeUnit.MILLISECONDS))
-        .andReturn(_nodes);
-    EasyMock.expect(mockDescribeClusterResult.nodes()).andReturn(mockNodesFuture);
-
-    EasyMock.expect(mockAdminClient.describeCluster()).andReturn(mockDescribeClusterResult);
-    EasyMock.expect(mockAdminClient.describeCluster(EasyMock.anyObject())).andReturn(mockDescribeClusterResult);
-    EasyMock.replay(mockDescribeClusterResult, mockClusterIdFuture,
-        mockControllerFuture, mockNodesFuture);
+    Node controller = new Node(0, "host0", 100);
+    KafkaCruiseControlUnitTestUtils.mockDescribeCluster(mockAdminClient, "cluster-1",
+        controller, _nodes, expectedTimeoutMs);
   }
 
   private void mockListTopics(AdminClient mockAdminClient, Collection<String> topicNames,
