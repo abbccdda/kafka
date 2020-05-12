@@ -1074,7 +1074,7 @@ class LogTest {
       new SimpleRecord(mockTime.milliseconds(), "key".getBytes, "b".getBytes),
       new SimpleRecord(mockTime.milliseconds(), "c".getBytes),
       new SimpleRecord(mockTime.milliseconds(), "key".getBytes, "d".getBytes)))
-    records.batches.asScala.foreach(_.setPartitionLeaderEpoch(0))
+    records.batches.forEach(_.setPartitionLeaderEpoch(0))
 
     val filtered = ByteBuffer.allocate(2048)
     records.filterTo(new TopicPartition("foo", 0), new RecordFilter {
@@ -1090,7 +1090,7 @@ class LogTest {
     val moreRecords = TestUtils.records(baseOffset = baseOffset + 4, records = List(
       new SimpleRecord(mockTime.milliseconds(), "e".getBytes),
       new SimpleRecord(mockTime.milliseconds(), "f".getBytes)))
-    moreRecords.batches.asScala.foreach(_.setPartitionLeaderEpoch(0))
+    moreRecords.batches.forEach(_.setPartitionLeaderEpoch(0))
     log.appendAsFollower(moreRecords)
 
     log.truncateTo(baseOffset + 4)
@@ -1115,7 +1115,7 @@ class LogTest {
     val records = TestUtils.records(producerId = pid, producerEpoch = epoch, sequence = seq, baseOffset = baseOffset, records = List(
       new SimpleRecord(mockTime.milliseconds(), "key".getBytes, "a".getBytes),
       new SimpleRecord(mockTime.milliseconds(), "key".getBytes, "b".getBytes)))
-    records.batches.asScala.foreach(_.setPartitionLeaderEpoch(0))
+    records.batches.forEach(_.setPartitionLeaderEpoch(0))
 
     val filtered = ByteBuffer.allocate(2048)
     records.filterTo(new TopicPartition("foo", 0), new RecordFilter {
@@ -1131,7 +1131,7 @@ class LogTest {
     val moreRecords = TestUtils.records(baseOffset = baseOffset + 2, records = List(
       new SimpleRecord(mockTime.milliseconds(), "e".getBytes),
       new SimpleRecord(mockTime.milliseconds(), "f".getBytes)))
-    moreRecords.batches.asScala.foreach(_.setPartitionLeaderEpoch(0))
+    moreRecords.batches.forEach(_.setPartitionLeaderEpoch(0))
     log.appendAsFollower(moreRecords)
 
     log.truncateTo(baseOffset + 2)
@@ -1158,7 +1158,7 @@ class LogTest {
       new SimpleRecord(mockTime.milliseconds(), "key".getBytes, "b".getBytes),
       new SimpleRecord(mockTime.milliseconds(), "c".getBytes),
       new SimpleRecord(mockTime.milliseconds(), "key".getBytes, "d".getBytes)))
-    records.batches.asScala.foreach(_.setPartitionLeaderEpoch(0))
+    records.batches.forEach(_.setPartitionLeaderEpoch(0))
 
     val filtered = ByteBuffer.allocate(2048)
     records.filterTo(new TopicPartition("foo", 0), new RecordFilter {
@@ -1652,7 +1652,7 @@ class LogTest {
     buffer.flip()
 
     val records = MemoryRecords.readableRecords(buffer)
-    records.batches.asScala.foreach(_.setPartitionLeaderEpoch(0))
+    records.batches.forEach(_.setPartitionLeaderEpoch(0))
 
     // Ensure that batches with duplicates are accepted on the follower.
     assertEquals(0L, log.logEndOffset)
@@ -3495,7 +3495,7 @@ class LogTest {
     //Given each message has an offset & epoch, as msgs from leader would
     def recordsForEpoch(i: Int): MemoryRecords = {
       val recs = MemoryRecords.withRecords(messageIds(i), CompressionType.NONE, records(i))
-      recs.batches.asScala.foreach{record =>
+      recs.batches.forEach{record =>
         record.setPartitionLeaderEpoch(42)
         record.setLastOffset(i)
       }
@@ -4441,7 +4441,7 @@ class LogTest {
   }
 
   private def appendAsFollower(log: AbstractLog, records: MemoryRecords, leaderEpoch: Int = 0): Unit = {
-    records.batches.asScala.foreach(_.setPartitionLeaderEpoch(leaderEpoch))
+    records.batches.forEach(_.setPartitionLeaderEpoch(leaderEpoch))
     log.appendAsFollower(records)
   }
 

@@ -36,7 +36,7 @@ import org.apache.kafka.common.record.BufferSupplier
 import org.apache.kafka.common.requests._
 import org.apache.kafka.common.utils.Time
 
-import scala.collection.{Map, Seq, immutable, mutable}
+import scala.collection.{Map, Seq, Set, immutable, mutable}
 import scala.math.max
 
 /**

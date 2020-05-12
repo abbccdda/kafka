@@ -310,7 +310,7 @@ class SocketServer(val config: KafkaConfig,
   def resizeThreadPool(oldNumNetworkThreads: Int, newNumNetworkThreads: Int): Unit = synchronized {
     info(s"Resizing network thread pool size for each data-plane listener from $oldNumNetworkThreads to $newNumNetworkThreads")
     if (newNumNetworkThreads > oldNumNetworkThreads) {
-      dataPlaneAcceptors.asScala.foreach { case (endpoint, acceptor) =>
+      dataPlaneAcceptors.forEach { (endpoint, acceptor) =>
         addDataPlaneProcessors(acceptor, endpoint, newNumNetworkThreads - oldNumNetworkThreads)
       }
     } else if (newNumNetworkThreads < oldNumNetworkThreads)
@@ -932,7 +932,7 @@ private[kafka] class Processor(val id: Int,
   }
 
   private def processCompletedReceives(): Unit = {
-    selector.completedReceives.asScala.foreach { receive =>
+    selector.completedReceives.forEach { receive =>
       try {
         openOrClosingChannel(receive.source) match {
           case Some(channel) =>
@@ -981,7 +981,7 @@ private[kafka] class Processor(val id: Int,
   }
 
   private def processCompletedSends(): Unit = {
-    selector.completedSends.asScala.foreach { send =>
+    selector.completedSends.forEach { send =>
       try {
         val response = inflightResponses.remove(send.destination).getOrElse {
           throw new IllegalStateException(s"Send for ${send.destination} completed, but not in `inflightResponses`")
@@ -1017,7 +1017,7 @@ private[kafka] class Processor(val id: Int,
   }
 
   private def processDisconnected(): Unit = {
-    selector.disconnected.keySet.asScala.foreach { connectionId =>
+    selector.disconnected.keySet.forEach { connectionId =>
       try {
         val remoteHost = ConnectionId.fromString(connectionId).getOrElse {
           throw new IllegalStateException(s"connectionId has unexpected format: $connectionId")
@@ -1111,7 +1111,7 @@ private[kafka] class Processor(val id: Int,
     while (!newConnections.isEmpty) {
       newConnections.poll().close()
     }
-    selector.channels.asScala.foreach { channel =>
+    selector.channels.forEach { channel =>
       close(channel.id)
     }
     selector.close()
