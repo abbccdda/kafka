@@ -103,6 +103,61 @@ class ListOffsetsRequestTest extends BaseRequestTest {
   }
 
   @Test
+  def testListOffsetsRequestDuringPartitionRecoveryAfterUncleanLeaderElection(): Unit = {
+    // ListOffsetRequest will be blocked when a partition is marked unclean upon receiving LeaderAndIsr
+    // request that indicates election of an unclean leader. The request must be unblocked when partition
+    // has completed recovery.
+    val topic = "topic"
+    val partition = new TopicPartition(topic, 0)
+    val partitionToLeader = TestUtils.createTopic(zkClient, topic, numPartitions = 1, replicationFactor = 2, servers)
+    val replicas = zkClient.getReplicasForPartition(partition).toSet
+    val leader = partitionToLeader(partition.partition)
+    val follower = replicas.find(_ != leader).get
+    val nonReplica = servers.map(_.config.brokerId).find(!replicas.contains(_)).get
+
+    // Generates ListOffset request for all possible versions and validates the response
+    def sendListOffsetsRequestAndValidateResponse(error: Errors, debugRequestError: Errors, brokerId: Int): Unit = {
+      val targetTimes = Map(partition -> new ListOffsetRequest.PartitionData(
+        ListOffsetRequest.EARLIEST_TIMESTAMP, Optional.of[Integer](0))).asJava
+      for (ver <- ApiKeys.LIST_OFFSETS.oldestVersion to ApiKeys.LIST_OFFSETS.latestVersion()) {
+        // create List Offset request from consumers and validate response
+        val consumerRequest = ListOffsetRequest.Builder
+          .forConsumer(false, IsolationLevel.READ_UNCOMMITTED)
+          .setTargetTimes(targetTimes)
+          .build(ver.toShort)
+        assertResponseError(error, brokerId, consumerRequest)
+        // create List Offset request from replicas and validate response
+        val replicaRequest = ListOffsetRequest.Builder
+          .forReplica(ApiKeys.LIST_OFFSETS.latestVersion, servers.head.config.brokerId)
+          .setTargetTimes(targetTimes)
+          .build(ver.toShort)
+        assertResponseError(error, brokerId, replicaRequest)
+        // create List Offset request from debug replicas and validate response
+        val debugReplicaRequest = ListOffsetRequest.Builder
+          .forReplica(ApiKeys.LIST_OFFSETS.latestVersion, ListOffsetRequest.DEBUGGING_REPLICA_ID)
+          .setTargetTimes(targetTimes)
+          .build(ver.toShort)
+        assertResponseError(debugRequestError, brokerId, debugReplicaRequest)
+      }
+    }
+
+    // Toggle the partition unclean flag to indicate whether partition needs recovery after unclean
+    // leader election. When this flag is set, ListOffsets request will return LeaderNotAvailable exception
+    servers.find(_.config.brokerId == leader).get.replicaManager.getPartitionOrException(partition, expectLeader = true).setUncleanLeaderFlagTo(false)
+    sendListOffsetsRequestAndValidateResponse(Errors.NONE, Errors.NONE, leader)
+    sendListOffsetsRequestAndValidateResponse(Errors.NOT_LEADER_FOR_PARTITION, Errors.NONE, follower)
+    sendListOffsetsRequestAndValidateResponse(Errors.NOT_LEADER_FOR_PARTITION, Errors.REPLICA_NOT_AVAILABLE, nonReplica)
+    servers.find(_.config.brokerId == leader).get.replicaManager.getPartitionOrException(partition, expectLeader = true).setUncleanLeaderFlagTo(true)
+    sendListOffsetsRequestAndValidateResponse(Errors.LEADER_NOT_AVAILABLE, Errors.LEADER_NOT_AVAILABLE, leader)
+    sendListOffsetsRequestAndValidateResponse(Errors.NOT_LEADER_FOR_PARTITION, Errors.NONE, follower)
+    sendListOffsetsRequestAndValidateResponse(Errors.NOT_LEADER_FOR_PARTITION, Errors.REPLICA_NOT_AVAILABLE, nonReplica)
+    servers.find(_.config.brokerId == leader).get.replicaManager.getPartitionOrException(partition, expectLeader = true).setUncleanLeaderFlagTo(false)
+    sendListOffsetsRequestAndValidateResponse(Errors.NONE, Errors.NONE, leader)
+    sendListOffsetsRequestAndValidateResponse(Errors.NOT_LEADER_FOR_PARTITION, Errors.NONE, follower)
+    sendListOffsetsRequestAndValidateResponse(Errors.NOT_LEADER_FOR_PARTITION, Errors.REPLICA_NOT_AVAILABLE, nonReplica)
+  }
+
+  @Test
   def testCurrentEpochValidation(): Unit = {
     val topic = "topic"
     val topicPartition = new TopicPartition(topic, 0)

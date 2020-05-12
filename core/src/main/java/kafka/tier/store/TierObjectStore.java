@@ -82,7 +82,6 @@ public interface TierObjectStore {
     void close();
 
     class ObjectMetadata {
-
         private final TopicIdPartition topicIdPartition;
         private final UUID objectId;
         private final int tierEpoch;

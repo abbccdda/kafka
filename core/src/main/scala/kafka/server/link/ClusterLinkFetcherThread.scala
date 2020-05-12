@@ -94,7 +94,6 @@ class ClusterLinkFetcherThread(name: String,
                                metrics = metrics,
                                time = time,
                                quota,
-                               tierStateFetcher = tierStateFetcher,
                                Some(leaderEndpointBlockingSend),
                                logContextOpt) {
 

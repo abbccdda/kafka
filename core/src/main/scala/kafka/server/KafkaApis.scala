@@ -299,7 +299,6 @@ class KafkaApis(val requestChannel: RequestChannel,
           case TierListOffsetRequest.OffsetType.LOCAL_START_OFFSET => ListOffsetRequest.LOCAL_START_OFFSET
           case TierListOffsetRequest.OffsetType.LOCAL_END_OFFSET => ListOffsetRequest.LOCAL_END_OFFSET
         }
-
         val offsetOpt = replicaManager.fetchTierOffset(topicPartition, timestamp,
           leaderEpochOpt, fetchOnlyFromLeader = true)
         offsetOpt match {
@@ -652,14 +651,15 @@ class KafkaApis(val requestChannel: RequestChannel,
         unauthorizedTopicResponses += topicPartition -> new PartitionResponse(Errors.TOPIC_AUTHORIZATION_FAILED)
       else if (!metadataCache.contains(topicPartition))
         nonExistingTopicResponses += topicPartition -> new PartitionResponse(Errors.UNKNOWN_TOPIC_OR_PARTITION)
-      else
+      else {
         try {
-          ProduceRequest.validateRecords(request.header.apiVersion, memoryRecords)
-          authorizedRequestInfo += (topicPartition -> memoryRecords)
+            ProduceRequest.validateRecords(request.header.apiVersion, memoryRecords)
+            authorizedRequestInfo += (topicPartition -> memoryRecords)
         } catch {
           case e: ApiException =>
             invalidRequestResponses += topicPartition -> new PartitionResponse(Errors.forException(e))
         }
+      }
     }
 
     // the callback for sending a produce response
@@ -1093,7 +1093,8 @@ class KafkaApis(val requestChannel: RequestChannel,
         // are typically transient and there is no value in logging the entire stack trace for the same
         case e @ (_ : UnknownTopicOrPartitionException |
                   _ : NotLeaderForPartitionException |
-                  _ : KafkaStorageException) =>
+                  _ : KafkaStorageException |
+                  _ : LeaderNotAvailableException) =>
           debug("Offset request with correlation id %d from client %s on partition %s failed due to %s".format(
             correlationId, clientId, topicPartition, e.getMessage))
           (topicPartition, new ListOffsetResponse.PartitionData(Errors.forException(e), List[JLong]().asJava))
@@ -1162,7 +1163,8 @@ class KafkaApis(val requestChannel: RequestChannel,
                 _: UnknownLeaderEpochException |
                 _: FencedLeaderEpochException |
                 _: KafkaStorageException |
-                _: UnsupportedForMessageFormatException) =>
+                _: UnsupportedForMessageFormatException |
+                _: LeaderNotAvailableException) =>
           debug(s"Offset request with correlation id $correlationId from client $clientId on " +
             s"partition $topicPartition failed due to ${e.getMessage}")
           buildErrorResponse(Errors.forException(e))

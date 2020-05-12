@@ -6,8 +6,8 @@ package kafka.tier.exceptions
 
 import kafka.tier.TopicIdPartition
 
-class TierArchiverFencedException(val topicIdPartition: TopicIdPartition)
-  extends RuntimeException(s"Fenced for partition $topicIdPartition")
+class TierArchiverFencedException(val topicIdPartition: TopicIdPartition, cause: Throwable = null)
+  extends RuntimeException(s"Fenced for partition $topicIdPartition", cause)
 
 class TierArchiverFatalException(message: String, cause: Throwable = null)
   extends RuntimeException(message, cause) {

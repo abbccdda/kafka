@@ -16,7 +16,7 @@
  */
 package kafka.server
 
-import java.util.Optional
+import java.util.{Optional}
 
 import kafka.utils.TestUtils
 import org.apache.kafka.common.TopicPartition
@@ -48,6 +48,33 @@ class OffsetsForLeaderEpochRequestTest extends BaseRequestTest {
     val follower = replicas.find(_ != leader).get
     val nonReplica = servers.map(_.config.brokerId).find(!replicas.contains(_)).get
 
+    assertResponseError(Errors.NOT_LEADER_FOR_PARTITION, follower, request)
+    assertResponseError(Errors.NOT_LEADER_FOR_PARTITION, nonReplica, request)
+  }
+
+  @Test
+  def testOffsetsForLeaderEpochWhenPartitionUnderRecovery(): Unit = {
+    // Tiered topic partitions get into a recovery process when unclean leader is elected for such
+    // partitions. During recovery, OFFSET_FOR_LEADER_EPOCH request will return a retry(able) exception.
+    // The request will be honored when partition has recovered.
+    val topic = "topic"
+    val topicPartition = new TopicPartition(topic, 0)
+    val partitionToLeader = TestUtils.createTopic(zkClient, topic, numPartitions = 1, replicationFactor = 2, servers)
+    val replicas = zkClient.getReplicasForPartition(topicPartition).toSet
+    val leader = partitionToLeader(topicPartition.partition)
+    val follower = replicas.find(_ != leader).get
+    val nonReplica = servers.map(_.config.brokerId).find(!replicas.contains(_)).get
+    val epochs = Map(topicPartition -> new OffsetsForLeaderEpochRequest.PartitionData(Optional.empty[Integer], 0)).asJava
+    val request = OffsetsForLeaderEpochRequest.Builder.forFollower(
+      ApiKeys.OFFSET_FOR_LEADER_EPOCH.latestVersion, epochs, 1).build()
+    // Mark the leader as unclean (indicating that log will need recovery)
+    serverForId(leader).get.replicaManager.getPartitionOrException(topicPartition, expectLeader = true).setUncleanLeaderFlagTo(true)
+    assertResponseError(Errors.LEADER_NOT_AVAILABLE, leader, request)
+    assertResponseError(Errors.NOT_LEADER_FOR_PARTITION, follower, request)
+    assertResponseError(Errors.NOT_LEADER_FOR_PARTITION, nonReplica, request)
+    // Mark the leader as clean (indicating that recovery has ended)
+    serverForId(leader).get.replicaManager.getPartitionOrException(topicPartition, expectLeader = true).setUncleanLeaderFlagTo(false)
+    assertResponseError(Errors.NONE, leader, request)
     assertResponseError(Errors.NOT_LEADER_FOR_PARTITION, follower, request)
     assertResponseError(Errors.NOT_LEADER_FOR_PARTITION, nonReplica, request)
   }

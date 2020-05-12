@@ -1474,15 +1474,15 @@ class FileTierPartitionStateTest {
 
     // Verify that materialization listeners are completed with the right segment metadata. In addition, we must flush
     // the state file before completing the listener.
-    assertEquals(baseOffsets.floor(49), state.materializationListener(49).get(0, TimeUnit.MILLISECONDS).baseOffset)
+    assertEquals(baseOffsets.floor(49), state.materializeUpto(49.toLong).get(0, TimeUnit.MILLISECONDS).baseOffset)
     assertEquals(baseOffsets.last + numOffsetsInSegment, state.committedEndOffset)
 
-    assertEquals(baseOffsets.floor(50), state.materializationListener(50).get(0, TimeUnit.MILLISECONDS).baseOffset)
-    assertEquals(baseOffsets.floor(155), state.materializationListener(155).get(0, TimeUnit.MILLISECONDS).baseOffset)
-    assertEquals(baseOffsets.floor(199), state.materializationListener(199).get(0, TimeUnit.MILLISECONDS).baseOffset)
+    assertEquals(baseOffsets.floor(50), state.materializeUpto(50.toLong).get(0, TimeUnit.MILLISECONDS).baseOffset)
+    assertEquals(baseOffsets.floor(155), state.materializeUpto(155.toLong).get(0, TimeUnit.MILLISECONDS).baseOffset)
+    assertEquals(baseOffsets.floor(199), state.materializeUpto(199.toLong).get(0, TimeUnit.MILLISECONDS).baseOffset)
 
     // Verify that listener is not completed for offsets that has not been materialized yet
-    val promise = state.materializationListener(200)
+    val promise = state.materializeUpto(200.toLong)
     assertFalse(promise.isDone)
 
     // complete upload for segment [200-249]; this should also complete the materialization listener
@@ -1495,16 +1495,16 @@ class FileTierPartitionStateTest {
     assertEquals(200 + numOffsetsInSegment, state.committedEndOffset)
 
     // must be able to register a new materialization listener
-    assertFalse(state.materializationListener(500).isDone)
+    assertFalse(state.materializeUpto(500.toLong).isDone)
   }
 
   @Test
   def testPreviousMaterializationListenerCancelled(): Unit = {
-    val promise_1 = state.materializationListener(200)
+    val promise_1 = state.materializeUpto(200)
     assertFalse(promise_1.isDone)
 
     // register another listener; this will cause the first one to be cancelled exceptionally
-    val promise_2 = state.materializationListener(400)
+    val promise_2 = state.materializeUpto(400)
     assertFalse(promise_2.isDone)
     assertThrows[IllegalStateException] {
       try {
@@ -1519,7 +1519,7 @@ class FileTierPartitionStateTest {
   def testMaterializationListenerAfterClose(): Unit = {
     state.close()
     assertThrows[Exception] {
-      state.materializationListener(200).get(0, TimeUnit.MILLISECONDS)
+      state.materializeUpto(200).get(0, TimeUnit.MILLISECONDS)
     }
   }
 

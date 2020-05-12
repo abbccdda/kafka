@@ -215,7 +215,8 @@ class PartitionLockTest extends Logging {
       delayedOperations,
       metadataCache,
       logManager,
-      Some(tierReplicaManager)) {
+      Some(tierReplicaManager),
+      None) {
 
       override def shrinkIsr(newIsr: Set[Int]): Unit = {
         shrinkIsrSemaphore.acquire()

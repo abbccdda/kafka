@@ -317,9 +317,16 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     }
 
     @Override
-    public Future<TierObjectMetadata> materializationListener(long targetOffset) throws IOException {
+    public Future<TierObjectMetadata> materializeUpto(long targetOffset) throws IOException {
         synchronized (lock) {
             return state.materializationListener(targetOffset);
+        }
+    }
+
+    @Override
+    public CompletableFuture<Optional<TierObjectMetadata>> materializeUptoEpoch(int targetEpoch) throws IOException {
+        synchronized (lock) {
+            return state.materializeUpto(targetEpoch);
         }
     }
 
@@ -622,6 +629,8 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         private boolean dirty = false;
         // used to track materialization up to a desired offset
         private volatile ReplicationMaterializationListener materializationListener;
+        // used to track materialization up to a desired leader epoch
+        private volatile LeaderEpochMaterializationListener leaderEpochMaterializationTracker;
         // materialized end offset
         private volatile long endOffset = -1L;
         // end offset of the flush state file
@@ -1058,6 +1067,8 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
 
                 currentEpoch = initLeader.tierEpoch();
                 dirty = true;
+                if (leaderEpochMaterializationTracker != null)
+                    maybeCompleteLeaderEpochMaterializationTracker(currentEpoch);
                 return AppendResult.ACCEPTED;
             } else {
                 return AppendResult.FENCED;
@@ -1233,6 +1244,42 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             return AppendResult.ACCEPTED;
         }
 
+        private void maybeCompleteLeaderEpochMaterializationTracker(int tierEpoch) throws IOException {
+            if (leaderEpochMaterializationTracker.canComplete(tierEpoch)) {
+                TierObjectMetadata lastObjectMetadata = null;
+                if (!validSegments.keySet().isEmpty()) {
+                    Optional<TierObjectMetadata> lastObjectMetadataOpt = metadata(validSegments.keySet().last());
+                    if (lastObjectMetadataOpt.isPresent())
+                        lastObjectMetadata = lastObjectMetadataOpt.get();
+                }
+                flush();
+                leaderEpochMaterializationTracker.complete(lastObjectMetadata);
+                leaderEpochMaterializationTracker = null;
+            }
+        }
+
+        private void completeLeaderEpochMaterializationTrackerExceptionally(Exception e) {
+            leaderEpochMaterializationTracker.completeExceptionally(e);
+            leaderEpochMaterializationTracker = null;
+        }
+
+        public CompletableFuture<Optional<TierObjectMetadata>> materializeUpto(int targetEpoch) throws IOException {
+                if (leaderEpochMaterializationTracker != null)
+                    completeLeaderEpochMaterializationTrackerExceptionally(
+                            new IllegalStateException("Duplicate leader epoch materialization listener registration for " + topicIdPartition));
+
+                leaderEpochMaterializationTracker = new LeaderEpochMaterializationListener(log, topicIdPartition, targetEpoch);
+                CompletableFuture<Optional<TierObjectMetadata>> promise = leaderEpochMaterializationTracker.promise();
+
+                if (status.isOpen()) {
+                    maybeCompleteLeaderEpochMaterializationTracker(currentEpoch);
+                } else {
+                    completeLeaderEpochMaterializationTrackerExceptionally(new TierPartitionStateIllegalListenerException(
+                            "Tier partition state for " + topicIdPartition + " is not open."));
+                }
+                return promise;
+        }
+
         private void maybeCompleteMaterializationTracker(TierObjectMetadata lastMaterializedSegment) throws IOException {
             if (materializationListener.canComplete(lastMaterializedSegment)) {
                 // flush to ensure readable TierPartitionState aligns with the local log
@@ -1282,6 +1329,11 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         private void close() throws IOException {
             if (materializationListener != null) {
                 completeMaterializationTrackerExceptionally(
+                        new TierPartitionStateIllegalListenerException("Tier partition state for " +
+                                topicIdPartition + " has been closed."));
+            }
+            if (leaderEpochMaterializationTracker != null) {
+                completeLeaderEpochMaterializationTrackerExceptionally(
                         new TierPartitionStateIllegalListenerException("Tier partition state for " +
                                 topicIdPartition + " has been closed."));
             }
@@ -1472,6 +1524,54 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         StateCorruptedException(String message) {
             super(message);
         }
+    }
+}
+
+/**
+ * Provides a listener facility to track when a certain leader epoch has been materialized
+ */
+class LeaderEpochMaterializationListener {
+    private final Logger log;
+    private final TopicIdPartition topicIdPartition;
+    private final CompletableFuture<Optional<TierObjectMetadata>> promise;
+    private final int leaderEpochToMaterialize;
+
+    LeaderEpochMaterializationListener(Logger log,
+                                       TopicIdPartition topicIdPartition,
+                                       int leaderEpochToMaterialize) {
+        this.log = log;
+        this.topicIdPartition = topicIdPartition;
+        this.leaderEpochToMaterialize = leaderEpochToMaterialize;
+        this.promise = new CompletableFuture<>();
+    }
+
+    CompletableFuture<Optional<TierObjectMetadata>> promise() {
+        return promise;
+    }
+
+    synchronized void complete(TierObjectMetadata lastFlushedSegment) {
+        if (!promise.isDone()) {
+            log.info("Completing {} successfully.", this);
+            promise.complete(Optional.ofNullable(lastFlushedSegment));
+        }
+    }
+
+    synchronized void completeExceptionally(Exception e) {
+        if (!promise.isDone()) {
+            log.info("Completing {} exceptionally", this, e);
+            promise.completeExceptionally(e);
+        }
+    }
+
+    boolean canComplete(int tierEpoch) {
+        return tierEpoch >= leaderEpochToMaterialize;
+    }
+
+    @Override
+    public String toString() {
+        return "LeaderEpochMaterializationListener(" +
+            "topicIdPartition: " + topicIdPartition + ", " +
+            "leaderEpochToMaterialize: " + leaderEpochToMaterialize + ")";
     }
 }
 

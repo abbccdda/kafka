@@ -11,7 +11,8 @@ import java.util.Collections
 import java.util.concurrent.{CompletableFuture, TimeUnit}
 import java.util.UUID
 
-import kafka.log.{AbstractLog, LogSegment, OffsetIndex, ProducerStateManager, TimeIndex, UploadableSegment}
+import kafka.cluster.Partition
+import kafka.log.{AbortedTxn, AbstractLog, LogSegment, OffsetIndex, ProducerStateManager, TimeIndex, UploadableSegment}
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.ReplicaManager
 import kafka.server.epoch.LeaderEpochFileCache
@@ -33,12 +34,13 @@ import org.junit.Assert.{assertEquals, assertFalse, assertTrue}
 import org.mockito.ArgumentMatchers
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.{doNothing, mock, reset, times, verify, when}
-import org.scalatest.Assertions.assertThrows
+import org.scalatest.Assertions.{assertThrows, fail}
 
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.jdk.CollectionConverters._
 import scala.concurrent.{Await, Future}
 import scala.concurrent.duration._
+import scala.util.{Failure, Success, Try}
 
 class ArchiveTaskTest extends KafkaMetricsGroup {
   val topicIdPartition = new TopicIdPartition("foo", UUID.fromString("cbf4eaed-cc00-47dc-b08c-f1f5685f085d"), 0)
@@ -206,6 +208,22 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
   }
 
   @Test
+  def testExceptionDuringInitiateUploadWhenPartitionIsUnclean(): Unit = {
+    Try(Await.result(testInitiateUploadWithUncleanLeader(true), 1 second)) match {
+      case Success(state) =>
+        fail(s"Unexpected transition to next state ${state.toString} when partition needs recovery")
+      case Failure(ex) =>
+        assertEquals(s"Unexpected exception", classOf[TierMetadataRetriableException], ex.getClass)
+    }
+    Try(Await.result(testInitiateUploadWithUncleanLeader(false), 1 second)) match {
+      case Success(state) =>
+        assertEquals(s"Unexpected next state", classOf[Upload], state.getClass)
+      case Failure(ex) =>
+        fail(s"Unexpected exception ${ex}")
+    }
+  }
+
+  @Test
   def testSegmentDeletedDuringUpload(): Unit = {
     val nextState = testExceptionHandlingDuringUpload(new NoSuchFileException("segment deleted"), deleteSegment = true)
     assertThrows[SegmentDeletedException] {
@@ -234,9 +252,17 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
         .thenReturn(Collections.emptyList().asScala)
         .getMock[AbstractLog]()
 
+    val partition = when(mock(classOf[Partition]).log)
+      .thenReturn(Some(emptyLog))
+        .getMock[Partition]()
+
     when(emptyLog.tierPartitionState).thenReturn(tierPartitionState)
     when(replicaManager.getLog(topicIdPartition.topicPartition))
       .thenReturn(Some(emptyLog))
+    when(replicaManager.getPartitionOrError(topicIdPartition.topicPartition(), true))
+      .thenReturn(Right(partition))
+    when(partition.getIsUncleanLeader)
+      .thenReturn(false)
 
     val nextState = ArchiveTask.maybeInitiateUpload(
       BeforeUpload(leaderEpoch),
@@ -261,6 +287,8 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
     val mockProducerStateManager = mock(classOf[ProducerStateManager])
     when(mockProducerStateManager.snapshotFileForOffset(ArgumentMatchers.any(classOf[Long]))).thenReturn(None)
 
+    val partition = mock(classOf[Partition])
+
     val log = mockAbstractLog(logSegment)
     when(log.tierPartitionState).thenReturn(tierPartitionState)
     when(log.leaderEpochCache).thenReturn(None)
@@ -272,6 +300,9 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
 
 
     when(replicaManager.getLog(topicIdPartition.topicPartition)).thenReturn(Some(log))
+    when(replicaManager.getPartitionOrError(topicIdPartition.topicPartition(), expectLeader = true)).thenReturn(Right(partition))
+    when(partition.log).thenReturn(Some(log))
+    when(partition.getIsUncleanLeader).thenReturn(false)
     when(tierTopicManager.addMetadata(any(classOf[TierSegmentUploadInitiate]))).thenReturn(CompletableFuture.completedFuture(AppendResult.ACCEPTED))
     when(tierTopicManager.addMetadata(any(classOf[TierSegmentUploadComplete]))).thenReturn(CompletableFuture.completedFuture(AppendResult.ACCEPTED))
 
@@ -301,11 +332,15 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
     when(log.collectAbortedTransactions(ArgumentMatchers.any(classOf[Long]), ArgumentMatchers.any(classOf[Long])))
       .thenReturn(List())
 
+    val partition = mock(classOf[Partition])
+    when(partition.getIsUncleanLeader).thenReturn(false)
+    when(partition.log).thenReturn(Some(log))
     val mockProducerStateManager = mock(classOf[ProducerStateManager])
     when(log.producerStateManager).thenReturn(mockProducerStateManager)
     when(mockProducerStateManager.snapshotFileForOffset(ArgumentMatchers.any(classOf[Long]))).thenReturn(None)
 
     when(replicaManager.getLog(topicIdPartition.topicPartition)).thenReturn(Some(log))
+    when(replicaManager.getPartitionOrError(topicIdPartition.topicPartition(), expectLeader = true)).thenReturn(Right(partition))
     when(tierTopicManager.addMetadata(any(classOf[TierSegmentUploadInitiate]))).thenReturn(CompletableFuture.completedFuture(AppendResult.ACCEPTED))
     when(tierTopicManager.addMetadata(any(classOf[TierSegmentUploadComplete]))).thenReturn(CompletableFuture.completedFuture(AppendResult.ACCEPTED))
 
@@ -377,10 +412,14 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
 
   @Test
   def testHandlingForSegmentDeletedExceptionDuringTransition(): Unit = {
+    val partition = mock(classOf[Partition])
     val logSegment = mockLogSegment(tmpFile)
     val log = mockAbstractLog(logSegment)
     val exception = new SegmentDeletedException("segment deleted", new Exception)
     when(replicaManager.getLog(topicIdPartition.topicPartition)).thenReturn(Some(log))
+    when(replicaManager.getPartitionOrError(topicIdPartition.topicPartition(), true)).thenReturn(Right(partition))
+    when(partition.getIsUncleanLeader).thenReturn(false)
+    when(partition.log).thenReturn(Some(log))
     when(log.tierPartitionState).thenThrow(exception)
 
     val beforeUpload = BeforeUpload(42)
@@ -391,16 +430,53 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
     assertEquals(result.retryCount, 1)
   }
 
-  private def testExceptionHandlingDuringInitiateUpload(e: Exception): Future[ArchiveTaskState] = {
+  private def testInitiateUploadWithUncleanLeader(uncleanLeader: Boolean): Future[ArchiveTaskState] = {
     val leaderEpoch = 0
     val tierPartitionState = mock(classOf[TierPartitionState])
     val logSegment = mockLogSegment(tmpFile)
+    val partition = mock(classOf[Partition])
     val log = mockAbstractLog(logSegment)
     val mockProducerStateManager = mock(classOf[ProducerStateManager])
 
     when(log.tierPartitionState).thenReturn(tierPartitionState)
     when(tierPartitionState.tierEpoch).thenReturn(leaderEpoch)
     when(replicaManager.getLog(topicIdPartition.topicPartition)).thenReturn(Some(log))
+    when(replicaManager.getPartitionOrError(topicIdPartition.topicPartition(), expectLeader = true)).thenReturn(Right(partition))
+    when(partition.getIsUncleanLeader).thenReturn(uncleanLeader)
+    when(partition.log).thenReturn(Some(log))
+    when(log.tierableLogSegments).thenReturn(Seq(logSegment))
+    when(log.collectAbortedTransactions(any(), any())).thenReturn(List[AbortedTxn]())
+    when(log.leaderEpochCache).thenReturn(None)
+    when(log.producerStateManager).thenReturn(mockProducerStateManager)
+    when(mockProducerStateManager.snapshotFileForOffset(any())).thenReturn(None)
+    val uploadableSegment = UploadableSegment(log, logSegment, 100, None, None, None)
+    when(log.createUploadableSegment(logSegment)).thenReturn(uploadableSegment)
+    when(tierTopicManager.addMetadata(any(classOf[TierSegmentUploadInitiate])))
+      .thenReturn(CompletableFuture.completedFuture(AppendResult.ACCEPTED))
+
+    ArchiveTask.maybeInitiateUpload(
+      BeforeUpload(leaderEpoch),
+      topicIdPartition,
+      time,
+      tierTopicManager,
+      tierObjectStore,
+      replicaManager)
+  }
+
+  private def testExceptionHandlingDuringInitiateUpload(e: Exception): Future[ArchiveTaskState] = {
+    val leaderEpoch = 0
+    val tierPartitionState = mock(classOf[TierPartitionState])
+    val logSegment = mockLogSegment(tmpFile)
+    val partition = mock(classOf[Partition])
+    val log = mockAbstractLog(logSegment)
+    val mockProducerStateManager = mock(classOf[ProducerStateManager])
+
+    when(log.tierPartitionState).thenReturn(tierPartitionState)
+    when(tierPartitionState.tierEpoch).thenReturn(leaderEpoch)
+    when(replicaManager.getLog(topicIdPartition.topicPartition)).thenReturn(Some(log))
+    when(replicaManager.getPartitionOrError(topicIdPartition.topicPartition(), expectLeader = true)).thenReturn(Right(partition))
+    when(partition.getIsUncleanLeader).thenReturn(false)
+    when(partition.log).thenReturn(Some(log))
     when(log.tierableLogSegments).thenReturn(Seq(logSegment))
     when(log.collectAbortedTransactions(any(), any())).thenThrow(e)
     when(log.leaderEpochCache).thenReturn(None)

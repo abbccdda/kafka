@@ -38,7 +38,7 @@ class ReplicaFetcherManager(brokerConfig: KafkaConfig,
     val prefix = threadNamePrefix.map(tp => s"$tp:").getOrElse("")
     val threadName = s"${prefix}ReplicaFetcherThread-$fetcherId-${sourceBroker.id}"
     new ReplicaFetcherThread(threadName, fetcherId, sourceBroker, brokerConfig, failedPartitions, replicaManager,
-      metrics, time, quotaManager, tierStateFetcher)
+      metrics, time, quotaManager)
   }
 
   def shutdown(): Unit = {

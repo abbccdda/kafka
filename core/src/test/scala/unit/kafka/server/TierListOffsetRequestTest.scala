@@ -7,7 +7,7 @@ import kafka.server.BaseRequestTest
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.message.TierListOffsetRequestData
 import org.apache.kafka.common.message.TierListOffsetRequestData.{TierListOffsetPartition, TierListOffsetTopic}
-import org.apache.kafka.common.protocol.Errors
+import org.apache.kafka.common.protocol.{ApiKeys, Errors}
 import org.apache.kafka.common.requests.TierListOffsetRequest.OffsetType
 import org.apache.kafka.common.requests.{TierListOffsetRequest, TierListOffsetResponse}
 import org.junit.Assert._
@@ -46,6 +46,42 @@ class TierListOffsetRequestTest extends BaseRequestTest {
 
     // (3) Broker request to non-replica
     assertResponseError(Errors.NOT_LEADER_FOR_PARTITION, nonReplica, replicaRequest)
+  }
+
+  @Test
+  def testTierListOffsetRequestDuringPartitionRecoveryAfterUncleanLeaderElection(): Unit = {
+    val topicPartition = new TopicPartition("topic", 0)
+    val partitionToLeader = TestUtils.createTopic(zkClient, topicPartition.topic, numPartitions = 1, replicationFactor = 2, servers)
+    val replicas = zkClient.getReplicasForPartition(topicPartition).toSet
+    val leader = partitionToLeader(topicPartition.partition)
+    val follower = replicas.find(_ != leader).get
+    val nonReplica = servers.map(_.config.brokerId).find(!replicas.contains(_)).get
+    val tierListOffsetTopic = new TierListOffsetTopic()
+      .setName(topicPartition.topic)
+      .setPartitions(Collections.singletonList(new TierListOffsetPartition()
+        .setPartitionIndex(topicPartition.partition)
+        .setOffsetType(OffsetType.toId(OffsetType.LOCAL_START_OFFSET))
+        .setCurrentLeaderEpoch(0)))
+    val randomBrokerId = servers.head.config.brokerId
+    for (ver <- ApiKeys.TIER_LIST_OFFSET.oldestVersion() to ApiKeys.TIER_LIST_OFFSET.latestVersion()) {
+      val request = new TierListOffsetRequest.Builder(new TierListOffsetRequestData()
+        .setReplicaId(randomBrokerId)
+        .setTopics(Collections.singletonList(tierListOffsetTopic)))
+        .build(ver.toShort)
+
+      servers.find(_.config.brokerId == leader).get.replicaManager.getPartitionOrException(topicPartition, expectLeader = true).setUncleanLeaderFlagTo(false)
+      assertResponseError(Errors.NONE, leader, request)
+      assertResponseError(Errors.NOT_LEADER_FOR_PARTITION, follower, request)
+      assertResponseError(Errors.NOT_LEADER_FOR_PARTITION, nonReplica, request)
+      servers.find(_.config.brokerId == leader).get.replicaManager.getPartitionOrException(topicPartition, expectLeader = true).setUncleanLeaderFlagTo(true)
+      assertResponseError(Errors.LEADER_NOT_AVAILABLE, leader, request)
+      assertResponseError(Errors.NOT_LEADER_FOR_PARTITION, follower, request)
+      assertResponseError(Errors.NOT_LEADER_FOR_PARTITION, nonReplica, request)
+      servers.find(_.config.brokerId == leader).get.replicaManager.getPartitionOrException(topicPartition, expectLeader = true).setUncleanLeaderFlagTo(false)
+      assertResponseError(Errors.NONE, leader, request)
+      assertResponseError(Errors.NOT_LEADER_FOR_PARTITION, follower, request)
+      assertResponseError(Errors.NOT_LEADER_FOR_PARTITION, nonReplica, request)
+    }
   }
 
   @Test

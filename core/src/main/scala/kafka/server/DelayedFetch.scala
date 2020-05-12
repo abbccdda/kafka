@@ -155,6 +155,10 @@ class DelayedFetch(delayMs: Long,
             debug(s"Broker is the leader of partition $topicPartition, but the requested epoch " +
               s"$fetchLeaderEpoch is fenced by the latest leader epoch, satisfy $fetchMetadata immediately")
             return forceComplete()
+          case _: LeaderNotAvailableException =>
+            debug(s"Unclean leader was elected for the partition $topicPartition. Partition needs to undergo " +
+              s"recovery before log can be opened for IO")
+            return forceComplete()
         }
     }
 

@@ -267,6 +267,66 @@ class FetchRequestTest extends BaseRequestTest {
     verifyFetchSessionErrors(topicPartition, secondLeaderEpoch, followerId)
   }
 
+  @Test
+  def testFetchRequestDuringPartitionRecoveryAfterUncleanLeaderElection(): Unit = {
+    // Fetch request will be blocked when a partition is marked unclean upon receiving LeaderAndIsr
+    // request that indicates election of an unclean leader. The request must be unblocked when partition
+    // has completed recovery.
+    val topic = "topic"
+    val partition = new TopicPartition(topic, 0)
+    val partitionToLeader = TestUtils.createTopic(zkClient, topic, numPartitions = 1, replicationFactor = 2, servers)
+    val replicas = zkClient.getReplicasForPartition(partition).toSet
+    val leader = partitionToLeader(partition.partition)
+    val follower = replicas.find(_ != leader).get
+    val nonReplica = servers.map(_.config.brokerId).find(!replicas.contains(_)).get
+    // Produce some records in test topic
+    TestUtils.generateAndProduceMessages(servers, topic, 1024, -1)
+
+    // Generates Fetch requests for consumer and replica and validate responses
+    def createFetchRequestsAndValidateResponses(ver: Short, brokerId: Int, consumerError: Errors, replicaError: Errors): Unit = {
+      val partitionMap = new util.LinkedHashMap[TopicPartition, FetchRequest.PartitionData]
+      partitionMap.put(partition, new FetchRequest.PartitionData(0, 0, 1024, Optional.of[Integer](0)))
+      val consumerFetchRequest = FetchRequest.Builder
+        .forConsumer(0, 0, partitionMap)
+        .build(ver.toShort)
+      val consumerFetchResponse = sendFetchRequest(brokerId, consumerFetchRequest)
+      val consumerResponsePartitionData = consumerFetchResponse.responseData.get(partition)
+      assertEquals(s"Unexpected error in response to fetch request by consumer (version ${ver})", consumerError, consumerResponsePartitionData.error)
+      val replicaFetchRequest = FetchRequest.Builder
+        .forReplica(ver.toShort, follower, 0, 1024, partitionMap)
+        .build(ver.toShort)
+      val replicaFetchResponse = sendFetchRequest(brokerId, replicaFetchRequest)
+      val replicaResponsePartitionData = replicaFetchResponse.responseData().get(partition)
+      assertEquals(s"Unexpected error in response to fetch request by replica (version ${ver})", replicaError, replicaResponsePartitionData.error)
+    }
+    // Toggle the partition unclean flag to indicate whether partition needs recovery after unclean
+    // leader election. When this flag is set, Fetch requests will return LeaderNotAvailable exception
+    servers.find(_.config.brokerId == leader).get.replicaManager.getPartitionOrException(partition, expectLeader = true).setUncleanLeaderFlagTo(false)
+    for (ver <- ApiKeys.FETCH.oldestVersion() to ApiKeys.FETCH.latestVersion()) {
+      createFetchRequestsAndValidateResponses(ver.toShort, leader, Errors.NONE, Errors.NONE)
+      var consumerError = if (ver >= 11) Errors.NONE else Errors.NOT_LEADER_FOR_PARTITION
+      createFetchRequestsAndValidateResponses(ver.toShort, follower, consumerError, Errors.NOT_LEADER_FOR_PARTITION)
+      consumerError = if (ver >= 11) Errors.REPLICA_NOT_AVAILABLE else Errors.NOT_LEADER_FOR_PARTITION
+      createFetchRequestsAndValidateResponses(ver.toShort, nonReplica, consumerError, Errors.NOT_LEADER_FOR_PARTITION)
+    }
+    servers.find(_.config.brokerId == leader).get.replicaManager.getPartitionOrException(partition, expectLeader = true).setUncleanLeaderFlagTo(true)
+    for (ver <- ApiKeys.FETCH.oldestVersion() to ApiKeys.FETCH.latestVersion()) {
+      createFetchRequestsAndValidateResponses(ver.toShort, leader, Errors.LEADER_NOT_AVAILABLE, Errors.LEADER_NOT_AVAILABLE)
+      var consumerError = if (ver >= 11) Errors.NONE else Errors.NOT_LEADER_FOR_PARTITION
+      createFetchRequestsAndValidateResponses(ver.toShort, follower, consumerError, Errors.NOT_LEADER_FOR_PARTITION)
+      consumerError = if (ver >= 11) Errors.REPLICA_NOT_AVAILABLE else Errors.NOT_LEADER_FOR_PARTITION
+      createFetchRequestsAndValidateResponses(ver.toShort, nonReplica, consumerError, Errors.NOT_LEADER_FOR_PARTITION)
+    }
+    servers.find(_.config.brokerId == leader).get.replicaManager.getPartitionOrException(partition, expectLeader = true).setUncleanLeaderFlagTo(false)
+    for (ver <- ApiKeys.FETCH.oldestVersion() to ApiKeys.FETCH.latestVersion()) {
+      createFetchRequestsAndValidateResponses(ver.toShort, leader, Errors.NONE, Errors.NONE)
+      var consumerError = if (ver >= 11) Errors.NONE else Errors.NOT_LEADER_FOR_PARTITION
+      createFetchRequestsAndValidateResponses(ver.toShort, follower, consumerError, Errors.NOT_LEADER_FOR_PARTITION)
+      consumerError = if (ver >= 11) Errors.REPLICA_NOT_AVAILABLE else Errors.NOT_LEADER_FOR_PARTITION
+      createFetchRequestsAndValidateResponses(ver.toShort, nonReplica, consumerError, Errors.NOT_LEADER_FOR_PARTITION)
+    }
+  }
+
   private def verifyFetchSessionErrors(topicPartition: TopicPartition,
                                        leaderEpoch: Int,
                                        destinationBrokerId: Int): Unit = {

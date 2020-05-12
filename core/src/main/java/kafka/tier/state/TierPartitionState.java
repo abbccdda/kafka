@@ -15,6 +15,7 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 
 public interface TierPartitionState {
@@ -182,7 +183,17 @@ public interface TierPartitionState {
      * @return future containing the TierObjectMetadata.
      * @throws IOException
      */
-    Future<TierObjectMetadata> materializationListener(long targetOffset) throws IOException;
+    Future<TierObjectMetadata> materializeUpto(long targetOffset) throws IOException;
+
+    /**
+     * Sets up a listener for this tier partition state.
+     * Returns a future that is completed when tierEpoch() >= targetEpoch
+     *
+     * @param targetEpoch the leader epoch awaiting materialization
+     * @return CompletableFuture containing Optional TierObjectMetadata for last segment.
+     * @throws IOException
+     */
+    CompletableFuture<Optional<TierObjectMetadata>> materializeUptoEpoch(int targetEpoch) throws IOException;
 
     /**
      * Return the current status of the TierPartitionState.

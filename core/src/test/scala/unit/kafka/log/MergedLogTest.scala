@@ -8,22 +8,24 @@ import java.io.File
 import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.file.Files
+import java.util
 import java.util.concurrent.{ConcurrentNavigableMap, ConcurrentSkipListMap, ScheduledFuture, TimeUnit}
-import java.util.Optional
-import java.util.UUID
+import java.util.{Optional, UUID}
 
 import com.yammer.metrics.core.Gauge
+import kafka.api.LeaderAndIsr
 import kafka.log.MergedLogTest.LogRanges
 import kafka.metrics.KafkaYammerMetrics
 import kafka.server.{BrokerTopicStats, FetchDataInfo, FetchLogEnd, LogDirFailureChannel, TierFetchDataInfo, TierState}
 import kafka.server.epoch.EpochEntry
 import kafka.tier.{TierTimestampAndOffset, TopicIdPartition}
-import kafka.tier.domain.TierTopicInitLeader
-import kafka.tier.state.{TierPartitionState, TierPartitionStateFactory}
+import kafka.tier.domain.{TierObjectMetadata, TierTopicInitLeader}
+import kafka.tier.state.{FileTierPartitionState, TierPartitionState, TierPartitionStateFactory}
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.{MockInMemoryTierObjectStore, TierObjectStore, TierObjectStoreConfig}
 import kafka.tier.topic.TierTopicConsumer
 import kafka.tier.TierTestUtils
+import kafka.tier.domain.TierObjectMetadata.State
 import kafka.utils.{MockTask, MockTime, Scheduler, TestUtils}
 import org.apache.kafka.common.record.{CompressionType, MemoryRecords, RecordBatch, SimpleRecord}
 import org.apache.kafka.common.record.ControlRecordType
@@ -32,9 +34,13 @@ import org.apache.kafka.common.record.FileRecords.FileTimestampAndOffset
 import org.apache.kafka.common.utils.{Time, Utils}
 import org.junit.Assert.{assertEquals, assertTrue, fail}
 import org.junit.{After, Before, Test}
+import org.mockito.ArgumentMatchers
 import org.mockito.Mockito._
+import org.mockito.invocation.InvocationOnMock
+import org.mockito.stubbing.Answer
 
 import scala.jdk.CollectionConverters._
+import scala.collection.mutable.ListBuffer
 import scala.util.Try
 
 class MergedLogTest {
@@ -981,6 +987,174 @@ class MergedLogTest {
     // check that leader epoch cache is correct
     assertEquals(List(EpochEntry(0, 100)), log.leaderEpochCache.get.epochEntries)
     log.close()
+  }
+
+  /*
+   * Verifies the log metadata
+   */
+  private def verifyLogMetadata(log: AbstractLog, expectedLogStartOffset: Long, expectedLogEndOffset: Long,
+                        expectedLocalLogStartOffset: Long, expectedLocalLogEndOffset: Long,
+                        trustedTierState: TierState): Unit = {
+    assertEquals("Unexpected Log Start Offset", expectedLogStartOffset, log.logStartOffset)
+    assertEquals("Unexpected Log End Offset", expectedLogEndOffset, log.logEndOffset)
+    assertEquals("Unexpected Local Log Start Offset", expectedLocalLogStartOffset, log.localLogStartOffset)
+    assertEquals("Unexpected Local Log End Offset", expectedLocalLogEndOffset, log.localLogEndOffset)
+    var epochHistoryMismatch = false
+    var i = 0
+    while (!epochHistoryMismatch && i < trustedTierState.leaderEpochState.size) {
+      if (trustedTierState.leaderEpochState(i).epoch != log.leaderEpochCache.get.epochEntries(i).epoch ||
+        trustedTierState.leaderEpochState(i).startOffset != log.leaderEpochCache.get.epochEntries(i).startOffset) {
+        epochHistoryMismatch = true
+      }
+      i += 1
+    }
+    assertEquals(s"Mismatch between local log epoch cache and tiered epoch history", false, epochHistoryMismatch)
+  }
+
+  /*
+   * Append the specified number of records to the log as leader. Allows for incrementing the leader
+   * epoch at certain intervals.
+   */
+  private def appendToLogAsLeader(log: AbstractLog, startingLeaderEpoch: Int, numRecords: Int, incrementEpoch: Boolean = false): Unit = {
+    var leaderEpoch = startingLeaderEpoch
+    for (i <- 0 until numRecords) {
+      def createRecords = TestUtils.singletonRecords(("test" + i).getBytes)
+      if (incrementEpoch && (i % 10 == 0)) leaderEpoch += 1
+      log.appendAsLeader(createRecords, leaderEpoch)
+    }
+  }
+
+  @Test
+  def testRecoverLocalLogAtUncleanLeaderWithDivergence(): Unit = {
+    // recover local log against a tier state that diverges from the local log. In such cases, recovery
+    // logic will discard the local log and start local log at the last tiered offset.
+    val numSegmentsToRetain = 5
+    val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes,
+      tierEnable = true,
+      tierLocalHotsetBytes = Long.MaxValue,
+      retentionMs = Long.MaxValue,
+      retentionBytes = segmentBytes * numSegmentsToRetain)
+    val log = createLogWithOverlap(numTieredSegments = 4, numLocalSegments = 1, numOverlap = 2, logConfig)
+    appendToLogAsLeader(log, LeaderAndIsr.initialLeaderEpoch, 50, incrementEpoch = true)
+    // create a tier state that diverges from the local log's leader epoch history
+    val trustedEpochCache = ListBuffer.empty ++= log.leaderEpochCache.get.epochEntries.toList
+    trustedEpochCache(0) = EpochEntry(trustedEpochCache.head.epoch, trustedEpochCache.head.startOffset + 1)
+    val trustedTierState = new TierState(trustedEpochCache.toList, None)
+    // recover local log with the constructed tier state as reference
+    val logStartOffsetBeforeRecovery = log.logStartOffset
+    log.recoverLocalLogAfterUncleanLeaderElection(trustedTierState)
+    // recovery must have discarded the local log as it diverged against the simulated tier state
+    verifyLogMetadata(log, expectedLogStartOffset = logStartOffsetBeforeRecovery,
+      expectedLogEndOffset = log.tierPartitionState.endOffset() + 1, expectedLocalLogStartOffset = log.tierPartitionState.endOffset() + 1,
+      expectedLocalLogEndOffset = log.tierPartitionState.endOffset() + 1, trustedTierState)
+  }
+
+  @Test
+  def testRecoverLocalLogAtUncleanLeaderWithoutDivergence(): Unit = {
+    // recover local log under following conditions:
+    // 1. trusted tier state does not diverge from the local log
+    // 2. localLogStartOffset <= lastTieredOffset && localLogEndOffset >= lastTieredOffset
+    // 3. localLogStartOffset > logStartOffset (not significant from recovery logic perspective but
+    // this condition will be a common scenario)
+    val numSegmentsToRetain = 5
+    val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes,
+      tierEnable = true,
+      tierLocalHotsetBytes = Long.MaxValue,
+      retentionMs = Long.MaxValue,
+      retentionBytes = segmentBytes * numSegmentsToRetain)
+    val log = createLogWithOverlap(numTieredSegments = 4, numLocalSegments = 1, numOverlap = 3, logConfig)
+    appendToLogAsLeader(log, LeaderAndIsr.initialLeaderEpoch, 50, incrementEpoch = true)
+    // create a tier state that is identical to the local log's leader epoch history
+    val trustedEpochCache = ListBuffer.empty ++= log.leaderEpochCache.get.epochEntries
+    val trustedTierState = new TierState(trustedEpochCache.toList, None)
+    // recover local log with the constructed tier state as reference
+    val logStartOffsetBeforeRecovery = log.logStartOffset
+    val logEndOffsetBeforeRecovery = log.logEndOffset
+    val localLogStartOffsetBeforeRecovery = log.localLogStartOffset
+    log.recoverLocalLogAfterUncleanLeaderElection(trustedTierState)
+    // recovery logic must keep local log because of conditions 1 and 2 mentioned above
+    verifyLogMetadata(log, expectedLogStartOffset = logStartOffsetBeforeRecovery,
+      expectedLogEndOffset = logEndOffsetBeforeRecovery, expectedLocalLogStartOffset = localLogStartOffsetBeforeRecovery,
+      expectedLocalLogEndOffset = logEndOffsetBeforeRecovery, trustedTierState)
+  }
+
+  @Test
+  def testRecoverLocalLogAtUncleanLeaderWithLocalLSOGreaterThanLastTieredOffset(): Unit = {
+    // Recover local log under following conditions:
+    // 1. tiered epoch state does not diverge from the local epoch cache
+    // 2. localLogStartOffset > lastTieredOffset + 1
+    // Local log must be discarded.
+    val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes, tierEnable = true, tierLocalHotsetBytes = 1)
+    val tierPartitionState = mock(classOf[FileTierPartitionState])
+    val tierPartitionStateFactory = mock(classOf[TierPartitionStateFactory])
+    val logDirFailureChannel = new LogDirFailureChannel(10)
+    val offsetToMetadata = new java.util.TreeMap[Long, TierObjectMetadata]()
+    when(tierPartitionState.isTieringEnabled).thenReturn(true)
+    when(tierPartitionState.topicIdPartition()).thenReturn(Optional.of(topicIdPartition))
+    when(tierPartitionStateFactory.initState(logDir, topicPartition, logConfig, logDirFailureChannel)).thenReturn(tierPartitionState)
+    doNothing().when(tierTopicConsumer).register(ArgumentMatchers.any(), ArgumentMatchers.any())
+    val tierLogComponents = TierLogComponents(Some(tierTopicConsumer), Some(tierObjectStore), tierPartitionStateFactory)
+
+    val log = MergedLog(logDir,
+      logConfig,
+      logStartOffset = 0L,
+      recoveryPoint = 0L,
+      mockTime.scheduler,
+      brokerTopicStats,
+      mockTime,
+      maxProducerIdExpirationMs = 60 * 60 * 1000,
+      producerIdExpirationCheckIntervalMs = LogManager.ProducerIdExpirationCheckIntervalMs,
+      logDirFailureChannel,
+      tierLogComponents)
+
+    // Append to log such that we have 2 segments after the one containing offset 101L. We will simulate tiering till
+    // the segment containing offset 100L. We will further delete all local segments till the segments subsequent segment.
+    // Example: For local segments as (0, 59)(60, 119)(120, 179)(180, 239), we will tier up to segment (60, 119) and delete
+    // up to (120, 179), there by introducing a hole in the local log and tiered segments
+    appendToLogAsLeader(log, LeaderAndIsr.initialLeaderEpoch, 120)
+    while(log.localLogSegments(from = 100L, to = log.logEndOffset).size < 3) {
+      appendToLogAsLeader(log, LeaderAndIsr.initialLeaderEpoch, 10)
+    }
+    val trustedEpochCache = ListBuffer.empty ++= log.leaderEpochCache.get.epochEntries
+    val trustedTierState = new TierState(trustedEpochCache.toList, None)
+    // simulate that local segments up to the one containing offset 100L are tiered
+    val lastTieredOffset = log.localLogSegments(0L, 100L).last.readNextOffset - 1
+    when(tierPartitionState.endOffset).thenReturn(lastTieredOffset)
+    val it = log.localLogSegments(0L, 100L).toList.reverseIterator
+    do {
+      val tieredSegment = it.next()
+      offsetToMetadata.put(tieredSegment.baseOffset, new TierObjectMetadata(topicIdPartition,
+        LeaderAndIsr.initialLeaderEpoch,
+        java.util.UUID.randomUUID(),
+        tieredSegment.baseOffset,
+        tieredSegment.readNextOffset - 1,
+        tieredSegment.largestTimestamp,
+        tieredSegment.size,
+        State.SEGMENT_UPLOAD_COMPLETE,
+        true,
+        false,
+        true))
+    } while (it.hasNext)
+    when(tierPartitionState.metadata(ArgumentMatchers.anyLong())).thenAnswer(new Answer[Optional[TierObjectMetadata]]{
+      override def answer(invocation: InvocationOnMock): Optional[TierObjectMetadata] = {
+        val offset = invocation.getArgument(0).asInstanceOf[Long]
+        Optional.ofNullable(offsetToMetadata.get(offset))
+      }
+    })
+    when(tierPartitionState.segments(0L, Long.MaxValue)).thenAnswer(new Answer[util.Iterator[TierObjectMetadata]]{
+      override def answer(invocation: InvocationOnMock): util.Iterator[TierObjectMetadata] = {
+        offsetToMetadata.values().iterator()
+      }
+    })
+    // delete local segments up to one segment after the last tiered segment
+    log.localLog.deleteSegments(log.localLogSegments(from = 0L, to = lastTieredOffset + 2))
+    assert(log.localLogStartOffset > lastTieredOffset + 1)
+    // invoke recovery on local log and check log boundaries
+    log.recoverLocalLogAfterUncleanLeaderElection(trustedTierState)
+    assertEquals(s"Unexpected LogStartOffset after recovery", 0L, log.logStartOffset)
+    assertEquals(s"Unexpected LogEndOffset after recovery", lastTieredOffset + 1, log.logEndOffset)
+    assertEquals(s"Unexpected LocalLogStartOffset after recovery", lastTieredOffset + 1, log.localLogStartOffset)
+    assertEquals(s"Unexpected LocalLogEndOffset after recovery", lastTieredOffset + 1, log.localLogEndOffset)
   }
 
   @Test

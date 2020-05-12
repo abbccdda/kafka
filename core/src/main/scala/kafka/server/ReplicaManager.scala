@@ -19,8 +19,8 @@ package kafka.server
 import java.io.File
 import java.util
 import java.util.Optional
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong}
+import java.util.concurrent.{Executors, ThreadFactory, TimeUnit}
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger, AtomicLong}
 import java.util.concurrent.locks.Lock
 
 import com.yammer.metrics.core.Meter
@@ -60,7 +60,7 @@ import org.apache.kafka.common.requests.FetchRequest.PartitionData
 import org.apache.kafka.common.requests.FetchResponse.AbortedTransaction
 import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
 import org.apache.kafka.common.requests._
-import org.apache.kafka.common.utils.Time
+import org.apache.kafka.common.utils.{KafkaThread, Time}
 
 import scala.jdk.CollectionConverters._
 import scala.collection.{Map, Seq, Set, mutable}
@@ -317,6 +317,14 @@ class ReplicaManager(val config: KafkaConfig,
       handleLogDirFailure(newOfflineLogDir)
     }
   }
+
+  private[kafka] val executor = Executors.newCachedThreadPool(new ThreadFactory {
+    val threadNum = new AtomicInteger(-1)
+    override def newThread(r: Runnable): Thread = {
+      val newThreadNum = threadNum.incrementAndGet()
+      KafkaThread.nonDaemon(s"ReplicaManager-$newThreadNum", r)
+    }
+  })
 
   // Visible for testing
   private[server] val replicaSelectorOpt: Option[ReplicaSelector] = createReplicaSelector()
@@ -745,7 +753,8 @@ class ReplicaManager(val config: KafkaConfig,
                    _: NotLeaderForPartitionException |
                    _: OffsetOutOfRangeException |
                    _: PolicyViolationException |
-                   _: KafkaStorageException) =>
+                   _: KafkaStorageException |
+                   _: LeaderNotAvailableException) =>
             (topicPartition, LogDeleteRecordsResult(-1L, -1L, Some(e)))
           case t: Throwable =>
             error("Error processing delete records operation on partition %s".format(topicPartition), t)
@@ -1014,7 +1023,8 @@ class ReplicaManager(val config: KafkaConfig,
                    _: RecordTooLargeException |
                    _: RecordBatchTooLargeException |
                    _: CorruptRecordException |
-                   _: KafkaStorageException) =>
+                   _: KafkaStorageException |
+                   _: LeaderNotAvailableException) =>
             (topicPartition, LogAppendResult(LogAppendInfo.UnknownLogAppendInfo, Some(e)))
           case rve: RecordValidationException =>
             val logStartOffset = processFailedRecord(topicPartition, rve.invalidException)
@@ -1146,6 +1156,7 @@ class ReplicaManager(val config: KafkaConfig,
 
     // Restrict fetching to leader if request is from follower or from a client with older version (no ClientMetadata)
     val fetchOnlyFromLeader = isFromFollower || (isFromConsumer && clientMetadata.isEmpty)
+
     def readFromLog(): Seq[(TopicPartition, AbstractLogReadResult)] = {
       val result = readFromLocalLog(
         replicaId = replicaId,
@@ -1159,7 +1170,6 @@ class ReplicaManager(val config: KafkaConfig,
       if (isFromFollower) updateFollowerFetchState(replicaId, result)
       else result
     }
-
     val logReadResults = readFromLog()
 
     // check if this fetch request can be satisfied right away
@@ -1380,7 +1390,8 @@ class ReplicaManager(val config: KafkaConfig,
                  _: FencedLeaderEpochException |
                  _: ReplicaNotAvailableException |
                  _: KafkaStorageException |
-                 _: OffsetOutOfRangeException) =>
+                 _: OffsetOutOfRangeException |
+                 _: LeaderNotAvailableException) =>
           LogReadResult(info = FetchDataInfo(LogOffsetMetadata.UnknownOffsetMetadata, MemoryRecords.EMPTY),
             highWatermark = Log.UnknownOffset,
             leaderLogStartOffset = Log.UnknownOffset,
@@ -1445,7 +1456,12 @@ class ReplicaManager(val config: KafkaConfig,
       // Don't look up preferred for follower fetches via normal replication
       if (Request.isValidBrokerId(replicaId))
         None
-      else {
+      else if (partition.getIsUncleanLeader) {
+        // Partition is marked unclean when an unclean leader has been elected. It stays so until recovery
+        // has been performed on the log. Till then, reads are blocked.
+        throw new LeaderNotAvailableException(s"Partition $partition is not yet available " +
+          s"because it needs to undergo recovery after unclean leader election")
+      } else {
         replicaSelectorOpt.flatMap { replicaSelector =>
           val replicaEndpoints = metadataCache.getPartitionReplicaEndpoints(partition.topicPartition,
             new ListenerName(clientMetadata.listenerName))
@@ -2099,6 +2115,7 @@ class ReplicaManager(val config: KafkaConfig,
     delayedDeleteRecordsPurgatory.shutdown()
     delayedElectLeaderPurgatory.shutdown()
     delayedListOffsetsPurgatory.shutdown()
+    executor.shutdownNow()
     if (checkpointHW)
       checkpointHighWatermarks()
     replicaSelectorOpt.foreach(_.close)

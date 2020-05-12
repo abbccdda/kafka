@@ -70,6 +70,7 @@ class AbstractPartitionTest {
       delayedOperations,
       metadataCache,
       logManager,
+      None,
       None)
 
     when(stateStore.fetchTopicConfig()).thenReturn(createLogProperties(Map.empty))
