@@ -32,7 +32,7 @@ public class Utils {
   public static final LogicalClusterMetadata LC_META_ABC =
       new LogicalClusterMetadata("lkc-abc", "pkc-abc", "abc",
           "my-account", "k8s-abc", LogicalClusterMetadata.KAFKA_LOGICAL_CLUSTER_TYPE,
-          10485760L, 10240000L, 204800L, null, null,
+          10485760L, 102000000L, 204800L, null, null,
           LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE_PER_BROKER.longValue(),
           LogicalClusterMetadata.DEFAULT_NETWORK_QUOTA_OVERHEAD_PERCENTAGE,
           new LogicalClusterMetadata.LifecycleMetadata("abc", "pkc-abc", null, null));

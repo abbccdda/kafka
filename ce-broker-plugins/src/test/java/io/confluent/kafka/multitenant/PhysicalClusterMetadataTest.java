@@ -445,9 +445,9 @@ public class PhysicalClusterMetadataTest {
         TEST_MAX_WAIT_MS,
         "Tenant quota not configured within timeout, expected to be lower than unlimited quota");
 
-    assertEquals(10240000L / numBrokers,
+    assertEquals(LC_META_ABC.producerByteRate() / numBrokers,
                  quotaCallback.quotaLimit(ClientQuotaType.PRODUCE, tags), 0.001);
-    assertEquals(204800L / numBrokers,
+    assertEquals(LC_META_ABC.consumerByteRate() / numBrokers,
                  quotaCallback.quotaLimit(ClientQuotaType.FETCH, tags), 0.001);
     assertEquals(LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE_PER_BROKER,
                  quotaCallback.quotaLimit(ClientQuotaType.REQUEST, tags), 0.001);
