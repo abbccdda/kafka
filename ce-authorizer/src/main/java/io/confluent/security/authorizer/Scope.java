@@ -151,12 +151,14 @@ public class Scope {
       return this;
     }
 
+    public Builder addPath(String name) {
+      path.add(name);
+      return this;
+    }
+
     public Scope build() {
       return new Scope(path, clusters);
     }
 
-    public void addPath(String name) {
-      path.add(name);
-    }
   }
 }

@@ -264,6 +264,18 @@ public class ConfluentResourceNameTest {
   }
 
   @Test
+  public void testNoClustersResource() throws CrnSyntaxException {
+    ConfluentResourceName crn = ConfluentResourceName.newBuilder()
+            .setAuthority("confluent.cloud")
+            .addElement("organization", "org")
+            .addElement("billing", "billing")
+            .build();
+
+    Assert.assertEquals("billing", crn.lastResourceElement().resourceType());
+    Assert.assertEquals("billing", crn.lastResourceElement().encodedResourceName());
+  }
+
+  @Test
   public void testBadElements() {
     ConfluentResourceName.Builder builder = ConfluentResourceName.newBuilder()
         .setAuthority("confluent.cloud");
