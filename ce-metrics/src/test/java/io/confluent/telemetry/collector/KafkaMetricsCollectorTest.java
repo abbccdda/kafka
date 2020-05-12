@@ -88,7 +88,7 @@ public class KafkaMetricsCollectorTest {
     Metric delta = result.stream().filter(metric -> metric.getMetricDescriptor().getName().equals("test-domain/group1/name1/delta")).findFirst().get();
 
     assertEquals("Types should match", Type.CUMULATIVE_DOUBLE, counter.getMetricDescriptor().getType());
-    assertEquals("Types should match", Type.GAUGE_DOUBLE, delta.getMetricDescriptor().getType());
+    assertEquals("Types should match", Type.CUMULATIVE_DOUBLE, delta.getMetricDescriptor().getType());
     assertEquals("Labels should match", labels, toMap(counter.getMetricDescriptor(), counter.getTimeseries(0)));
     assertEquals("Labels should match", labels, toMap(delta.getMetricDescriptor(), delta.getTimeseries(0)));
     assertEquals("Value should match", 2.0, counter.getTimeseries(0).getPoints(0).getDoubleValue(), 0.0);
@@ -123,7 +123,7 @@ public class KafkaMetricsCollectorTest {
     assertEquals("Resource should match", context.getResource(), counter.getResource());
     assertEquals("Resource should match", context.getResource(), delta.getResource());
     assertEquals("Types should match", Type.CUMULATIVE_DOUBLE, counter.getMetricDescriptor().getType());
-    assertEquals("Types should match", Type.GAUGE_DOUBLE, delta.getMetricDescriptor().getType());
+    assertEquals("Types should match", Type.CUMULATIVE_DOUBLE, delta.getMetricDescriptor().getType());
     assertEquals("Labels should match", labels, toMap(counter.getMetricDescriptor(), counter.getTimeseries(0)));
     assertEquals("Labels should match", labels, toMap(delta.getMetricDescriptor(), delta.getTimeseries(0)));
     assertEquals("Value should match", 15.0, counter.getTimeseries(0).getPoints(0).getDoubleValue(), 0.0);

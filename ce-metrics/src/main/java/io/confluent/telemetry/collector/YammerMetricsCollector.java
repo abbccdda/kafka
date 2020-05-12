@@ -233,7 +233,7 @@ public class YammerMetricsCollector implements MetricsCollector {
 
         Optional<InstantAndValue<Long>> lastValue = longDeltas.getAndSet(key, Instant.now(clock), value);
         Instant start = metricAdded;
-        Long delta = value;
+        long delta = value;
         if (lastValue.isPresent()) {
             start = lastValue.get().getIntervalStart();
             delta = value - lastValue.get().getValue();
@@ -244,7 +244,7 @@ public class YammerMetricsCollector implements MetricsCollector {
             .build();
 
         return Optional.of(context
-            .metricWithSinglePointTimeseries(deltaMetricName, Type.GAUGE_INT64, labels, point, MetricsUtils
+            .metricWithSinglePointTimeseries(deltaMetricName, Type.CUMULATIVE_INT64, labels, point, MetricsUtils
                 .toTimestamp(start)));
     }
 
@@ -262,7 +262,7 @@ public class YammerMetricsCollector implements MetricsCollector {
 
         Optional<InstantAndValue<Double>> lastValue = doubleDeltas.getAndSet(key, Instant.now(clock), value);
         Instant start = metricAdded;
-        Double delta = value;
+        double delta = value;
         if (lastValue.isPresent()) {
             start = lastValue.get().getIntervalStart();
             delta = value - lastValue.get().getValue();
@@ -274,7 +274,7 @@ public class YammerMetricsCollector implements MetricsCollector {
             .build();
 
         return Optional.of(context
-            .metricWithSinglePointTimeseries(deltaMetricName, Type.GAUGE_DOUBLE, labels, point, MetricsUtils
+            .metricWithSinglePointTimeseries(deltaMetricName, Type.CUMULATIVE_DOUBLE, labels, point, MetricsUtils
                 .toTimestamp(start)));
     }
 
