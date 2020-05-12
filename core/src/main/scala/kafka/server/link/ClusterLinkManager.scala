@@ -264,7 +264,7 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
 
   private[link] def ensureClusterLinkEnabled(): Unit = {
     if (!brokerConfig.clusterLinkEnable)
-      throw new ClusterAuthorizationException("Cluster linking is not enabled")
+      throw new ClusterAuthorizationException("Cluster linking is not enabled in this cluster.")
   }
 
   // For unit testing
