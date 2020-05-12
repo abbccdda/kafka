@@ -38,6 +38,7 @@ class KafkaServerTest extends ZooKeeperTestHarness {
 
   @Before
   override def setUp(): Unit = {
+    KafkaServer.externalShutdownInitiations.set(0L)
     Exit.setExitProcedure { (_, _) =>
       exited.set(true)
       throw new Exception()
