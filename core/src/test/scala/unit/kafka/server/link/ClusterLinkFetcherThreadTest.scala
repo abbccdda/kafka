@@ -109,7 +109,8 @@ class ClusterLinkFetcherThreadTest extends ReplicaFetcherThreadTest {
                                   createNiceMock(classOf[DelayedOperations]),
                                   new MetadataCache(0),
                                   logManager,
-                                  tierReplicaManagerOpt = None)
+                                  tierReplicaManagerOpt = None,
+                                  None)
     expect(stateStore.updateClusterLinkState(anyInt(), anyObject(classOf[LeaderAndIsr]))).andReturn(Some(1)).anyTimes()
     val log: AbstractLog = createNiceMock(classOf[AbstractLog])
     partition.log = Some(log)

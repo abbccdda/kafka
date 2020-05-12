@@ -100,7 +100,7 @@ object ClusterLinkCommand extends Logging {
           case cause: TimeoutException =>
             throwAdminCommandFailedException("Timed out waiting for results", e)
           case cause: ClusterAuthorizationException =>
-            throwAdminCommandFailedException("Not authorized", e)
+            throwAdminCommandFailedException(cause.getMessage, e)
           case _ =>
             throw e
         }

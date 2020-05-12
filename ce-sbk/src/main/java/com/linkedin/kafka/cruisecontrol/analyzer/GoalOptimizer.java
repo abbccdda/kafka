@@ -48,7 +48,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.balancednessCostByGoal;
-import static com.linkedin.kafka.cruisecontrol.monitor.task.LoadMonitorTaskRunner.LoadMonitorTaskRunnerState.BOOTSTRAPPING;
 import static com.linkedin.kafka.cruisecontrol.monitor.task.LoadMonitorTaskRunner.LoadMonitorTaskRunnerState.LOADING;
 
 
@@ -128,7 +127,7 @@ public class GoalOptimizer implements Runnable {
     while (!_shutdown && _numPrecomputingThreads > 0) {
       LoadMonitorTaskRunner.LoadMonitorTaskRunnerState loadMonitorTaskRunnerState = _loadMonitor.taskRunnerState();
       long sleepTime = _proposalExpirationMs;
-      if (loadMonitorTaskRunnerState == LOADING || loadMonitorTaskRunnerState == BOOTSTRAPPING) {
+      if (loadMonitorTaskRunnerState == LOADING) {
         LOG.info("Skipping proposal precomputing because load monitor is in " + loadMonitorTaskRunnerState + " state.");
         // Check in 30 seconds to see if the load monitor state has changed.
         sleepTime = 30000L;
@@ -247,7 +246,7 @@ public class GoalOptimizer implements Runnable {
 
   private void sanityCheckReadyForGettingCachedProposals() {
     LoadMonitorTaskRunner.LoadMonitorTaskRunnerState loadMonitorTaskRunnerState = _loadMonitor.taskRunnerState();
-    if (loadMonitorTaskRunnerState == LOADING || loadMonitorTaskRunnerState == BOOTSTRAPPING) {
+    if (loadMonitorTaskRunnerState == LOADING) {
       throw new IllegalStateException("Cannot get proposal because load monitor is in " + loadMonitorTaskRunnerState + " state.");
     } else if (!_loadMonitor.meetCompletenessRequirements(_requirementsWithAvailableValidWindows)) {
       throw new IllegalStateException("Cannot get proposal because model completeness is not met.");

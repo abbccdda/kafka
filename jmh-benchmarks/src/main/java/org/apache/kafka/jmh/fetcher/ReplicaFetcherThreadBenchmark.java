@@ -161,7 +161,7 @@ public class ReplicaFetcherThreadBenchmark {
             Mockito.when(offsetCheckpoints.fetch(logDir.getAbsolutePath(), tp)).thenReturn(Option.apply(0L));
             Partition partition = new Partition(tp, 100, ApiVersion$.MODULE$.latestVersion(),
                     0, Time.SYSTEM, partitionStateStore, new DelayedOperationsMock(tp),
-                    Mockito.mock(MetadataCache.class), logManager, Option.empty());
+                    Mockito.mock(MetadataCache.class), logManager, Option.empty(), Option.empty(), Option.empty());
 
             partition.makeFollower(partitionState, offsetCheckpoints);
             pool.put(tp, partition);
@@ -266,7 +266,6 @@ public class ReplicaFetcherThreadBenchmark {
                             return false;
                         }
                     },
-                    Option.empty(),
                     Option.empty(),
                     Option.empty());
 

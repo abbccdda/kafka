@@ -561,4 +561,248 @@ class LeaderEpochFileCacheTest {
     cache.truncateFromEnd(7)
   }
 
+  @Test
+  def shouldReturnCorrectStartOffsetForEpoch(): Unit = {
+    cache.assign(1, 10)
+    cache.assign(2, 20)
+    cache.assign(3, 30)
+    // non existent epoch
+    var requestedEpoch = 0
+    assertEquals(s"Returned wrong start offset for epoch: $requestedEpoch",
+      UNDEFINED_EPOCH_OFFSET, cache.offsetForEpoch(requestedEpoch))
+    requestedEpoch = 4
+    assertEquals(s"Returned wrong start offset for epoch: $requestedEpoch",
+      UNDEFINED_EPOCH_OFFSET, cache.offsetForEpoch(requestedEpoch))
+    // valid epoch
+    requestedEpoch = 1
+    assertEquals(s"Returned wrong start offset for epoch: $requestedEpoch",
+      10, cache.offsetForEpoch(requestedEpoch))
+    // epoch cache empty
+    cache.clearAndFlush()
+    assertEquals(s"Returned wrong start offset for epoch: $requestedEpoch",
+      UNDEFINED_EPOCH_OFFSET, cache.offsetForEpoch(requestedEpoch))
+  }
+
+  @Test
+  def shouldNotReportDivergenceWhenNoDivergence(): Unit = {
+    // comparison with identical tier state
+    // tieredEpochState: ((5,50)(6,60)(7,70)(8,80)) firstTieredOffset: 50 lastTieredOffset: 89 localCache: ((5,50)(6,60)(7,70)(8,80)) firstLocalOffset: 50 lastLocalOffset: 89
+    cache.assign(5, 50)
+    cache.assign(6, 60)
+    cache.assign(7, 70)
+    cache.assign(8, 80)
+    var tieredEpochState = cache.epochEntries.toList
+    assertEquals("False positive for divergence while comparing with identical tier state", -1,
+      cache.findDivergenceInEpochCache(tieredEpochState, 50L, 89L, 50L, 89L))
+
+    // comparison with a superset tier state with no divergence
+    // tieredEpochState: ((5,50)(6,60)(7,70)(8,80)) firstTieredOffset: 50 lastTieredOffset: 89 localCache: ((6,60)(7,70)) firstLocalOffset: 60 lastLocalOffset: 79
+    cache.clearAndFlush()
+    cache.assign(6, 60)
+    cache.assign(7, 70)
+    assertEquals("False positive for divergence while comparing with an identical but superset tier state", -1,
+      cache.findDivergenceInEpochCache(tieredEpochState, 50L, 89L, 60L, 79L))
+
+    // empty epoch cache
+    // tieredEpochState: ((5,50)(6,60)(7,70)(8,80)) firstTieredOffset: 50 lastTieredOffset: 89 localCache: () firstLocalOffset: 0 lastLocalOffset: -1
+    cache.clearAndFlush()
+    assertEquals("False positive for divergence when epoch cache is empty", -1,
+      cache.findDivergenceInEpochCache(tieredEpochState, 50L, 89L, 0L, -1L))
+
+    // empty tiered state
+    // tieredEpochState: () firstTieredOffset: 0 lastTieredOffset: -1 localCache: ((10,100)(11,110)) firstLocalOffset: 100 lastLocalOffset: 119
+    tieredEpochState = List[EpochEntry]()
+    cache.clearAndFlush()
+    cache.assign(10, 100)
+    cache.assign(11, 110)
+    assertEquals("False positive for divergence when epoch cache is empty", -1,
+      cache.findDivergenceInEpochCache(tieredEpochState, 0L, -1L, 100L, 119L))
+
+    // comparison with disjointed tier state
+    // tieredEpochState: ((5,50)(6,60)(7,70)(8,80)) firstTieredOffset: 50 lastTieredOffset: 89 localCache: ((10,100)(11,110)(12,120)) firstLocalOffset: 100 lastLocalOffset: 129
+    tieredEpochState = List(EpochEntry(5, 50), EpochEntry(6, 60), EpochEntry(7, 70), EpochEntry(8, 80))
+    cache.clearAndFlush()
+    cache.assign(10, 100)
+    cache.assign(11, 110)
+    cache.assign(12, 120)
+    assertEquals("False positive for divergence while comparing with a disjointed epoch cache", -1,
+      cache.findDivergenceInEpochCache(tieredEpochState, 50L, 89L, 100L, 129L))
+
+    // tieredEpochState: ((5,50)(6,60)(7,70)(8,80)) firstTieredOffset: 50 lastTieredOffset: 89 localCache: ((0,0)(1,10)(2,20)(3,30)) firstLocalOffset: 0 lastLocalOffset: 39
+    cache.clearAndFlush()
+    cache.assign(0, 0)
+    cache.assign(1, 10)
+    cache.assign(2, 20)
+    cache.assign(3, 30)
+    assertEquals("False positive for divergence while comparing with a disjointed epoch cache", -1,
+      cache.findDivergenceInEpochCache(tieredEpochState, 50L, 89L, 0L, 39L))
+
+    // Leader replicas update epoch cache upon receiving LeaderAndIsr request, while followers update epoch cache
+    // only when a new leader appends a message to the log. Therefore, epoch cache may differ at leader and follower replicas in
+    // a way that follower will not make an entry for a leader generation that did not append any messages. This should not be
+    // treated as a divergence.
+    // tieredEpochState: ((0,0)(1,10)(2,20)(3,30)(4,40)(5,40)(6,40)) firstTieredOffset: 0 lastTieredOffset: 49 localCache: ((0,0)(1,10)(2,20)(3,30)(6,40)) firstLocalOffset: 0 lastLocalOffset: 49
+    tieredEpochState = List(EpochEntry(0, 0), EpochEntry(1, 10), EpochEntry(2, 20), EpochEntry(3, 30),
+      EpochEntry(4, 40),  EpochEntry(5, 40), EpochEntry(6, 40))  // epochs 4 and 5 have not appended any message
+    cache.clearAndFlush()
+    cache.assign(0, 0)
+    cache.assign(1, 10)
+    cache.assign(2, 20)
+    cache.assign(3, 30)
+    cache.assign(6, 40) // two offsets are not recorded after epoch 3 as they did not append any message
+    assertEquals("False positive for divergence when follower had not recorded leader with no messages", -1,
+      cache.findDivergenceInEpochCache(tieredEpochState, 0L, 49L, 0L, 49L))
+
+    // If the local log is incremented, offset for the first local epoch may be different, although it must still
+    // be a valid offset for this epoch. Such cases should not be treated as a divergence.
+    // tieredEpochState: ((0,0)(1,10)(2,20)(3,30)) firstTieredOffset: 0 lastTieredOffset: 39 localCache: ((0,5)(1,10)(2,20)) firstLocalOffset: 5 lastLocalOffset: 29
+    tieredEpochState = List(EpochEntry(0, 0), EpochEntry(1, 10), EpochEntry(2, 20), EpochEntry(3, 30))
+    cache.clearAndFlush()
+    cache.assign(0, 5) // start offset for epoch 0 is changed to 5 to simulate increment in log start offset
+    cache.assign(1, 10)
+    cache.assign(2, 20)
+    assertEquals("False positive for divergence when local log had been incremented", -1,
+      cache.findDivergenceInEpochCache(tieredEpochState, 0L, 39L, 5L, 29L))
+
+    // only one entry in tierState and localCache. local log has been incremented and local log end offset != tiered log end offset
+    // tieredEpochState: (0,0) firstTieredOffset: 0 lastTieredOffset: 899 localCache: (0,100) firstLocalOffset: 100 lastLocalOffset: 999
+    tieredEpochState = List(EpochEntry(0, 0))
+    cache.clearAndFlush()
+    cache.assign(0, 100)
+    assertEquals("False positive for divergence when single entry in leaderCache, local log incremented and lastLocalOffset != lastTieredOffset", -1,
+      cache.findDivergenceInEpochCache(tieredEpochState, 0L, 899L, 100L, 999L))
+
+    // only one entry in tierState and localCache. local log end offset != tiered log end offset
+    // tieredEpochState: (0,0) firstTieredOffset: 0 lastTieredOffset: 899 localCache: (0,0) firstLocalOffset: 0 lastLocalOffset: 999
+    tieredEpochState = List(EpochEntry(0, 0))
+    cache.clearAndFlush()
+    cache.assign(0, 0)
+    assertEquals("False positive for divergence when end offset for an epoch mismatch due to lastLocalOffset != lastTieredOffset", -1,
+      cache.findDivergenceInEpochCache(tieredEpochState, 0L, 899L, 0L, 999L))
+
+    // last offset for an epoch at tiered state < last offset for the epoch at local cache && tiered log ends at this offset
+    // tieredEpochState: ((0,0)) firstTieredOffset: 0 lastTieredOffset: 49 localCache: ((0,0)(1,100)) firstLocalOffset: 0 lastLocalOffset: 149
+    tieredEpochState = List(EpochEntry(0, 0))
+    cache.clearAndFlush()
+    cache.assign(0, 0)
+    cache.assign(1, 100)
+    assertEquals("False negative when end offset for an epoch mismatches", -1,
+      cache.findDivergenceInEpochCache(tieredEpochState, 0L, 49L, 0L, 149L))
+
+    // last offset for an epoch at tiered state > last offset for the epoch at local cache && local log ends at this offset
+    // tieredEpochState: ((0,0)(1,100)) firstTieredOffset: 0 lastTieredOffset: 199 localCache: ((0,0)) firstLocalOffset: 0 lastLocalOffset: 49
+    tieredEpochState = List(EpochEntry(0, 0), EpochEntry(1, 100))
+    cache.clearAndFlush()
+    cache.assign(0, 0)
+    assertEquals("False negative when end offset for an epoch mismatches", -1,
+      cache.findDivergenceInEpochCache(tieredEpochState, 0L, 199L, 0L, 49L))
+  }
+
+  @Test
+  def shouldReportDivergenceWhenDiverging(): Unit = {
+    // comparison with overlapping and diverging tier state
+    // tieredEpochState: ((0,0)(1,10)(2,20)(3,30)) firstTieredOffset: 0 lastTieredOffset: 39 localCache:((2,20)(3,25)(4,40)(5,50)) firstLocalOffset: 20 lastLocalOffset: 59
+    var tieredEpochState = List(EpochEntry(0, 0), EpochEntry(1, 10), EpochEntry(2, 20), EpochEntry(3, 30))
+    cache.assign(2, 20)
+    cache.assign(3, 25)
+    cache.assign(4, 40)
+    cache.assign(5, 50)
+    assertEquals("False negative for an overlapping but diverging tier state", 25,
+      cache.findDivergenceInEpochCache(tieredEpochState, 0L, 39L, 20L, 59L))
+
+    // comparison with overlapping and diverging tier state
+    // tieredEpochState: ((0,0)(1,10)(2,20)(3,30)) firstTieredOffset: 0 lastTieredOffset: 39 localCache:((2,20)(3,35)(4,40)(5,50)) firstLocalOffset: 20 lastLocalOffset: 59
+    cache.clearAndFlush()
+    cache.assign(2, 20)
+    cache.assign(3, 35)
+    cache.assign(4, 40)
+    cache.assign(5, 50)
+    assertEquals("False negative for an overlapping but diverging tier state", 30,
+      cache.findDivergenceInEpochCache(tieredEpochState, 0L, 39L, 20L, 59L))
+
+    // Offset for the first local epoch may be different, although it must still be a greater than tiered offset for this epoch.
+    // tieredEpochState: ((1,10)(2,20)(3,30)) firstTieredOffset: 10 lastTieredOffset: 39 localCache: ((1,5)(2,20)(3,30)) firstLocalOffset: 5 lastLocalOffset: 39
+    tieredEpochState = List(EpochEntry(1, 10), EpochEntry(2, 20), EpochEntry(3, 30))
+    cache.clearAndFlush()
+    cache.assign(1, 5)
+    cache.assign(2, 20)
+    cache.assign(3, 30)
+    assertEquals("False negative when first local epoch has offset lower than tiered offset for the same epoch", 5,
+      cache.findDivergenceInEpochCache(tieredEpochState, 10L, 39L, 5L, 39L))
+
+    // If a tiered epoch is missing at local cache but the local log starts at an offset that must have been written to by the missing epoch,
+    // then local log has diverged at the start offset for the missing epoch.
+    // tieredEpochState: ((0,0)(1,10)(2,20)(3,30)) firstTieredOffset: 0 lastTieredOffset: 39 localCache:((3,25)(4,40)(5,50)) firstLocalOffset: 25 lastLocalOffset: 59
+    tieredEpochState = List(EpochEntry(0, 0), EpochEntry(1, 10), EpochEntry(2, 20), EpochEntry(3, 30))
+    cache.clearAndFlush()
+    cache.assign(3, 25)
+    cache.assign(4, 40)
+    cache.assign(5, 50)
+    assertEquals("False negative when local cache misses an epoch but includes the corresponding offset", 20,
+      cache.findDivergenceInEpochCache(tieredEpochState, 0L, 39L, 25L, 59L))
+
+    // mismatch in the start offset for an epoch which is not the first local epoch
+    // tieredEpochState: ((3,30)(4,40)(5,50)) firstTieredOffset: 30 lastTieredOffset: 59 localCache:((2,20)(3,35)(4,40)) firstLocalOffset: 20 lastLocalOffset: 49
+    tieredEpochState = List(EpochEntry(3, 30), EpochEntry(4, 40), EpochEntry(5, 50))
+    cache.clearAndFlush()
+    cache.assign(2, 20) // local cache has some older data
+    cache.assign(3, 35) // first epoch to match with tiered state (but not first epoch in local cache)
+    cache.assign(4, 40)
+    assertEquals("False negative when divergence at first matching epoch but it is not the first local epoch", 30,
+      cache.findDivergenceInEpochCache(tieredEpochState, 30L, 59L, 20L, 49L))
+
+    // mismatch in the start offset for an epoch which is not the first local epoch
+    // tieredEpochState: ((3,30)(4,40)(5,50)) firstTieredOffset: 30 lastTieredOffset: 59 localCache:((2,20)(3,25)(4,40)) firstLocalOffset: 20 lastLocalOffset: 49
+    cache.clearAndFlush()
+    cache.assign(2, 20) // local cache has some older data
+    cache.assign(3, 25) // first epoch to match with tiered state (but not first epoch in local cache)
+    cache.assign(4, 40)
+    assertEquals("False negative when divergence at first matching epoch but it is not the first local epoch", 25,
+      cache.findDivergenceInEpochCache(tieredEpochState, 30L, 59L, 20L, 49L))
+
+    // Even when tiered leader state and localCache are disjointed sets(wrt leader epoch), offsets must increase monotonically
+    // across the two sets
+    // tieredEpochState: ((5,50)(6,60)(7,70)) firstTieredOffset: 50 lastTieredOffset: 79 localCache:((2,60)(3,70)(4,80)) firstLocalOffset: 60 lastLocalOffset: 89
+    tieredEpochState = List(EpochEntry(5, 50), EpochEntry(6, 60), EpochEntry(7, 70))
+    cache.clearAndFlush()
+    cache.assign(2, 60)
+    cache.assign(3, 70)
+    cache.assign(4, 80)
+    assertEquals("False negative when offsets at tieredEpochState and localCache do not increase monotonically", 60,
+      cache.findDivergenceInEpochCache(tieredEpochState, 50L, 79L, 60L, 89L))
+
+    // tieredEpochState: ((1,100)(2,150)) firstTieredOffset: 100 lastTieredOffset: 179 localCache: ((1,100)) firstLocalOffset: 100 lastLocalOffset: 199
+    tieredEpochState = List(EpochEntry(1, 100), EpochEntry(2, 150))
+    cache.clearAndFlush()
+    cache.assign(1, 100)
+    assertEquals("False negative when localCache is missing an epoch but the corresponding offsets are " +
+      "written to by a different epoch", 150,
+      cache.findDivergenceInEpochCache(tieredEpochState, 100L, 179L, 100L, 199L))
+
+    // local log has been incremented but end offsets for the start epoch do not match
+    // tieredEpochState: ((0,0)(1,100)) firstTieredOffset: 0 lastTieredOffset: 199 localCache: ((0,50)(1,75)) firstLocalOffset: 50 lastLocalOffset: 199
+    tieredEpochState = List(EpochEntry(0, 0), EpochEntry(1, 100))
+    cache.clearAndFlush()
+    cache.assign(0, 50)
+    cache.assign(1, 75)
+    assertEquals("False negative when end offset for start epoch mismatches", 75,
+      cache.findDivergenceInEpochCache(tieredEpochState, 0L, 199L, 50L, 199L))
+
+    // last offset for an epoch at tiered state < last offset for the epoch at local cache && tiered log does not end at this offset
+    // tieredEpochState: ((0,0)(1,100)) firstTieredOffset: 0 lastTieredOffset: 149 localCache: ((0,0)) firstLocalOffset: 0 lastLocalOffset: 149
+    tieredEpochState = List(EpochEntry(0, 0), EpochEntry(1, 100))
+    cache.clearAndFlush()
+    cache.assign(0, 0)
+    assertEquals("False negative when end offset for an epoch mismatches", 100,
+      cache.findDivergenceInEpochCache(tieredEpochState, 0L, 149L, 0L, 149L))
+
+    // last offset for an epoch at tiered state > last offset for the epoch at local cache && local log does not end at this offset but tiered state does
+    // tieredEpochState: ((0,0)) firstTieredOffset: 0 lastTieredOffset: 99 localCache: ((0,0)(1,50)) firstLocalOffset: 0 lastLocalOffset: 199
+    tieredEpochState = List(EpochEntry(0, 0))
+    cache.clearAndFlush()
+    cache.assign(0, 0)
+    cache.assign(1, 50)
+    assertEquals("False negative when end offset for an epoch mismatches", 50,
+      cache.findDivergenceInEpochCache(tieredEpochState, 0L, 99L, 0L, 199L))
+  }
 }

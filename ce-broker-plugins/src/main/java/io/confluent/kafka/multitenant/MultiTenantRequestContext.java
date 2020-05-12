@@ -8,6 +8,7 @@ import io.confluent.kafka.multitenant.quota.TenantPartitionAssignor;
 import io.confluent.kafka.multitenant.schema.MultiTenantApis;
 import io.confluent.kafka.multitenant.schema.TenantContext;
 import io.confluent.kafka.multitenant.schema.TransformableType;
+import java.util.Optional;
 import org.apache.kafka.clients.consumer.internals.ConsumerProtocol;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.acl.AclBindingFilter;
@@ -66,6 +67,7 @@ import org.apache.kafka.common.requests.FetchResponse;
 import org.apache.kafka.common.requests.IncrementalAlterConfigsRequest;
 import org.apache.kafka.common.requests.JoinGroupRequest;
 import org.apache.kafka.common.requests.JoinGroupResponse;
+import org.apache.kafka.common.requests.ListClusterLinksResponse;
 import org.apache.kafka.common.requests.ListGroupsResponse;
 import org.apache.kafka.common.requests.MetadataRequest;
 import org.apache.kafka.common.requests.MetadataResponse;
@@ -155,6 +157,11 @@ public class MultiTenantRequestContext extends RequestContext {
     this.defaultNumPartitions = defaultNumPartitions;
     this.time = time;
     this.startNanos = time.nanoseconds();
+  }
+
+  @Override
+  public Optional<String> tenantPrefix() {
+    return Optional.of(tenantContext.prefix());
   }
 
   @Override
@@ -266,6 +273,8 @@ public class MultiTenantRequestContext extends RequestContext {
         filteredResponse = filteredMetadataResponse((MetadataResponse) body);
       } else if (body instanceof ListGroupsResponse) {
         filteredResponse = filteredListGroupsResponse((ListGroupsResponse) body);
+      }  else if (body instanceof ListClusterLinksResponse) {
+        filteredResponse = filteredListClusterLinksResponse((ListClusterLinksResponse) body);
       } else if (body instanceof DescribeConfigsResponse
               && !tenantContext.principal.tenantMetadata().allowDescribeBrokerConfigs) {
         filteredResponse = filteredDescribeConfigsResponse((DescribeConfigsResponse) body);
@@ -612,6 +621,11 @@ public class MultiTenantRequestContext extends RequestContext {
     data.setErrorCode(response.data().errorCode());
     data.setGroups(filteredGroups);
     return new ListGroupsResponse(data);
+  }
+
+  private ListClusterLinksResponse filteredListClusterLinksResponse(ListClusterLinksResponse response) {
+    response.data().entries().removeIf(link -> !tenantContext.hasTenantPrefix(link.linkName()));
+    return response;
   }
 
   private DescribeConfigsResponse filteredDescribeConfigsResponse(

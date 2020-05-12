@@ -11,7 +11,7 @@ import org.apache.kafka.common.utils.Utils;
 public class TenantContext implements TransformContext {
   public static final String DELIMITER = "_";
 
-  public enum ValueType { TOPIC, GROUP, TRANSACTIONAL_ID }
+  public enum ValueType { TOPIC, GROUP, TRANSACTIONAL_ID, LINK_NAME }
 
   public final MultiTenantPrincipal principal;
   private final String prefix;

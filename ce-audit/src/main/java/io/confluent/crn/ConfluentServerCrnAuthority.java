@@ -223,14 +223,13 @@ public class ConfluentServerCrnAuthority implements CrnAuthority, Configurable {
       builder.addElement(ENVIRONMENT_TYPE, path.get(path.size() - 1));
     }
 
-    // empty scopes are allowed (eg. ROOT_SCOPE)
-    if (scope.clusters().isEmpty() && resourcePattern == null) {
-      return builder.build();
+    if (!scope.clusters().isEmpty()) {
+      // but if the clusters are not empty, they must contain at least a Kafka cluster
+      addClusters(builder, scope);
     }
-
-    // but if the scope is not empty, it must contain at least a Kafka cluster
-    addClusters(builder, scope);
-    addResource(builder, resourcePattern);
+    if (resourcePattern != null) {
+      addResource(builder, resourcePattern);
+    }
     return builder.build();
   }
 

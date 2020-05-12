@@ -1263,7 +1263,6 @@ class AbstractFetcherThreadTest {
       clientId = "mock-fetcher",
       sourceBroker = new BrokerEndPoint(leaderId, host = "localhost", port = Random.nextInt()),
       failedPartitions,
-      tierStateFetcher = None,
       brokerTopicStats = new BrokerTopicStats) {
 
     import MockFetcherThread.PartitionState

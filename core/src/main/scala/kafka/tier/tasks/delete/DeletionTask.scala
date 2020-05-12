@@ -25,7 +25,6 @@ import scala.collection.mutable
 import scala.compat.java8.FutureConverters._
 import scala.concurrent.{ExecutionContext, Future, blocking}
 import scala.jdk.CollectionConverters._
-import scala.util.Try
 
 final class DeletionTask(override val ctx: CancellationContext,
                          override val topicIdPartition: TopicIdPartition,
@@ -80,6 +79,10 @@ final class DeletionTask(override val ctx: CancellationContext,
     }.recover {
       case e @ (_: TierMetadataRetriableException | _: TierObjectStoreRetriableException) =>
         retryTaskLater(maxRetryBackoffMs.getOrElse(5000), nowMs, e)
+        this
+      case e: TierDeletionTaskFencedException =>
+        info(s"$topicIdPartition was fenced, stopping deletion process", e)
+        ctx.cancel()
         this
       case e: TierArchiverFencedException =>
         info(s"$topicIdPartition was fenced, stopping deletion process", e)
@@ -204,21 +207,25 @@ object DeletionTask extends Logging {
             val replicaManager = retentionMetadata.replicaManager
             val leaderEpoch = retentionMetadata.leaderEpoch
 
-            val leadershipEstablished = Try(replicaManager
-              .getLog(topicIdPartition.topicPartition)
-              .map(_.tierPartitionState)
-              .exists(_.tierEpoch == leaderEpoch)).getOrElse(false)
+            replicaManager.getPartitionOrError(topicIdPartition.topicPartition, expectLeader = true) match {
+              case Left(error) =>
+                throw new TierDeletionTaskFencedException(topicIdPartition, error.exception)
 
-            if (!leadershipEstablished)
-              throw new TierMetadataRetriableException(s"Leadership not established for $topicIdPartition. Backing off.")
+              case Right(partition) =>
+                partition.log.map { log =>
+                  if (log.tierPartitionState.tierEpoch != leaderEpoch)
+                    throw new TierMetadataRetriableException(s"Leadership not established for $topicIdPartition. Backing off.")
 
-            replicaManager.getLog(topicIdPartition.topicPartition).map { log =>
-              val deletableSegments = mutable.Queue.empty ++ collectDeletableSegments(time, log, log.tieredLogSegments.toList)
-              if (deletableSegments.nonEmpty)
-                InitiateDelete(metadata, deletableSegments)
-              else
-                this
-            }.getOrElse(this)
+                  if (partition.getIsUncleanLeader)
+                    throw new TierMetadataRetriableException(s"$topicIdPartition undergoing unclean leader recovery. Backing off.")
+
+                  val deletableSegments = mutable.Queue.empty ++ collectDeletableSegments(time, log, log.tieredLogSegments.toList)
+                  if (deletableSegments.nonEmpty)
+                    InitiateDelete(metadata, deletableSegments)
+                  else
+                    this
+                }.getOrElse(this)
+            }
 
           case deletedPartitionMetadata: DeletedPartitionMetadata =>
             val deletableSegments = deletedPartitionMetadata.tieredObjects.map(DeleteObjectMetadata(_, None))
@@ -461,3 +468,6 @@ object DeletionTask extends Logging {
 }
 
 case class TaskCompletedException(topicIdPartition: TopicIdPartition) extends RuntimeException
+
+class TierDeletionTaskFencedException(val topicIdPartition: TopicIdPartition, cause: Throwable = null)
+  extends RuntimeException(s"Fenced for partition $topicIdPartition", cause)

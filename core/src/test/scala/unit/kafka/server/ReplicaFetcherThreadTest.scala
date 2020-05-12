@@ -81,7 +81,6 @@ class ReplicaFetcherThreadTest {
       metrics,
       time,
       quota,
-      tierStateFetcher,
       leaderEndpointBlockingSend,
       logContextOpt)
   }

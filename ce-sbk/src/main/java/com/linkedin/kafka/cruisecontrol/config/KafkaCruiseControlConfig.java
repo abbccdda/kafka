@@ -100,6 +100,14 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   public static final String REQUEST_TIMEOUT_MS_CONFIG = CommonClientConfigs.REQUEST_TIMEOUT_MS_CONFIG;
   private static final String REQUEST_TIMEOUT_MS_DOC = CommonClientConfigs.REQUEST_TIMEOUT_MS_DOC;
 
+
+  /**
+   * <code>default.api.timeout.ms</code>
+   */
+  public static final String DEFAULT_API_TIMEOUT_MS_CONFIG = CommonClientConfigs.DEFAULT_API_TIMEOUT_MS_CONFIG;
+  private static final String DEFAULT_API_TIMEOUT_MS_DOC = CommonClientConfigs.DEFAULT_API_TIMEOUT_MS_DOC;
+  public static final int DEFAULT_API_TIMEOUT_MS_DEFAULT = 60_000; // 1 minute
+
   /**
    * <code>partition.metrics.windows.ms</code>
    */
@@ -964,7 +972,20 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   private static final String DESCRIBE_TOPICS_RESPONSE_TIMEOUT_MS_DOC = "Timeout in ms for the broker to respond to a describe topics request";
   public static final Long DEFAULT_DESCRIBE_TOPICS_RESPONSE_TIMEOUT_MS = 10000L;
 
-  // CONFLUENT CONFIGS
+  /**
+   * <code>describe.cluster.response.timeout.ms</code>
+   */
+  public static final String DESCRIBE_CLUSTER_RESPONSE_TIMEOUT_MS_CONFIG = "describe.cluster.response.timeout.ms";
+  private static final String DESCRIBE_CLUSTER_RESPONSE_TIMEOUT_MS_DOC = "Timeout in ms for the broker to respond to a describe cluster request";
+  public static final Long DEFAULT_DESCRIBE_CLUSTER_RESPONSE_TIMEOUT_MS = 10_000L;
+
+  /**
+   * The amount of time to block for when waiting for the broker to be shut down.
+   * <code>broker.removal.shutdown.timeout.ms</code>
+   */
+  public static final String BROKER_REMOVAL_SHUTDOWN_MS_CONFIG = "broker.removal.shutdown.timeout.ms";
+  private static final String BROKER_REMOVAL_SHUTDOWN_MS_DOC = "Timeout in ms for the broker to respond to a describe cluster request";
+  public static final Long DEFAULT_BROKER_REMOVAL_SHUTDOWN_MS = 600000L; // 10 minutes
 
   /**
    * <code>max.volume.throughput</code>
@@ -1061,10 +1082,16 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 CommonClientConfigs.CONNECTIONS_MAX_IDLE_MS_DOC)
         .define(REQUEST_TIMEOUT_MS_CONFIG,
                 ConfigDef.Type.INT,
-                30 * 1000,
+                30 * 1000, // 30 seconds
                 atLeast(0),
                 ConfigDef.Importance.MEDIUM,
                 REQUEST_TIMEOUT_MS_DOC)
+        .define(DEFAULT_API_TIMEOUT_MS_CONFIG,
+                ConfigDef.Type.INT,
+                DEFAULT_API_TIMEOUT_MS_DEFAULT,
+                atLeast(0),
+                ConfigDef.Importance.MEDIUM,
+                DEFAULT_API_TIMEOUT_MS_DOC)
         .define(PARTITION_METRICS_WINDOW_MS_CONFIG,
                 ConfigDef.Type.LONG,
                 DEFAULT_PARTITION_METRICS_MS,
@@ -1569,6 +1596,16 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 DEFAULT_DESCRIBE_TOPICS_RESPONSE_TIMEOUT_MS,
                 ConfigDef.Importance.LOW,
                 DESCRIBE_TOPICS_RESPONSE_TIMEOUT_MS_DOC)
+        .define(DESCRIBE_CLUSTER_RESPONSE_TIMEOUT_MS_CONFIG,
+                ConfigDef.Type.LONG,
+                DEFAULT_DESCRIBE_CLUSTER_RESPONSE_TIMEOUT_MS,
+                ConfigDef.Importance.LOW,
+                DESCRIBE_CLUSTER_RESPONSE_TIMEOUT_MS_DOC)
+        .define(BROKER_REMOVAL_SHUTDOWN_MS_CONFIG,
+                ConfigDef.Type.LONG,
+                DEFAULT_BROKER_REMOVAL_SHUTDOWN_MS,
+                ConfigDef.Importance.LOW,
+                BROKER_REMOVAL_SHUTDOWN_MS_DOC)
         .define(MAX_VOLUME_THROUGHPUT_MB_CONFIG,
                 ConfigDef.Type.INT,
                 0,

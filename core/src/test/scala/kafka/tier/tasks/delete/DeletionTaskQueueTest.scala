@@ -8,6 +8,7 @@ import java.time.Instant
 import java.util.concurrent.CompletableFuture
 import java.util.{Properties, UUID}
 
+import kafka.cluster.Partition
 import kafka.log.{LogConfig, MergedLog, TierLogSegment}
 import kafka.server.ReplicaManager
 import kafka.tier.domain.TierObjectMetadata
@@ -100,8 +101,9 @@ class DeletionTaskQueueTest {
     val tierObjectStore = mock(classOf[TierObjectStore])
     val tierObjectMetadata = mock(classOf[TierObjectStore.ObjectMetadata])
 
-    val partition = new TopicIdPartition("foo-1", UUID.randomUUID, 0)
+    val topicIdPartition = new TopicIdPartition("foo-1", UUID.randomUUID, 0)
     val tierPartitionState = mock(classOf[TierPartitionState])
+    val partition = mock(classOf[Partition])
     val log = mock(classOf[MergedLog])
     val tieredLogSegment = mock(classOf[TierLogSegment])
     val fileDeleteDelayMs = 19 * 1000L
@@ -115,7 +117,13 @@ class DeletionTaskQueueTest {
     when(tierTopicAppender.addMetadata(any())).thenReturn(CompletableFuture.completedFuture(AppendResult.ACCEPTED))
 
     // mock replica manager
-    when(replicaManager.getLog(partition.topicPartition)).thenReturn(Some(log))
+    when(replicaManager.getLog(topicIdPartition.topicPartition)).thenReturn(Some(log))
+    when(replicaManager.getPartitionOrException(topicIdPartition.topicPartition(), expectLeader = true)).thenReturn(partition)
+    when(replicaManager.getPartitionOrError(topicIdPartition.topicPartition(), expectLeader = true)).thenReturn(Right(partition))
+
+    // mock partition
+    when(partition.getIsUncleanLeader).thenReturn(false)
+    when(partition.log).thenReturn(Some(log))
 
     // mock Log
     when(log.tieredLogSegments).thenReturn(Seq(tieredLogSegment).iterator)
@@ -132,15 +140,15 @@ class DeletionTaskQueueTest {
     // mock tier partition state
     when(tierPartitionState.tierEpoch).thenReturn(0)
     when(tierPartitionState.fencedSegments()).thenReturn(List(
-      new TierObjectMetadata(partition, 0, UUID.randomUUID, 100L, 3252334L, 1000L,
+      new TierObjectMetadata(topicIdPartition, 0, UUID.randomUUID, 100L, 3252334L, 1000L,
         102, TierObjectMetadata.State.SEGMENT_FENCED, true, false, false)
     ).asJava)
 
     // mock tier object metadata
-    when(tierObjectMetadata.topicIdPartition).thenReturn(partition)
+    when(tierObjectMetadata.topicIdPartition).thenReturn(topicIdPartition)
     when(tierObjectMetadata.objectId).thenReturn(UUID.randomUUID)
 
-    deletionTaskQueue.maybeAddTask(StartLeadership(partition, 0))
+    deletionTaskQueue.maybeAddTask(StartLeadership(topicIdPartition, 0))
 
     // 1. `CollectDeletableSegments`
     val nowMs = time.hiResClockMs()

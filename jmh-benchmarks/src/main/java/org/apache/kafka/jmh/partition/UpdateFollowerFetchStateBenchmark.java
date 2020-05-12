@@ -122,7 +122,7 @@ public class UpdateFollowerFetchStateBenchmark {
         partition = new Partition(topicPartition, 100,
                 ApiVersion$.MODULE$.latestVersion(), 0, Time.SYSTEM,
                 partitionStateStore, delayedOperations,
-                Mockito.mock(MetadataCache.class), logManager, Option.empty());
+                Mockito.mock(MetadataCache.class), logManager, Option.empty(), Option.empty(), Option.empty());
         partition.makeLeader(partitionState, offsetCheckpoints);
     }
 

@@ -19,6 +19,10 @@ public class ListClusterLinksResponse extends AbstractResponse {
 
     private final ListClusterLinksResponseData data;
 
+    public ListClusterLinksResponse(ListClusterLinksResponseData data) {
+        this.data = data;
+    }
+
     public ListClusterLinksResponse(Collection<ClusterLinkListing> clusterLinks, int throttleTimeMs) {
         List<EntryData> entryDatas = new ArrayList<>(clusterLinks.size());
         for (ClusterLinkListing clusterLink : clusterLinks) {

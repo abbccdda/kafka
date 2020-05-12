@@ -299,7 +299,6 @@ class KafkaApis(val requestChannel: RequestChannel,
           case TierListOffsetRequest.OffsetType.LOCAL_START_OFFSET => ListOffsetRequest.LOCAL_START_OFFSET
           case TierListOffsetRequest.OffsetType.LOCAL_END_OFFSET => ListOffsetRequest.LOCAL_END_OFFSET
         }
-
         val offsetOpt = replicaManager.fetchTierOffset(topicPartition, timestamp,
           leaderEpochOpt, fetchOnlyFromLeader = true)
         offsetOpt match {
@@ -652,14 +651,15 @@ class KafkaApis(val requestChannel: RequestChannel,
         unauthorizedTopicResponses += topicPartition -> new PartitionResponse(Errors.TOPIC_AUTHORIZATION_FAILED)
       else if (!metadataCache.contains(topicPartition))
         nonExistingTopicResponses += topicPartition -> new PartitionResponse(Errors.UNKNOWN_TOPIC_OR_PARTITION)
-      else
+      else {
         try {
-          ProduceRequest.validateRecords(request.header.apiVersion, memoryRecords)
-          authorizedRequestInfo += (topicPartition -> memoryRecords)
+            ProduceRequest.validateRecords(request.header.apiVersion, memoryRecords)
+            authorizedRequestInfo += (topicPartition -> memoryRecords)
         } catch {
           case e: ApiException =>
             invalidRequestResponses += topicPartition -> new PartitionResponse(Errors.forException(e))
         }
+      }
     }
 
     // the callback for sending a produce response
@@ -1093,7 +1093,8 @@ class KafkaApis(val requestChannel: RequestChannel,
         // are typically transient and there is no value in logging the entire stack trace for the same
         case e @ (_ : UnknownTopicOrPartitionException |
                   _ : NotLeaderForPartitionException |
-                  _ : KafkaStorageException) =>
+                  _ : KafkaStorageException |
+                  _ : LeaderNotAvailableException) =>
           debug("Offset request with correlation id %d from client %s on partition %s failed due to %s".format(
             correlationId, clientId, topicPartition, e.getMessage))
           (topicPartition, new ListOffsetResponse.PartitionData(Errors.forException(e), List[JLong]().asJava))
@@ -1159,7 +1160,8 @@ class KafkaApis(val requestChannel: RequestChannel,
                 _: UnknownLeaderEpochException |
                 _: FencedLeaderEpochException |
                 _: KafkaStorageException |
-                _: UnsupportedForMessageFormatException) =>
+                _: UnsupportedForMessageFormatException |
+                _: LeaderNotAvailableException) =>
           debug(s"Offset request with correlation id $correlationId from client $clientId on " +
             s"partition $topicPartition failed due to ${e.getMessage}")
           buildErrorResponse(Errors.forException(e))
@@ -3207,9 +3209,14 @@ class KafkaApis(val requestChannel: RequestChannel,
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         createClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.NOT_CONTROLLER.exception))
 
-    } else if (!config.clusterLinkEnable || !authorize(request.context, ALTER, CLUSTER, CLUSTER_NAME)) {
+    } else if (!authorize(request.context, ALTER, CLUSTER, CLUSTER_NAME)) {
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         createClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.CLUSTER_AUTHORIZATION_FAILED.exception))
+
+    } else if (!config.clusterLinkEnable) {
+      sendResponseMaybeThrottle(request, requestThrottleMs =>
+        createClusterLinksRequest.getErrorResponse(requestThrottleMs,
+          new ClusterAuthorizationException("Cluster linking is not enabled in this cluster.")))
 
     } else {
       val timeoutMs = createClusterLinksRequest.timeoutMs
@@ -3255,9 +3262,14 @@ class KafkaApis(val requestChannel: RequestChannel,
   def handleListClusterLinksRequest(request: RequestChannel.Request): Unit = {
     val listClusterLinksRequest = request.body[ListClusterLinksRequest]
 
-    if (!config.clusterLinkEnable || !authorize(request.context, DESCRIBE, CLUSTER, CLUSTER_NAME)) {
+    if (!authorize(request.context, DESCRIBE, CLUSTER, CLUSTER_NAME)) {
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         listClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.CLUSTER_AUTHORIZATION_FAILED.exception))
+
+    }  else if (!config.clusterLinkEnable) {
+      sendResponseMaybeThrottle(request, requestThrottleMs =>
+        listClusterLinksRequest.getErrorResponse(requestThrottleMs,
+          new ClusterAuthorizationException("Cluster linking is not enabled in this cluster.")))
 
     } else try {
       val result = clusterLinkAdminManager.listClusterLinks().asJava
@@ -3278,9 +3290,14 @@ class KafkaApis(val requestChannel: RequestChannel,
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         deleteClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.NOT_CONTROLLER.exception))
 
-    } else if (!config.clusterLinkEnable || !authorize(request.context, ALTER, CLUSTER, CLUSTER_NAME)) {
+    } else if (!authorize(request.context, ALTER, CLUSTER, CLUSTER_NAME)) {
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         deleteClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.CLUSTER_AUTHORIZATION_FAILED.exception))
+
+    } else if (!config.clusterLinkEnable) {
+      sendResponseMaybeThrottle(request, requestThrottleMs =>
+        deleteClusterLinksRequest.getErrorResponse(requestThrottleMs,
+          new ClusterAuthorizationException("Cluster linking is not enabled in this cluster.")))
 
     } else {
       val linkNames = deleteClusterLinksRequest.linkNames.asScala

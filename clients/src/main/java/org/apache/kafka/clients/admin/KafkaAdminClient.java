@@ -1424,6 +1424,11 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
         return runnable.pendingCalls.size();
     }
 
+    // For cluster linking interceptor
+    public KafkaClient client() {
+        return client;
+    }
+
     @Override
     public CreateTopicsResult createTopics(final Collection<NewTopic> newTopics,
                                            final CreateTopicsOptions options) {

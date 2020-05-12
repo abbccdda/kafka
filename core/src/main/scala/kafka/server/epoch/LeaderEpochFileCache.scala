@@ -171,6 +171,103 @@ class LeaderEpochFileCache(topicPartition: TopicPartition,
   }
 
   /**
+   * Get the start offset for a requested epoch
+   * @param requestedEpoch epoch whose start offset needs to be determined
+   * @return UNDEFINED_EPOCH_ENTRY if the requested epoch is not present at local cache
+   *         EpochEntry.startOffset if the EpochEntry for the requested epoch exists
+   */
+  def offsetForEpoch(requestedEpoch: Int): Long = {
+    inReadLock(lock) {
+      val requestedStartOffset: Long =
+        if (requestedEpoch == UNDEFINED_EPOCH || latestEpoch.exists(_ < requestedEpoch) || earliestEntry.exists(_.epoch > requestedEpoch)) {
+          UNDEFINED_EPOCH_OFFSET
+        } else {
+          epochs.find(_.epoch == requestedEpoch) match {
+            case Some(epochEntry) =>
+              epochEntry.startOffset
+            case None =>
+              UNDEFINED_EPOCH_OFFSET
+          }
+        }
+      debug(s"Processed start offset request for epoch $requestedEpoch and returning start offset $requestedStartOffset")
+      requestedStartOffset
+    }
+  }
+
+  /**
+   * Find the offset where local log diverges from tiered log
+   * @param tieredEpochState leader epoch state from tiered storage, to compare against
+   * @param firstTieredOffset first tiered offset
+   * @param lastTieredOffset last tiered offset
+   * @param firstLocalOffset start offset for local log
+   * @param lastLocalOffset last offset for local log (this offset is inclusive)
+   * @return offset where local log diverges from the tiered log, -1 if there is no divergence
+   */
+  def findDivergenceInEpochCache(tieredEpochState: List[EpochEntry], firstTieredOffset: Long, lastTieredOffset: Long,
+                                 firstLocalOffset: Long, lastLocalOffset: Long): Long = {
+    inReadLock(lock) {
+      var divergenceOffset: Long = -1L
+      if (epochs.isEmpty || tieredEpochState.isEmpty) {
+        info("Local epoch cache or the tiered state is empty. Hence, no divergence.")
+        return divergenceOffset
+      }
+      info(s"Find divergence between local leader epoch cache ${epochs} [startOffset: ${firstLocalOffset} lastOffset: ${lastLocalOffset}] " +
+        s"and tiered leader epoch state ${tieredEpochState} [startOffset: ${firstTieredOffset} lastOffset: ${lastTieredOffset}]")
+
+      // determine message range for each epoch at both tiered state and local cache
+      var tieredEpochAndOffsetRanges = List[(Int, Long, Long)]()
+      for(i <- tieredEpochState.indices) {
+        val numMessages = if (i + 1 == tieredEpochState.size)
+          lastTieredOffset - tieredEpochState(i).startOffset + 1
+        else
+          tieredEpochState(i + 1).startOffset - tieredEpochState(i).startOffset
+        tieredEpochAndOffsetRanges :+= (tieredEpochState(i).epoch, tieredEpochState(i).startOffset, numMessages)
+      }
+
+      var localEpochAndOffsetRanges = Map[Int, (Long, Long)]()
+      for (i <- epochs.indices) {
+        val numMessages = if (i + 1 == epochs.size)
+          lastLocalOffset - epochs(i).startOffset + 1
+        else
+          epochs(i + 1).startOffset - epochs(i).startOffset
+        localEpochAndOffsetRanges += (epochs(i).epoch -> (epochs(i).startOffset, numMessages))
+      }
+
+      val it = tieredEpochAndOffsetRanges.iterator
+      while (divergenceOffset == -1 && it.hasNext) {
+        val (tieredEpoch, tieredEpochStartOffset, tieredEpochNumMessages) = it.next()
+        localEpochAndOffsetRanges.get(tieredEpoch) match {
+          case Some((localEpochStartOffset: Long, localEpochNumMessages: Long)) =>
+            // First epoch in local cache may see an incremented start offset. Rest of the epochs need an exact match.
+            if (tieredEpochStartOffset != localEpochStartOffset) {
+              if ((tieredEpoch != epochs.head.epoch) || (localEpochStartOffset < tieredEpochStartOffset))
+                divergenceOffset = Math.min(tieredEpochStartOffset, localEpochStartOffset)
+            }
+            // Verify the last offset appended to by this epoch
+            if (divergenceOffset == -1) {
+              if ((tieredEpochStartOffset + tieredEpochNumMessages < localEpochStartOffset + localEpochNumMessages) &&
+                (tieredEpochStartOffset + tieredEpochNumMessages - 1 != lastTieredOffset))
+                divergenceOffset = tieredEpochStartOffset + tieredEpochNumMessages
+              else if ((tieredEpochStartOffset + tieredEpochNumMessages > localEpochStartOffset + localEpochNumMessages) &&
+                (localEpochStartOffset + localEpochNumMessages - 1 != lastLocalOffset))
+                divergenceOffset = localEpochStartOffset + localEpochNumMessages
+            }
+          case None =>
+            // Ignore the tiered epochs that are 1. outside the range of local epoch cache OR, 2. have no messages.
+            // Followers record an epoch in local cache when that epoch appends first message. Followers will not see the leader
+            // epochs that appended no messages. Leaders add an epoch to their local cache upon receiving LeaderAndIsr request.
+            if ((tieredEpochStartOffset + tieredEpochNumMessages - 1 >= firstLocalOffset && tieredEpochStartOffset <= lastLocalOffset) &&
+              tieredEpochNumMessages != 0) {
+              divergenceOffset = tieredEpochStartOffset
+            }
+        }
+      }
+      info(s"Divergence reported: ${divergenceOffset}")
+      divergenceOffset
+    }
+  }
+
+  /**
     * Removes all epoch entries from the store with start offsets greater than or equal to the passed offset.
     */
   def truncateFromEnd(endOffset: Long): Unit = {

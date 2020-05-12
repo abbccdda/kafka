@@ -181,7 +181,7 @@ public class KafkaMetricsCollector implements MetricsCollector {
             .build();
         Timestamp startTimestamp = MetricsUtils
             .toTimestamp(instantAndValue.getIntervalStart());
-        return Optional.of(context.metricWithSinglePointTimeseries(deltaName, Type.GAUGE_DOUBLE, labels, point,
+        return Optional.of(context.metricWithSinglePointTimeseries(deltaName, Type.CUMULATIVE_DOUBLE, labels, point,
                 startTimestamp));
     }
 

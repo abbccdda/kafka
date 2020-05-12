@@ -6,15 +6,16 @@ package com.linkedin.kafka.cruisecontrol.executor
 
 import java.util
 import java.util.concurrent.ExecutionException
-import java.util.{Optional, Properties}
+import java.util.{Properties, Optional}
 
+import com.linkedin.kafka.cruisecontrol.common.SBKAdminUtils
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig
 import kafka.admin.PreferredReplicaLeaderElectionCommand
-import org.apache.kafka.clients.admin.{Admin, NewPartitionReassignment}
-import kafka.zk.{AdminZkClient, KafkaZkClient, ZkVersion}
+import org.apache.kafka.clients.admin.{NewPartitionReassignment, Admin}
+import kafka.zk.{ZkVersion, KafkaZkClient, AdminZkClient}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.UnsupportedVersionException
-import org.slf4j.{Logger, LoggerFactory}
+import org.slf4j.{LoggerFactory, Logger}
 
 import scala.jdk.CollectionConverters._
 import scala.collection.mutable
@@ -38,7 +39,7 @@ object ExecutorUtils {
    * @param config the configuration of Cruise Control.
    */
   def executeReplicaReassignmentTasks(adminClient: Admin,
-                                      executorAdminUtils: ExecutorAdminUtils,
+                                      executorAdminUtils: SBKAdminUtils,
                                       kafkaZkClient: KafkaZkClient,
                                       reassignmentTasks: java.util.List[ExecutionTask],
                                       config: KafkaCruiseControlConfig): Unit = {
@@ -81,7 +82,7 @@ object ExecutorUtils {
    * Given an ExecutionTask, return the targetReplicas we should write to the Kafka reassignments.
    * If we should not reassign a partition as part of this task, an empty replica set will be returned
    */
-  def replicasToWrite(executorAdminUtils: ExecutorAdminUtils, config: KafkaCruiseControlConfig,
+  def replicasToWrite(executorAdminUtils: SBKAdminUtils, config: KafkaCruiseControlConfig,
                       task: ExecutionTask, inProgressTargetReplicasOpt: Option[Seq[Int]]): Seq[Int] = {
     val tp = task.proposal.topicPartition()
     val oldReplicas = task.proposal.oldReplicas.asScala.map(_.brokerId.toInt)

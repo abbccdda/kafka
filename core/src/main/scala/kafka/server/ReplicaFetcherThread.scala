@@ -17,21 +17,15 @@
 
 package kafka.server
 
-import java.nio.ByteBuffer
 import java.util.concurrent.Future
-import java.util.function.BiFunction
-import java.util.{Collections, Optional, function}
+import java.util.{Collections, Optional}
 
 import kafka.api._
 import kafka.cluster.BrokerEndPoint
 import kafka.log.LogAppendInfo
 import kafka.server.AbstractFetcherThread.ReplicaFetch
 import kafka.server.AbstractFetcherThread.ResultWithPartitions
-import kafka.server.epoch.EpochEntry
-import kafka.tier.tasks.CompletableFutureUtil
 import kafka.tier.domain.TierObjectMetadata
-import kafka.tier.fetcher.TierStateFetcher
-import kafka.tier.store.TierObjectStore
 import org.apache.kafka.clients.FetchSessionHandler
 import org.apache.kafka.clients.FetchSessionHandler.FetchRequestData
 import org.apache.kafka.common.TopicPartition
@@ -58,7 +52,6 @@ class ReplicaFetcherThread(name: String,
                            metrics: Metrics,
                            time: Time,
                            quota: ReplicaQuota,
-                           tierStateFetcher: Option[TierStateFetcher],
                            leaderEndpointBlockingSend: Option[BlockingSend] = None,
                            logContextOpt: Option[LogContext] = None)
   extends AbstractFetcherThread(name = name,
@@ -66,7 +59,6 @@ class ReplicaFetcherThread(name: String,
                                 sourceBroker = sourceBroker,
                                 failedPartitions,
                                 fetchBackOffMs = brokerConfig.replicaFetchBackoffMs,
-                                tierStateFetcher = tierStateFetcher,
                                 isInterruptible = false,
                                 replicaMgr.brokerTopicStats) {
 
@@ -233,21 +225,8 @@ class ReplicaFetcherThread(name: String,
   }
 
   override def fetchTierState(topicPartition: TopicPartition, tierObjectMetadata: TierObjectMetadata): Future[TierState] = {
-    val metadata = new TierObjectStore.ObjectMetadata(tierObjectMetadata)
-    val epochStateFut = tierStateFetcher.get.fetchLeaderEpochState(metadata)
-    val producerStateFut = if (tierObjectMetadata.hasProducerState)
-      tierStateFetcher.get.fetchProducerStateSnapshot(metadata)
-        .thenApply[Option[ByteBuffer]](new function.Function[ByteBuffer, Option[ByteBuffer]] {
-          override def apply(buf: ByteBuffer): Option[ByteBuffer] = Some(buf)
-        })
-    else
-      CompletableFutureUtil.completed(None)
-
-    epochStateFut.thenCombine[Option[ByteBuffer], TierState](producerStateFut, new BiFunction[List[EpochEntry], Option[ByteBuffer], TierState] {
-      override def apply(epochEntries: List[EpochEntry], producerState: Option[ByteBuffer]): TierState = {
-        TierState(epochEntries, producerState)
-      }
-    })
+    val partition = replicaMgr.nonOfflinePartition(topicPartition).get
+    partition.fetchTierState(tierObjectMetadata)
   }
 
   override def materializeTierStateUntilOffset(topicPartition: TopicPartition, targetOffset: Long): Future[TierObjectMetadata] = {

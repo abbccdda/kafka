@@ -1193,6 +1193,54 @@ class ReplicaManagerTest {
   }
 
   @Test
+  def testPreferredReplicaWhenPartitionIsMarkedUnclean(): Unit = {
+    val topicPartition = 0
+    val followerBrokerId = 0
+    val leaderBrokerId = 1
+    val leaderEpoch = 1
+    val leaderEpochIncrement = 2
+    val countDownLatch = new CountDownLatch(1)
+    val (replicaManager, _) = prepareReplicaManagerAndLogManager(new MockTimer(time),
+      topicPartition, leaderEpoch + leaderEpochIncrement, followerBrokerId,
+      leaderBrokerId, countDownLatch, expectTruncation = true)
+    val brokerList = Seq[Integer](0, 1).asJava
+    val tp0 = new TopicPartition(topic, 0)
+    replicaManager.createPartition(new TopicPartition(topic, 0))
+    val metadata: ClientMetadata = new DefaultClientMetadata("rack-a", "client-id",
+      InetAddress.getByName("localhost"), KafkaPrincipal.ANONYMOUS, "default")
+
+    // Make this replica as unclean leader
+    val leaderAndIsrRequest = new LeaderAndIsrRequest.Builder(ApiKeys.LEADER_AND_ISR.latestVersion, 0, 0, brokerEpoch,
+      Seq(new LeaderAndIsrPartitionState()
+        .setTopicName(topic)
+        .setPartitionIndex(0)
+        .setControllerEpoch(0)
+        .setLeader(0)
+        .setLeaderEpoch(1)
+        .setIsr(brokerList)
+        .setZkVersion(0)
+        .setReplicas(brokerList)
+        .setIsNew(false)).asJava,
+      Set(new Node(0, "host1", 0), new Node(1, "host2", 1)).asJava,
+      false).build()
+    replicaManager.becomeLeaderOrFollower(1, leaderAndIsrRequest, (_, _) => ())
+
+    replicaManager.getPartitionOrException(new TopicPartition(topic, 0), expectLeader = true).setUncleanLeaderFlagTo(true)
+    val consumerResult = fetchAsConsumer(replicaManager, tp0,
+      new PartitionData(0, 0, 100000, Optional.empty()),
+      clientMetadata = Some(metadata))
+    assertTrue(consumerResult.isFired)
+    assertTrue(consumerResult.assertFired.error == Errors.LEADER_NOT_AVAILABLE)
+
+    replicaManager.getPartitionOrException(new TopicPartition(topic, 0), expectLeader = true).setUncleanLeaderFlagTo(false)
+    val consumerResult2 = fetchAsConsumer(replicaManager, tp0,
+      new PartitionData(0, 0, 100000, Optional.empty()),
+      clientMetadata = Some(metadata))
+    assertTrue(consumerResult2.isFired)
+    assertTrue(consumerResult2.assertFired.error == Errors.NONE)
+  }
+
+  @Test
   def testPreferredReplicaAsFollower(): Unit = {
     val topicPartition = 0
     val followerBrokerId = 0
@@ -1815,6 +1863,10 @@ class ReplicaManagerTest {
       val partition = rm.createPartition(topicPartition)
       val log = Mockito.mock(classOf[AbstractLog])
       partition.setLog(log, isFutureLog = false)
+      val logProps: Properties = new Properties
+      logProps.put(LogConfig.TierEnableProp, "false")
+      val logConfig: LogConfig = LogConfig.apply(logProps, Set())
+      Mockito.when(log.config).thenReturn(logConfig)
       Mockito.when(log.logEndOffsetMetadata).thenReturn(LogOffsetMetadata(0, 0, 0))
       Mockito.when(log.maybeIncrementHighWatermark(ArgumentMatchers.any())).thenReturn(None)
 
@@ -2034,7 +2086,7 @@ class ReplicaManagerTest {
 
           override def createFetcherThread(fetcherId: Int, sourceBroker: BrokerEndPoint): ReplicaFetcherThread = {
             new ReplicaFetcherThread(s"ReplicaFetcherThread-$fetcherId", fetcherId,
-              sourceBroker, config, failedPartitions, replicaManager, metrics, time, quota.follower, None, Some(blockingSend)) {
+              sourceBroker, config, failedPartitions, replicaManager, metrics, time, quota.follower, Some(blockingSend)) {
 
               override def doWork() = {
                 // In case the thread starts before the partition is added by AbstractFetcherManager,

@@ -270,15 +270,6 @@ public class LoadMonitor {
                                        totalNumPartitions,
                                        extrapolations,
                                        _loadMonitorTaskRunner.reasonOfLatestPauseOrResume());
-      case BOOTSTRAPPING:
-        double bootstrapProgress = _loadMonitorTaskRunner.bootStrapProgress();
-        // Handle the race between querying the state and getting the progress.
-        return LoadMonitorState.bootstrapping(numValidSnapshotWindows,
-                                              validPartitionRatio,
-                                              numValidPartitions,
-                                              totalNumPartitions,
-                                              bootstrapProgress >= 0 ? bootstrapProgress : 1.0,
-                                              extrapolations);
       case TRAINING:
         return LoadMonitorState.training(numValidSnapshotWindows,
                                          validPartitionRatio,
@@ -308,36 +299,6 @@ public class LoadMonitor {
    */
   public LoadMonitorTaskRunner.LoadMonitorTaskRunnerState taskRunnerState() {
     return _loadMonitorTaskRunner.state();
-  }
-
-  /**
-   * Bootstrap the load monitor for a given period.
-   * @param startMs the starting time of the bootstrap period.
-   * @param endMs the end time of the bootstrap period.
-   * @param clearMetrics clear the existing metric samples.
-   */
-  public void bootstrap(long startMs, long endMs, boolean clearMetrics) {
-    _loadMonitorTaskRunner.bootstrap(startMs, endMs, clearMetrics);
-  }
-
-  /**
-   * Bootstrap the load monitor from the given timestamp until it catches up.
-   * This method clears all existing metric samples.
-   * @param startMs the starting time of the bootstrap period.
-   * @param clearMetrics clear the existing metric samples.
-   */
-  public void bootstrap(long startMs, boolean clearMetrics) {
-    _loadMonitorTaskRunner.bootstrap(startMs, clearMetrics);
-  }
-
-  /**
-   * Bootstrap the load monitor with the most recent metric samples until it catches up.
-   * This method clears all existing metric samples.
-   *
-   * @param clearMetrics clear the existing metric samples.
-   */
-  public void bootstrap(boolean clearMetrics) {
-    _loadMonitorTaskRunner.bootstrap(clearMetrics);
   }
 
   /**

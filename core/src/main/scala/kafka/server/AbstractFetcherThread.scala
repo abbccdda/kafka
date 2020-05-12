@@ -41,7 +41,6 @@ import java.util.function.BiConsumer
 import kafka.log.LogAppendInfo
 import kafka.server.epoch.EpochEntry
 import kafka.tier.domain.TierObjectMetadata
-import kafka.tier.fetcher.TierStateFetcher
 import kafka.server.AbstractFetcherThread.ReplicaFetch
 import kafka.server.AbstractFetcherThread.ResultWithPartitions
 import org.apache.kafka.common.{InvalidRecordException, TopicPartition}
@@ -111,7 +110,6 @@ abstract class AbstractFetcherThread(name: String,
                                      val sourceBroker: BrokerEndPoint,
                                      failedPartitions: FailedPartitions,
                                      fetchBackOffMs: Int = 0,
-                                     tierStateFetcher: Option[TierStateFetcher],
                                      isInterruptible: Boolean = true,
                                      val brokerTopicStats: BrokerTopicStats) //BrokerTopicStats's lifecycle managed by ReplicaManager
   extends ShutdownableThread(name, isInterruptible) {

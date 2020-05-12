@@ -16,6 +16,8 @@
  */
 package kafka.cluster
 
+import java.nio.ByteBuffer
+import java.util.concurrent.{CompletableFuture, Executor}
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import java.util.{Optional, Properties}
 
@@ -25,10 +27,14 @@ import kafka.controller.{KafkaController, StateChangeLogger}
 import kafka.log._
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server._
-import kafka.tier.{TierReplicaManager, TierTimestampAndOffset}
 import kafka.server.checkpoints.OffsetCheckpoints
+import kafka.server.epoch.EpochEntry
 import kafka.server.link.ClusterLinkTopicState
 import kafka.server.link.ClusterLinkTopicState.{FailedMirror, Mirror}
+import kafka.tier.domain.TierObjectMetadata
+import kafka.tier.fetcher.TierStateFetcher
+import kafka.tier.store.TierObjectStore
+import kafka.tier.{TierReplicaManager, TierTimestampAndOffset}
 import kafka.utils.CoreUtils.{inReadLock, inWriteLock}
 import kafka.utils._
 import kafka.zk.{AdminZkClient, KafkaZkClient}
@@ -166,7 +172,9 @@ object Partition extends KafkaMetricsGroup {
       delayedOperations = delayedOperations,
       metadataCache = replicaManager.metadataCache,
       logManager = replicaManager.logManager,
-      tierReplicaManagerOpt = replicaManager.tierReplicaComponents.replicaManagerOpt)
+      tierReplicaManagerOpt = replicaManager.tierReplicaComponents.replicaManagerOpt,
+      tierStateFetcherOpt = replicaManager.tierReplicaComponents.stateFetcherOpt,
+      Some(replicaManager.executor))
   }
 
   def removeMetrics(topicPartition: TopicPartition): Unit = {
@@ -256,7 +264,9 @@ class Partition(val topicPartition: TopicPartition,
                 delayedOperations: DelayedOperations,
                 metadataCache: MetadataCache,
                 logManager: LogManager,
-                tierReplicaManagerOpt: Option[TierReplicaManager]) extends Logging with KafkaMetricsGroup {
+                tierReplicaManagerOpt: Option[TierReplicaManager],
+                tierStateFetcherOpt: Option[TierStateFetcher],
+                executorOpt: Option[Executor] = None) extends Logging with KafkaMetricsGroup {
 
   def topic: String = topicPartition.topic
   def partitionId: Int = topicPartition.partition
@@ -270,6 +280,7 @@ class Partition(val topicPartition: TopicPartition,
   // lock to prevent the follower replica log update while checking if the log dir could be replaced with future log.
   private val futureLogLock = new Object()
   private var zkVersion: Int = LeaderAndIsr.initialZKVersion
+  @volatile private[cluster] var uncleanLeaderRecoveryFutureOpt: Option[CompletableFuture[Void]] = None
   @volatile private var leaderEpoch: Int = LeaderAndIsr.initialLeaderEpoch - 1
   // start offset for 'leaderEpoch' above (leader epoch of the current leader for this partition),
   // defined when this broker is leader for partition
@@ -478,6 +489,9 @@ class Partition(val topicPartition: TopicPartition,
     }
   }
 
+  // Visible for testing -- Used by unit tests to toggle unclean leader state
+  def setUncleanLeaderFlagTo(value: Boolean): Unit = { isUncleanLeader = value }
+
   // Visible for testing -- Used by unit tests to set log for this partition
   def setLog(log: AbstractLog, isFutureLog: Boolean): Unit = {
     if (isFutureLog)
@@ -599,6 +613,7 @@ class Partition(val topicPartition: TopicPartition,
       //We cache the leader epoch here, persisting it only if it's local (hence having a log dir)
       leaderEpoch = partitionState.leaderEpoch
       leaderEpochStartOffsetOpt = Some(leaderEpochStartOffset)
+      // value for this flag must be updated before starting TierTask / DeletionTask state machines
       isUncleanLeader = partitionState.confluentIsUncleanLeader
       zkVersion = partitionState.zkVersion
 
@@ -613,6 +628,7 @@ class Partition(val topicPartition: TopicPartition,
       }
       if (partitionState.topicId != MessageUtil.ZERO_UUID)
         leaderLog.assignTopicId(partitionState.topicId)
+
       tierReplicaManagerOpt.foreach(_.becomeLeader(leaderLog.tierPartitionState, leaderEpoch))
 
       val isNewLeader = !isLeader
@@ -636,12 +652,17 @@ class Partition(val topicPartition: TopicPartition,
             lastSentHighwatermark = 0L)
         }
       }
+
+      if (isUncleanLeader)
+        beginRecoveryForUncleanLeader()
+
       // we may need to increment high watermark since ISR could be down to 1
       (maybeIncrementLeaderHW(leaderLog), isNewLeader)
     }
     // some delayed operations may be unblocked after HW changed
     if (leaderHWIncremented)
       tryCompleteDelayedRequests()
+
     isNewLeader
   }
 
@@ -790,6 +811,100 @@ class Partition(val topicPartition: TopicPartition,
     clusterLink.foreach(_ => linkedLeaderOffsetsPending(false))
   }
 
+  def fetchTierState(tierObjectMetadata: TierObjectMetadata): CompletableFuture[TierState] = {
+    val metadata = new TierObjectStore.ObjectMetadata(tierObjectMetadata)
+    val epochStateFut = tierStateFetcherOpt.get.fetchLeaderEpochState(metadata)
+    val producerStateFut = if (tierObjectMetadata.hasProducerState)
+      tierStateFetcherOpt.get.fetchProducerStateSnapshot(metadata).thenApply[Option[ByteBuffer]](buf => Some(buf))
+    else
+      CompletableFuture.completedFuture(None)
+
+    epochStateFut.thenCombine(producerStateFut,
+      (epochEntries: List[EpochEntry], producerState: Option[ByteBuffer]) => TierState(epochEntries, producerState))
+  }
+
+  /*
+   * Performs recovery after unclean leader election. RW IO is blocked on the partition till recovery completes.
+   * Archive task and delete task state machines are also blocked in their initial states till recovery completes. This ensures
+   * that there are no changes to the tier partition state during recovery (while no new archival or deletion messages are produced,
+   * any messages from older leaders will be fenced via regular fencing mechanisms).
+   * Recovery is performed only for tiered partitions, and includes the following sequence of steps.
+   * 1. Establish leadership for the unclean leader by consuming its initLeader message from tier topic.
+   * 2. Read leader epoch state from tier store.
+   * 3. Compare local epoch cache against the tiered epoch state to determine if local log needs to be kept or discarded.
+   *    Discard the local log, or increment its start offset, as needed.
+   * 4. Clear unclean leader flag at zookeeper and locally at the partition object. When we clear the flag locally, all the
+   *    blocked IO and both the state machines will resume.
+   * Following API calls are blocked for a partition marked as unclean: FETCH, PRODUCE, DELETE_RECORDS, LIST_OFFSETS,
+   * OFFSET_FOR_LEADER_EPOCH, TIER_LIST_OFFSET, REPLICA_STATUS
+   */
+  private def beginRecoveryForUncleanLeader(): Unit = {
+    info(s"Start recovery for partition: ${topicPartition} after an unclean leader election")
+    val localLog = localLogOrException
+    val tierPartitionState = localLog.tierPartitionState
+    val leaderEpoch = this.leaderEpoch
+
+    val executor = executorOpt.getOrElse(throw new IllegalStateException(s"[Partition: ${topicPartition}] Recovery due to unclean leader needs to run in separate thread pool"))
+    // If a recovery action is already in progress, chain onto the on-going task
+    val future = uncleanLeaderRecoveryFutureOpt.getOrElse(CompletableFuture.completedFuture(null))
+
+    if (tierPartitionState.isTieringEnabled) {
+      def throwIfEpochChanged(): Unit = {
+        if (leaderEpoch != this.leaderEpoch)
+          throw new InterruptedException(s"[Partition: ${topicPartition}] Cancelling recovery as epoch $leaderEpoch does not match current epoch ${this.leaderEpoch}")
+      }
+
+      val newFuture =
+        future.thenCompose[Optional[TierObjectMetadata]](_ => {
+          // Step 1: materialize up to current epoch
+          info(s"[Partition: ${topicPartition}] Waiting for ${leaderEpoch} to materialize")
+          throwIfEpochChanged()
+          tierPartitionState.materializeUptoEpoch(leaderEpoch)
+        })
+        .thenCompose[Optional[TierState]](metadataOpt => {
+          // Step 2: fetch leader epoch cache and producer state corresponding to the last segment
+          info(s"[Partition: ${topicPartition}] Fetching leader epoch state and producer state from tier store")
+          throwIfEpochChanged()
+          if (metadataOpt.isPresent)
+            fetchTierState(metadataOpt.get()).thenApply[Optional[TierState]](tierState => Optional.ofNullable(tierState))
+          else
+            CompletableFuture.completedFuture(Optional.empty())
+        })
+        .thenAcceptAsync((tierStateOpt: Optional[TierState]) => inWriteLock(leaderIsrUpdateLock) {
+          // Step 3: recover log using the fetched leader epoch cache and producer state
+          // LeaderIsrUpdateLock is necessary in this step to avoid a potential race condition where this replica(say, replica_0)
+          // becomes a follower soon after throwIfEpochChanged check. Newly elected unclean leader(say, replica_1) will
+          // run similar recovery logic and thereafter, start responding to fetch requests from the followers(including replica_0).
+          // In this case, replica_0 will start to fetch from leader and append to its local log while its previously initiated
+          // recovery may try to truncate local log at the same time.
+          if (tierStateOpt.isPresent) {
+            info(s"[Partition: ${topicPartition}] Running recovery logic")
+            throwIfEpochChanged()
+            localLog.recoverLocalLogAfterUncleanLeaderElection(tierStateOpt.get)
+          }
+        }, executor)
+        .thenRunAsync(() => {
+          // Step 4: clear unclean leader state
+          maybeClearUncleanLeaderState(leaderEpoch)
+        }, executor)
+        .exceptionally(throwable => {
+          if (throwable != null)
+            info(s"[Partition: ${topicPartition}] Caught exception during unclean leader recovery", throwable)
+          null
+        })
+
+      uncleanLeaderRecoveryFutureOpt = Some(newFuture)
+    } else {
+      val newFuture =
+        future.thenRunAsync(() => {
+          info(s"[Partition: ${topicPartition}] Clear unclean leader state at zookeeper and locally using leader epoch ${leaderEpoch}")
+          maybeClearUncleanLeaderState(leaderEpoch)
+        })
+
+      uncleanLeaderRecoveryFutureOpt = Some(newFuture)
+    }
+  }
+
   /**
    * Attempt to clear unclean leader state at provided epoch. We will attempt to clear the state only if we are the
    * leader at the provided epoch. Note that this is a blocking call; if we require clearing unclean leader state then
@@ -797,7 +912,7 @@ class Partition(val topicPartition: TopicPartition,
    *
    * @param leaderEpoch The leader epoch at which unclean leader state needs to be cleared
    */
-  private[cluster] def maybeClearUncleanLeaderState(leaderEpoch: Int): Unit = {
+  def maybeClearUncleanLeaderState(leaderEpoch: Int): Unit = {
     def needClearUncleanLeaderState: Boolean = isLeader && this.leaderEpoch == leaderEpoch && isUncleanLeader
 
     var done = false
@@ -811,10 +926,12 @@ class Partition(val topicPartition: TopicPartition,
             clearUncleanLeaderState()
           } catch {
             case e: Exception =>
-              info(s"Ignoring ZK exception when clearing unclean leader state. Will retry.", e)
+              info(s"[Partition: ${topicPartition}] Ignoring ZK exception when clearing unclean leader state. Will retry.", e)
               false
           }
         } else {
+          info(s"[Partition: ${topicPartition}] Cannot clear unclean leader state with epoch: ${leaderEpoch}. Current leader epoch: ${this.leaderEpoch} " +
+            s"isLeader: ${isLeader.toString} isUncleanLeader: ${isUncleanLeader.toString}")
           true
         }
       }
@@ -1168,7 +1285,11 @@ class Partition(val topicPartition: TopicPartition,
             throw new NotEnoughReplicasException(s"The size of the current ISR $inSyncReplicaIds " +
               s"is insufficient to satisfy the min.isr requirement of $minIsr for partition $topicPartition")
           }
-
+          // Do not write to a partition that needs to undergo recovery after unclean leader election
+          if (isUncleanLeader) {
+            throw new LeaderNotAvailableException(s"Partition $topicPartition is not yet available " +
+              s"because it needs to undergo recovery after unclean leader election")
+          }
           val info = leaderLog.appendAsLeader(records, leaderEpoch = this.leaderEpoch, origin,
             interBrokerProtocolVersion, bufferSupplier)
 
@@ -1201,7 +1322,11 @@ class Partition(val topicPartition: TopicPartition,
                   permitPreferredTierRead: Boolean): LogReadInfo = inReadLock(leaderIsrUpdateLock) {
     // decide whether to only fetch from leader
     val localLog = localLogWithEpochOrException(currentLeaderEpoch, fetchOnlyFromLeader)
-
+    // Partition is marked unclean when an unclean leader has been elected. It stays so until recovery
+    // has been performed on the log. Till then, reads are blocked.
+    if (isUncleanLeader)
+      throw new LeaderNotAvailableException(s"Partition $topicPartition is not yet available " +
+        s"because it needs to undergo recovery after unclean leader election")
     // Note we use the log end offset prior to the read. This ensures that any appends following
     // the fetch do not prevent a follower from coming into sync.
     val initialHighWatermark = localLog.highWatermark
@@ -1223,6 +1348,9 @@ class Partition(val topicPartition: TopicPartition,
                              fetchOnlyFromLeader: Boolean): Option[Long] = inReadLock(leaderIsrUpdateLock) {
     // decide whether to only fetch from leader
     localLogWithEpochOrException(currentLeaderEpoch.asJava, fetchOnlyFromLeader)
+    if (isUncleanLeader)
+      throw new LeaderNotAvailableException(s"Partition $topicPartition is not yet available " +
+        s"because it needs to undergo recovery after unclean leader election")
     logManager.getLog(topicPartition).map { log =>
       timestamp match {
         case ListOffsetRequest.LOCAL_START_OFFSET => log.localLogStartOffset
@@ -1238,6 +1366,9 @@ class Partition(val topicPartition: TopicPartition,
                               fetchOnlyFromLeader: Boolean): Option[TimestampAndOffset] = inReadLock(leaderIsrUpdateLock) {
     // decide whether to only fetch from leader
     val localLog = localLogWithEpochOrException(currentLeaderEpoch, fetchOnlyFromLeader)
+    if (isUncleanLeader)
+      throw new LeaderNotAvailableException(s"Partition $topicPartition is not yet available " +
+        s"because it needs to undergo recovery after unclean leader election")
 
     val lastFetchableOffset = isolationLevel match {
       case Some(IsolationLevel.READ_COMMITTED) => localLog.lastStableOffset
@@ -1284,6 +1415,8 @@ class Partition(val topicPartition: TopicPartition,
                           fetchOnlyFromLeader: Boolean): LogOffsetSnapshot = inReadLock(leaderIsrUpdateLock) {
     // decide whether to only fetch from leader
     val localLog = localLogWithEpochOrException(currentLeaderEpoch, fetchOnlyFromLeader)
+    if (isUncleanLeader)
+      throw new LeaderNotAvailableException(s"Partition $topicPartition is undergoing recovery after unclean leader election.")
     localLog.fetchOffsetSnapshot
   }
 
@@ -1292,6 +1425,8 @@ class Partition(val topicPartition: TopicPartition,
                                      isFromConsumer: Boolean,
                                      fetchOnlyFromLeader: Boolean): Seq[Long] = inReadLock(leaderIsrUpdateLock) {
     val localLog = localLogWithEpochOrException(Optional.empty(), fetchOnlyFromLeader)
+    if (isUncleanLeader)
+      throw new LeaderNotAvailableException(s"Partition $topicPartition is undergoing recovery after unclean leader election.")
     val allOffsets = localLog.legacyFetchOffsetsBefore(timestamp, maxNumOffsets)
 
     if (!isFromConsumer) {
@@ -1322,6 +1457,9 @@ class Partition(val topicPartition: TopicPartition,
       case Some(leaderLog) =>
         if (!leaderLog.config.delete)
           throw new PolicyViolationException(s"Records of partition $topicPartition can not be deleted due to the configured policy")
+        if (isUncleanLeader)
+          throw new LeaderNotAvailableException(s"Partition $topicPartition is not yet available " +
+            s"because it needs to undergo recovery after unclean leader election [broker ${localBrokerId}]")
 
         val convertedOffset = if (offset == DeleteRecordsRequest.HIGH_WATERMARK)
           leaderLog.highWatermark
@@ -1384,7 +1522,9 @@ class Partition(val topicPartition: TopicPartition,
   def lastOffsetForLeaderEpoch(currentLeaderEpoch: Optional[Integer],
                                leaderEpoch: Int,
                                fetchOnlyFromLeader: Boolean): EpochEndOffset = {
-    inReadLock(leaderIsrUpdateLock) {
+    if (isUncleanLeader)
+      new EpochEndOffset(Errors.LEADER_NOT_AVAILABLE, UNDEFINED_EPOCH, UNDEFINED_EPOCH_OFFSET)
+    else inReadLock(leaderIsrUpdateLock) {
       val localLogOrError = getLocalLog(currentLeaderEpoch, fetchOnlyFromLeader)
       localLogOrError match {
         case Left(localLog) =>
@@ -1417,7 +1557,7 @@ class Partition(val topicPartition: TopicPartition,
   }
 
   /**
-   * Clear the unclean leader state. Accesses to this method must be synchronized.
+   * Clear the unclean leader state at ZK. Accesses to this method must be synchronized.
    * @return True if we successfully cleared the unclean leader state; false otherwise. Note that this method may
    *         raise a ZK exception, for example if the ZK session has timed out.
    */
@@ -1428,7 +1568,8 @@ class Partition(val topicPartition: TopicPartition,
       case Some(newVersion) =>
         maybeUpdateIsrAndVersion(inSyncReplicaIds, zkVersionOpt)
         isUncleanLeader = false
-        info(s"Cleared unclean leader state at epoch $leaderEpoch with ISR $inSyncReplicaIds. " +
+        uncleanLeaderRecoveryFutureOpt = None
+        info(s"[Partition: ${topicPartition}] Cleared unclean leader state at epoch $leaderEpoch with ISR $inSyncReplicaIds. " +
           s"zkVersion updated to $newVersion")
         true
 
@@ -1506,6 +1647,8 @@ class Partition(val topicPartition: TopicPartition,
   def replicaStatus(): Seq[ReplicaStatus] = {
     leaderLogIfLocal match {
       case Some(leaderLog) =>
+        if (isUncleanLeader)
+          throw new LeaderNotAvailableException(s"Leader is not yet available for $topicPartition")
         val curTimeMs = time.milliseconds
         new ReplicaStatus(localBrokerId, true,
           assignmentState.observers.contains(localBrokerId),
@@ -1542,6 +1685,7 @@ class Partition(val topicPartition: TopicPartition,
     partitionString.append("; Replicas: " + assignmentState.replicas.mkString(","))
     partitionString.append("; ISR: " + inSyncReplicaIds.mkString(","))
     partitionString.append("; Observers: " + assignmentState.observers.mkString(","))
+    partitionString.append("; isUncleanLeader: " + getIsUncleanLeader.toString)
     assignmentState match {
       case OngoingReassignmentState(adding, removing, _, _) =>
         partitionString.append("; AddingReplicas: " + adding.mkString(","))

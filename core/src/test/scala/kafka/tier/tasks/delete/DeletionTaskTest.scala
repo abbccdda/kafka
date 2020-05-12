@@ -9,6 +9,7 @@ import java.time.Instant
 import java.util.concurrent.CompletableFuture
 import java.util.{Properties, UUID}
 
+import kafka.cluster.Partition
 import kafka.log._
 import kafka.server.ReplicaManager
 import kafka.tier.domain.{TierObjectMetadata, TierSegmentDeleteComplete, TierSegmentDeleteInitiate}
@@ -19,7 +20,7 @@ import kafka.tier.store.TierObjectStore
 import kafka.tier.tasks.delete.DeletionTask._
 import kafka.tier.topic.TierTopicManager
 import kafka.tier.TopicIdPartition
-import kafka.tier.exceptions.TierObjectStoreRetriableException
+import kafka.tier.exceptions.{TierMetadataRetriableException, TierObjectStoreRetriableException}
 import kafka.utils.TestUtils
 import org.apache.kafka.common.record.FileRecords
 import org.apache.kafka.common.utils.MockTime
@@ -36,15 +37,18 @@ import scala.concurrent.Await
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 import scala.concurrent.duration._
+import scala.util.{Failure, Success}
 
 class DeletionTaskTest {
   val topic1 = "foo-0"
   val topicIdPartition_1 = new TopicIdPartition(topic1, UUID.randomUUID, 0)
   var tierPartitionState_1 = mockTierPartitionState(0)
+  val partition_1 = mock(classOf[Partition])
 
   val topic2 = "foo-1"
   val topicIdPartition_2 = new TopicIdPartition(topic2, UUID.randomUUID, 0)
   var tierPartitionState_2 = mockTierPartitionState(0)
+  val partition_2 = mock(classOf[Partition])
 
   val topic3 = "foo-2"
   val topicIdPartition_3 = new TopicIdPartition(topic3, UUID.randomUUID, 0)
@@ -53,6 +57,12 @@ class DeletionTaskTest {
     new TierObjectMetadata(topicIdPartition_3, 0, UUID.randomUUID, 4252334L, 5252334L, 5000L,
       102, TierObjectMetadata.State.SEGMENT_FENCED, true, false, false))
   var tierPartitionState_3 = mockTierPartitionState(0, fencedSegments)
+  val partition_3 = mock(classOf[Partition])
+
+  val topic4 = "foo-3"
+  val topicIdPartition_4 = new TopicIdPartition(topic4, UUID.randomUUID, 0)
+  var tierPartitionState_4 = mockTierPartitionState(0)
+  val partition_4 = mock(classOf[Partition])
 
   val ctx = CancellationContext.newContext()
   val tierTopicManager = mock(classOf[TierTopicManager])
@@ -62,18 +72,22 @@ class DeletionTaskTest {
   val time = new MockTime()
   val tmpFile = TestUtils.tempFile()
   var logWithTieredSegments: AbstractLog = _
+  var logWithTieredSegments_2: AbstractLog = _
   var emptyLog: AbstractLog = _
   var emptyLogWithTierFencedSegments: AbstractLog = _
   @Before
   def setup(): Unit = {
     var baseOffset = 100L
     val tieredSegments = mutable.ListBuffer[TierLogSegment]()
+    val tieredSegments_2 = mutable.ListBuffer[TierLogSegment]()
     val localSegments = mutable.ListBuffer[LogSegment]()
 
     for (_ <- 0 to 15) {
       val segment = tieredLogSegment(topicIdPartition_1, baseOffset, baseOffset + 50)
+      val segment_2 = tieredLogSegment(topicIdPartition_4, baseOffset, baseOffset + 50)
       baseOffset += 51
       tieredSegments += segment
+      tieredSegments_2 += segment_2
       time.sleep(50)
     }
 
@@ -88,8 +102,11 @@ class DeletionTaskTest {
     val logConfig = LogConfig(properties)
 
     logWithTieredSegments = mockAbstractLog(tieredSegments.toList, localSegments.toList)
+    logWithTieredSegments_2 = mockAbstractLog(tieredSegments_2.toList, localSegments.toList)
     when(logWithTieredSegments.config).thenReturn(logConfig)
+    when(logWithTieredSegments_2.config).thenReturn(logConfig)
     when(logWithTieredSegments.logStartOffset).thenReturn(0L)
+    when(logWithTieredSegments_2.logStartOffset).thenReturn(0L)
     doAnswer(new Answer[Any] {
       override def answer(invocation: InvocationOnMock): Any = {
         val newStartOffset = invocation.getArgument(0).asInstanceOf[Long]
@@ -107,10 +124,27 @@ class DeletionTaskTest {
     when(replicaManager.getLog(topicIdPartition_1.topicPartition)).thenReturn(Some(logWithTieredSegments))
     when(replicaManager.getLog(topicIdPartition_2.topicPartition)).thenReturn(Some(emptyLog))
     when(replicaManager.getLog(topicIdPartition_3.topicPartition)).thenReturn(Some(emptyLogWithTierFencedSegments))
+    when(replicaManager.getLog(topicIdPartition_4.topicPartition)).thenReturn(Some(logWithTieredSegments_2))
+
+    when(replicaManager.getPartitionOrError(topicIdPartition_1.topicPartition(), expectLeader = true)).thenReturn(Right(partition_1))
+    when(replicaManager.getPartitionOrError(topicIdPartition_2.topicPartition(), expectLeader = true)).thenReturn(Right(partition_2))
+    when(replicaManager.getPartitionOrError(topicIdPartition_3.topicPartition(), expectLeader = true)).thenReturn(Right(partition_3))
+    when(replicaManager.getPartitionOrError(topicIdPartition_4.topicPartition(), expectLeader = true)).thenReturn(Right(partition_4))
+
+    when(partition_1.log).thenReturn(Some(logWithTieredSegments))
+    when(partition_2.log).thenReturn(Some(emptyLog))
+    when(partition_3.log).thenReturn(Some(emptyLogWithTierFencedSegments))
+    when(partition_4.log).thenReturn(Some(logWithTieredSegments_2))
+
+    when(partition_1.getIsUncleanLeader).thenReturn(false)
+    when(partition_2.getIsUncleanLeader).thenReturn(false)
+    when(partition_3.getIsUncleanLeader).thenReturn(false)
+    when(partition_4.getIsUncleanLeader).thenReturn(true)
 
     when(logWithTieredSegments.tierPartitionState).thenReturn(tierPartitionState_1)
     when(emptyLog.tierPartitionState).thenReturn(tierPartitionState_2)
     when(emptyLogWithTierFencedSegments.tierPartitionState).thenReturn(tierPartitionState_3)
+    when(logWithTieredSegments_2.tierPartitionState).thenReturn(tierPartitionState_4)
 
     when(tierTopicManager.addMetadata(any())).thenReturn(CompletableFuture.completedFuture(AppendResult.ACCEPTED))
 
@@ -134,6 +168,35 @@ class DeletionTaskTest {
 
     val initiateDelete = nextState.asInstanceOf[InitiateDelete]
     assertTrue(initiateDelete.toDelete.nonEmpty)
+  }
+
+  @Test
+  def testCollectDeletableSegmentsWithUncleanLeaderFlag(): Unit = {
+    val state = CollectDeletableSegments(DeleteAsLeaderMetadata(replicaManager, leaderEpoch = 0))
+    var future = state.transition(topicIdPartition_4, replicaManager, tierTopicManager, tierObjectStore, time)
+    future.onComplete {
+      case Success(nextState) =>
+        assert(assertion = false, s"Unexpected new state returned ${nextState.toString}. State transition should return a " +
+          s"retriable exception for unclean partitions.")
+      case Failure(e) =>
+        e match {
+          case e: TierMetadataRetriableException =>
+            assertEquals(s"Unexpected cause for exception", true, e.getMessage.contains("requires recovery post"))
+          case e: Exception =>
+            assert(assertion = false, s"Unexpected exception returned by state transition for unclean partition " + e)
+        }
+    }
+    // mark the partition clean. state transition must succeed now
+    when(partition_4.getIsUncleanLeader).thenReturn(false)
+    future = state.transition(topicIdPartition_4, replicaManager, tierTopicManager, tierObjectStore, time)
+    future.onComplete {
+      case Success(nextState) =>
+        assertEquals(s"Unexpected new state returned ${nextState.toString}", classOf[InitiateDelete], nextState.getClass)
+        val initiateDelete = nextState.asInstanceOf[InitiateDelete]
+        assertTrue(initiateDelete.toDelete.nonEmpty)
+      case Failure(e) =>
+        assert(assertion = false, s"Unexpected exception returned by state transition for unclean partition " + e)
+    }
   }
 
   @Test

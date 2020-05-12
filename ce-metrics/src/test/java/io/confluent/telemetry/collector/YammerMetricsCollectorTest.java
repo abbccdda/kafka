@@ -122,7 +122,7 @@ public class YammerMetricsCollectorTest {
 
     assertEquals("Resource should match", context.getResource(), deltaMetric.getResource());
     assertEquals("Name should match", "test-domain/type1/name1/total/delta", deltaMetric.getMetricDescriptor().getName());
-    assertEquals("Type should match", Type.GAUGE_INT64, deltaMetric.getMetricDescriptor().getType());
+    assertEquals("Type should match", Type.CUMULATIVE_INT64, deltaMetric.getMetricDescriptor().getType());
     assertEquals("values should match", 100L, deltaMetric.getTimeseries(0).getPoints(0).getInt64Value());
 
 
@@ -197,7 +197,7 @@ public class YammerMetricsCollectorTest {
 
     assertEquals("Resource should match", context.getResource(), deltaMetric.getResource());
     assertEquals("Name should match", "test-domain/type1/name1/time/delta", deltaMetric.getMetricDescriptor().getName());
-    assertEquals("Type should match", Type.GAUGE_DOUBLE, deltaMetric.getMetricDescriptor().getType());
+    assertEquals("Type should match", Type.CUMULATIVE_DOUBLE, deltaMetric.getMetricDescriptor().getType());
     assertEquals("values should match", 110d, deltaMetric.getTimeseries(0).getPoints(0).getDoubleValue(), 1e-9);
 
     // total getAndSet
@@ -205,7 +205,7 @@ public class YammerMetricsCollectorTest {
 
     assertEquals("Resource should match", context.getResource(), deltaMetric.getResource());
     assertEquals("Name should match", "test-domain/type1/name1/total/delta", deltaMetric.getMetricDescriptor().getName());
-    assertEquals("Type should match", Type.GAUGE_INT64, deltaMetric.getMetricDescriptor().getType());
+    assertEquals("Type should match", Type.CUMULATIVE_INT64, deltaMetric.getMetricDescriptor().getType());
     assertEquals("values should match", 2L, deltaMetric.getTimeseries(0).getPoints(0).getInt64Value());
   }
 
@@ -269,7 +269,7 @@ public class YammerMetricsCollectorTest {
 
     assertEquals("Resource should match", context.getResource(), deltaMetric.getResource());
     assertEquals("Name should match", "test-domain/type1/name1/time/delta", deltaMetric.getMetricDescriptor().getName());
-    assertEquals("Type should match", Type.GAUGE_DOUBLE, deltaMetric.getMetricDescriptor().getType());
+    assertEquals("Type should match", Type.CUMULATIVE_DOUBLE, deltaMetric.getMetricDescriptor().getType());
     assertEquals("values should match", 110d, deltaMetric.getTimeseries(0).getPoints(0).getDoubleValue(), 1e-9);
 
     // total getAndSet
@@ -277,7 +277,7 @@ public class YammerMetricsCollectorTest {
 
     assertEquals("Resource should match", context.getResource(), deltaMetric.getResource());
     assertEquals("Name should match", "test-domain/type1/name1/total/delta", deltaMetric.getMetricDescriptor().getName());
-    assertEquals("Type should match", Type.GAUGE_INT64, deltaMetric.getMetricDescriptor().getType());
+    assertEquals("Type should match", Type.CUMULATIVE_INT64, deltaMetric.getMetricDescriptor().getType());
     assertEquals("values should match", 2L, deltaMetric.getTimeseries(0).getPoints(0).getInt64Value());
   }
 

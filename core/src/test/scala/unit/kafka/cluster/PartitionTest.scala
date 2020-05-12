@@ -19,7 +19,7 @@ package kafka.cluster
 import java.io.File
 import java.nio.ByteBuffer
 import java.util.{Optional, Properties, UUID}
-import java.util.concurrent.{CountDownLatch, Executors, Semaphore, TimeUnit, TimeoutException}
+import java.util.concurrent.{CompletableFuture, CountDownLatch, Executors, Semaphore, TimeUnit, TimeoutException}
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}
 
 import com.yammer.metrics.core.Metric
@@ -30,8 +30,10 @@ import kafka.metrics.KafkaYammerMetrics
 import kafka.server._
 import kafka.server.checkpoints.OffsetCheckpoints
 import kafka.tier.{TierReplicaManager, TierTestUtils, TopicIdPartition}
-import kafka.tier.domain.TierTopicInitLeader
+import kafka.tier.domain.{TierObjectMetadata, TierTopicInitLeader}
+import kafka.tier.fetcher.TierStateFetcher
 import kafka.tier.state.TierPartitionState.AppendResult
+import kafka.tier.state.{FileTierPartitionState, TierPartitionStateFactory}
 import kafka.utils._
 import org.apache.kafka.common.IsolationLevel
 import org.apache.kafka.common.TopicPartition
@@ -58,19 +60,26 @@ class PartitionTest {
 
   val brokerId = 101
   val topicPartition = new TopicPartition("test-topic", 0)
+  val tieredTopicPartition = new TopicPartition("tiered-test-topic", 0)
   val time = new MockTime()
   var tmpDir: File = _
   var logDir1: File = _
   var logDir2: File = _
+  var logDir3: File = _
   var logManager: LogManager = _
+  var tierEnabledLogManager: LogManager = _
   var logConfig: LogConfig = _
+  var tieredLogConfig: LogConfig = _
   val stateStore: PartitionStateStore = mock(classOf[PartitionStateStore])
+  val tieredPartitionStateStore: PartitionStateStore = mock(classOf[PartitionStateStore])
   val delayedOperations: DelayedOperations = mock(classOf[DelayedOperations])
   val metadataCache: MetadataCache = mock(classOf[MetadataCache])
   val offsetCheckpoints: OffsetCheckpoints = mock(classOf[OffsetCheckpoints])
   val tierReplicaManager = mock(classOf[TierReplicaManager])
   val tierLogComponents = TierLogComponents.EMPTY
   var partition: Partition = _
+  var tieredPartition: Partition = _
+  val executor = Executors.newCachedThreadPool()
 
   @Before
   def setup(): Unit = {
@@ -78,14 +87,21 @@ class PartitionTest {
 
     val logProps = createLogProperties(Map.empty)
     logConfig = LogConfig(logProps)
+    val tieredLogProps = createLogProperties(Map(LogConfig.TierEnableProp -> "true"))
+    tieredLogConfig = LogConfig(tieredLogProps)
 
     tmpDir = TestUtils.tempDir()
     logDir1 = TestUtils.randomPartitionLogDir(tmpDir)
     logDir2 = TestUtils.randomPartitionLogDir(tmpDir)
+    logDir3 = TestUtils.randomPartitionLogDir(tmpDir)
     logManager = TestUtils.createLogManager(
       logDirs = Seq(logDir1, logDir2), defaultConfig = logConfig, CleanerConfig(enableCleaner = false), time,
       tierLogComponents = TierLogComponents.EMPTY)
     logManager.startup()
+    tierEnabledLogManager = TestUtils.createLogManager(
+      logDirs = Seq(logDir3), defaultConfig = tieredLogConfig, CleanerConfig(enableCleaner = false), time,
+      tierLogComponents = TierLogComponents(None, None, new TierPartitionStateFactory(true)))
+    tierEnabledLogManager.startup()
 
     partition = new Partition(
       topicPartition,
@@ -97,10 +113,28 @@ class PartitionTest {
       delayedOperations,
       metadataCache,
       logManager,
-      Some(tierReplicaManager))
+      Some(tierReplicaManager),
+      None)
+
+    tieredPartition = new Partition(
+      tieredTopicPartition,
+      replicaLagTimeMaxMs = Defaults.ReplicaLagTimeMaxMs,
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      localBrokerId = brokerId,
+      time,
+      tieredPartitionStateStore,
+      delayedOperations,
+      metadataCache,
+      tierEnabledLogManager,
+      Some(tierReplicaManager),
+      None,
+      Some(executor))
 
     when(stateStore.fetchTopicConfig()).thenReturn(createLogProperties(Map.empty))
+    when(tieredPartitionStateStore.fetchTopicConfig()).thenReturn(tieredLogProps)
     when(offsetCheckpoints.fetch(ArgumentMatchers.anyString, ArgumentMatchers.eq(topicPartition)))
+      .thenReturn(None)
+    when(offsetCheckpoints.fetch(ArgumentMatchers.anyString, ArgumentMatchers.eq(tieredTopicPartition)))
       .thenReturn(None)
   }
 
@@ -115,6 +149,7 @@ class PartitionTest {
 
   @After
   def tearDown(): Unit = {
+    executor.shutdownNow()
     logManager.shutdown()
     Utils.delete(tmpDir)
     TestUtils.clearYammerMetrics()
@@ -221,7 +256,8 @@ class PartitionTest {
       delayedOperations,
       metadataCache,
       logManager,
-      Some(tierReplicaManager)) {
+      Some(tierReplicaManager),
+      None) {
 
       override def createLog(isNew: Boolean, isFutureReplica: Boolean, offsetCheckpoints: OffsetCheckpoints): AbstractLog = {
         val log = super.createLog(isNew, isFutureReplica, offsetCheckpoints)
@@ -1129,7 +1165,8 @@ class PartitionTest {
         delayedOperations,
         metadataCache,
         logManager,
-        Some(mock(classOf[TierReplicaManager])))
+        Some(mock(classOf[TierReplicaManager])),
+        None)
 
       when(delayedOperations.checkAndCompleteFetch())
         .thenAnswer((invocation: InvocationOnMock) => {
@@ -1716,6 +1753,7 @@ class PartitionTest {
     assertTrue(metricsToCheck.forall(getMetric(_).isDefined))
 
     Partition.removeMetrics(topicPartition)
+    Partition.removeMetrics(tieredTopicPartition)
 
     assertEquals(Set(), KafkaYammerMetrics.defaultRegistry().allMetrics().asScala.keySet.filter(_.getType == "Partition"))
   }
@@ -1748,7 +1786,7 @@ class PartitionTest {
     val partition = new Partition(
       topicPartition, 1000, ApiVersion.latestVersion, 0,
       Time.SYSTEM, mock(classOf[PartitionStateStore]), mock(classOf[DelayedOperations]),
-      mock(classOf[MetadataCache]), mock(classOf[LogManager]), None)
+      mock(classOf[MetadataCache]), mock(classOf[LogManager]), None, None)
 
     val replicas = Seq(0, 1, 2, 3)
     val isr = Set(0, 1, 2, 3)
@@ -1793,7 +1831,8 @@ class PartitionTest {
       delayedOperations,
       metadataCache,
       spyLogManager,
-      tierReplicaManagerOpt = None)
+      tierReplicaManagerOpt = None,
+      tierStateFetcherOpt = None)
 
     partition.createLog(isNew = true, isFutureReplica = false, offsetCheckpoints)
 
@@ -1828,7 +1867,8 @@ class PartitionTest {
       delayedOperations,
       metadataCache,
       spyLogManager,
-      tierReplicaManagerOpt = None)
+      tierReplicaManagerOpt = None,
+      tierStateFetcherOpt = None)
 
     partition.createLog(isNew = true, isFutureReplica = false, offsetCheckpoints)
 
@@ -1865,7 +1905,8 @@ class PartitionTest {
       delayedOperations,
       metadataCache,
       spyLogManager,
-      tierReplicaManagerOpt = None)
+      tierReplicaManagerOpt = None,
+      tierStateFetcherOpt = None)
 
     partition.createLog(isNew = true, isFutureReplica = false, offsetCheckpoints)
 
@@ -2157,8 +2198,7 @@ class PartitionTest {
     val leaderEpoch = 5
     val replicas = List[Integer](brokerId, brokerId + 1).asJava
     val isr = List[Integer](brokerId).asJava
-
-    partition.createLogIfNotExists(isNew = true, isFutureReplica = false, offsetCheckpoints)
+    val topicId = UUID.randomUUID
 
     // elect as unclean leader
     val uncleanLeaderAndIsrPartitionState = new LeaderAndIsrPartitionState()
@@ -2169,9 +2209,10 @@ class PartitionTest {
       .setZkVersion(1)
       .setReplicas(replicas)
       .setIsNew(true)
+      .setTopicId(topicId)
       .setConfluentIsUncleanLeader(true)
-    partition.makeLeader(uncleanLeaderAndIsrPartitionState, offsetCheckpoints)
-    assertEquals(true, partition.getIsUncleanLeader)
+    tieredPartition.makeLeader(uncleanLeaderAndIsrPartitionState, offsetCheckpoints)
+    assertEquals(true, tieredPartition.getIsUncleanLeader)
 
     // elect as clean leader
     val cleanLeaderAndIsrPartitionState = new LeaderAndIsrPartitionState()
@@ -2183,8 +2224,8 @@ class PartitionTest {
       .setReplicas(replicas)
       .setIsNew(true)
       .setConfluentIsUncleanLeader(false)
-    partition.makeLeader(cleanLeaderAndIsrPartitionState, offsetCheckpoints)
-    assertEquals(false, partition.getIsUncleanLeader)
+    tieredPartition.makeLeader(cleanLeaderAndIsrPartitionState, offsetCheckpoints)
+    assertEquals(false, tieredPartition.getIsUncleanLeader)
   }
 
   @Test
@@ -2194,8 +2235,7 @@ class PartitionTest {
     val replicas = List[Integer](brokerId, brokerId + 1).asJava
     val isr = List(brokerId)
     val zkVersion = 1
-
-    partition.createLogIfNotExists(isNew = true, isFutureReplica = false, offsetCheckpoints)
+    val topicId = UUID.randomUUID
 
     // elect as unclean leader
     val uncleanLeaderAndIsrPartitionState = new LeaderAndIsrPartitionState()
@@ -2206,21 +2246,22 @@ class PartitionTest {
       .setZkVersion(zkVersion)
       .setReplicas(replicas)
       .setIsNew(true)
+      .setTopicId(topicId)
       .setConfluentIsUncleanLeader(true)
-    partition.makeLeader(uncleanLeaderAndIsrPartitionState, offsetCheckpoints)
-    assertEquals(true, partition.getIsUncleanLeader)
+    tieredPartition.makeLeader(uncleanLeaderAndIsrPartitionState, offsetCheckpoints)
+    assertEquals(true, tieredPartition.getIsUncleanLeader)
 
     val newLeaderAndIsr = new LeaderAndIsr(brokerId, leaderEpoch, isr, zkVersion, isUnclean = false, None)
-    when(stateStore.clearUncleanLeaderState(controllerEpoch, newLeaderAndIsr)).thenReturn(Some(zkVersion + 1))
+    when(tieredPartitionStateStore.clearUncleanLeaderState(controllerEpoch, newLeaderAndIsr)).thenReturn(Some(zkVersion + 1))
 
     // clear unclean leader state
-    partition.maybeClearUncleanLeaderState(leaderEpoch)
-    assertEquals(false, partition.getIsUncleanLeader)
-    assertEquals(leaderEpoch, partition.getLeaderEpoch)
-    assertEquals(isr.toSet, partition.inSyncReplicaIds)
-    assertEquals(zkVersion + 1, partition.getZkVersion)
+    tieredPartition.maybeClearUncleanLeaderState(leaderEpoch)
+    assertEquals(false, tieredPartition.getIsUncleanLeader)
+    assertEquals(leaderEpoch, tieredPartition.getLeaderEpoch)
+    assertEquals(isr.toSet, tieredPartition.inSyncReplicaIds)
+    assertEquals(zkVersion + 1, tieredPartition.getZkVersion)
 
-    verify(stateStore, times(1)).clearUncleanLeaderState(controllerEpoch, newLeaderAndIsr)
+    verify(tieredPartitionStateStore, times(1)).clearUncleanLeaderState(controllerEpoch, newLeaderAndIsr)
   }
 
   @Test
@@ -2230,8 +2271,7 @@ class PartitionTest {
     val replicas = List[Integer](brokerId, brokerId + 1).asJava
     val isr = List(brokerId)
     val zkVersion = 1
-
-    partition.createLogIfNotExists(isNew = true, isFutureReplica = false, offsetCheckpoints)
+    val topicId = UUID.randomUUID
 
     // elect as unclean leader
     val uncleanLeaderAndIsrPartitionState = new LeaderAndIsrPartitionState()
@@ -2242,18 +2282,19 @@ class PartitionTest {
       .setZkVersion(zkVersion)
       .setReplicas(replicas)
       .setIsNew(true)
+      .setTopicId(topicId)
       .setConfluentIsUncleanLeader(true)
-    partition.makeLeader(uncleanLeaderAndIsrPartitionState, offsetCheckpoints)
-    assertEquals(true, partition.getIsUncleanLeader)
+    tieredPartition.makeLeader(uncleanLeaderAndIsrPartitionState, offsetCheckpoints)
+    assertEquals(true, tieredPartition.getIsUncleanLeader)
 
     // attempt to clear unclean leader state at older epoch is a NOOP
-    partition.maybeClearUncleanLeaderState(leaderEpoch - 1)
-    assertEquals(true, partition.getIsUncleanLeader)
-    assertEquals(leaderEpoch, partition.getLeaderEpoch)
-    assertEquals(isr.toSet, partition.inSyncReplicaIds)
-    assertEquals(zkVersion, partition.getZkVersion)
+    tieredPartition.maybeClearUncleanLeaderState(leaderEpoch - 1)
+    assertEquals(true, tieredPartition.getIsUncleanLeader)
+    assertEquals(leaderEpoch, tieredPartition.getLeaderEpoch)
+    assertEquals(isr.toSet, tieredPartition.inSyncReplicaIds)
+    assertEquals(zkVersion, tieredPartition.getZkVersion)
 
-    verify(stateStore, times(0)).clearUncleanLeaderState(ArgumentMatchers.any(), ArgumentMatchers.any())
+    verify(tieredPartitionStateStore, times(0)).clearUncleanLeaderState(ArgumentMatchers.any(), ArgumentMatchers.any())
   }
 
   @Test
@@ -2263,8 +2304,7 @@ class PartitionTest {
     val replicas = List[Integer](brokerId, brokerId + 1).asJava
     val isr = List(brokerId)
     val zkVersion = 1
-
-    partition.createLogIfNotExists(isNew = true, isFutureReplica = false, offsetCheckpoints)
+    val topicId = UUID.randomUUID
 
     // elect as unclean leader
     val uncleanLeaderAndIsrPartitionState = new LeaderAndIsrPartitionState()
@@ -2275,41 +2315,42 @@ class PartitionTest {
       .setZkVersion(zkVersion)
       .setReplicas(replicas)
       .setIsNew(true)
+      .setTopicId(topicId)
       .setConfluentIsUncleanLeader(true)
-    partition.makeLeader(uncleanLeaderAndIsrPartitionState, offsetCheckpoints)
-    assertEquals(true, partition.getIsUncleanLeader)
+    tieredPartition.makeLeader(uncleanLeaderAndIsrPartitionState, offsetCheckpoints)
+    assertEquals(true, tieredPartition.getIsUncleanLeader)
 
     // simulate failed ZK writes
     val newLeaderAndIsr = new LeaderAndIsr(brokerId, leaderEpoch, isr, zkVersion, isUnclean = false, None)
     val numInvocations = new AtomicInteger(0)
-    when(stateStore.clearUncleanLeaderState(controllerEpoch, newLeaderAndIsr))
+    when(tieredPartitionStateStore.clearUncleanLeaderState(controllerEpoch, newLeaderAndIsr))
       .thenAnswer(_ => {
         numInvocations.incrementAndGet()
         None
       })
 
-    val clearStateThread = new Thread(() => partition.maybeClearUncleanLeaderState(leaderEpoch))
+    val clearStateThread = new Thread(() => tieredPartition.maybeClearUncleanLeaderState(leaderEpoch))
     clearStateThread.start()
 
     // partition state should remain as-is while ZK writes fail
     TestUtils.waitUntilTrue(() => numInvocations.get > 1, "Timed out waiting for clearUncleanLeaderState to be called")
-    assertEquals(true, partition.getIsUncleanLeader)
-    assertEquals(zkVersion, partition.getZkVersion)
+    assertEquals(true, tieredPartition.getIsUncleanLeader)
+    assertEquals(zkVersion, tieredPartition.getZkVersion)
     assertTrue(clearStateThread.isAlive)
-    verify(stateStore, atLeastOnce()).clearUncleanLeaderState(controllerEpoch, newLeaderAndIsr)
+    verify(tieredPartitionStateStore, atLeastOnce()).clearUncleanLeaderState(controllerEpoch, newLeaderAndIsr)
 
     // simulate successful ZK write and validate that unclean leader state is cleared and zk version is bumped
-    when(stateStore.clearUncleanLeaderState(controllerEpoch, newLeaderAndIsr)).thenReturn(Some(zkVersion + 2))
+    when(tieredPartitionStateStore.clearUncleanLeaderState(controllerEpoch, newLeaderAndIsr)).thenReturn(Some(zkVersion + 2))
     clearStateThread.join(200)
-    assertEquals(false, partition.getIsUncleanLeader)
-    assertEquals(leaderEpoch, partition.getLeaderEpoch)
-    assertEquals(isr.toSet, partition.inSyncReplicaIds)
-    assertEquals(zkVersion + 2, partition.getZkVersion)
+    assertEquals(false, tieredPartition.getIsUncleanLeader)
+    assertEquals(leaderEpoch, tieredPartition.getLeaderEpoch)
+    assertEquals(isr.toSet, tieredPartition.inSyncReplicaIds)
+    assertEquals(zkVersion + 2, tieredPartition.getZkVersion)
   }
 
   @Test
   def testIsrExpandPreservesUncleanLeaderState(): Unit = {
-    val log = logManager.getOrCreateLog(topicPartition, () => logConfig)
+    val log = logManager.getOrCreateLog(tieredTopicPartition, () => tieredLogConfig)
     seedLogData(log, numRecords = 10, leaderEpoch = 4)
 
     val controllerEpoch = 0
@@ -2317,14 +2358,14 @@ class PartitionTest {
     val remoteBrokerId = brokerId + 1
     val replicas = List(brokerId, remoteBrokerId)
     val isr = List[Integer](brokerId).asJava
+    val topicId = UUID.randomUUID
 
     doNothing().when(delayedOperations).checkAndCompleteFetch()
     mockAliveBrokers(metadataCache, replicas)
 
-    partition.createLogIfNotExists(isNew = false, isFutureReplica = false, offsetCheckpoints)
     assertTrue(
       "Expected become leader transition to succeed",
-      partition.makeLeader(
+      tieredPartition.makeLeader(
         new LeaderAndIsrPartitionState()
           .setControllerEpoch(controllerEpoch)
           .setLeader(brokerId)
@@ -2333,13 +2374,14 @@ class PartitionTest {
           .setZkVersion(1)
           .setReplicas(replicas.map(Int.box).asJava)
           .setIsNew(true)
+          .setTopicId(topicId)
           .setConfluentIsUncleanLeader(true),
         offsetCheckpoints)
     )
-    assertEquals(Set(brokerId), partition.inSyncReplicaIds)
-    assertEquals(true, partition.getIsUncleanLeader)
+    assertEquals(Set(brokerId), tieredPartition.inSyncReplicaIds)
+    assertEquals(true, tieredPartition.getIsUncleanLeader)
 
-    val remoteReplica = partition.getReplica(remoteBrokerId).get
+    val remoteReplica = tieredPartition.getReplica(remoteBrokerId).get
     assertEquals(LogOffsetMetadata.UnknownOffsetMetadata.messageOffset, remoteReplica.logEndOffset)
     assertEquals(Log.UnknownOffset, remoteReplica.logStartOffset)
 
@@ -2351,22 +2393,22 @@ class PartitionTest {
       zkVersion = 1,
       isUnclean = true,
       linkedLeaderEpoch = None)
-    when(stateStore.expandIsr(controllerEpoch, updatedLeaderAndIsr)).thenReturn(Some(2))
+    when(tieredPartitionStateStore.expandIsr(controllerEpoch, updatedLeaderAndIsr)).thenReturn(Some(2))
 
-    partition.updateFollowerFetchState(remoteBrokerId,
+    tieredPartition.updateFollowerFetchState(remoteBrokerId,
       followerFetchOffsetMetadata = LogOffsetMetadata(10),
       followerStartOffset = 0L,
       followerFetchTimeMs = time.milliseconds(),
       leaderEndOffset = 6L,
-      lastSentHighwatermark = partition.localLogOrException.highWatermark)
-
-    assertEquals(Set(brokerId, remoteBrokerId), partition.inSyncReplicaIds)
-    assertEquals(true, partition.getIsUncleanLeader)
+      lastSentHighwatermark = tieredPartition.localLogOrException.highWatermark)
+    verify(tieredPartitionStateStore, times(1)).expandIsr(controllerEpoch, updatedLeaderAndIsr)
+    assertEquals(Set(brokerId, remoteBrokerId), tieredPartition.inSyncReplicaIds)
+    assertEquals(true, tieredPartition.getIsUncleanLeader)
   }
 
   @Test
   def testShrinkIsrPreservesUncleanLeaderState(): Unit = {
-    val log = logManager.getOrCreateLog(topicPartition, () => logConfig)
+    val log = logManager.getOrCreateLog(tieredTopicPartition, () => tieredLogConfig)
     seedLogData(log, numRecords = 10, leaderEpoch = 4)
 
     val controllerEpoch = 0
@@ -2374,14 +2416,14 @@ class PartitionTest {
     val remoteBrokerId = brokerId + 1
     val replicas = List(brokerId, remoteBrokerId)
     val isr = List[Integer](brokerId, remoteBrokerId).asJava
+    val topicId = UUID.randomUUID
 
     doNothing().when(delayedOperations).checkAndCompleteFetch()
     mockAliveBrokers(metadataCache, replicas)
 
-    partition.createLogIfNotExists(isNew = false, isFutureReplica = false, offsetCheckpoints)
     assertTrue(
       "Expected become leader transition to succeed",
-      partition.makeLeader(
+      tieredPartition.makeLeader(
         new LeaderAndIsrPartitionState()
           .setControllerEpoch(controllerEpoch)
           .setLeader(brokerId)
@@ -2390,15 +2432,16 @@ class PartitionTest {
           .setZkVersion(1)
           .setReplicas(replicas.map(Int.box).asJava)
           .setIsNew(true)
+          .setTopicId(topicId)
           .setConfluentIsUncleanLeader(true),
         offsetCheckpoints)
     )
-    assertEquals(Set(brokerId, remoteBrokerId), partition.inSyncReplicaIds)
-    assertEquals(0L, partition.localLogOrException.highWatermark)
-    assertEquals(true, partition.getIsUncleanLeader)
+    assertEquals(Set(brokerId, remoteBrokerId), tieredPartition.inSyncReplicaIds)
+    assertEquals(0L, tieredPartition.localLogOrException.highWatermark)
+    assertEquals(true, tieredPartition.getIsUncleanLeader)
 
     // If enough time passes without a fetch update, the ISR should shrink
-    time.sleep(partition.replicaLagTimeMaxMs + 1)
+    time.sleep(tieredPartition.replicaLagTimeMaxMs + 1)
     val updatedLeaderAndIsr = LeaderAndIsr(
       leader = brokerId,
       leaderEpoch = leaderEpoch,
@@ -2406,11 +2449,12 @@ class PartitionTest {
       zkVersion = 1,
       isUnclean = true,
       linkedLeaderEpoch = None)
-    when(stateStore.shrinkIsr(controllerEpoch, updatedLeaderAndIsr)).thenReturn(Some(2))
+    when(tieredPartitionStateStore.shrinkIsr(controllerEpoch, updatedLeaderAndIsr)).thenReturn(Some(2))
 
-    partition.maybeShrinkIsr()
-    assertEquals(Set(brokerId), partition.inSyncReplicaIds)
-    assertEquals(true, partition.getIsUncleanLeader)
+    tieredPartition.maybeShrinkIsr()
+    verify(tieredPartitionStateStore, times(1)).shrinkIsr(controllerEpoch, updatedLeaderAndIsr)
+    assertEquals(Set(brokerId), tieredPartition.inSyncReplicaIds)
+    assertEquals(true, tieredPartition.getIsUncleanLeader)
   }
 
   @Test
@@ -2467,6 +2511,98 @@ class PartitionTest {
     origins.foreach { origin =>
       partition.appendRecordsToLeader(newRecord(), origin, requiredAcks = 0)
     }
+  }
+
+  def testUncleanLeaderRecoveryExceptionHandling(): Unit = {
+    val logManager = mock(classOf[LogManager])
+    val log = mock(classOf[MergedLog])
+    val tierPartitionState = mock(classOf[FileTierPartitionState])
+    val tierStateFetcher = mock(classOf[TierStateFetcher])
+
+    val controllerEpoch = 0
+    val leaderEpoch = 5
+    val remoteBrokerId = brokerId + 1
+    val replicas = List(brokerId, remoteBrokerId)
+    val isr = List[Integer](brokerId).asJava
+    val topicId = UUID.randomUUID
+
+    // setup logManager mocks
+    when(logManager.getOrCreateLog(ArgumentMatchers.eq(tieredTopicPartition), ArgumentMatchers.any(),
+      ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(log)
+
+    // setup log mocks
+    when(log.parentDir).thenReturn(logDir1.getAbsolutePath)
+    when(log.tierPartitionState).thenReturn(tierPartitionState)
+    when(log.maybeIncrementHighWatermark(ArgumentMatchers.any())).thenReturn(None)
+
+    // setup tierPartitionState mocks
+    when(tierPartitionState.isTieringEnabled).thenReturn(true)
+    when(tierPartitionState.materializeUptoEpoch(leaderEpoch))
+      .thenThrow(new IllegalStateException("unknown exception during materializeUptoEpoch"))
+
+    // setup tieredPartitionStateStore mocks
+    when(tieredPartitionStateStore.clearUncleanLeaderState(ArgumentMatchers.any(), ArgumentMatchers.any()))
+      .thenReturn(Some(1))
+
+    val partition = new Partition(
+      tieredTopicPartition,
+      replicaLagTimeMaxMs = Defaults.ReplicaLagTimeMaxMs,
+      interBrokerProtocolVersion = ApiVersion.latestVersion,
+      localBrokerId = brokerId,
+      time,
+      tieredPartitionStateStore,
+      delayedOperations,
+      metadataCache,
+      logManager,
+      Some(tierReplicaManager),
+      Some(tierStateFetcher),
+      Some(executor))
+
+    // Elect an unclean leader for tiered partition. This will initiate recovery for unclean leader which will abort
+    // mid-way because of the exception thrown from TierPartitionState#materializeUptoEpoch. The exception handling mechansim
+    // will complete this future successfully, without clearing the unclean leader state.
+    partition.makeLeader(new LeaderAndIsrPartitionState()
+        .setControllerEpoch(controllerEpoch)
+        .setLeader(brokerId)
+        .setLeaderEpoch(leaderEpoch)
+        .setIsr(isr)
+        .setZkVersion(1)
+        .setReplicas(replicas.map(Int.box).asJava)
+        .setIsNew(true)
+        .setTopicId(topicId)
+        .setConfluentIsUncleanLeader(true),
+      offsetCheckpoints)
+    TestUtils.waitUntilTrue(() => partition.uncleanLeaderRecoveryFutureOpt.exists(_.isDone),
+      "Timed out waiting for future to complete")
+    assertFalse(partition.uncleanLeaderRecoveryFutureOpt.get.isCompletedExceptionally)
+    assertTrue(partition.getIsUncleanLeader)
+    verify(tierPartitionState, times(1)).materializeUptoEpoch(leaderEpoch)
+    verify(tierStateFetcher, times(0)).fetchLeaderEpochState(ArgumentMatchers.any())
+    verify(log, times(0)).recoverLocalLogAfterUncleanLeaderElection(ArgumentMatchers.any())
+
+    // Elect an unclean leader at higher epoch. This simulates the positive case where recovery succeeds.
+    when(tierPartitionState.materializeUptoEpoch(leaderEpoch + 1))
+      .thenReturn(CompletableFuture.completedFuture(Optional.empty[TierObjectMetadata]))
+    partition.makeLeader(new LeaderAndIsrPartitionState()
+      .setControllerEpoch(controllerEpoch)
+      .setLeader(brokerId)
+      .setLeaderEpoch(leaderEpoch + 1)
+      .setIsr(isr)
+      .setZkVersion(1)
+      .setReplicas(replicas.map(Int.box).asJava)
+      .setIsNew(true)
+      .setTopicId(topicId)
+      .setConfluentIsUncleanLeader(true),
+      offsetCheckpoints)
+    Thread.sleep(100)
+    TestUtils.waitUntilTrue(() => partition.uncleanLeaderRecoveryFutureOpt.isEmpty,
+      "Timed out waiting for future to complete")
+    assertFalse(partition.getIsUncleanLeader)
+    verify(tierPartitionState, times(1)).materializeUptoEpoch(leaderEpoch + 1)
+    // since we are returning empty TierObjectMetadata, tier state will not be fetched and code will not go to
+    // recoverLocalLogAfterUncleanLeaderElection. This is expected behavior
+    verify(tierStateFetcher, times(0)).fetchLeaderEpochState(ArgumentMatchers.any())
+    verify(log, times(0)).recoverLocalLogAfterUncleanLeaderElection(ArgumentMatchers.any())
   }
 
   private def seedLogData(log: AbstractLog, numRecords: Int, leaderEpoch: Int): Unit = {

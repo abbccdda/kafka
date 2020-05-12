@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.common.requests;
 
+import java.util.Optional;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.message.ApiVersionsRequestData;
 import org.apache.kafka.common.network.ClientInformation;
@@ -141,5 +142,9 @@ public class RequestContext implements AuthorizableRequestContext {
     @Override
     public int correlationId() {
         return header.correlationId();
+    }
+
+    public Optional<String> tenantPrefix() {
+        return Optional.empty();
     }
 }

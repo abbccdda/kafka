@@ -39,7 +39,7 @@ public class LicenseConfig extends AbstractConfig {
       + " This is used for creation of the topic if it doesn't exist. Replication factor cannot be"
       + " altered after the topic is created.";
 
-  public static final String TOPIC_CREATE_TIMEOUT_PROP = "confluent.metadata.topic.create.timeout.ms";
+  public static final String TOPIC_CREATE_TIMEOUT_PROP = "confluent.license.topic.create.timeout.ms";
   private static final int TOPIC_CREATE_TIMEOUT_DEFAULT = 600000;
   private static final String TOPIC_CREATE_TIMEOUT_DOC = "The number of milliseconds to wait for"
       + " license topic to be created during start up.";

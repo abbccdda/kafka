@@ -109,23 +109,40 @@ public class BlockingSendClient implements BlockingSend {
     this.targetNode = targetBroker;
   }
 
+  /**
+   * @throws ConnectionException - if the connection to the node could not be established
+   * @throws IOException - if any exception occurred when sending/receiving the request
+   */
   @Override
   public ClientResponse sendRequest(AbstractRequest.Builder<? extends AbstractRequest> requestBuilder) throws IOException {
+    boolean connected;
     try {
-      boolean connected = NetworkClientUtils.awaitReady(networkClient, targetNode, time, socketTimeout);
-      if (!connected) {
-        throw new SocketTimeoutException(String.format("Failed to connect to node %d within %d ms", targetNode.id(), socketTimeout));
-      }
+      connected = NetworkClientUtils.awaitReady(networkClient, targetNode, time, socketTimeout);
+    } catch (Exception e) {
+      networkClient.close(targetNode.idString());
+      throw new ConnectionException(String.format("Failed to establish connection to node %d", targetNode.id()), e);
+    }
+    if (!connected) {
+      networkClient.close(targetNode.idString());
+      throw new ConnectionException(String.format("Failed to connect to node %d within %d ms", targetNode.id(), socketTimeout),
+          new SocketTimeoutException()
+      );
+    }
 
+    try {
       ClientRequest clientRequest = networkClient.newClientRequest(targetNode.idString(),
           requestBuilder, time.milliseconds(), true);
       return NetworkClientUtils.sendAndReceive(networkClient, clientRequest, time);
-    } catch (Exception e) {
+    } catch (IOException e) {
       networkClient.close(targetNode.idString());
       throw e;
     }
   }
 
+  /**
+   * Sends a #{@link InitiateShutdownRequest} to the #{@code targetNode}.
+   * See #{@link #sendRequest(AbstractRequest.Builder)} for details.
+   */
   public InitiateShutdownResponse sendShutdownRequest(InitiateShutdownRequest.Builder shutdownRequestBuilder) throws IOException {
     return (InitiateShutdownResponse) sendRequest(shutdownRequestBuilder).responseBody();
   }

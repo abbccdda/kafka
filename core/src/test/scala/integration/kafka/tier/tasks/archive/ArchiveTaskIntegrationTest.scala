@@ -8,6 +8,7 @@ import java.io.File
 import java.util.UUID
 import java.util.concurrent.{CompletableFuture, ConcurrentHashMap, ExecutorService, Executors}
 
+import kafka.cluster.Partition
 import kafka.log.{AbstractLog, Log, LogTest, TierLogComponents}
 import kafka.server.{BrokerTopicStats, KafkaConfig, LogDirFailureChannel, ReplicaManager}
 import kafka.tier.{TierTestUtils, TopicIdPartition}
@@ -34,6 +35,7 @@ class ArchiveTaskIntegrationTest {
   var executor: ExecutorService = _
   implicit var ec: ExecutionContext = ExecutionContext.fromExecutorService(executor)
   var topicIdPartition: TopicIdPartition = _
+  val partition: Partition = mock(classOf[Partition])
   var config: KafkaConfig = null
   val brokerTopicStats = new BrokerTopicStats
   var tmpDir: File = _
@@ -113,6 +115,9 @@ class ArchiveTaskIntegrationTest {
 
     val log = LogTest.createLog(logDir, logConfig, brokerTopicStats, mockTime.scheduler, mockTime, tierLogComponentsOpt = Some(tierLogComponents), logDirFailureChannel = logDirFailureChannel)
     val mockReplicaManager = logProvidingReplicaManager(topicIdPartition, log)
+    when(mockReplicaManager.getPartitionOrError(topicIdPartition.topicPartition(), expectLeader = true)).thenReturn(Right(partition))
+    when(partition.getIsUncleanLeader).thenReturn(false)
+    when(partition.log).thenReturn(Some(log))
     val nextState = Await.result(task.transition(mockTime, tierTopicManger, tierObjectStore,
       mockReplicaManager), transitionWaitTime)
 
@@ -136,6 +141,9 @@ class ArchiveTaskIntegrationTest {
 
     val log = LogTest.createLog(logDir, logConfig, brokerTopicStats, mockTime.scheduler, mockTime, tierLogComponentsOpt = Some(tierLogComponents), logDirFailureChannel = logDirFailureChannel)
     val mockReplicaManager = logProvidingReplicaManager(topicIdPartition, log)
+    when(mockReplicaManager.getPartitionOrError(topicIdPartition.topicPartition(), expectLeader = true)).thenReturn(Right(partition))
+    when(partition.log).thenReturn(Some(log))
+    when(partition.getIsUncleanLeader).thenReturn(false)
 
     val tierTopicManager = new MockTierTopicManager()
     tierTopicManager.becomeArchiver(topicIdPartition, leaderEpoch)
@@ -194,6 +202,9 @@ class ArchiveTaskIntegrationTest {
     val tierTopicManager = new MockTierTopicManager()
     val log = LogTest.createLog(logDir, logConfig, brokerTopicStats, mockTime.scheduler, mockTime, tierLogComponentsOpt = Some(tierLogComponents), logDirFailureChannel = logDirFailureChannel)
     val mockReplicaManager = logProvidingReplicaManager(topicIdPartition, log)
+    when(mockReplicaManager.getPartitionOrError(topicIdPartition.topicPartition(), expectLeader = true)).thenReturn(Right(partition))
+    when(partition.log).thenReturn(Some(log))
+    when(partition.getIsUncleanLeader).thenReturn(false)
     val pid1 = 1L
 
     tierTopicManager.becomeArchiver(topicIdPartition, leaderEpoch)

@@ -47,11 +47,14 @@ public class TenantQuotaCallback implements ClientQuotaCallback {
   public static final long DEFAULT_MAX_BROKER_TENANT_PRODUCER_BYTE_RATE = 13107200;
   public static final long DEFAULT_MAX_BROKER_TENANT_CONSUMER_BYTE_RATE = 13107200;
 
-  // Default minimum quota that can be assigned to a single broker: 32KB/sec (2x default batch size)
+  // Default minimum quota that can be assigned to a single broker: 10 MB/s
   // Per-broker tenant quota is always greater than zero to avoid excessive throttling of
   // requests received before cluster metadata or quota configs are refreshed.
-  public static final long DEFAULT_MIN_BROKER_TENANT_PRODUCER_BYTE_RATE = 32768;
-  public static final long DEFAULT_MIN_BROKER_TENANT_CONSUMER_BYTE_RATE = 32768;
+  // The default is somewhat high to ensure that the broker does not over-throttle during the roll;
+  // if the tenant quota results in a lower per-broker quota, it will be updated as soon as the
+  // broker gets cluster metadata, and there maybe a small window where a tenant may get a bit more bandwidth
+  public static final long DEFAULT_MIN_BROKER_TENANT_PRODUCER_BYTE_RATE = 10 * 1024 * 1024;
+  public static final long DEFAULT_MIN_BROKER_TENANT_CONSUMER_BYTE_RATE = 10 * 1024 * 1024;
 
   // TODO: This is a temporary workaround to track TenantQuotaCallbacks.
   // This is used by interceptors to find a partition assignor that has access to

@@ -216,53 +216,60 @@ object ArchiveTask extends Logging {
                                            replicaManager: ReplicaManager)
                                           (implicit ec: ExecutionContext): Future[ArchiveTaskState] = {
     Future {
-      replicaManager
-        .getLog(topicIdPartition.topicPartition)
-        .flatMap { log =>
-          if (log.tierPartitionState.tierEpoch != state.leaderEpoch)
-            throw new TierArchiverFencedException(topicIdPartition)
+      replicaManager.getPartitionOrError(topicIdPartition.topicPartition, expectLeader = true) match {
+        case Left(error) =>
+          throw new TierArchiverFencedException(topicIdPartition, error.exception)
 
-          log.tierableLogSegments
-            .collectFirst { case logSegment: LogSegment => (log, logSegment) }
-        } match {
-        case None =>
-          // Log has been moved or there is no eligible segment. Retry BeforeUpload state.
-          debug(s"Transitioning back to BeforeUpload for $topicIdPartition as log has moved or no tierable segments were found")
-          Future(state)
+        case Right(partition) =>
+          if (partition.getIsUncleanLeader)
+            throw new TierMetadataRetriableException(s"Backing off as $topicIdPartition is undergoing unclean leader recovery")
 
-        case Some((log: AbstractLog, logSegment: LogSegment)) =>
-          val segment = uploadableSegment(log, logSegment, topicIdPartition)
+          partition.log.flatMap { log =>
+            if (log.tierPartitionState.tierEpoch != state.leaderEpoch)
+              throw new TierArchiverFencedException(topicIdPartition)
 
-          // abort early if the log has been deleted
-          if (log.isDeleted)
-            throw new NotTierablePartitionException(topicIdPartition)
+            log.tierableLogSegments
+              .collectFirst { case logSegment: LogSegment => (log, logSegment) }
+          } match {
+            case None =>
+              // Log has been moved or there is no eligible segment. Retry BeforeUpload state.
+              debug(s"Retrying BeforeUpload for $topicIdPartition as log has moved or no tierable segments were found")
+              Future(state)
 
-          val uploadInitiate = new TierSegmentUploadInitiate(topicIdPartition,
-            state.leaderEpoch,
-            UUID.randomUUID,
-            logSegment.baseOffset,
-            segment.nextOffset - 1,
-            logSegment.largestTimestamp,
-            logSegment.size,
-            segment.leaderEpochStateOpt.isDefined,
-            segment.abortedTxnIndexOpt.isDefined,
-            segment.producerStateOpt.isDefined)
+            case Some((log: AbstractLog, logSegment: LogSegment)) =>
+              val segment = uploadableSegment(log, logSegment, topicIdPartition)
 
-          val startTime = time.milliseconds
-          Future.fromTry(Try(tierTopicAppender.addMetadata(uploadInitiate).toScala))
-            .flatMap(identity)
-            .map {
-              case AppendResult.ACCEPTED =>
-                info(s"Completed UploadInitiate(objectId: ${uploadInitiate.messageId}, baseOffset: ${uploadInitiate.baseOffset}," +
-                  s" endOffset: ${uploadInitiate.endOffset}]) for $topicIdPartition in ${time.milliseconds - startTime}ms")
-                Upload(state.leaderEpoch, uploadInitiate, segment)
-              case AppendResult.FAILED =>
-                throw new TierArchiverFailedException(topicIdPartition)
-              case AppendResult.NOT_TIERABLE =>
+              // abort early if the log has been deleted
+              if (log.isDeleted)
                 throw new NotTierablePartitionException(topicIdPartition)
-              case AppendResult.FENCED =>
-                throw new TierArchiverFencedException(topicIdPartition)
-            }
+
+              val uploadInitiate = new TierSegmentUploadInitiate(topicIdPartition,
+                state.leaderEpoch,
+                UUID.randomUUID,
+                logSegment.baseOffset,
+                segment.nextOffset - 1,
+                logSegment.largestTimestamp,
+                logSegment.size,
+                segment.leaderEpochStateOpt.isDefined,
+                segment.abortedTxnIndexOpt.isDefined,
+                segment.producerStateOpt.isDefined)
+
+              val startTime = time.milliseconds
+              Future.fromTry(Try(tierTopicAppender.addMetadata(uploadInitiate).toScala))
+                .flatMap(identity)
+                .map {
+                  case AppendResult.ACCEPTED =>
+                    info(s"Completed UploadInitiate(objectId: ${uploadInitiate.messageId}, baseOffset: ${uploadInitiate.baseOffset}," +
+                      s" endOffset: ${uploadInitiate.endOffset}]) for $topicIdPartition in ${time.milliseconds - startTime}ms")
+                    Upload(state.leaderEpoch, uploadInitiate, segment)
+                  case AppendResult.FAILED =>
+                    throw new TierArchiverFailedException(topicIdPartition)
+                  case AppendResult.NOT_TIERABLE =>
+                    throw new NotTierablePartitionException(topicIdPartition)
+                  case AppendResult.FENCED =>
+                    throw new TierArchiverFencedException(topicIdPartition)
+                }
+          }
       }
     }.flatMap(identity)
   }

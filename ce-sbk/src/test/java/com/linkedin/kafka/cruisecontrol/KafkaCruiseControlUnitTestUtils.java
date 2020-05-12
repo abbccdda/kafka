@@ -13,14 +13,20 @@ import com.linkedin.kafka.cruisecontrol.monitor.metricdefinition.KafkaMetricDef;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.NoopSampler;
 import com.yammer.metrics.core.MetricsRegistry;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
+import java.util.Set;
+import java.util.concurrent.TimeoutException;
+import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.Config;
 import org.apache.kafka.clients.admin.ConfigEntry;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
+import org.apache.kafka.clients.admin.DescribeClusterResult;
 import org.apache.kafka.clients.admin.DescribeConfigsResult;
 import org.apache.kafka.clients.admin.DescribeTopicsOptions;
 import org.apache.kafka.clients.admin.DescribeTopicsResult;
 import org.apache.kafka.clients.admin.TopicDescription;
 import org.apache.kafka.common.KafkaFuture;
+import org.apache.kafka.common.Node;
+import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.config.ConfigResource;
 import org.easymock.EasyMock;
 
@@ -42,6 +48,69 @@ public class KafkaCruiseControlUnitTestUtils {
 
   private KafkaCruiseControlUnitTestUtils() {
 
+  }
+
+  public static void mockDescribeCluster(Admin mockAdminClient, String clusterId,
+                                         Node controller, Collection<Node> nodes,
+                                         long expectedTimeoutMs) throws InterruptedException, ExecutionException, TimeoutException {
+    DescribeClusterResult mockDescribeClusterResult = EasyMock.mock(DescribeClusterResult.class);
+
+    KafkaFuture<String> mockClusterIdFuture = EasyMock.mock(KafkaFuture.class);
+    EasyMock.expect(mockClusterIdFuture.get(expectedTimeoutMs, TimeUnit.MILLISECONDS))
+        .andReturn(clusterId);
+    EasyMock.expect(mockDescribeClusterResult.clusterId()).andReturn(mockClusterIdFuture);
+
+    KafkaFuture<Node> mockControllerFuture = EasyMock.mock(KafkaFuture.class);
+    EasyMock.expect(mockControllerFuture.get(expectedTimeoutMs, TimeUnit.MILLISECONDS))
+        .andReturn(controller);
+    EasyMock.expect(mockDescribeClusterResult.controller()).andReturn(mockControllerFuture);
+
+    KafkaFuture<Collection<Node>> mockNodesFuture = EasyMock.mock(KafkaFuture.class);
+    EasyMock.expect(mockNodesFuture.get(expectedTimeoutMs, TimeUnit.MILLISECONDS))
+        .andReturn(nodes);
+    EasyMock.expect(mockDescribeClusterResult.nodes()).andReturn(mockNodesFuture);
+
+    KafkaFuture<Set<AclOperation>> mockAuthorizedOperations = EasyMock.mock(KafkaFuture.class);
+    EasyMock.expect(mockAuthorizedOperations.get(expectedTimeoutMs, TimeUnit.MILLISECONDS))
+        .andReturn(Collections.emptySet());
+    EasyMock.expect(mockDescribeClusterResult.authorizedOperations()).andReturn(mockAuthorizedOperations);
+
+    EasyMock.expect(mockAdminClient.describeCluster()).andReturn(mockDescribeClusterResult);
+    EasyMock.expect(mockAdminClient.describeCluster(EasyMock.anyObject())).andReturn(mockDescribeClusterResult);
+
+    EasyMock.replay(mockDescribeClusterResult, mockClusterIdFuture,
+        mockControllerFuture, mockNodesFuture);
+  }
+
+  public static void mockDescribeClusterThrows(Admin mockAdminClient, ExecutionException exception,
+                                               long expectedTimeoutMs) throws InterruptedException, ExecutionException, TimeoutException {
+    DescribeClusterResult mockDescribeClusterResult = EasyMock.mock(DescribeClusterResult.class);
+
+    KafkaFuture<String> mockClusterIdFuture = EasyMock.mock(KafkaFuture.class);
+    EasyMock.expect(mockClusterIdFuture.get(expectedTimeoutMs, TimeUnit.MILLISECONDS))
+        .andThrow(exception);
+    EasyMock.expect(mockDescribeClusterResult.clusterId()).andReturn(mockClusterIdFuture);
+
+    KafkaFuture<Node> mockControllerFuture = EasyMock.mock(KafkaFuture.class);
+    EasyMock.expect(mockControllerFuture.get(expectedTimeoutMs, TimeUnit.MILLISECONDS))
+        .andThrow(exception);
+    EasyMock.expect(mockDescribeClusterResult.controller()).andReturn(mockControllerFuture);
+
+    KafkaFuture<Collection<Node>> mockNodesFuture = EasyMock.mock(KafkaFuture.class);
+    EasyMock.expect(mockNodesFuture.get(expectedTimeoutMs, TimeUnit.MILLISECONDS))
+        .andThrow(exception);
+    EasyMock.expect(mockDescribeClusterResult.nodes()).andReturn(mockNodesFuture);
+
+    KafkaFuture<Set<AclOperation>> mockAuthorizedOperations = EasyMock.mock(KafkaFuture.class);
+    EasyMock.expect(mockAuthorizedOperations.get(expectedTimeoutMs, TimeUnit.MILLISECONDS))
+        .andThrow(exception);
+    EasyMock.expect(mockDescribeClusterResult.authorizedOperations()).andReturn(mockAuthorizedOperations);
+
+    EasyMock.expect(mockAdminClient.describeCluster()).andReturn(mockDescribeClusterResult);
+    EasyMock.expect(mockAdminClient.describeCluster(EasyMock.anyObject())).andReturn(mockDescribeClusterResult);
+
+    EasyMock.replay(mockDescribeClusterResult, mockClusterIdFuture,
+        mockControllerFuture, mockNodesFuture);
   }
 
   public static void mockDescribeTopics(ConfluentAdmin mockAdminClient, Collection<String> expectedTopicsToDescribe,

@@ -4,7 +4,7 @@
 
 package kafka.server.link
 
-import java.util.Properties
+import java.util.{Collections, Properties, ServiceLoader}
 
 import kafka.api.KAFKA_2_3_IV1
 import kafka.cluster.Partition
@@ -13,6 +13,7 @@ import kafka.server.{AdminManager, KafkaConfig, ReplicaManager, ReplicaQuota}
 import kafka.tier.fetcher.TierStateFetcher
 import kafka.utils.Logging
 import kafka.zk.KafkaZkClient
+import org.apache.kafka.clients.ClientInterceptor
 import org.apache.kafka.clients.admin.{Admin, ConfluentAdmin}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors._
@@ -22,6 +23,24 @@ import org.apache.kafka.common.utils.Time
 import org.apache.kafka.server.authorizer.Authorizer
 
 import scala.collection.{Map, mutable}
+import scala.jdk.CollectionConverters._
+
+object ClusterLinkManager {
+  val DestinationTenantPrefixProp = "cluster.link.destination.tenant.prefix"
+
+  def tenantInterceptor(destTenantPrefix: String): ClientInterceptor = {
+    val configs = Collections.singletonMap(DestinationTenantPrefixProp, destTenantPrefix)
+    ServiceLoader.load(classOf[ClientInterceptor]).asScala
+      .find { interceptor =>
+        try {
+          interceptor.configure(configs)
+          true
+        } catch {
+          case e: Throwable => false
+        }
+      }.getOrElse(throw new InvalidClusterLinkException("Cluster link interceptor not found"))
+  }
+}
 
 /**
   * Cluster link manager for managing cluster links and linked replicas. One ClusterLinkManager instance
@@ -264,7 +283,7 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
 
   private[link] def ensureClusterLinkEnabled(): Unit = {
     if (!brokerConfig.clusterLinkEnable)
-      throw new ClusterAuthorizationException("Cluster linking is not enabled")
+      throw new ClusterAuthorizationException("Cluster linking is not enabled in this cluster.")
   }
 
   // For unit testing

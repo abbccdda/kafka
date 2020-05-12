@@ -148,6 +148,31 @@ class MergedLog(private[log] val localLog: Log,
     },
     tags)
 
+  def recoverLocalLogAfterUncleanLeaderElection(tieredState: TierState): Unit = lock synchronized {
+    if (!tierPartitionState.isTieringEnabled)
+      return
+    // compare local log's epoch history against epoch cache from object store to determine divergence
+    val divergenceOffsetOpt =
+      if (tieredLogSegments.nonEmpty)
+        leaderEpochCache.map(_.findDivergenceInEpochCache(tieredState.leaderEpochState, tieredLogSegments.toList.head.baseOffset,
+          tieredLogSegments.toList.last.endOffset, localLogStartOffset, localLogEndOffset - 1))
+      else
+        None
+    // discard local log if diverging wrt tier state at object store, OR local log ends before last tiered offset,
+    // OR local log starts after the first untiered offset. Note: localLogEndOffset is exclusive
+    if (divergenceOffsetOpt.exists(_ != -1) ||
+      localLogEndOffset < firstUntieredOffset ||
+      localLogStartOffset > firstUntieredOffset) {
+      truncateAndRestoreTierState(firstUntieredOffset, tieredState)
+    } else {
+      // align log start offset to the firstTieredOffset, if needed
+      if (firstTieredOffset.isDefined) {
+        maybeIncrementHighWatermark(LogOffsetMetadata(Math.max(firstTieredOffset.get, localLogStartOffset)))
+        maybeIncrementLogStartOffset(firstTieredOffset.get)
+      }
+    }
+  }
+
   // For compatibility, metrics are defined to be under `Log` class
   override def metricName(name: String, tags: scala.collection.Map[String, String]): MetricName = {
     val klass = localLog.getClass
@@ -341,7 +366,7 @@ class MergedLog(private[log] val localLog: Log,
   }
 
   override def materializeTierStateUntilOffset(targetOffset: Long): Future[TierObjectMetadata] = {
-    tierPartitionState.materializationListener(targetOffset)
+    tierPartitionState.materializeUpto(targetOffset)
   }
 
   override def assignTopicId(topicId: UUID): Unit = {
@@ -1067,6 +1092,13 @@ sealed trait AbstractLog {
     *         double-counting.
     */
   def size: Long
+
+  /**
+   * This method recovers local log for a tier enabled partition by comparing it against the tiered
+   * epoch cache and boundaries of the tiered portion of the log.
+   * @param tieredState tier state to compare the local epoch cache against
+   */
+  def recoverLocalLogAfterUncleanLeaderElection(tieredState: TierState): Unit
 
   /**
     * @return The offset metadata of the next message that will be appended to the log

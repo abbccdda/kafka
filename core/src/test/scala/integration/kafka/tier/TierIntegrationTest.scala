@@ -431,6 +431,8 @@ class TierIntegrationTest {
     val partitions = logs.map { log =>
       val partition = mock(classOf[Partition])
       when(partition.log).thenReturn(Some(log))
+      when(partition.getIsUncleanLeader).thenReturn(false)
+      when(replicaManager.getPartitionOrError(log.topicPartition, expectLeader = true)).thenReturn(Right(partition))
       partition
     }
     when(replicaManager.leaderPartitionsIterator).thenAnswer(_ => partitions.iterator)

@@ -79,6 +79,8 @@ public class NetworkClient implements KafkaClient {
         CLOSED
     }
 
+    private static final ClientInterceptor DEFAULT_INTERCEPTOR = new DefaultClientInterceptor();
+
     private final Logger log;
 
     /* the selector used to perform network i/o */
@@ -130,6 +132,10 @@ public class NetworkClient implements KafkaClient {
     private final Sensor throttleTimeSensor;
 
     private final AtomicReference<State> state;
+
+    // Client interceptor used to parse requests and responses. The default interceptor
+    // is overridden by cluster linking clients to perform multi-tenant transformations.
+    private ClientInterceptor interceptor;
 
     public NetworkClient(Selectable selector,
                          Metadata metadata,
@@ -272,6 +278,7 @@ public class NetworkClient implements KafkaClient {
         this.log = logContext.logger(NetworkClient.class);
         this.clientDnsLookup = clientDnsLookup;
         this.state = new AtomicReference<>(State.ACTIVE);
+        this.interceptor = DEFAULT_INTERCEPTOR;
     }
 
     /**
@@ -511,7 +518,7 @@ public class NetworkClient implements KafkaClient {
                         header.apiVersion(), clientRequest.apiKey(), request, clientRequest.correlationId(), destination);
             }
         }
-        Send send = request.toSend(destination, header);
+        Send send = interceptor.toSend(header, request, destination);
         InFlightRequest inFlightRequest = new InFlightRequest(
                 clientRequest,
                 header,
@@ -710,7 +717,7 @@ public class NetworkClient implements KafkaClient {
 
     public static AbstractResponse parseResponse(ByteBuffer responseBuffer, RequestHeader requestHeader) {
         try {
-            Struct responseStruct = parseStructMaybeUpdateThrottleTimeMetrics(responseBuffer, requestHeader, null, 0);
+            Struct responseStruct = parseStructMaybeUpdateThrottleTimeMetrics(responseBuffer, requestHeader, null, 0, DEFAULT_INTERCEPTOR);
             return AbstractResponse.parseResponse(requestHeader.apiKey(), responseStruct,
                     requestHeader.apiVersion());
         } catch (BufferUnderflowException e) {
@@ -719,11 +726,12 @@ public class NetworkClient implements KafkaClient {
     }
 
     private static Struct parseStructMaybeUpdateThrottleTimeMetrics(ByteBuffer responseBuffer, RequestHeader requestHeader,
-                                                                    Sensor throttleTimeSensor, long now) {
+                                                                    Sensor throttleTimeSensor, long now,
+                                                                    ClientInterceptor interceptor) {
         ResponseHeader responseHeader = ResponseHeader.parse(responseBuffer,
             requestHeader.apiKey().responseHeaderVersion(requestHeader.apiVersion()));
         // Always expect the response version id to be the same as the request version id
-        Struct responseBody = requestHeader.apiKey().parseResponse(requestHeader.apiVersion(), responseBuffer);
+        Struct responseBody = interceptor.parseResponse(responseBuffer, requestHeader);
         correlate(requestHeader, responseHeader);
         if (throttleTimeSensor != null && responseBody.hasField(CommonFields.THROTTLE_TIME_MS))
             throttleTimeSensor.record(responseBody.get(CommonFields.THROTTLE_TIME_MS), now);
@@ -838,7 +846,7 @@ public class NetworkClient implements KafkaClient {
             String source = receive.source();
             InFlightRequest req = inFlightRequests.completeNext(source);
             Struct responseStruct = parseStructMaybeUpdateThrottleTimeMetrics(receive.payload(), req.header,
-                throttleTimeSensor, now);
+                throttleTimeSensor, now, interceptor);
             if (log.isTraceEnabled()) {
                 log.trace("Completed receive from node {} for {} with correlation id {}, received {}", req.destination,
                     req.header.apiKey(), req.header.correlationId(), responseStruct);
@@ -1186,6 +1194,11 @@ public class NetworkClient implements KafkaClient {
         return discoverBrokerVersions;
     }
 
+    // Used for cluster linking to prefix/unprefix for Cloud clients.
+    public void interceptor(ClientInterceptor interceptor) {
+        this.interceptor = interceptor;
+    }
+
     static class InFlightRequest {
         final RequestHeader header;
         final String destination;
@@ -1262,4 +1275,20 @@ public class NetworkClient implements KafkaClient {
         }
     }
 
+    private static class DefaultClientInterceptor implements ClientInterceptor {
+
+        @Override
+        public void configure(Map<String, ?> configs) {
+        }
+
+        @Override
+        public Send toSend(RequestHeader requestHeader, AbstractRequest requestBody, String destination) {
+            return requestBody.toSend(destination, requestHeader);
+        }
+
+        @Override
+        public Struct parseResponse(ByteBuffer responseBuffer, RequestHeader requestHeader) {
+            return requestHeader.apiKey().parseResponse(requestHeader.apiVersion(), responseBuffer);
+        }
+    }
 }

@@ -169,7 +169,7 @@ public class PartitionBenchmark {
         partition = new Partition(topicPartition, 100,
                 ApiVersion$.MODULE$.latestVersion(), 0,
                 Time.SYSTEM, partitionStateStore, delayedOperations,
-                metadataCache, logManager, Option.empty());
+                metadataCache, logManager, Option.empty(), Option.empty(), Option.empty());
         partition.makeLeader(leaderAndIsr, offsetCheckpoints);
     }
 

@@ -1,11 +1,13 @@
 // (Copyright) [2017 - 2020] Confluent, Inc.
 package io.confluent.kafka.multitenant;
 
+import io.confluent.kafka.link.ClusterLinkInterceptor;
 import io.confluent.kafka.multitenant.metrics.ApiSensorBuilder;
 import io.confluent.kafka.multitenant.metrics.PartitionSensors;
 import io.confluent.kafka.multitenant.metrics.TenantMetrics;
 import io.confluent.kafka.multitenant.quota.TenantPartitionAssignor;
 import io.confluent.kafka.multitenant.quota.TestCluster;
+import kafka.server.link.ClusterLinkManager$;
 import org.apache.kafka.clients.consumer.ConsumerPartitionAssignor.Subscription;
 import org.apache.kafka.clients.consumer.internals.ConsumerProtocol;
 import org.apache.kafka.common.IsolationLevel;
@@ -22,6 +24,7 @@ import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.config.ConfluentTopicConfig;
 import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.errors.NotLeaderForPartitionException;
+import org.apache.kafka.common.errors.UnsupportedVersionException;
 import org.apache.kafka.common.message.AddOffsetsToTxnRequestData;
 import org.apache.kafka.common.message.AlterConfigsResponseData;
 import org.apache.kafka.common.message.ControlledShutdownRequestData;
@@ -71,6 +74,7 @@ import org.apache.kafka.common.message.JoinGroupResponseData.JoinGroupResponseMe
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState;
 import org.apache.kafka.common.message.LeaveGroupRequestData;
 import org.apache.kafka.common.message.ListGroupsResponseData;
+import org.apache.kafka.common.message.ListGroupsResponseData.ListedGroup;
 import org.apache.kafka.common.message.MetadataRequestData;
 import org.apache.kafka.common.message.MetadataRequestData.MetadataRequestTopic;
 import org.apache.kafka.common.message.OffsetCommitRequestData;
@@ -95,6 +99,7 @@ import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.network.Send;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
+import org.apache.kafka.common.protocol.types.SchemaException;
 import org.apache.kafka.common.protocol.types.Struct;
 import org.apache.kafka.common.record.CompressionType;
 import org.apache.kafka.common.record.MemoryRecords;
@@ -224,6 +229,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 public class MultiTenantRequestContextTest {
@@ -240,6 +246,7 @@ public class MultiTenantRequestContextTest {
   private TenantMetrics tenantMetrics = new TenantMetrics();
   private TenantPartitionAssignor partitionAssignor;
   private TestCluster testCluster;
+  private ClusterLinkClient clusterLinkClient;
 
   @Before
   public void setUp() {
@@ -249,6 +256,7 @@ public class MultiTenantRequestContextTest {
     }
     partitionAssignor = new TenantPartitionAssignor();
     partitionAssignor.updateClusterMetadata(testCluster.cluster());
+    clusterLinkClient = new ClusterLinkClient(principal);
   }
 
   @After
@@ -276,6 +284,8 @@ public class MultiTenantRequestContextTest {
         requestRecords.keySet());
     assertEquals("tenant_tr", intercepted.transactionalId());
     verifyRequestMetrics(ApiKeys.PRODUCE);
+
+    clusterLinkClient.verifyNotAllowed(intercepted, context.header);
   }
 
   /**
@@ -347,6 +357,8 @@ public class MultiTenantRequestContextTest {
     assertEquals("Compacted topic cannot accept message without key in topic partition bar-0.",
         partitionResponse.recordErrors.get(0).message);
     verifyResponseMetrics(ApiKeys.PRODUCE, Errors.INVALID_RECORD);
+
+    clusterLinkClient.verifyNotAllowed(intercepted, context.header);
   }
 
   @Test
@@ -363,6 +375,9 @@ public class MultiTenantRequestContextTest {
       assertEquals(asList(new TopicPartition("tenant_foo", 0), new TopicPartition("tenant_bar", 0)),
           new ArrayList<>(intercepted.fetchData().keySet()));
       verifyRequestMetrics(ApiKeys.FETCH);
+
+      FetchRequest clientIntercepted = clusterLinkClient.intercept(intercepted, context.header);
+      assertEquals(inbound.fetchData().keySet(), clientIntercepted.fetchData().keySet());
     }
   }
 
@@ -383,16 +398,24 @@ public class MultiTenantRequestContextTest {
       Struct struct = parseResponse(ApiKeys.FETCH, ver, context.buildResponse(outbound));
       FetchResponse<MemoryRecords> intercepted = FetchResponse.parse(struct);
 
-      assertEquals(asList(new TopicPartition("foo", 0), new TopicPartition("bar", 0)),
-          new ArrayList<>(intercepted.responseData().keySet()));
-      if (ver >= 7) {
-        assertEquals(1234, intercepted.sessionId());
-        assertEquals(Errors.INVALID_FETCH_SESSION_EPOCH, intercepted.error());
-      } else {
-        assertEquals(0, intercepted.sessionId());
-        assertEquals(Errors.NONE, intercepted.error());
-      }
+      verifyFetchResponse(intercepted, ver, asList(new TopicPartition("foo", 0), new TopicPartition("bar", 0)));
       verifyResponseMetrics(ApiKeys.FETCH, Errors.NONE);
+
+      FetchResponse<MemoryRecords> clientIntercepted = clusterLinkClient.intercept(intercepted, context.header);
+      verifyFetchResponse(clientIntercepted, ver, new ArrayList<>(outbound.responseData().keySet()));
+    }
+  }
+
+  private void verifyFetchResponse(FetchResponse<MemoryRecords> intercepted,
+                                   short ver,
+                                   List<TopicPartition> expectedPartitions) {
+    assertEquals(expectedPartitions, new ArrayList<>(intercepted.responseData().keySet()));
+    if (ver >= 7) {
+      assertEquals(1234, intercepted.sessionId());
+      assertEquals(Errors.INVALID_FETCH_SESSION_EPOCH, intercepted.error());
+    } else {
+      assertEquals(0, intercepted.sessionId());
+      assertEquals(Errors.NONE, intercepted.error());
     }
   }
 
@@ -413,6 +436,9 @@ public class MultiTenantRequestContextTest {
       assertEquals(mkSet(new TopicPartition("tenant_foo", 0), new TopicPartition("tenant_bar", 0)),
           intercepted.partitionTimestamps().keySet());
       verifyRequestMetrics(ApiKeys.LIST_OFFSETS);
+
+      ListOffsetRequest clientIntercepted = clusterLinkClient.intercept(intercepted, context.header);
+      assertEquals(inbound.partitionTimestamps().keySet(), clientIntercepted.partitionTimestamps().keySet());
     }
   }
 
@@ -438,6 +464,9 @@ public class MultiTenantRequestContextTest {
       assertEquals(mkSet(new TopicPartition("foo", 0), new TopicPartition("bar", 0)),
           intercepted.responseData().keySet());
       verifyResponseMetrics(ApiKeys.LIST_OFFSETS, Errors.NONE);
+
+      ListOffsetResponse clientIntercepted = clusterLinkClient.intercept(intercepted, context.header);
+      assertEquals(outbound.responseData().keySet(), clientIntercepted.responseData().keySet());
     }
   }
 
@@ -453,6 +482,9 @@ public class MultiTenantRequestContextTest {
       MetadataRequest intercepted = (MetadataRequest) parseRequest(context, inbound);
       assertEquals(asList("tenant_foo", "tenant_bar"), intercepted.topics());
       verifyRequestMetrics(ApiKeys.METADATA);
+
+      MetadataRequest clientIntercepted = clusterLinkClient.intercept(intercepted, context.header);
+      assertEquals(inbound.topics(), clientIntercepted.topics());
     }
   }
 
@@ -468,6 +500,7 @@ public class MultiTenantRequestContextTest {
       MetadataRequest inbound = new MetadataRequest(data, ver);
       MetadataRequest interceptedInbound = (MetadataRequest) parseRequest(context, inbound);
       assertTrue(interceptedInbound.isAllTopics());
+      assertTrue(clusterLinkClient.intercept(interceptedInbound, context.header).isAllTopics());
 
       MetadataResponse outbound = MetadataResponse.prepareResponse(0, singletonList(node),
               "231412341", MetadataResponse.NO_CONTROLLER_ID,
@@ -477,6 +510,8 @@ public class MultiTenantRequestContextTest {
       Struct struct = parseResponse(ApiKeys.METADATA, ver, context.buildResponse(outbound));
       MetadataResponse intercepted = new MetadataResponse(struct, ver);
       assertNull(intercepted.controller());
+
+      assertNull(clusterLinkClient.intercept(intercepted, context.header).controller());
     }
   }
 
@@ -501,19 +536,28 @@ public class MultiTenantRequestContextTest {
               "231412341", 1, topicMetadata);
       Struct struct = parseResponse(ApiKeys.METADATA, ver, context.buildResponse(outbound));
       MetadataResponse intercepted = new MetadataResponse(struct, ver);
-      if (ver < 2)
-        assertNull(intercepted.clusterId());
-      else
-        assertEquals("tenant_cluster_id", intercepted.clusterId());
-
-      Iterator<MetadataResponse.TopicMetadata> iterator = intercepted.topicMetadata().iterator();
-      assertTrue(iterator.hasNext());
-      assertEquals("foo", iterator.next().topic());
-      assertTrue(iterator.hasNext());
-      assertEquals("bar", iterator.next().topic());
-      assertFalse(iterator.hasNext());
+      verifyMetadataResponse(intercepted, ver, "foo", "bar");
       verifyResponseMetrics(ApiKeys.METADATA, Errors.NONE);
+
+      MetadataResponse clientIntercepted = clusterLinkClient.intercept(intercepted, context.header);
+      verifyMetadataResponse(clientIntercepted, ver, "tenant_foo", "tenant_bar");
     }
+  }
+
+  private void verifyMetadataResponse(MetadataResponse intercepted,
+                                      short ver,
+                                      String... expectedTopics) {
+    if (ver < 2)
+      assertNull(intercepted.clusterId());
+    else
+      assertEquals("tenant_cluster_id", intercepted.clusterId());
+
+    Iterator<MetadataResponse.TopicMetadata> iterator = intercepted.topicMetadata().iterator();
+    assertTrue(iterator.hasNext());
+    assertEquals(expectedTopics[0], iterator.next().topic());
+    assertTrue(iterator.hasNext());
+    assertEquals(expectedTopics[1], iterator.next().topic());
+    assertFalse(iterator.hasNext());
   }
 
   @Test
@@ -550,13 +594,10 @@ public class MultiTenantRequestContextTest {
       MetadataResponse outbound = MetadataResponse.prepareResponse(0, singletonList(node), "clusterId", 1, topicMetadata);
       Struct struct = parseResponse(ApiKeys.METADATA, ver, context.buildResponse(outbound));
       MetadataResponse interceptedOutbound = new MetadataResponse(struct, ver);
+      verifyMetadataResponse(interceptedOutbound, ver, "foo", "bar");
 
-      Iterator<MetadataResponse.TopicMetadata> iterator = interceptedOutbound.topicMetadata().iterator();
-      assertTrue(iterator.hasNext());
-      assertEquals("foo", iterator.next().topic());
-      assertTrue(iterator.hasNext());
-      assertEquals("bar", iterator.next().topic());
-      assertFalse(iterator.hasNext());
+      MetadataResponse clientIntercepted = clusterLinkClient.intercept(interceptedOutbound, context.header);
+      verifyMetadataResponse(clientIntercepted, ver, "tenant_foo", "tenant_bar");
     }
   }
 
@@ -594,6 +635,8 @@ public class MultiTenantRequestContextTest {
                   .flatMap(t -> t.partitions().stream().map(p -> new TopicPartition(t.name(), p.partitionIndex())))
                   .collect(Collectors.toList()));
       verifyRequestMetrics(ApiKeys.OFFSET_COMMIT);
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -614,6 +657,8 @@ public class MultiTenantRequestContextTest {
                               p.partitionIndex())))
                       .collect(Collectors.toSet()));
       verifyResponseMetrics(ApiKeys.OFFSET_COMMIT, Errors.NONE);
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -631,6 +676,10 @@ public class MultiTenantRequestContextTest {
       assertEquals(mkSet(new TopicPartition("tenant_foo", 0), new TopicPartition("tenant_bar", 0)),
           new HashSet<>(intercepted.partitions()));
       verifyRequestMetrics(ApiKeys.OFFSET_FETCH);
+
+      OffsetFetchRequest clientIntercepted = clusterLinkClient.intercept(intercepted, context.header);
+      assertEquals(inbound.groupId(), clientIntercepted.groupId());
+      assertEquals(new HashSet<>(inbound.partitions()), new HashSet<>(clientIntercepted.partitions()));
     }
   }
 
@@ -647,6 +696,9 @@ public class MultiTenantRequestContextTest {
       assertEquals(mkSet(new TopicPartition("foo", 0), new TopicPartition("bar", 0)),
           intercepted.responseData().keySet());
       verifyResponseMetrics(ApiKeys.OFFSET_FETCH, Errors.NONE);
+
+      OffsetFetchResponse clientIntercepted = clusterLinkClient.intercept(intercepted, context.header);
+      assertEquals(outbound.responseData().keySet(), clientIntercepted.responseData().keySet());
     }
   }
 
@@ -662,6 +714,9 @@ public class MultiTenantRequestContextTest {
       FindCoordinatorRequest intercepted = (FindCoordinatorRequest) parseRequest(context, inbound);
       assertEquals("tenant_group", intercepted.data().key());
       verifyRequestMetrics(ApiKeys.FIND_COORDINATOR);
+
+      FindCoordinatorRequest clientIntercepted = clusterLinkClient.intercept(intercepted, context.header);
+      assertEquals(inbound.data().key(), clientIntercepted.data().key());
     }
   }
 
@@ -677,6 +732,9 @@ public class MultiTenantRequestContextTest {
       FindCoordinatorRequest intercepted = (FindCoordinatorRequest) parseRequest(context, inbound);
       assertEquals("tenant_tr", intercepted.data().key());
       verifyRequestMetrics(ApiKeys.FIND_COORDINATOR);
+
+      FindCoordinatorRequest clientIntercepted = clusterLinkClient.intercept(intercepted, context.header);
+      assertEquals(inbound.data().key(), clientIntercepted.data().key());
     }
   }
 
@@ -732,6 +790,8 @@ public class MultiTenantRequestContextTest {
 
       verifySubscription.accept(intercepted.data().protocols().find("protocol").metadata());
       verifyRequestMetrics(ApiKeys.JOIN_GROUP);
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -789,6 +849,8 @@ public class MultiTenantRequestContextTest {
         assertEquals(i == 0 ? "leader" : "follower", member.memberId());
         assertArrayEquals(protocolMetadata, member.metadata());
       }
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -845,6 +907,8 @@ public class MultiTenantRequestContextTest {
       SyncGroupRequest intercepted = (SyncGroupRequest) parseRequest(context, inbound);
       assertEquals("tenant_group", intercepted.data.groupId());
       verifyRequestMetrics(ApiKeys.SYNC_GROUP);
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -859,6 +923,8 @@ public class MultiTenantRequestContextTest {
       HeartbeatRequest intercepted = (HeartbeatRequest) parseRequest(context, inbound);
       assertEquals("tenant_group", intercepted.data.groupId());
       verifyRequestMetrics(ApiKeys.HEARTBEAT);
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -872,6 +938,8 @@ public class MultiTenantRequestContextTest {
       LeaveGroupRequest intercepted = (LeaveGroupRequest) parseRequest(context, inbound);
       assertEquals("tenant_group", intercepted.data().groupId());
       verifyRequestMetrics(ApiKeys.LEAVE_GROUP);
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -885,6 +953,9 @@ public class MultiTenantRequestContextTest {
       DescribeGroupsRequest intercepted = (DescribeGroupsRequest) parseRequest(context, inbound);
       assertEquals(asList("tenant_foo", "tenant_bar"), intercepted.data().groups());
       verifyRequestMetrics(ApiKeys.DESCRIBE_GROUPS);
+
+      DescribeGroupsRequest clientIntercepted = clusterLinkClient.intercept(intercepted, context.header);
+      assertEquals(inbound.data().groups(), clientIntercepted.data().groups());
     }
   }
 
@@ -944,25 +1015,17 @@ public class MultiTenantRequestContextTest {
         outboundProtocolMetadata);
       Struct struct = parseResponse(ApiKeys.DESCRIBE_GROUPS, ver, context.buildResponse(outbound));
       DescribeGroupsResponse intercepted = new DescribeGroupsResponse(struct, ver);
+      DescribeGroupsResponse clientIntercepted = clusterLinkClient.intercept(intercepted, context.header);
 
       for (int i = 0; i < intercepted.data().groups().size(); i++) {
         DescribedGroup interceptedGroup = intercepted.data().groups().get(i);
         DescribedGroup outboundGroup = outbound.data().groups().get(i);
 
-        assertEquals(context.tenantContext.removeTenantPrefix(outboundGroup.groupId()),
-            interceptedGroup.groupId());
-        assertEquals(outboundGroup.groupState(), interceptedGroup.groupState());
-        assertEquals(outboundGroup.protocolType(), interceptedGroup.protocolType());
-        assertEquals(outboundGroup.protocolData(), interceptedGroup.protocolData());
+        verifyDescribedGroup(interceptedGroup, outboundGroup,
+            context.tenantContext.removeTenantPrefix(outboundGroup.groupId()), interceptedProtocolMetadata);
 
-        for (int j = 0; j < interceptedGroup.members().size(); j++) {
-          DescribedGroupMember interceptedMember = interceptedGroup.members().get(j);
-          DescribedGroupMember outboundMember = outboundGroup.members().get(j);
-
-          assertEquals(outboundMember.memberId(), interceptedMember.memberId());
-          assertArrayEquals(outboundMember.memberAssignment(), interceptedMember.memberAssignment());
-          assertArrayEquals(interceptedProtocolMetadata, interceptedMember.memberMetadata());
-        }
+        DescribedGroup clientInterceptedGroup = clientIntercepted.data().groups().get(i);
+        verifyDescribedGroup(clientInterceptedGroup, outboundGroup, outboundGroup.groupId(), interceptedProtocolMetadata);
       }
 
       verifyResponseMetrics(ApiKeys.DESCRIBE_GROUPS, Errors.NONE);
@@ -983,6 +1046,26 @@ public class MultiTenantRequestContextTest {
     }
 
     return new DescribeGroupsResponse(describeGroupsResponseData);
+  }
+
+  private void verifyDescribedGroup(DescribedGroup interceptedGroup,
+      DescribedGroup outboundGroup,
+      String expectedGroupId,
+      byte[] interceptedProtocolMetadata) {
+
+    assertEquals(expectedGroupId, interceptedGroup.groupId());
+    assertEquals(outboundGroup.groupState(), interceptedGroup.groupState());
+    assertEquals(outboundGroup.protocolType(), interceptedGroup.protocolType());
+    assertEquals(outboundGroup.protocolData(), interceptedGroup.protocolData());
+
+    for (int j = 0; j < interceptedGroup.members().size(); j++) {
+      DescribedGroupMember interceptedMember = interceptedGroup.members().get(j);
+      DescribedGroupMember outboundMember = outboundGroup.members().get(j);
+
+      assertEquals(outboundMember.memberId(), interceptedMember.memberId());
+      assertArrayEquals(outboundMember.memberAssignment(), interceptedMember.memberAssignment());
+      assertArrayEquals(interceptedProtocolMetadata, interceptedMember.memberMetadata());
+    }
   }
 
   @Test
@@ -1015,6 +1098,10 @@ public class MultiTenantRequestContextTest {
       assertEquals("foo", intercepted.data().groups().get(0).groupId());
       assertEquals("bar", intercepted.data().groups().get(1).groupId());
       verifyResponseMetrics(ApiKeys.LIST_GROUPS, Errors.NONE);
+
+      ListGroupsResponse clientIntercepted = clusterLinkClient.intercept(intercepted, context.header);
+      assertEquals(mkSet("tenant_foo", "tenant_bar"),
+          clientIntercepted.data().groups().stream().map(ListedGroup::groupId).collect(Collectors.toSet()));
     }
   }
 
@@ -1027,6 +1114,8 @@ public class MultiTenantRequestContextTest {
       DeleteGroupsRequest intercepted = (DeleteGroupsRequest) parseRequest(context, inbound);
       assertEquals(asList("tenant_foo", "tenant_bar"), intercepted.data.groupsNames());
       verifyRequestMetrics(ApiKeys.DELETE_GROUPS);
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -1048,6 +1137,8 @@ public class MultiTenantRequestContextTest {
       DeleteGroupsResponse intercepted = new DeleteGroupsResponse(struct, ver);
       assertEquals(mkSet("foo", "bar"), intercepted.errors().keySet());
       verifyResponseMetrics(ApiKeys.DELETE_GROUPS, Errors.NONE);
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -1084,6 +1175,8 @@ public class MultiTenantRequestContextTest {
       }
 
       verifyRequestMetrics(ApiKeys.OFFSET_DELETE);
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -1128,6 +1221,8 @@ public class MultiTenantRequestContextTest {
       }
 
       verifyResponseMetrics(ApiKeys.OFFSET_DELETE, Errors.NONE);
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -1240,11 +1335,13 @@ public class MultiTenantRequestContextTest {
         assertEquals(CreateTopicsRequest.NO_NUM_PARTITIONS,
                 intercepted.data().topics().find("tenant_mirror").numPartitions());
         assertEquals(4, intercepted.data().topics().find("tenant_mirror").replicationFactor());
-        assertEquals("link-name", intercepted.data().topics().find("tenant_mirror").linkName());
-        assertEquals("mirror-topic", intercepted.data().topics().find("tenant_mirror").mirrorTopic());
+        assertEquals("tenant_link-name", intercepted.data().topics().find("tenant_mirror").linkName());
+        assertEquals("tenant_mirror-topic", intercepted.data().topics().find("tenant_mirror").mirrorTopic());
       }
 
       verifyRequestMetrics(ApiKeys.CREATE_TOPICS);
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -1341,11 +1438,13 @@ public class MultiTenantRequestContextTest {
         assertEquals(CreateTopicsRequest.NO_NUM_PARTITIONS,
                 intercepted.data().topics().find("tenant_mirror").numPartitions());
         assertEquals(4, intercepted.data().topics().find("tenant_mirror").replicationFactor());
-        assertEquals("link-name", intercepted.data().topics().find("tenant_mirror").linkName());
-        assertEquals("mirror-topic", intercepted.data().topics().find("tenant_mirror").mirrorTopic());
+        assertEquals("tenant_link-name", intercepted.data().topics().find("tenant_mirror").linkName());
+        assertEquals("tenant_mirror-topic", intercepted.data().topics().find("tenant_mirror").mirrorTopic());
       }
 
       verifyRequestMetrics(ApiKeys.CREATE_TOPICS);
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -1387,6 +1486,8 @@ public class MultiTenantRequestContextTest {
         assertTrue(intercepted.data().topics().find("foo").configs().isEmpty());
       }
       verifyResponseMetrics(ApiKeys.CREATE_TOPICS, Errors.NONE);
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -1415,6 +1516,8 @@ public class MultiTenantRequestContextTest {
         assertEquals("Topic foo is not permitted",
                 intercepted.data().topics().find("foo").errorMessage());
       }
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -1429,6 +1532,8 @@ public class MultiTenantRequestContextTest {
       DeleteTopicsRequest intercepted = (DeleteTopicsRequest) parseRequest(context, inbound);
       assertEquals(mkSet("tenant_foo", "tenant_bar"), new HashSet<>(intercepted.data().topicNames()));
       verifyRequestMetrics(ApiKeys.DELETE_TOPICS);
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -1447,6 +1552,8 @@ public class MultiTenantRequestContextTest {
                       .map(DeletableTopicResult::name)
                       .collect(Collectors.toSet()));
       verifyResponseMetrics(ApiKeys.DELETE_TOPICS, Errors.NONE);
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -1459,6 +1566,8 @@ public class MultiTenantRequestContextTest {
       InitProducerIdRequest intercepted = (InitProducerIdRequest) parseRequest(context, inbound);
       assertEquals("tenant_tr", intercepted.data.transactionalId());
       verifyRequestMetrics(ApiKeys.INIT_PRODUCER_ID);
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -1471,6 +1580,8 @@ public class MultiTenantRequestContextTest {
       InitProducerIdRequest intercepted = (InitProducerIdRequest) parseRequest(context, inbound);
       assertNull(intercepted.data.transactionalId());
       verifyRequestMetrics(ApiKeys.INIT_PRODUCER_ID);
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -1490,6 +1601,9 @@ public class MultiTenantRequestContextTest {
       ControlledShutdownResponse outbound = new ControlledShutdownResponse(new ControlledShutdownResponseData(struct, ver));
       assertEquals(Errors.CLUSTER_AUTHORIZATION_FAILED, outbound.error());
       verifyRequestAndResponseMetrics(ApiKeys.CONTROLLED_SHUTDOWN, Errors.CLUSTER_AUTHORIZATION_FAILED);
+
+      clusterLinkClient.verifyNotAllowed(request, context.header);
+      clusterLinkClient.verifyNotAllowed(response, context.header);
     }
   }
 
@@ -1520,6 +1634,9 @@ public class MultiTenantRequestContextTest {
           .findFirst()
           .map(pe -> pe.errorCode()));
       verifyRequestAndResponseMetrics(ApiKeys.STOP_REPLICA, Errors.CLUSTER_AUTHORIZATION_FAILED);
+
+      clusterLinkClient.verifyNotAllowed(request, context.header);
+      clusterLinkClient.verifyNotAllowed(response, context.header);
     }
   }
 
@@ -1553,6 +1670,9 @@ public class MultiTenantRequestContextTest {
               .findFirst()
               .map(pe -> pe.errorCode()));
       verifyRequestAndResponseMetrics(ApiKeys.LEADER_AND_ISR, Errors.CLUSTER_AUTHORIZATION_FAILED);
+
+      clusterLinkClient.verifyNotAllowed(request, context.header);
+      clusterLinkClient.verifyNotAllowed(response, context.header);
     }
   }
 
@@ -1580,6 +1700,9 @@ public class MultiTenantRequestContextTest {
       UpdateMetadataResponse outbound = new UpdateMetadataResponse(struct, ver);
       assertEquals(Errors.CLUSTER_AUTHORIZATION_FAILED, outbound.error());
       verifyRequestAndResponseMetrics(ApiKeys.UPDATE_METADATA, Errors.CLUSTER_AUTHORIZATION_FAILED);
+
+      clusterLinkClient.verifyNotAllowed(request, context.header);
+      clusterLinkClient.verifyNotAllowed(response, context.header);
     }
   }
 
@@ -1594,6 +1717,9 @@ public class MultiTenantRequestContextTest {
       assertEquals(mkSet(new TopicPartition("tenant_foo", 0)), request.epochsByTopicPartition().keySet());
       assertFalse(context.shouldIntercept());
       verifyRequestMetrics(ApiKeys.OFFSET_FOR_LEADER_EPOCH);
+
+      OffsetsForLeaderEpochRequest clientIntercepted = clusterLinkClient.intercept(request, context.header);
+      assertEquals(inbound.epochsByTopicPartition().keySet(), clientIntercepted.epochsByTopicPartition().keySet());
     }
   }
 
@@ -1609,6 +1735,10 @@ public class MultiTenantRequestContextTest {
       assertEquals(1, intercepted.responses().size());
       assertEquals(Errors.NONE, intercepted.responses().get(partition).error());
       verifyResponseMetrics(ApiKeys.OFFSET_FOR_LEADER_EPOCH, Errors.NONE);
+
+      OffsetsForLeaderEpochResponse clientIntercepted = clusterLinkClient.intercept(intercepted, context.header);
+      assertEquals(outbound.responses().keySet(), clientIntercepted.responses().keySet());
+      assertEquals(Errors.NONE, clientIntercepted.responses().get(new TopicPartition("tenant_foo", 0)).error());
     }
   }
 
@@ -1631,6 +1761,9 @@ public class MultiTenantRequestContextTest {
       assertEquals(1, outbound.errors(233L).size());
       assertEquals(Errors.CLUSTER_AUTHORIZATION_FAILED, outbound.errors(233L).get(partition));
       verifyRequestAndResponseMetrics(ApiKeys.WRITE_TXN_MARKERS, Errors.CLUSTER_AUTHORIZATION_FAILED);
+
+      clusterLinkClient.verifyNotAllowed(request, context.header);
+      clusterLinkClient.verifyNotAllowed(response, context.header);
     }
   }
 
@@ -1802,6 +1935,8 @@ public class MultiTenantRequestContextTest {
 
     assertFalse(context.shouldIntercept());
     verifyRequestMetrics(ApiKeys.CREATE_ACLS);
+
+    clusterLinkClient.verifyNotAllowed(request, context.header);
   }
 
   private void verifyInvalidCreateAclsRequest(AclBinding acl, short version) {
@@ -1814,6 +1949,7 @@ public class MultiTenantRequestContextTest {
     parseRequest(context, inbound);
     assertTrue(context.shouldIntercept());
     assertEquals(Collections.singleton(Errors.INVALID_REQUEST), context.intercept(inbound, 0).errorCounts().keySet());
+    clusterLinkClient.verifyNotAllowed(inbound, context.header);
   }
 
   @Test
@@ -1831,6 +1967,8 @@ public class MultiTenantRequestContextTest {
       assertEquals(ApiError.NONE.error().code(),
           intercepted.results().get(0).errorCode());
       verifyResponseMetrics(ApiKeys.CREATE_ACLS, Errors.NONE);
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -1870,6 +2008,8 @@ public class MultiTenantRequestContextTest {
     });
     assertEquals(AclTestParams.RESOURCE_TYPES,
         request.filters().stream().map(acl -> acl.patternFilter().resourceType()).collect(Collectors.toList()));
+
+    clusterLinkClient.verifyNotAllowed(request, context.header);
   }
 
   @Test
@@ -1958,6 +2098,8 @@ public class MultiTenantRequestContextTest {
     assertEquals(ResourceType.TRANSACTIONAL_ID.code(), it.next().resourceType());
     assertEquals(ResourceType.CLUSTER.code(), it.next().resourceType());
     assertFalse(it.hasNext());
+
+    clusterLinkClient.verifyNotAllowed(intercepted, context.header);
   }
 
   @Test
@@ -1987,6 +2129,10 @@ public class MultiTenantRequestContextTest {
 
     assertEquals(params.tenantPrincipal(), request.filter().entryFilter().principal());
     assertEquals(params.tenantResourceName(resourceType), request.filter().patternFilter().name());
+
+    // Cluster linking ACLs requests don't require transformation.
+    DescribeAclsRequest clientIntercepted = clusterLinkClient.intercept(inbound, context.header);
+    assertEquals(inbound.data(), clientIntercepted.data());
   }
 
   @Test
@@ -2035,6 +2181,15 @@ public class MultiTenantRequestContextTest {
     });
 
     verifyResponseMetrics(ApiKeys.DESCRIBE_ACLS, Errors.NONE);
+
+    if (version >= 1) {
+      DescribeAclsResponse clientIntercepted = clusterLinkClient.intercept(intercepted, context.header);
+      assertEquals(outbound.acls(), clientIntercepted.acls());
+    } else {
+      Class<? extends Throwable> exceptionClass = params.patternType != PatternType.LITERAL || params.wildcard ?
+          UnsupportedVersionException.class : SchemaException.class;
+      assertThrows(exceptionClass, () -> clusterLinkClient.interceptedStruct(outbound, context.header));
+    }
   }
 
   @Test
@@ -2048,6 +2203,8 @@ public class MultiTenantRequestContextTest {
           new HashSet<>(intercepted.partitions()));
       assertEquals("tenant_tr", intercepted.data.transactionalId());
       verifyRequestMetrics(ApiKeys.ADD_PARTITIONS_TO_TXN);
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -2064,6 +2221,8 @@ public class MultiTenantRequestContextTest {
       assertEquals(mkSet(new TopicPartition("foo", 0), new TopicPartition("bar", 0)),
           intercepted.errors().keySet());
       verifyResponseMetrics(ApiKeys.ADD_PARTITIONS_TO_TXN, Errors.NONE);
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -2081,6 +2240,8 @@ public class MultiTenantRequestContextTest {
       assertEquals("tenant_tr", intercepted.data.transactionalId());
       assertEquals("tenant_group", intercepted.data.groupId());
       verifyRequestMetrics(ApiKeys.ADD_OFFSETS_TO_TXN);
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -2098,6 +2259,8 @@ public class MultiTenantRequestContextTest {
       EndTxnRequest intercepted = (EndTxnRequest) parseRequest(context, inbound);
       assertEquals("tenant_tr", intercepted.data.transactionalId());
       verifyRequestMetrics(ApiKeys.END_TXN);
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -2124,6 +2287,8 @@ public class MultiTenantRequestContextTest {
       assertEquals(mkSet(new TopicPartition("tenant_foo", 0), new TopicPartition("tenant_bar", 0)),
           intercepted.offsets().keySet());
       verifyRequestMetrics(ApiKeys.TXN_OFFSET_COMMIT);
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -2140,6 +2305,8 @@ public class MultiTenantRequestContextTest {
       assertEquals(mkSet(new TopicPartition("foo", 0), new TopicPartition("bar", 0)),
           intercepted.errors().keySet());
       verifyResponseMetrics(ApiKeys.TXN_OFFSET_COMMIT, Errors.NONE);
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -2174,6 +2341,8 @@ public class MultiTenantRequestContextTest {
           new TopicPartition("tenant_bar", 0)),
           interceptedPartitions);
       verifyRequestMetrics(ApiKeys.DELETE_RECORDS);
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -2212,6 +2381,8 @@ public class MultiTenantRequestContextTest {
           new TopicPartition("bar", 0)),
           interceptedPartitions);
       verifyResponseMetrics(ApiKeys.DELETE_RECORDS, Errors.NONE);
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -2252,6 +2423,8 @@ public class MultiTenantRequestContextTest {
       assertNotEquals(unbalancedAssignment, assignments.get("tenant_bar"));
       assertTrue(assignments.get("tenant_invalid").isEmpty());
       verifyRequestMetrics(ApiKeys.CREATE_PARTITIONS);
+
+      clusterLinkClient.verifyNotAllowed(request, context.header);
     }
   }
 
@@ -2290,6 +2463,8 @@ public class MultiTenantRequestContextTest {
       assertEquals(unbalancedAssignment, assignments.get("tenant_bar"));
       assertTrue(assignments.get("tenant_invalid").isEmpty());
       verifyRequestMetrics(ApiKeys.CREATE_PARTITIONS);
+
+      clusterLinkClient.verifyNotAllowed(request, context.header);
     }
   }
 
@@ -2321,6 +2496,8 @@ public class MultiTenantRequestContextTest {
       String errorMessage = results.get("foo").errorMessage();
       assertTrue(errorMessage != null);
       assertFalse(errorMessage.contains("tenant_"));
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -2338,6 +2515,9 @@ public class MultiTenantRequestContextTest {
           new ConfigResource(ConfigResource.Type.BROKER, "blah"),
           new ConfigResource(ConfigResource.Type.TOPIC, "tenant_bar")), new HashSet<>(intercepted.resources()));
       verifyRequestMetrics(ApiKeys.DESCRIBE_CONFIGS);
+
+      DescribeConfigsRequest clientIntercepted = clusterLinkClient.intercept(intercepted, context.header);
+      assertEquals(inbound.resources(), clientIntercepted.resources());
     }
   }
 
@@ -2432,6 +2612,9 @@ public class MultiTenantRequestContextTest {
         assertEquals(mkSet("message.max.bytes"), interceptedEntries);
       }
       verifyResponseMetrics(ApiKeys.DESCRIBE_CONFIGS, Errors.NONE);
+
+      DescribeConfigsResponse clientIntercepted = clusterLinkClient.intercept(intercepted, context.header);
+      assertEquals(outbound.configs().keySet(), clientIntercepted.configs().keySet());
     }
   }
 
@@ -2468,6 +2651,8 @@ public class MultiTenantRequestContextTest {
       assertEquals(expected, actual);
 
       verifyRequestMetrics(ApiKeys.ALTER_CONFIGS);
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -2506,6 +2691,8 @@ public class MultiTenantRequestContextTest {
           new ConfigResource(ConfigResource.Type.BROKER, "blah"),
           new ConfigResource(ConfigResource.Type.TOPIC, "bar")), intercepted.errors().keySet());
       verifyResponseMetrics(ApiKeys.ALTER_CONFIGS, Errors.NONE);
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -2608,6 +2795,8 @@ public class MultiTenantRequestContextTest {
               new HashSet<>(actual.data().resources().find(ConfigResource.Type.TOPIC.id(), "tenant_foo").configs()));
 
       verifyRequestMetrics(ApiKeys.INCREMENTAL_ALTER_CONFIGS);
+
+      clusterLinkClient.verifyNotAllowed(actual, context.header);
     }
   }
 
@@ -2645,6 +2834,8 @@ public class MultiTenantRequestContextTest {
                       .collect(Collectors.toSet()));
 
       verifyResponseMetrics(ApiKeys.INCREMENTAL_ALTER_CONFIGS, Errors.NONE);
+
+      clusterLinkClient.verifyNotAllowed(intercepted, context.header);
     }
   }
 
@@ -2791,5 +2982,75 @@ public class MultiTenantRequestContextTest {
     configs.add(new CreateableTopicConfig().setName(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG).setValue("{}"));
 
     return configs;
+  }
+
+
+  /**
+   * Client transformations for cluster linking using a client-side interceptor. This is the inverse
+   * of broker transformations - tenant prefix is removed from requests and added to responses
+   * by the client interceptor. Only a limited subset of requests are supported for cluster linking.
+   * The client tests use requests that have already been intercepted using a broker interceptor and
+   * verify that the client-intercepted request matches the original request. The same format is used
+   * for verifying responses as well:
+   * <ul>
+   *   <li>request -> broker-intercepted-request -> client-intercepted-request</li>
+   *   <li>response -> broker-intercepted-response -> client-intercepted-response</li>
+   * </ul>
+   */
+  private static class ClusterLinkClient {
+
+    private final ClusterLinkInterceptor interceptor = new ClusterLinkInterceptor();
+    private final String sourceNode = "10";
+
+    ClusterLinkClient(MultiTenantPrincipal principal) {
+      interceptor.configure(Collections.singletonMap(ClusterLinkManager$.MODULE$.DestinationTenantPrefixProp(),
+          principal.tenantMetadata().tenantPrefix()));
+    }
+
+    private Struct interceptedStruct(AbstractRequest request, RequestHeader header) {
+      Send send = interceptor.toSend(header, request, sourceNode);
+      ByteBufferChannel channel = new ByteBufferChannel(send.size());
+      try {
+        send.writeTo(channel);
+        channel.close();
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+      ByteBuffer buffer = channel.buffer();
+      buffer.getInt();
+      buffer = buffer.slice();
+      RequestHeader.parse(buffer);
+      buffer = buffer.slice();
+      Struct struct = header.apiKey().parseRequest(header.apiVersion(), buffer);
+      assertEquals(0, buffer.remaining());
+      return struct;
+    }
+
+    @SuppressWarnings("unchecked")
+    private <T extends AbstractRequest> T intercept(T request, RequestHeader header) {
+      Struct struct = interceptedStruct(request, header);
+      return (T) AbstractRequest.parseRequest(header.apiKey(), header.apiVersion(), struct);
+    }
+
+    private Struct interceptedStruct(AbstractResponse response, RequestHeader header) {
+      ByteBuffer buffer = response.serialize(header.apiKey(), header.apiVersion(), header.correlationId());
+      ResponseHeader.parse(buffer, header.apiKey().responseHeaderVersion(header.apiVersion()));
+      buffer = buffer.slice();
+      return interceptor.parseResponse(buffer, header);
+    }
+
+    @SuppressWarnings("unchecked")
+    private <T extends AbstractResponse> T intercept(T response, RequestHeader header) {
+      Struct struct = interceptedStruct(response, header);
+      return (T) AbstractResponse.parseResponse(header.apiKey(), struct, header.apiVersion());
+    }
+
+    private void verifyNotAllowed(AbstractRequest request, RequestHeader header) {
+      assertThrows(IllegalStateException.class, () -> interceptor.toSend(header, request, sourceNode));
+    }
+
+    private void verifyNotAllowed(AbstractResponse response, RequestHeader header) {
+      assertThrows(IllegalStateException.class, () -> intercept(response, header));
+    }
   }
 }

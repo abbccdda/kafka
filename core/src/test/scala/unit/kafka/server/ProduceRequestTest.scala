@@ -71,6 +71,60 @@ class ProduceRequestTest extends BaseRequestTest {
   }
 
   @Test
+  def testProduceRequestDuringPartitionRecoveryAfterUncleanLeaderElection(): Unit = {
+    // PRODUCE requests will return LEADER_NOT_AVAILABLE exception when the partition is under recovery
+    // after unclean leader election. Partition is flagged as unclean when broker receives LeaderAndIsr request
+    // with unclean leader flag set. It is flagged as clean once the recovery completes.
+    val topic = "test-topic"
+    val TopicConfig = new Properties()
+    TopicConfig.put(LogConfig.MessageTimestampTypeProp, "LogAppendTime")
+    val partitionToLeader = TestUtils.createTopic(zkClient, topic, 1, 2, servers, TopicConfig)
+    val partition = new TopicPartition(topic, 0)
+    val leader = partitionToLeader(partition.partition)
+    val replicas = zkClient.getReplicasForPartition(partition).toSet
+    val follower = replicas.find(_ != leader).get
+    val nonReplica = servers.map(_.config.brokerId).find(!replicas.contains(_)).get
+
+    def produceRecordsAndValidateResponse(brokerId: Int, error: Errors, expectedOffset: Int): Unit = {
+      val records = MemoryRecords.withRecords(CompressionType.NONE,
+        new SimpleRecord(System.currentTimeMillis(), "key".getBytes, "value".getBytes))
+      val partitionRecords = Map(partition -> records)
+      val produceResponse = sendProduceRequest(brokerId,
+        ProduceRequest.Builder.forCurrentMagic(-1, 3000, partitionRecords.asJava).build())
+      // validate response
+      assertEquals(s"Unexpected response size", 1, produceResponse.responses.size)
+      val (tp, partitionResponse) = produceResponse.responses.asScala.head
+      assertEquals(s"Unexpected TopicPartition", partition, tp)
+      assertEquals(s"Unexpected base Offset", expectedOffset, partitionResponse.baseOffset)
+      assertEquals(s"Unexpected error", error, partitionResponse.error)
+      error match {
+        case Errors.NONE =>
+          assertNotEquals(s"Unexpected logAppendTime", RecordBatch.NO_TIMESTAMP, partitionResponse.logAppendTime)
+          assertNotEquals(s"No error; Unexpected logStartOffset", -1, partitionResponse.logStartOffset)
+        case _ =>
+          assertEquals(s"Unexpected logAppendTime during error condition", RecordBatch.NO_TIMESTAMP, partitionResponse.logAppendTime)
+          assertEquals(s"Unexpected logStartOffset during error condition", -1, partitionResponse.logStartOffset)
+      }
+      assertTrue(partitionResponse.recordErrors.isEmpty)
+    }
+
+    servers.find(_.config.brokerId == leader).get.replicaManager.getPartitionOrException(partition, expectLeader = true).setUncleanLeaderFlagTo(false)
+    produceRecordsAndValidateResponse(leader, Errors.NONE, 0)
+    produceRecordsAndValidateResponse(follower, Errors.NOT_LEADER_FOR_PARTITION, -1)
+    produceRecordsAndValidateResponse(nonReplica, Errors.NOT_LEADER_FOR_PARTITION, -1)
+    // Mark the partition unclean (indicating it needs recovery due to unclean leader election)
+    servers.find(_.config.brokerId == leader).get.replicaManager.getPartitionOrException(partition, expectLeader = true).setUncleanLeaderFlagTo(true)
+    produceRecordsAndValidateResponse(leader, Errors.LEADER_NOT_AVAILABLE, -1)
+    produceRecordsAndValidateResponse(follower, Errors.NOT_LEADER_FOR_PARTITION, -1)
+    produceRecordsAndValidateResponse(nonReplica, Errors.NOT_LEADER_FOR_PARTITION, -1)
+    // Mark the partition clean. This should enable produce requests to be processed
+    servers.find(_.config.brokerId == leader).get.replicaManager.getPartitionOrException(partition, expectLeader = true).setUncleanLeaderFlagTo(false)
+    produceRecordsAndValidateResponse(leader, Errors.NONE, 1)
+    produceRecordsAndValidateResponse(follower, Errors.NOT_LEADER_FOR_PARTITION, -1)
+    produceRecordsAndValidateResponse(nonReplica, Errors.NOT_LEADER_FOR_PARTITION, -1)
+  }
+
+  @Test
   def testProduceWithInvalidTimestamp(): Unit = {
     val topic = "topic"
     val partition = 0

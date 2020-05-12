@@ -2,7 +2,7 @@
  * Copyright 2019 LinkedIn Corp. Licensed under the BSD 2-Clause License (the "License"). See License in the project root for license information.
  */
 
-package com.linkedin.kafka.cruisecontrol.executor;
+package com.linkedin.kafka.cruisecontrol.common;
 
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUnitTestUtils;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
@@ -37,9 +37,18 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
-import static com.linkedin.kafka.cruisecontrol.common.TestConstants.TOPIC0;
 
-public class ExecutorAdminUtilsTest {
+import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUnitTestUtils.mockDescribeCluster;
+import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUnitTestUtils.mockDescribeClusterThrows;
+import static com.linkedin.kafka.cruisecontrol.common.TestConstants.TOPIC0;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+
+public class SBKAdminUtilsTest {
+  private final String clusterId = "cluster";
   private final Node _controllerNode = new Node(0, "host0", 100);
   private final Node _simpleNode = new Node(1, "host1", 100);
   private final List<Node> _nodes = Arrays.asList(_controllerNode, _simpleNode);
@@ -60,10 +69,46 @@ public class ExecutorAdminUtilsTest {
   private ConfluentAdmin mockAdminClient;
 
   private final long _defaultDescribeTopicsTimeoutMs = KafkaCruiseControlConfig.DEFAULT_DESCRIBE_TOPICS_RESPONSE_TIMEOUT_MS;
+  private final long _defaultDescribeClusterTimeoutMs = KafkaCruiseControlConfig.DEFAULT_DESCRIBE_CLUSTER_RESPONSE_TIMEOUT_MS;
 
   @Before
   public void setUp() {
     mockAdminClient = EasyMock.mock(ConfluentAdmin.class);
+  }
+
+  @Test
+  public void testDescribeCluster() throws InterruptedException, ExecutionException, TimeoutException {
+    mockDescribeCluster(mockAdminClient, clusterId, _controllerNode, _nodes, _defaultDescribeClusterTimeoutMs);
+    EasyMock.replay(mockAdminClient);
+
+    SBKAdminUtils adminUtils = new SBKAdminUtils(mockAdminClient, config());
+    AdminClientResult<KafkaCluster> clusterResult = adminUtils.describeCluster();
+
+    assertNotNull("Expected describeCluster to return a cluster", clusterResult.result());
+    assertNull(clusterResult.exception());
+    assertFalse("Expected cluster result to not have an exception",
+        clusterResult.hasException());
+    KafkaCluster cluster = clusterResult.result();
+    assertEquals(clusterId, cluster.clusterId());
+    assertEquals(_controllerNode, cluster.controller());
+    assertEquals(_nodes, cluster.nodes());
+  }
+
+  @Test
+  public void testDescribeClusterReturnsRightResultWhenExceptionOccurs() throws InterruptedException, TimeoutException, ExecutionException {
+    Exception innerExc = new Exception("exc");
+    ExecutionException adminClientExc = new ExecutionException("Exception!", innerExc);
+    mockDescribeClusterThrows(mockAdminClient, adminClientExc, _defaultDescribeClusterTimeoutMs);
+    EasyMock.replay(mockAdminClient);
+
+    SBKAdminUtils adminUtils = new SBKAdminUtils(mockAdminClient, config());
+    AdminClientResult<KafkaCluster> clusterResult = adminUtils.describeCluster();
+
+    assertNotNull("Expected describeCluster to return an exception", clusterResult.exception());
+    assertTrue("Expected cluster result to have an exception",
+        clusterResult.hasException());
+    assertNull(clusterResult.result());
+    assertEquals(adminClientExc, clusterResult.exception());
   }
 
   @Test
@@ -96,7 +141,7 @@ public class ExecutorAdminUtilsTest {
     EasyMock.expect(resultsMock.values()).andReturn(response);
     EasyMock.expect(mockAdminClient.alterPartitionReassignments(expectedPartitionCancellations)).andReturn(resultsMock);
     EasyMock.replay(resultsMock, mockAdminClient);
-    ExecutorAdminUtils adminUtils = new ExecutorAdminUtils(mockAdminClient, config());
+    SBKAdminUtils adminUtils = new SBKAdminUtils(mockAdminClient, config());
 
     int receivedNumSuccessfulCancellations =
         adminUtils.cancelInterBrokerReplicaMovements(Arrays.asList(_t0P0, _t0P1, _t0P2));
@@ -122,7 +167,7 @@ public class ExecutorAdminUtilsTest {
     EasyMock.expect(resultsMock.values()).andReturn(response);
     EasyMock.expect(mockAdminClient.alterPartitionReassignments(expectedPartitionCancellations)).andReturn(resultsMock);
     EasyMock.replay(resultsMock, mockAdminClient);
-    ExecutorAdminUtils adminUtils = new ExecutorAdminUtils(mockAdminClient, config());
+    SBKAdminUtils adminUtils = new SBKAdminUtils(mockAdminClient, config());
 
     int receivedNumSuccessfulCancellations =
         adminUtils.cancelInterBrokerReplicaMovements(Arrays.asList(_t0P0, _t0P1, _t0P2));
@@ -138,7 +183,7 @@ public class ExecutorAdminUtilsTest {
     topicDescriptions.put(TOPIC0, _topic0TopicDescription);
     KafkaCruiseControlUnitTestUtils.mockDescribeTopics(mockAdminClient, _topics, topicDescriptions, 10);
     EasyMock.replay(mockAdminClient);
-    ExecutorAdminUtils adminUtils = new ExecutorAdminUtils(mockAdminClient, config);
+    SBKAdminUtils adminUtils = new SBKAdminUtils(mockAdminClient, config);
 
     List<Integer> receivedReplicas = adminUtils.getReplicasForPartition(_t0P0);
     Assert.assertArrayEquals(_nodeIds, receivedReplicas.toArray(new Integer[0]));
@@ -148,7 +193,7 @@ public class ExecutorAdminUtilsTest {
   public void testGetReplicasForPartitionReturnsEmptyReplicasForPartitionDuringExceptions()
       throws InterruptedException, ExecutionException, TimeoutException {
     KafkaCruiseControlConfig config = config();
-    ExecutorAdminUtils adminUtils = new ExecutorAdminUtils(mockAdminClient, config);
+    SBKAdminUtils adminUtils = new SBKAdminUtils(mockAdminClient, config);
 
     // 1. Mock #describeTopics() to throw an exception
     EasyMock.expect(mockAdminClient.describeTopics(_topics)).andThrow(new InvalidTopicException());
@@ -181,7 +226,7 @@ public class ExecutorAdminUtilsTest {
   public void testGetReplicasForPartitionReturnsEmptyReplicasForPartitionIfPartitionNotPresent()
       throws InterruptedException, ExecutionException, TimeoutException {
     KafkaCruiseControlConfig config = config();
-    ExecutorAdminUtils adminUtils = new ExecutorAdminUtils(mockAdminClient, config);
+    SBKAdminUtils adminUtils = new SBKAdminUtils(mockAdminClient, config);
     Map<String, TopicDescription> topicDescriptions = new HashMap<>();
     topicDescriptions.put(TOPIC0, _topic0TopicDescription);
     KafkaCruiseControlUnitTestUtils.mockDescribeTopics(mockAdminClient, _topics, topicDescriptions, _defaultDescribeTopicsTimeoutMs);
@@ -203,6 +248,7 @@ public class ExecutorAdminUtilsTest {
     Properties props = KafkaCruiseControlUnitTestUtils.getKafkaCruiseControlProperties();
     if (timeoutMs != null) {
       props.setProperty(KafkaCruiseControlConfig.DESCRIBE_TOPICS_RESPONSE_TIMEOUT_MS_CONFIG, timeoutMs.toString());
+      props.setProperty(KafkaCruiseControlConfig.DESCRIBE_CLUSTER_RESPONSE_TIMEOUT_MS_CONFIG, timeoutMs.toString());
     }
     return new KafkaCruiseControlConfig(props);
   }
