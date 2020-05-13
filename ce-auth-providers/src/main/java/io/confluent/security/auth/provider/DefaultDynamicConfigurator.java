@@ -51,6 +51,6 @@ public class DefaultDynamicConfigurator implements DynamicConfigurator {
 
   @Override
   public void close() {
-    adminClient.close();
+    Utils.closeQuietly(adminClient, "DefaultDynamicConfigurator.adminClient");
   }
 }
