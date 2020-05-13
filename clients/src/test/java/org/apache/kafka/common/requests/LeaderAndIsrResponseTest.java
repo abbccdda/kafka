@@ -16,7 +16,6 @@
  */
 package org.apache.kafka.common.requests;
 
-import java.util.UUID;
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState;
 import org.apache.kafka.common.message.LeaderAndIsrResponseData;
 import org.apache.kafka.common.message.LeaderAndIsrResponseData.LeaderAndIsrPartitionError;
@@ -70,7 +69,7 @@ public class LeaderAndIsrResponseTest {
             asList(Errors.NONE, Errors.NOT_LEADER_FOR_PARTITION));
         LeaderAndIsrResponse response = new LeaderAndIsrResponse(new LeaderAndIsrResponseData()
             .setErrorCode(Errors.UNKNOWN_SERVER_ERROR.code())
-            .setPartitionErrors(partitions), false);
+            .setPartitionErrors(partitions));
         assertEquals(Collections.singletonMap(Errors.UNKNOWN_SERVER_ERROR, 2), response.errorCounts());
     }
 
@@ -80,7 +79,7 @@ public class LeaderAndIsrResponseTest {
             asList(Errors.NONE, Errors.CLUSTER_AUTHORIZATION_FAILED));
         LeaderAndIsrResponse response = new LeaderAndIsrResponse(new LeaderAndIsrResponseData()
             .setErrorCode(Errors.NONE.code())
-            .setPartitionErrors(partitions), false);
+            .setPartitionErrors(partitions));
         Map<Errors, Integer> errorCounts = response.errorCounts();
         assertEquals(2, errorCounts.size());
         assertEquals(1, errorCounts.get(Errors.NONE).intValue());
@@ -93,7 +92,7 @@ public class LeaderAndIsrResponseTest {
             asList(Errors.NONE, Errors.CLUSTER_AUTHORIZATION_FAILED));
         LeaderAndIsrResponse response = new LeaderAndIsrResponse(new LeaderAndIsrResponseData()
             .setErrorCode(Errors.NONE.code())
-            .setPartitionErrors(partitions), false);
+            .setPartitionErrors(partitions));
         String responseStr = response.toString();
         assertTrue(responseStr.contains(LeaderAndIsrResponse.class.getSimpleName()));
         assertTrue(responseStr.contains(partitions.toString()));
@@ -110,103 +109,5 @@ public class LeaderAndIsrResponseTest {
                 .setErrorCode(error.code()));
         }
         return partitions;
-    }
-
-    /**
-     * Begin ConfluentLeaderAndIsr[Request,Response] tests. These duplicate the tests above and
-     * can be removed once we have added topic ID support in AK, and we can drop
-     * ConfluentLeaderAndIsr[Request,Response] from our code.
-     */
-    @Test
-    public void testConfluentErrorCountsFromGetErrorResponse() {
-        List<LeaderAndIsrPartitionState> partitionStates = new ArrayList<>();
-        partitionStates.add(new LeaderAndIsrPartitionState()
-            .setTopicName("foo")
-            .setTopicId(UUID.fromString("58464c3a-6542-4af5-80f7-30ec69525132"))
-            .setPartitionIndex(0)
-            .setControllerEpoch(15)
-            .setLeader(1)
-            .setLeaderEpoch(10)
-            .setIsr(Collections.singletonList(10))
-            .setZkVersion(20)
-            .setReplicas(Collections.singletonList(10))
-            .setIsNew(false));
-        partitionStates.add(new LeaderAndIsrPartitionState()
-            .setTopicName("foo")
-            .setTopicId(UUID.fromString("58464c3a-6542-4af5-80f7-30ec69525132"))
-            .setPartitionIndex(1)
-            .setControllerEpoch(15)
-            .setLeader(1)
-            .setLeaderEpoch(10)
-            .setIsr(Collections.singletonList(10))
-            .setZkVersion(20)
-            .setReplicas(Collections.singletonList(10))
-            .setIsNew(false));
-        LeaderAndIsrRequest request = LeaderAndIsrRequest.Builder.create(
-            ApiKeys.LEADER_AND_ISR.latestVersion(), 15, 20, 0,
-            partitionStates, Collections.emptySet(), false, true).build();
-        LeaderAndIsrResponse response = request.getErrorResponse(0,
-            Errors.CLUSTER_AUTHORIZATION_FAILED.exception());
-        assertEquals(Collections.singletonMap(Errors.CLUSTER_AUTHORIZATION_FAILED, 2), response.errorCounts());
-    }
-
-    @Test
-    public void testConfluentErrorCountsWithTopLevelError() {
-        List<LeaderAndIsrPartitionError> errors = new ArrayList<>();
-        errors.add(new LeaderAndIsrPartitionError()
-            .setTopicName("foo")
-            .setPartitionIndex(0)
-            .setErrorCode(Errors.NONE.code()));
-        errors.add(new LeaderAndIsrPartitionError()
-            .setTopicName("foo")
-            .setPartitionIndex(1)
-            .setErrorCode(Errors.NOT_LEADER_FOR_PARTITION.code()));
-        LeaderAndIsrResponse response = new LeaderAndIsrResponse(
-            new LeaderAndIsrResponseData()
-                .setErrorCode(Errors.UNKNOWN_SERVER_ERROR.code())
-                .setPartitionErrors(errors),
-            true);
-        assertEquals(Collections.singletonMap(Errors.UNKNOWN_SERVER_ERROR, 2), response.errorCounts());
-    }
-
-    @Test
-    public void testConfluentErrorCountsNoTopLevelError() {
-        List<LeaderAndIsrPartitionError> errors = new ArrayList<>();
-        errors.add(new LeaderAndIsrPartitionError()
-            .setTopicName("foo")
-            .setPartitionIndex(0)
-            .setErrorCode(Errors.NONE.code()));
-        errors.add(new LeaderAndIsrPartitionError()
-            .setTopicName("foo")
-            .setPartitionIndex(1)
-            .setErrorCode(Errors.CLUSTER_AUTHORIZATION_FAILED.code()));
-        LeaderAndIsrResponse response = new LeaderAndIsrResponse(
-            new LeaderAndIsrResponseData().setPartitionErrors(errors),
-            true);
-        Map<Errors, Integer> errorCounts = response.errorCounts();
-        assertEquals(2, errorCounts.size());
-        assertEquals(1, errorCounts.get(Errors.NONE).intValue());
-        assertEquals(1, errorCounts.get(Errors.CLUSTER_AUTHORIZATION_FAILED).intValue());
-    }
-
-    @Test
-    public void testConfluentToString() {
-        List<LeaderAndIsrPartitionError> errors = new ArrayList<>();
-        errors.add(new LeaderAndIsrPartitionError()
-            .setTopicName("foo")
-            .setPartitionIndex(0)
-            .setErrorCode(Errors.NONE.code()));
-        errors.add(new LeaderAndIsrPartitionError()
-            .setTopicName("foo")
-            .setPartitionIndex(1)
-            .setErrorCode(Errors.CLUSTER_AUTHORIZATION_FAILED.code()));
-
-        LeaderAndIsrResponse response = new LeaderAndIsrResponse(
-            new LeaderAndIsrResponseData().setPartitionErrors(errors),
-            true);
-        String responseStr = response.toString();
-        assertTrue(responseStr.contains(LeaderAndIsrResponse.class.getSimpleName()));
-        assertTrue(responseStr.contains(errors.toString()));
-        assertTrue(responseStr.contains("errorCode=" + Errors.NONE.code()));
     }
 }

@@ -1698,8 +1698,7 @@ class ReplicaManager(val config: KafkaConfig,
         new LeaderAndIsrResponse(
           new LeaderAndIsrResponseData()
             .setErrorCode(Errors.NONE.code)
-            .setPartitionErrors(responsePartitions.asJava),
-          leaderAndIsrRequest.isConfluentRequest)
+            .setPartitionErrors(responsePartitions.asJava))
       }
     }
   }

@@ -18,7 +18,7 @@
 package kafka.server
 
 import java.util.concurrent.Future
-import java.util.{Collections, Optional}
+import java.util.Optional
 
 import kafka.api._
 import kafka.cluster.BrokerEndPoint
@@ -30,13 +30,10 @@ import org.apache.kafka.clients.FetchSessionHandler
 import org.apache.kafka.clients.FetchSessionHandler.FetchRequestData
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.KafkaStorageException
-import org.apache.kafka.common.message.TierListOffsetRequestData
-import org.apache.kafka.common.message.TierListOffsetRequestData.{TierListOffsetPartition, TierListOffsetTopic}
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.record.{MemoryRecords, Records}
 import org.apache.kafka.common.requests.EpochEndOffset._
-import org.apache.kafka.common.requests.TierListOffsetRequest.OffsetType
 import org.apache.kafka.common.requests._
 import org.apache.kafka.common.utils.{LogContext, Time}
 
@@ -264,49 +261,22 @@ class ReplicaFetcherThread(name: String,
     fetchOffsetFromLeader(topicPartition, currentLeaderEpoch, ListOffsetRequest.EARLIEST_TIMESTAMP)
   }
 
+  /**
+   * This should only be invoked if the leader returns `OFFSET_TIERED` for `topicPartition`. As a
+   * result `ListOffsetRequest` with `ListOffsetRequest.LOCAL_START_OFFSET` should be
+   * supported and no IBP check is required.
+   *
+   * @throws IllegalStateException if tier.feature` is `false`.
+   */
   override protected def fetchEarliestLocalOffsetFromLeader(topicPartition: TopicPartition, currentLeaderEpoch: Int): Long = {
-    if (brokerConfig.tierFeature) {
-      // TierListOffsetRequest has been replaced by use of ListOffsetRequest with negative timestamp
-      // sentinels. TierListOffsetRequest is kept to allow for rolling upgrades in CCloud
-      // and will be deleted once all of CCloud with tiered enabled is running with IBP >= 2.4-IV1
-      // `confluent.tier.feature` with IBP < 2.4 is not allowed for on-premise releases
-      if (brokerConfig.interBrokerProtocolVersion >= KAFKA_2_4_IV1)
-        fetchOffsetFromLeader(topicPartition, currentLeaderEpoch, ListOffsetRequest.LOCAL_START_OFFSET)
-      else
-        fetchLocalOffsetFromLeader(topicPartition, currentLeaderEpoch, OffsetType.LOCAL_START_OFFSET)
-    } else {
+    if (brokerConfig.tierFeature)
+      fetchOffsetFromLeader(topicPartition, currentLeaderEpoch, ListOffsetRequest.LOCAL_START_OFFSET)
+    else
       throw new IllegalStateException("Incompatible configuration for tiered storage")
-    }
   }
 
   override protected def fetchLatestOffsetFromLeader(topicPartition: TopicPartition, currentLeaderEpoch: Int): Long = {
     fetchOffsetFromLeader(topicPartition, currentLeaderEpoch, ListOffsetRequest.LATEST_TIMESTAMP)
-  }
-
-  private def fetchLocalOffsetFromLeader(topicPartition: TopicPartition, currentLeaderEpoch: Int, offsetType: OffsetType): Long = {
-    val tierListOffsetTopic = new TierListOffsetTopic()
-      .setName(topicPartition.topic)
-      .setPartitions(Collections.singletonList(new TierListOffsetPartition()
-        .setPartitionIndex(topicPartition.partition)
-        .setOffsetType(OffsetType.toId(offsetType))
-        .setCurrentLeaderEpoch(currentLeaderEpoch)))
-
-    val request = new TierListOffsetRequest.Builder(new TierListOffsetRequestData()
-      .setReplicaId(replicaId)
-      .setTopics(Collections.singletonList(tierListOffsetTopic)))
-
-    val clientResponse = leaderEndpoint.sendRequest(request)
-    val response = clientResponse.responseBody.asInstanceOf[TierListOffsetResponse]
-
-    if (response.data.topics.size() != 1)
-      throw new IllegalStateException("Unexpected response from TIER_LIST_OFFSET request. Response contains more topics than expected.")
-
-    val topicResponse = response.data.topics.asScala.last
-    val partitionResponse = topicResponse.partitions.asScala.last
-    if (partitionResponse.errorCode() == Errors.NONE.code)
-      partitionResponse.offset()
-    else
-      throw Errors.forCode(partitionResponse.errorCode()).exception()
   }
 
   private def fetchOffsetFromLeader(topicPartition: TopicPartition, currentLeaderEpoch: Int, earliestOrLatest: Long): Long = {
@@ -416,7 +386,6 @@ class ReplicaFetcherThread(name: String,
   }
 
   override def isOffsetForLeaderEpochSupported: Boolean = brokerSupportsLeaderEpochRequest
-
 
   /**
    *  To avoid ISR thrashing, we only throttle a replica on the follower if it's in the throttled replica list,

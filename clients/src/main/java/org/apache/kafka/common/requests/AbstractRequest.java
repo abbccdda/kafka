@@ -172,7 +172,7 @@ public abstract class AbstractRequest implements AbstractRequestResponse {
             case UPDATE_METADATA:
                 return new UpdateMetadataRequest(struct, apiVersion);
             case LEADER_AND_ISR:
-                return new LeaderAndIsrRequest(struct, apiVersion, false);
+                return new LeaderAndIsrRequest(struct, apiVersion);
             case DESCRIBE_GROUPS:
                 return new DescribeGroupsRequest(struct, apiVersion);
             case LIST_GROUPS:
@@ -266,10 +266,6 @@ public abstract class AbstractRequest implements AbstractRequestResponse {
                 return new DeleteClusterLinksRequest(struct, apiVersion);
             case ALTER_MIRRORS:
                 return new AlterMirrorsRequest(struct, apiVersion);
-            case TIER_LIST_OFFSET:
-                return new TierListOffsetRequest(struct, apiVersion);
-            case CONFLUENT_LEADER_AND_ISR:
-                return new LeaderAndIsrRequest(struct, apiVersion, true);
             default:
                 throw new AssertionError(String.format("ApiKey %s is not currently handled in `parseRequest`, the " +
                         "code should be updated to do so.", apiKey));

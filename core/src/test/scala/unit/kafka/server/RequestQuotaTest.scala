@@ -16,7 +16,7 @@ package kafka.server
 
 import java.util
 import java.util.concurrent.{Executors, Future, TimeUnit}
-import java.util.{Collections, Optional, Properties, UUID}
+import java.util.{Collections, Optional, Properties}
 
 import kafka.api.LeaderAndIsr
 import kafka.log.LogConfig
@@ -40,7 +40,6 @@ import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.protocol.ApiKeys
 import org.apache.kafka.common.quota.ClientQuotaFilter
 import org.apache.kafka.common.record._
-import org.apache.kafka.common.requests.TierListOffsetRequest.OffsetType
 import org.apache.kafka.common.requests._
 import org.apache.kafka.common.resource.{PatternType, ResourceType => AdminResourceType}
 import org.apache.kafka.common.security.auth.{AuthenticationContext, KafkaPrincipal, KafkaPrincipalBuilder, SecurityProtocol}
@@ -248,23 +247,6 @@ class RequestQuotaTest extends BaseRequestTest {
               .setIsNew(true)).asJava,
             Set(new Node(brokerId, "localhost", 0)).asJava,
             false)
-
-        case ApiKeys.CONFLUENT_LEADER_AND_ISR =>
-          val partitionStates = Seq(new LeaderAndIsrPartitionState()
-            .setTopicName(tp.topic)
-            .setTopicId(UUID.fromString("e125dac2-033f-4ba3-9617-b95f973c3c9d"))
-            .setPartitionIndex(tp.partition)
-            .setControllerEpoch(Int.MaxValue)
-            .setLeader(brokerId)
-            .setLeaderEpoch(Int.MaxValue)
-            .setIsr(List(brokerId).asJava)
-            .setZkVersion(2)
-            .setReplicas(Seq(brokerId).asJava)
-            .setIsNew(true)).asJava
-          LeaderAndIsrRequest.Builder.create(ApiKeys.LEADER_AND_ISR.latestVersion, brokerId, Int.MaxValue, Long.MaxValue,
-            partitionStates, Set(new Node(brokerId, "localhost", 0)).asJava,
-            false,
-            true)
 
         case ApiKeys.STOP_REPLICA =>
           val topicStates = Seq(
@@ -597,32 +579,8 @@ class RequestQuotaTest extends BaseRequestTest {
         case ApiKeys.ALTER_MIRRORS =>
           new AlterMirrorsRequest.Builder(List.empty.asJava, false, 1000);
 
-        case _ =>
-          maybeBuildInternalRequest(apiKey)
-    }
-  }
-
-  private def maybeBuildInternalRequest(apiKey: ApiKeys): AbstractRequest.Builder[_ <: AbstractRequest] = {
-    apiKey match {
-      case ApiKeys.REPLICA_STATUS =>
-        new ReplicaStatusRequest.Builder(Collections.singleton(new TopicPartition("test", 0)))
-
-      case ApiKeys.TIER_LIST_OFFSET =>
-        val partition = new TierListOffsetRequestData.TierListOffsetPartition()
-          .setPartitionIndex(0)
-          .setOffsetType(OffsetType.toId(OffsetType.LOCAL_START_OFFSET))
-          .setCurrentLeaderEpoch(0)
-        val topic = new TierListOffsetRequestData.TierListOffsetTopic()
-          .setName("my_topic")
-          .setPartitions(Collections.singletonList(partition))
-
-        new TierListOffsetRequest.Builder(
-          new TierListOffsetRequestData()
-            .setReplicaId(0)
-            .setTopics(Collections.singletonList(topic)))
-
-      case _ =>
-        throw new IllegalArgumentException("Unsupported API key " + apiKey)
+        case ApiKeys.REPLICA_STATUS =>
+          new ReplicaStatusRequest.Builder(Collections.singleton(new TopicPartition("test", 0)))
     }
   }
 

@@ -115,7 +115,7 @@ public abstract class AbstractResponse implements AbstractRequestResponse {
             case UPDATE_METADATA:
                 return new UpdateMetadataResponse(struct, version);
             case LEADER_AND_ISR:
-                return new LeaderAndIsrResponse(struct, version, false);
+                return new LeaderAndIsrResponse(struct, version);
             case DESCRIBE_GROUPS:
                 return new DescribeGroupsResponse(struct, version);
             case LIST_GROUPS:
@@ -209,10 +209,6 @@ public abstract class AbstractResponse implements AbstractRequestResponse {
                 return new DeleteClusterLinksResponse(struct, version);
             case ALTER_MIRRORS:
                 return new AlterMirrorsResponse(struct, version);
-            case TIER_LIST_OFFSET:
-                return new TierListOffsetResponse(struct, version);
-            case CONFLUENT_LEADER_AND_ISR:
-                return new LeaderAndIsrResponse(struct, version, true);
             default:
                 throw new AssertionError(String.format("ApiKey %s is not currently handled in `parseResponse`, the " +
                         "code should be updated to do so.", apiKey));

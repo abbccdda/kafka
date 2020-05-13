@@ -1663,7 +1663,7 @@ public class MultiTenantRequestContextTest {
       assertTrue(context.shouldIntercept());
       LeaderAndIsrResponse response = (LeaderAndIsrResponse) context.intercept(request, 0);
       Struct struct = parseResponse(ApiKeys.LEADER_AND_ISR, ver, context.buildResponse(response));
-      LeaderAndIsrResponse outbound = new LeaderAndIsrResponse(struct, ver, false);
+      LeaderAndIsrResponse outbound = new LeaderAndIsrResponse(struct, ver);
       assertEquals(Optional.of(Errors.CLUSTER_AUTHORIZATION_FAILED.code()),
           outbound.partitions().stream()
               .filter(ps -> ps.topicName().equals(topic) && ps.partitionIndex() == partition)

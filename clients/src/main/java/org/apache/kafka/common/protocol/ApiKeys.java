@@ -27,8 +27,6 @@ import org.apache.kafka.common.message.AddOffsetsToTxnRequestData;
 import org.apache.kafka.common.message.AddOffsetsToTxnResponseData;
 import org.apache.kafka.common.message.ApiVersionsRequestData;
 import org.apache.kafka.common.message.ApiVersionsResponseData;
-import org.apache.kafka.common.message.ConfluentLeaderAndIsrRequestData;
-import org.apache.kafka.common.message.ConfluentLeaderAndIsrResponseData;
 import org.apache.kafka.common.message.AlterClientQuotasRequestData;
 import org.apache.kafka.common.message.AlterClientQuotasResponseData;
 import org.apache.kafka.common.message.AlterConfigsRequestData;
@@ -117,8 +115,6 @@ import org.apache.kafka.common.message.StopReplicaRequestData;
 import org.apache.kafka.common.message.StopReplicaResponseData;
 import org.apache.kafka.common.message.SyncGroupRequestData;
 import org.apache.kafka.common.message.SyncGroupResponseData;
-import org.apache.kafka.common.message.TierListOffsetRequestData;
-import org.apache.kafka.common.message.TierListOffsetResponseData;
 import org.apache.kafka.common.message.TxnOffsetCommitRequestData;
 import org.apache.kafka.common.message.TxnOffsetCommitResponseData;
 import org.apache.kafka.common.message.UpdateMetadataRequestData;
@@ -253,13 +249,7 @@ public enum ApiKeys {
     DELETE_CLUSTER_LINKS(10004, "DeleteClusterLinks", DeleteClusterLinksRequestData.SCHEMAS, DeleteClusterLinksResponseData.SCHEMAS),
     INITIATE_SHUTDOWN(10005, "InitiateShutdown", InitiateShutdownRequestData.SCHEMAS, InitiateShutdownResponseData.SCHEMAS),
     ALTER_MIRRORS(10006, "AlterMirrors", AlterMirrorsRequestData.SCHEMAS, AlterMirrorsResponseData.SCHEMAS),
-    DESCRIBE_BROKER_REMOVALS(10007, "DescribeBrokerRemovals", DescribeBrokerRemovalsRequestData.SCHEMAS, DescribeBrokerRemovalsResponseData.SCHEMAS),
-
-    // The following APIs are deprecated and will be removed in a future release
-    CONFLUENT_LEADER_AND_ISR(32766, "ConfluentLeaderAndIsr", true, ConfluentLeaderAndIsrRequestData.SCHEMAS,
-                             ConfluentLeaderAndIsrResponseData.SCHEMAS, true),
-    TIER_LIST_OFFSET(32767, "TierListOffsets", true, TierListOffsetRequestData.SCHEMAS,
-                     TierListOffsetResponseData.SCHEMAS, true);
+    DESCRIBE_BROKER_REMOVALS(10007, "DescribeBrokerRemovals", DescribeBrokerRemovalsRequestData.SCHEMAS, DescribeBrokerRemovalsResponseData.SCHEMAS);
 
     /* ----- End Confluent APIs ----- */
 

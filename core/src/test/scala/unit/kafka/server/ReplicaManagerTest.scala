@@ -1141,15 +1141,14 @@ class ReplicaManagerTest {
 
     // become leader with same leader epoch but now with topic id assigned
     partitionState.setTopicId(UUID.randomUUID)
-    val leaderAndIsrRequest = LeaderAndIsrRequest.Builder.create(ApiKeys.CONFLUENT_LEADER_AND_ISR.latestVersion,
+    val leaderAndIsrRequest = new LeaderAndIsrRequest.Builder(ApiKeys.LEADER_AND_ISR.latestVersion,
       controllerId,
       controllerEpoch,
       brokerEpoch,
       List(partitionState).asJava,
       Set(new Node(followerBrokerId, "host1", 0),
         new Node(leaderBrokerId, "host2", 1)).asJava,
-      false,
-      true).build()
+      false).build()
     replicaManager.becomeLeaderOrFollower(correlationId, leaderAndIsrRequest,
       (newLeaders, newFollowers) => (newLeaders.isEmpty && newFollowers.isEmpty))
 

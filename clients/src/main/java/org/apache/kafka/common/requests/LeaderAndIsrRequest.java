@@ -16,8 +16,8 @@
  */
 package org.apache.kafka.common.requests;
 
+import java.util.Collections;
 import org.apache.kafka.common.Node;
-import org.apache.kafka.common.message.ConfluentLeaderAndIsrRequestData;
 import org.apache.kafka.common.message.LeaderAndIsrRequestData;
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrLiveLeader;
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrTopicState;
@@ -26,10 +26,8 @@ import org.apache.kafka.common.message.LeaderAndIsrResponseData;
 import org.apache.kafka.common.message.LeaderAndIsrResponseData.LeaderAndIsrPartitionError;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
-import org.apache.kafka.common.protocol.Message;
 import org.apache.kafka.common.protocol.types.Struct;
 import org.apache.kafka.common.utils.FlattenedIterator;
-import org.apache.kafka.common.utils.MappedIterator;
 import org.apache.kafka.common.utils.Utils;
 
 import java.nio.ByteBuffer;
@@ -48,71 +46,17 @@ public class LeaderAndIsrRequest extends AbstractControlRequest {
         private final Collection<Node> liveLeaders;
         private final boolean containsAllReplicas;
 
-        public Builder(short version, int controllerId, int controllerEpoch, long brokerEpoch,
-                       List<LeaderAndIsrPartitionState> partitionStates, Collection<Node> liveLeaders,
-                       boolean containsAllReplicas) {
-            this(ApiKeys.LEADER_AND_ISR, version, controllerId, controllerEpoch, brokerEpoch,
-                partitionStates, liveLeaders, containsAllReplicas);
-        }
-
-        private Builder(ApiKeys apiKey, short version, int controllerId, int controllerEpoch,
-                        long brokerEpoch, List<LeaderAndIsrPartitionState> partitionStates,
-                        Collection<Node> liveLeaders, boolean containsAllReplicas) {
-            super(apiKey, version, controllerId, controllerEpoch, brokerEpoch);
+        public Builder(short version, int controllerId, int controllerEpoch,
+                       long brokerEpoch, List<LeaderAndIsrPartitionState> partitionStates,
+                       Collection<Node> liveLeaders, boolean containsAllReplicas) {
+            super(ApiKeys.LEADER_AND_ISR, version, controllerId, controllerEpoch, brokerEpoch);
             this.partitionStates = partitionStates;
             this.liveLeaders = liveLeaders;
             this.containsAllReplicas = containsAllReplicas;
         }
 
-        public static Builder create(short version, int controllerId, int controllerEpoch,
-                                     long brokerEpoch,
-                                     List<LeaderAndIsrPartitionState> partitionStates,
-                                     Collection<Node> liveLeaders,
-                                     boolean containsAllReplicas,
-                                     boolean useConfluentRequest) {
-            ApiKeys apiKey = ApiKeys.LEADER_AND_ISR;
-            if (useConfluentRequest) {
-                apiKey = ApiKeys.CONFLUENT_LEADER_AND_ISR;
-                if (version >= 3)
-                    version = 1;
-                else
-                    version = 0;
-            }
-            return new Builder(apiKey, version, controllerId, controllerEpoch, brokerEpoch, partitionStates,
-                    liveLeaders, containsAllReplicas);
-        }
-
         @Override
         public LeaderAndIsrRequest build(short version) {
-            Message data;
-            if (apiKey() == ApiKeys.CONFLUENT_LEADER_AND_ISR) {
-                data = buildConfluentLeaderAndIsrData();
-            } else {
-                data = buildLeaderAndIsrData(version);
-            }
-            return new LeaderAndIsrRequest(data, version);
-        }
-
-        private ConfluentLeaderAndIsrRequestData buildConfluentLeaderAndIsrData() {
-            List<ConfluentLeaderAndIsrRequestData.LeaderAndIsrLiveLeader> leaders = liveLeaders.stream().map(n ->
-                new ConfluentLeaderAndIsrRequestData.LeaderAndIsrLiveLeader()
-                    .setBrokerId(n.id())
-                    .setHostName(n.host())
-                    .setPort(n.port())
-            ).collect(Collectors.toList());
-
-            Map<String, ConfluentLeaderAndIsrRequestData.LeaderAndIsrTopicState> topicStatesMap =
-                groupByConfluentTopic(partitionStates);
-
-            return new ConfluentLeaderAndIsrRequestData()
-                .setControllerId(controllerId)
-                .setControllerEpoch(controllerEpoch)
-                .setBrokerEpoch(brokerEpoch)
-                .setLiveLeaders(leaders)
-                .setTopicStates(new ArrayList<>(topicStatesMap.values()));
-        }
-
-        private LeaderAndIsrRequestData buildLeaderAndIsrData(short version) {
             List<LeaderAndIsrLiveLeader> leaders = liveLeaders.stream().map(n -> new LeaderAndIsrLiveLeader()
                 .setBrokerId(n.id())
                 .setHostName(n.host())
@@ -132,31 +76,7 @@ public class LeaderAndIsrRequest extends AbstractControlRequest {
             } else {
                 data.setUngroupedPartitionStates(partitionStates);
             }
-            return data;
-        }
-
-        private static Map<String, ConfluentLeaderAndIsrRequestData.LeaderAndIsrTopicState> groupByConfluentTopic(
-                List<LeaderAndIsrPartitionState> partitionStates) {
-            Map<String, ConfluentLeaderAndIsrRequestData.LeaderAndIsrTopicState> topicStates = new HashMap<>();
-            for (LeaderAndIsrPartitionState partition : partitionStates) {
-                ConfluentLeaderAndIsrRequestData.LeaderAndIsrTopicState topicState =
-                    topicStates.computeIfAbsent(partition.topicName(), t ->
-                        new ConfluentLeaderAndIsrRequestData.LeaderAndIsrTopicState()
-                            .setTopicName(partition.topicName())
-                            .setTopicId(partition.topicId()));
-                topicState.partitionStates().add(new ConfluentLeaderAndIsrRequestData.LeaderAndIsrPartitionState()
-                    .setPartitionIndex(partition.partitionIndex())
-                    .setControllerEpoch(partition.controllerEpoch())
-                    .setLeader(partition.leader())
-                    .setLeaderEpoch(partition.leaderEpoch())
-                    .setIsr(partition.isr())
-                    .setZkVersion(partition.zkVersion())
-                    .setReplicas(partition.replicas())
-                    .setIsNew(partition.isNew())
-                    .setAddingReplicas(partition.addingReplicas())
-                    .setRemovingReplicas(partition.removingReplicas()));
-            }
-            return topicStates;
+            return new LeaderAndIsrRequest(data, version);
         }
 
         private static Map<String, LeaderAndIsrTopicState> groupByTopic(
@@ -192,42 +112,28 @@ public class LeaderAndIsrRequest extends AbstractControlRequest {
         }
     }
 
-    private final Message data;
+    private final LeaderAndIsrRequestData data;
 
-    // Visible for testing
     LeaderAndIsrRequest(LeaderAndIsrRequestData data, short version) {
-        this((Message) data, version);
-    }
-
-    private LeaderAndIsrRequest(Message data, short version) {
-        super(data instanceof ConfluentLeaderAndIsrRequestData ? ApiKeys.CONFLUENT_LEADER_AND_ISR :
-            ApiKeys.LEADER_AND_ISR, version);
+        super(ApiKeys.LEADER_AND_ISR, version);
         this.data = data;
         // Do this from the constructor to make it thread-safe (even though it's only needed when some methods are called)
         normalize();
     }
 
     private void normalize() {
-        // We normalize the standard `LeaderAndIsrRequestData` and fallback to on the fly conversions
-        // for ConfluentLeaderAndIsrRequestData. Custom ConfluentLeaderAndIsrRequestData is legacy
-        // and will be removed soon so we pay the efficiency overhead instead of trying to optimize
-        // it.
-        if (!(data instanceof ConfluentLeaderAndIsrRequestData)) {
-            LeaderAndIsrRequestData requestData = (LeaderAndIsrRequestData) data;
-            if (version() >= 2) {
-                for (LeaderAndIsrTopicState topicState : requestData.topicStates()) {
-                    for (LeaderAndIsrPartitionState partitionState : topicState.partitionStates()) {
-                        // Set the topic name so that we can always present the ungrouped view to callers
-                        partitionState.setTopicName(topicState.topicName());
-                    }
+        if (version() >= 2) {
+            for (LeaderAndIsrTopicState topicState : data.topicStates()) {
+                for (LeaderAndIsrPartitionState partitionState : topicState.partitionStates()) {
+                    // Set the topic name so that we can always present the ungrouped view to callers
+                    partitionState.setTopicName(topicState.topicName());
                 }
             }
         }
     }
 
-    public LeaderAndIsrRequest(Struct struct, short version, boolean useConfluentRequest) {
-        this(useConfluentRequest ? new ConfluentLeaderAndIsrRequestData(struct, version) :
-            new LeaderAndIsrRequestData(struct, version), version);
+    public LeaderAndIsrRequest(Struct struct, short version) {
+        this(new LeaderAndIsrRequestData(struct, version), version);
     }
 
     @Override
@@ -249,85 +155,45 @@ public class LeaderAndIsrRequest extends AbstractControlRequest {
                 .setErrorCode(error.code()));
         }
         responseData.setPartitionErrors(partitions);
-        return new LeaderAndIsrResponse(responseData, isConfluentRequest());
+        return new LeaderAndIsrResponse(responseData);
     }
 
     @Override
     public int controllerId() {
-        if (data instanceof ConfluentLeaderAndIsrRequestData)
-            return ((ConfluentLeaderAndIsrRequestData) data).controllerId();
-        return ((LeaderAndIsrRequestData) data).controllerId();
+        return data.controllerId();
     }
 
     @Override
     public int controllerEpoch() {
-        if (data instanceof ConfluentLeaderAndIsrRequestData)
-            return ((ConfluentLeaderAndIsrRequestData) data).controllerEpoch();
-        return ((LeaderAndIsrRequestData) data).controllerEpoch();
+        return data.controllerEpoch();
     }
 
     @Override
     public long brokerEpoch() {
-        if (data instanceof ConfluentLeaderAndIsrRequestData)
-            return ((ConfluentLeaderAndIsrRequestData) data).brokerEpoch();
-        return ((LeaderAndIsrRequestData) data).brokerEpoch();
+        return data.brokerEpoch();
     }
 
     public boolean containsAllReplicas() {
-        if (data instanceof ConfluentLeaderAndIsrRequestData)
-            return false;
-        return ((LeaderAndIsrRequestData) data).containsAllReplicas();
+        return data.containsAllReplicas();
     }
 
     public Iterable<LeaderAndIsrPartitionState> partitionStates() {
-        if (data instanceof ConfluentLeaderAndIsrRequestData) {
-            ConfluentLeaderAndIsrRequestData requestData = (ConfluentLeaderAndIsrRequestData) data;
-            return () -> new FlattenedIterator<>(requestData.topicStates().iterator(), topic ->
-                new MappedIterator<>(topic.partitionStates().iterator(), partition ->
-                    new LeaderAndIsrPartitionState()
-                        .setTopicName(topic.topicName())
-                        .setTopicId(topic.topicId())
-                        .setPartitionIndex(partition.partitionIndex())
-                        .setControllerEpoch(partition.controllerEpoch())
-                        .setLeader(partition.leader())
-                        .setLeaderEpoch(partition.leaderEpoch())
-                        .setIsr(partition.isr())
-                        .setZkVersion(partition.zkVersion())
-                        .setReplicas(partition.replicas())
-                        .setIsNew(partition.isNew())
-                        .setAddingReplicas(partition.addingReplicas())
-                        .setRemovingReplicas(partition.removingReplicas())));
-        }
-        LeaderAndIsrRequestData requestData = (LeaderAndIsrRequestData) data;
         if (version() >= 2)
-            return () -> new FlattenedIterator<>(requestData.topicStates().iterator(),
+            return () -> new FlattenedIterator<>(data.topicStates().iterator(),
                 topicState -> topicState.partitionStates().iterator());
-        return requestData.ungroupedPartitionStates();
+        return data.ungroupedPartitionStates();
     }
 
     public List<LeaderAndIsrLiveLeader> liveLeaders() {
-        if (data instanceof ConfluentLeaderAndIsrRequestData) {
-            return ((ConfluentLeaderAndIsrRequestData) data).liveLeaders().stream().map(leader ->
-                new LeaderAndIsrLiveLeader()
-                    .setBrokerId(leader.brokerId())
-                    .setHostName(leader.hostName())
-                    .setPort(leader.port())
-            ).collect(Collectors.toList());
-        }
-
-        return ((LeaderAndIsrRequestData) data).liveLeaders();
+        return Collections.unmodifiableList(data.liveLeaders());
     }
 
     // Visible for testing
-    protected Message data() {
+    protected LeaderAndIsrRequestData data() {
         return data;
     }
 
-    public boolean isConfluentRequest() {
-        return data instanceof ConfluentLeaderAndIsrRequestData;
-    }
-
     public static LeaderAndIsrRequest parse(ByteBuffer buffer, short version) {
-        return new LeaderAndIsrRequest(ApiKeys.LEADER_AND_ISR.parseRequest(version, buffer), version, false);
+        return new LeaderAndIsrRequest(ApiKeys.LEADER_AND_ISR.parseRequest(version, buffer), version);
     }
 }

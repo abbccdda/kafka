@@ -54,7 +54,7 @@ import org.apache.kafka.common.internals.{FatalExitError, Topic}
 import org.apache.kafka.common.internals.Topic.{GROUP_METADATA_TOPIC_NAME, TIER_TOPIC_NAME, TRANSACTION_STATE_TOPIC_NAME, isInternal}
 import org.apache.kafka.common.message.AlterConfigsResponseData.AlterConfigsResourceResponse
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopic
-import org.apache.kafka.common.message.{AddOffsetsToTxnResponseData, AlterConfigsResponseData, AlterPartitionReassignmentsResponseData, CreateAclsResponseData, CreatePartitionsResponseData, CreateTopicsResponseData, DeleteAclsResponseData, DeleteGroupsResponseData, DeleteRecordsResponseData, DeleteTopicsResponseData, DescribeAclsResponseData, DescribeBrokerRemovalsResponseData, DescribeGroupsResponseData, DescribeLogDirsResponseData, EndTxnResponseData, ExpireDelegationTokenResponseData, FindCoordinatorResponseData, HeartbeatResponseData, InitProducerIdResponseData, InitiateShutdownResponseData, JoinGroupResponseData, LeaveGroupResponseData, ListGroupsResponseData, ListPartitionReassignmentsResponseData, MetadataResponseData, OffsetCommitRequestData, OffsetCommitResponseData, OffsetDeleteResponseData, RemoveBrokersResponseData, RenewDelegationTokenResponseData, ReplicaStatusResponseData, SaslAuthenticateResponseData, SaslHandshakeResponseData, StopReplicaResponseData, SyncGroupResponseData, TierListOffsetResponseData, UpdateMetadataResponseData}
+import org.apache.kafka.common.message.{AddOffsetsToTxnResponseData, AlterConfigsResponseData, AlterPartitionReassignmentsResponseData, CreateAclsResponseData, CreatePartitionsResponseData, CreateTopicsResponseData, DeleteAclsResponseData, DeleteGroupsResponseData, DeleteRecordsResponseData, DeleteTopicsResponseData, DescribeAclsResponseData, DescribeBrokerRemovalsResponseData, DescribeGroupsResponseData, DescribeLogDirsResponseData, EndTxnResponseData, ExpireDelegationTokenResponseData, FindCoordinatorResponseData, HeartbeatResponseData, InitProducerIdResponseData, InitiateShutdownResponseData, JoinGroupResponseData, LeaveGroupResponseData, ListGroupsResponseData, ListPartitionReassignmentsResponseData, MetadataResponseData, OffsetCommitRequestData, OffsetCommitResponseData, OffsetDeleteResponseData, RemoveBrokersResponseData, RenewDelegationTokenResponseData, ReplicaStatusResponseData, SaslAuthenticateResponseData, SaslHandshakeResponseData, StopReplicaResponseData, SyncGroupResponseData, UpdateMetadataResponseData}
 import org.apache.kafka.common.message.CreateTopicsResponseData.{CreatableTopicResult, CreatableTopicResultCollection}
 import org.apache.kafka.common.message.DeleteGroupsResponseData.{DeletableGroupResult, DeletableGroupResultCollection}
 import org.apache.kafka.common.message.AlterPartitionReassignmentsResponseData.{ReassignablePartitionResponse, ReassignableTopicResponse}
@@ -66,7 +66,6 @@ import org.apache.kafka.common.message.ElectLeadersResponseData.PartitionResult
 import org.apache.kafka.common.message.ElectLeadersResponseData.ReplicaElectionResult
 import org.apache.kafka.common.message.LeaveGroupResponseData.MemberResponse
 import org.apache.kafka.common.message.ReplicaStatusResponseData.{ReplicaStatusPartitionResponse, ReplicaStatusReplicaResponse, ReplicaStatusTopicResponse}
-import org.apache.kafka.common.message.TierListOffsetResponseData.{TierListOffsetPartitionResponse, TierListOffsetTopicResponse}
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.network.{ListenerName, Send}
 import org.apache.kafka.common.protocol.{ApiKeys, Errors}
@@ -75,7 +74,6 @@ import org.apache.kafka.common.replica.ClientMetadata
 import org.apache.kafka.common.replica.ClientMetadata.DefaultClientMetadata
 import org.apache.kafka.common.requests.FindCoordinatorRequest.CoordinatorType
 import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
-import org.apache.kafka.common.requests.TierListOffsetRequest.OffsetType
 import org.apache.kafka.common.requests._
 import org.apache.kafka.common.resource.Resource.CLUSTER_NAME
 import org.apache.kafka.common.resource.ResourceType._
@@ -203,7 +201,6 @@ class KafkaApis(val requestChannel: RequestChannel,
         case ApiKeys.DELETE_CLUSTER_LINKS => handleDeleteClusterLinksRequest(request)
         case ApiKeys.INITIATE_SHUTDOWN => handleInitiateShutdownRequest(request)
         case ApiKeys.ALTER_MIRRORS => handleAlterMirrorsRequest(request)
-        case _ if request.header.apiKey.isInternal => handleInternalRequest(request)
       }
     } catch {
       case e: FatalExitError => throw e
@@ -212,14 +209,6 @@ class KafkaApis(val requestChannel: RequestChannel,
       // The local completion time may be set while processing the request. Only record it if it's unset.
       if (request.apiLocalCompleteTimeNanos < 0)
         request.apiLocalCompleteTimeNanos = time.nanoseconds
-    }
-  }
-
-  private def handleInternalRequest(request: RequestChannel.Request): Unit = {
-    request.header.apiKey match {
-      case ApiKeys.TIER_LIST_OFFSET => handleTierListOffsetRequest(request)
-      case ApiKeys.CONFLUENT_LEADER_AND_ISR => handleLeaderAndIsrRequest(request)
-      case _ => throw new IllegalArgumentException(s"Unsupported API key ${request.header.apiKey.id}")
     }
   }
 
@@ -269,54 +258,6 @@ class KafkaApis(val requestChannel: RequestChannel,
       }.asJava)
 
     sendResponseMaybeThrottle(request, throttleTimeMs => new ReplicaStatusResponse(responseData.setThrottleTimeMs(throttleTimeMs)))
-  }
-
-  // Handle TierListOffsetRequest which is a tiering aware offset lookup request. See TierListOffsetRequest for more details.
-  def handleTierListOffsetRequest(request: RequestChannel.Request): Unit = {
-    val offsetRequest = request.body[TierListOffsetRequest]
-    val responseData = new TierListOffsetResponseData()
-
-    authorizeClusterOperation(request, CLUSTER_ACTION)
-
-    offsetRequest.data.topics.asScala.foreach { topicRequest =>
-      val topicResponse = new TierListOffsetTopicResponse()
-        .setName(topicRequest.name)
-      responseData.topics.add(topicResponse)
-
-      topicRequest.partitions.asScala.foreach { partitionRequest =>
-        val partitionResponse = new TierListOffsetPartitionResponse()
-          .setPartitionIndex(partitionRequest.partitionIndex)
-        topicResponse.partitions.add(partitionResponse)
-
-        val topicPartition = new TopicPartition(topicRequest.name, partitionRequest.partitionIndex)
-        val leaderEpoch = int2Integer(partitionRequest.currentLeaderEpoch)
-        val leaderEpochOpt =
-          if (leaderEpoch == RecordBatch.NO_PARTITION_LEADER_EPOCH)
-            None
-          else
-            Some(leaderEpoch)
-
-        val timestamp = OffsetType.forId(partitionRequest.offsetType) match {
-          case TierListOffsetRequest.OffsetType.LOCAL_START_OFFSET => ListOffsetRequest.LOCAL_START_OFFSET
-          case TierListOffsetRequest.OffsetType.LOCAL_END_OFFSET => ListOffsetRequest.LOCAL_END_OFFSET
-        }
-        val offsetOpt = replicaManager.fetchTierOffset(topicPartition, timestamp,
-          leaderEpochOpt, fetchOnlyFromLeader = true)
-        offsetOpt match {
-          case Some(offset) =>
-            partitionResponse
-              .setOffset(offset)
-              .setErrorCode(Errors.NONE.code)
-
-          case None =>
-            partitionResponse
-              .setOffset(TierListOffsetResponse.UNKNOWN_OFFSET)
-              .setErrorCode(Errors.NONE.code)
-        }
-      }
-    }
-
-    sendResponseExemptThrottle(request, response = new TierListOffsetResponse(responseData))
   }
 
   def handleLeaderAndIsrRequest(request: RequestChannel.Request): Unit = {

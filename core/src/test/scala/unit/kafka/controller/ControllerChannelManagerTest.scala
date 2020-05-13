@@ -92,7 +92,7 @@ class ControllerChannelManagerTest {
   }
 
   @Test
-  def testConfluentLeaderAndIsrRequestSent(): Unit = {
+  def testLeaderAndIsrRequestWithTopicIdSent(): Unit = {
     val context = initContext(Seq(1, 2, 3), mutable.Map("foo" -> UUID.fromString("7957e4fe-3ceb-4c29-bd74-62bdb4e08cb4"),
       "bar" -> UUID.fromString("25ee26f4-f6b6-4961-95b4-a1c9a242451e")),2, 3)
     val props = new Properties()
@@ -124,7 +124,7 @@ class ControllerChannelManagerTest {
     }
     batch.sendRequestsToBrokers(controllerEpoch)
 
-    val leaderAndIsrRequests = batch.collectConfluentLeaderAndIsrRequestsFor(2)
+    val leaderAndIsrRequests = batch.collectLeaderAndIsrRequestsFor(2)
     val updateMetadataRequests = batch.collectUpdateMetadataRequestsFor(2)
     assertEquals(1, leaderAndIsrRequests.size)
     assertEquals(1, updateMetadataRequests.size)
@@ -924,8 +924,7 @@ class ControllerChannelManagerTest {
   }
 
   private def applyLeaderAndIsrResponseCallbacks(error: Errors, sentRequests: List[SentRequest]): Unit = {
-    val leaderAndIsrRequestKeys = Set(ApiKeys.LEADER_AND_ISR, ApiKeys.CONFLUENT_LEADER_AND_ISR)
-    sentRequests.filter(r => leaderAndIsrRequestKeys.contains(r.request.apiKey) && r.responseCallback != null).foreach { sentRequest =>
+    sentRequests.filter(r => r.request.apiKey == ApiKeys.LEADER_AND_ISR && r.responseCallback != null).foreach { sentRequest =>
       val leaderAndIsrRequest = sentRequest.request.build().asInstanceOf[LeaderAndIsrRequest]
       val partitionErrors = leaderAndIsrRequest.partitionStates.asScala.map(p =>
         new LeaderAndIsrPartitionError()
@@ -935,8 +934,7 @@ class ControllerChannelManagerTest {
       val leaderAndIsrResponse = new LeaderAndIsrResponse(
         new LeaderAndIsrResponseData()
           .setErrorCode(error.code)
-          .setPartitionErrors(partitionErrors.toBuffer.asJava),
-        sentRequest.request.apiKey ==  ApiKeys.CONFLUENT_LEADER_AND_ISR)
+          .setPartitionErrors(partitionErrors.toBuffer.asJava))
       sentRequest.responseCallback(leaderAndIsrResponse)
     }
   }
@@ -998,6 +996,7 @@ class ControllerChannelManagerTest {
     override def sendEvent(event: ControllerEvent): Unit = {
       sentEvents.append(event)
     }
+
     override def sendRequest(brokerId: Int, request: ControlRequest, callback: AbstractResponse => Unit): Unit = {
       sentRequests.getOrElseUpdate(brokerId, ListBuffer.empty)
       sentRequests(brokerId).append(SentRequest(request, callback))
@@ -1026,16 +1025,6 @@ class ControllerChannelManagerTest {
         case Some(requests) => requests
           .filter(_.request.apiKey == ApiKeys.LEADER_AND_ISR)
           .map(_.request.build().asInstanceOf[LeaderAndIsrRequest]).toList
-        case None => List.empty[LeaderAndIsrRequest]
-      }
-    }
-
-  def collectConfluentLeaderAndIsrRequestsFor(brokerId: Int,
-                                       version: Short = ApiKeys.CONFLUENT_LEADER_AND_ISR.latestVersion): List[LeaderAndIsrRequest] = {
-      sentRequests.get(brokerId) match {
-        case Some(requests) => requests
-          .filter(_.request.apiKey == ApiKeys.CONFLUENT_LEADER_AND_ISR)
-          .map(_.request.build(version).asInstanceOf[LeaderAndIsrRequest]).toList
         case None => List.empty[LeaderAndIsrRequest]
       }
     }

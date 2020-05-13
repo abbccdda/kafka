@@ -110,8 +110,7 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
     @matrix(from_kafka_project=["confluentplatform"], dist_version=["5.4.0"], from_kafka_version=[str(LATEST_2_4)], to_message_format_version=[None], compression_types=[["none"]])
     @parametrize(from_kafka_version=str(LATEST_2_4), to_message_format_version=None, compression_types=["none"])
     @parametrize(from_kafka_version=str(LATEST_2_4), to_message_format_version=None, compression_types=["zstd"])
-    @matrix(from_kafka_project=["confluentplatform"], dist_version=["5.3.0"], from_kafka_version=[str(LATEST_2_3)], to_message_format_version=[None], compression_types=[["none"]],
-            from_tiered_storage=[False], to_tiered_storage=[False, True], hotset_bytes=[-1, 1], backend=[S3_BACKEND, GCS_BACKEND])
+    @parametrize(from_kafka_project="confluentplatform", dist_version="5.3.0", from_kafka_version=str(LATEST_2_3), to_message_format_version=None, compression_types=["none"])
     @matrix(from_kafka_version=[str(LATEST_2_3)], to_message_format_version=[None], compression_types=[["none"]],
             from_tiered_storage=[False], to_tiered_storage=[True], hotset_bytes=[-1, 1], backend=[S3_BACKEND, GCS_BACKEND])
     @parametrize(from_kafka_version=str(LATEST_2_3), to_message_format_version=None, compression_types=["none"])

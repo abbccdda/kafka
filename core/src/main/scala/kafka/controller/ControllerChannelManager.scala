@@ -263,7 +263,7 @@ class RequestSendThread(val controllerId: Int,
       if (clientResponse != null) {
         val requestHeader = clientResponse.requestHeader
         val api = requestHeader.apiKey
-        if (api != ApiKeys.LEADER_AND_ISR && api != ApiKeys.CONFLUENT_LEADER_AND_ISR && api != ApiKeys.STOP_REPLICA && api != ApiKeys.UPDATE_METADATA)
+        if (api != ApiKeys.LEADER_AND_ISR && api != ApiKeys.STOP_REPLICA && api != ApiKeys.UPDATE_METADATA)
           throw new KafkaException(s"Unexpected apiKey received: $apiKey")
 
         val response = clientResponse.responseBody
@@ -511,15 +511,10 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
           }
         }
 
-        // ConfluentLeaderAndIsr has been replaced by a tagged optional topicId in LeaderAndIsr
-        // since 2.4-IV1. `useConfluentRequest` is kept to allow for rolling upgrades in CCloud
-        // and will be removed once all of CCloud with tiered enabled is running with IBP >= 2.4-IV1
-        val useConfluentRequest = config.tierFeature && config.interBrokerProtocolVersion < KAFKA_2_4_IV1
-
-        val leaderAndIsrRequestBuilder = LeaderAndIsrRequest.Builder.create(
+        val leaderAndIsrRequestBuilder = new LeaderAndIsrRequest.Builder(
           leaderAndIsrRequestVersion, controllerId, controllerEpoch, brokerEpoch,
           leaderAndIsrPartitionStates.values.toBuffer.asJava, leaders.asJava,
-          containsAllReplicas, useConfluentRequest)
+          containsAllReplicas)
 
         sendRequest(broker, leaderAndIsrRequestBuilder, (r: AbstractResponse) => {
           val leaderAndIsrResponse = r.asInstanceOf[LeaderAndIsrResponse]

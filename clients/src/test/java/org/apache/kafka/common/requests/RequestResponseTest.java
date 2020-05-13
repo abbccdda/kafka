@@ -292,8 +292,6 @@ public class RequestResponseTest {
 
         checkRequest(createLeaderAndIsrRequest(0), true);
         checkErrorResponse(createLeaderAndIsrRequest(0), new UnknownServerException(), false);
-        checkRequest(createConfluentLeaderAndIsrRequest(3), true);
-        checkErrorResponse(createConfluentLeaderAndIsrRequest(3), new UnknownServerException(), false);
         checkRequest(createLeaderAndIsrRequest(1), true);
         checkErrorResponse(createLeaderAndIsrRequest(1), new UnknownServerException(), false);
         checkRequest(createLeaderAndIsrRequest(2), true);
@@ -1459,50 +1457,6 @@ public class RequestResponseTest {
         return new LeaderAndIsrRequest.Builder((short) version, 1, 10, 0, partitionStates, leaders, false).build();
     }
 
-    private LeaderAndIsrRequest createConfluentLeaderAndIsrRequest(int version) {
-        List<LeaderAndIsrPartitionState> partitionStates = new ArrayList<>();
-        List<Integer> isr = asList(1, 2);
-        List<Integer> replicas = asList(1, 2, 3, 4);
-        partitionStates.add(new LeaderAndIsrPartitionState()
-            .setTopicName("topic5")
-            .setPartitionIndex(105)
-            .setControllerEpoch(0)
-            .setLeader(2)
-            .setLeaderEpoch(1)
-            .setIsr(isr)
-            .setZkVersion(2)
-            .setReplicas(replicas)
-            .setIsNew(false));
-        partitionStates.add(new LeaderAndIsrPartitionState()
-            .setTopicName("topic5")
-            .setPartitionIndex(1)
-            .setControllerEpoch(1)
-            .setLeader(1)
-            .setLeaderEpoch(1)
-            .setIsr(isr)
-            .setZkVersion(2)
-            .setReplicas(replicas)
-            .setIsNew(false));
-        partitionStates.add(new LeaderAndIsrPartitionState()
-            .setTopicName("topic20")
-            .setPartitionIndex(1)
-            .setControllerEpoch(1)
-            .setLeader(0)
-            .setLeaderEpoch(1)
-            .setIsr(isr)
-            .setZkVersion(2)
-            .setReplicas(replicas)
-            .setIsNew(false));
-
-        Set<Node> leaders = Utils.mkSet(
-            new Node(0, "test0", 1223),
-            new Node(1, "test1", 1223)
-        );
-
-        return LeaderAndIsrRequest.Builder.create((short) version, 1, 10, 0, partitionStates,
-            leaders, false, true).build();
-    }
-
     private LeaderAndIsrResponse createLeaderAndIsrResponse() {
         List<LeaderAndIsrResponseData.LeaderAndIsrPartitionError> partitions = new ArrayList<>();
         partitions.add(new LeaderAndIsrResponseData.LeaderAndIsrPartitionError()
@@ -1512,8 +1466,7 @@ public class RequestResponseTest {
         return new LeaderAndIsrResponse(
             new LeaderAndIsrResponseData()
                 .setErrorCode(Errors.NONE.code())
-                .setPartitionErrors(partitions),
-            false);
+                .setPartitionErrors(partitions));
     }
 
     private UpdateMetadataRequest createUpdateMetadataRequest(int version, String rack) {

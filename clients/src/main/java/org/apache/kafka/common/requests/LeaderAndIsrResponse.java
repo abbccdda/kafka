@@ -16,14 +16,10 @@
  */
 package org.apache.kafka.common.requests;
 
-import static java.util.stream.Collectors.toList;
-
-import org.apache.kafka.common.message.ConfluentLeaderAndIsrResponseData;
 import org.apache.kafka.common.message.LeaderAndIsrResponseData;
 import org.apache.kafka.common.message.LeaderAndIsrResponseData.LeaderAndIsrPartitionError;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
-import org.apache.kafka.common.protocol.Message;
 import org.apache.kafka.common.protocol.types.Struct;
 
 import java.nio.ByteBuffer;
@@ -33,45 +29,22 @@ import java.util.Map;
 
 public class LeaderAndIsrResponse extends AbstractResponse {
 
-    private final Message data;
+    private final LeaderAndIsrResponseData data;
 
-    public LeaderAndIsrResponse(LeaderAndIsrResponseData data, boolean useConfluentResponse) {
-        if (useConfluentResponse) {
-            this.data = new ConfluentLeaderAndIsrResponseData()
-                .setErrorCode(data.errorCode())
-                .setPartitionErrors(data.partitionErrors().stream().map(pe ->
-                    new ConfluentLeaderAndIsrResponseData.LeaderAndIsrPartitionError()
-                        .setTopicName(pe.topicName())
-                        .setPartitionIndex(pe.partitionIndex())
-                        .setErrorCode(pe.errorCode())).collect(toList()));
-        } else {
-            this.data = data;
-        }
+    public LeaderAndIsrResponse(LeaderAndIsrResponseData data) {
+        this.data = data;
     }
 
-    public LeaderAndIsrResponse(Struct struct, short version, boolean useConfluentResponse) {
-        if (useConfluentResponse)
-            this.data = new ConfluentLeaderAndIsrResponseData(struct, version);
-        else
-            this.data = new LeaderAndIsrResponseData(struct, version);
+    public LeaderAndIsrResponse(Struct struct, short version) {
+        this.data = new LeaderAndIsrResponseData(struct, version);
     }
 
     public List<LeaderAndIsrPartitionError> partitions() {
-        if (data instanceof ConfluentLeaderAndIsrResponseData) {
-            return ((ConfluentLeaderAndIsrResponseData) data).partitionErrors().stream()
-                .map(pe -> new LeaderAndIsrPartitionError()
-                    .setErrorCode(pe.errorCode())
-                    .setTopicName(pe.topicName())
-                    .setPartitionIndex(pe.partitionIndex()))
-                .collect(toList());
-        }
-        return ((LeaderAndIsrResponseData) data).partitionErrors();
+        return data.partitionErrors();
     }
 
     public Errors error() {
-        if (data instanceof ConfluentLeaderAndIsrResponseData)
-            return Errors.forCode(((ConfluentLeaderAndIsrResponseData) data).errorCode());
-        return Errors.forCode(((LeaderAndIsrResponseData) data).errorCode());
+        return Errors.forCode(data.errorCode());
     }
 
     @Override
@@ -84,8 +57,7 @@ public class LeaderAndIsrResponse extends AbstractResponse {
     }
 
     public static LeaderAndIsrResponse parse(ByteBuffer buffer, short version) {
-        return new LeaderAndIsrResponse(ApiKeys.LEADER_AND_ISR.parseResponse(version, buffer),
-            version, false);
+        return new LeaderAndIsrResponse(ApiKeys.LEADER_AND_ISR.parseResponse(version, buffer), version);
     }
 
     @Override
