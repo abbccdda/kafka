@@ -1,0 +1,30 @@
+// Copyright 2020 Confluent Inc.
+{
+  "apiKey": 10007,
+  "type": "response",
+  "name": "DescribeBrokerRemovalsResponse",
+  "validVersions": "0",
+  "fields": [
+    { "name": "ThrottleTimeMs", "type": "int32", "versions": "0+",
+      "about": "The duration in milliseconds for which the request was throttled due to a quota violation, or zero if the request did not violate any quota." },
+    { "name": "ErrorCode", "type": "int16", "versions": "0+",
+      "about": "The error code"},
+    { "name": "ErrorMessage", "type": "string", "versions": "0+",
+      "nullableVersions": "0+",
+      "about": "The error message, or null if there was no error." },
+    { "name": "RemovedBrokers", "type": "[]BrokerRemovalResponse", "versions": "0+",
+      "about": "Broker IDs that are being or have been removed.", "fields": [
+        { "name": "BrokerId", "type": "int32", "versions": "0+",
+          "about": "The Broker ID to remove" },
+        { "name": "PartitionReassignmentsStatus", "type": "string", "versions": "0+",
+          "about": "The status of the partition reassignments operation that drains replicas out of the removed broker" },
+        { "name": "BrokerShutdownStatus", "type": "string", "versions": "0+",
+          "about": "The status of the broker shutdown, part of the removal operation" },
+        { "name": "RemovalErrorCode", "type": "int16", "versions": "0+",
+          "about": "The error code for the broker removal operation"},
+        { "name": "RemovalErrorMessage", "type": "string", "versions": "0+",
+          "nullableVersions": "0+", "about": "The error message for the broker removal operation, or null if there was no error." }
+      ]
+    }
+  ]
+}

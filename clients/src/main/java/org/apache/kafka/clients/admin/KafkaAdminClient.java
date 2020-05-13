@@ -178,6 +178,8 @@ import org.apache.kafka.common.requests.DeleteTopicsRequest;
 import org.apache.kafka.common.requests.DeleteTopicsResponse;
 import org.apache.kafka.common.requests.DescribeAclsRequest;
 import org.apache.kafka.common.requests.DescribeAclsResponse;
+import org.apache.kafka.common.requests.DescribeBrokerRemovalsRequest;
+import org.apache.kafka.common.requests.DescribeBrokerRemovalsResponse;
 import org.apache.kafka.common.requests.DescribeClientQuotasRequest;
 import org.apache.kafka.common.requests.DescribeClientQuotasResponse;
 import org.apache.kafka.common.requests.DescribeConfigsRequest;
@@ -4231,6 +4233,59 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
         runnable.call(call, now);
 
         return new RemoveBrokersResult(new HashMap<>(removeBrokerFutures));
+    }
+
+    @Confluent
+    @Override
+    public DescribeBrokerRemovalsResult describeBrokerRemovals(DescribeBrokerRemovalsOptions options) {
+        KafkaFutureImpl<Map<Integer, BrokerRemovalDescription>> describeBrokerRemovalsFuture = new KafkaFutureImpl<>();
+
+        final long now = time.milliseconds();
+        Call call = new Call("describeBrokerRemovals", calcDeadlineMs(now, options.timeoutMs),
+                new ControllerNodeProvider()) {
+
+            @Override
+            DescribeBrokerRemovalsRequest.Builder createRequest(int timeoutMs) {
+                return new DescribeBrokerRemovalsRequest.Builder();
+            }
+
+            @Override
+            void handleResponse(AbstractResponse abstractResponse) {
+                DescribeBrokerRemovalsResponse response = (DescribeBrokerRemovalsResponse) abstractResponse;
+
+                Errors topLevelError = Errors.forCode(response.data().errorCode());
+                switch (topLevelError) {
+                    case NONE:
+                        break;
+                    case NOT_CONTROLLER:
+                        handleNotControllerError(topLevelError);
+                        break;
+                    default:
+                        describeBrokerRemovalsFuture.completeExceptionally(new ApiError(topLevelError, response.data().errorMessage()).exception());
+                        return;
+                }
+
+                Map<Integer, BrokerRemovalDescription> descriptions = response.data().removedBrokers().stream().collect(Collectors.toMap(
+                   k -> k.brokerId(),
+                   v -> new BrokerRemovalDescription(v.brokerId(),
+                       BrokerRemovalDescription.BrokerShutdownStatus.valueOf(v.brokerShutdownStatus()),
+                       BrokerRemovalDescription.PartitionReassignmentsStatus.valueOf(v.partitionReassignmentsStatus()),
+                       Optional.ofNullable(Errors.forCode(v.removalErrorCode()).exception(v.removalErrorMessage()))
+                   )
+                ));
+
+                describeBrokerRemovalsFuture.complete(descriptions);
+            }
+
+            @Override
+            void handleFailure(Throwable throwable) {
+                describeBrokerRemovalsFuture.completeExceptionally(throwable);
+            }
+        };
+
+        runnable.call(call, now);
+
+        return new DescribeBrokerRemovalsResult(describeBrokerRemovalsFuture);
     }
 
     @Confluent

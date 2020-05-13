@@ -247,6 +247,8 @@ public abstract class AbstractRequest implements AbstractRequestResponse {
                 return new RemoveBrokersRequest(struct, apiVersion);
             case INITIATE_SHUTDOWN:
                 return new InitiateShutdownRequest(struct, apiVersion);
+            case DESCRIBE_BROKER_REMOVALS:
+                return new DescribeBrokerRemovalsRequest(struct, apiVersion);
             default:
                 return maybeParseInternalRequest(apiKey, apiVersion, struct);
         }

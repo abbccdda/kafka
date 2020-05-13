@@ -800,6 +800,12 @@ public class MockAdminClient extends AdminClient implements ConfluentAdmin {
 
     @Confluent
     @Override
+    public DescribeBrokerRemovalsResult describeBrokerRemovals(DescribeBrokerRemovalsOptions options) {
+      throw new UnsupportedOperationException("Not implement yet");
+    }
+
+    @Confluent
+    @Override
     public CreateClusterLinksResult createClusterLinks(Collection<NewClusterLink> clusterLinks, CreateClusterLinksOptions options) {
         throw new UnsupportedOperationException("Not implement yet");
     }

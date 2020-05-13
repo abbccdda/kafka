@@ -124,6 +124,7 @@ public class MultiTenantApis {
       case DELETE_CLUSTER_LINKS:
       case INITIATE_SHUTDOWN:
       case ALTER_MIRRORS:
+      case DESCRIBE_BROKER_REMOVALS:
         return false;
 
       default:

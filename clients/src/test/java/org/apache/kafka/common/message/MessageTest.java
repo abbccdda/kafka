@@ -1219,8 +1219,34 @@ public final class MessageTest {
     public void testRemoveBrokers() throws Exception {
         RemoveBrokersRequestData.BrokerId brokerId = new RemoveBrokersRequestData.BrokerId().setBrokerId(1);
         RemoveBrokersRequestData data = new RemoveBrokersRequestData()
-                .setBrokersToRemove(Collections.singletonList(brokerId))
-                .setTimeoutMs(100);
+            .setBrokersToRemove(Collections.singletonList(brokerId))
+            .setTimeoutMs(100);
+
+        testAllMessageRoundTrips(data);
+    }
+
+    @Test
+    public void testDescribeBrokerRemovalsRequest() throws Exception {
+        testAllMessageRoundTrips(new DescribeBrokerRemovalsRequestData());
+    }
+
+    @Test
+    public void testDescribeBrokerRemovalsResponse() throws Exception {
+        DescribeBrokerRemovalsResponseData data = new DescribeBrokerRemovalsResponseData().setErrorCode(Errors.NOT_CONTROLLER.code())
+            .setErrorMessage("err!").setThrottleTimeMs(11)
+            .setRemovedBrokers(Arrays.asList(
+                new DescribeBrokerRemovalsResponseData.BrokerRemovalResponse()
+                    .setRemovalErrorCode(Errors.NONE.code())
+                    .setBrokerId(0)
+                    .setBrokerShutdownStatus("PENDING")
+                    .setPartitionReassignmentsStatus("PENDING"),
+                new DescribeBrokerRemovalsResponseData.BrokerRemovalResponse()
+                    .setRemovalErrorCode(Errors.PLAN_COMPUTATION_FAILED.code())
+                    .setRemovalErrorMessage("plan computation failed!")
+                    .setBrokerId(1)
+                    .setBrokerShutdownStatus("COMPLETE")
+                    .setPartitionReassignmentsStatus("FAILED")
+            ));
 
         testAllMessageRoundTrips(data);
     }

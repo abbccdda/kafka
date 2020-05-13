@@ -84,6 +84,7 @@ import org.apache.kafka.common.errors.OffsetNotAvailableException;
 import org.apache.kafka.common.errors.OffsetOutOfRangeException;
 import org.apache.kafka.common.errors.OperationNotAttemptedException;
 import org.apache.kafka.common.errors.OutOfOrderSequenceException;
+import org.apache.kafka.common.errors.PlanComputationException;
 import org.apache.kafka.common.errors.UnstableOffsetCommitException;
 import org.apache.kafka.common.errors.PolicyViolationException;
 import org.apache.kafka.common.errors.PreferredLeaderNotAvailableException;
@@ -346,7 +347,8 @@ public enum Errors {
     INVALID_CLUSTER_LINK(10003, "The provided cluster link name is invalid.",
             InvalidClusterLinkException::new),
     BROKER_REMOVED(10004, "The broker is removed.", BrokerRemovedException::new),
-    BROKER_REMOVAL_IN_PROGRESS(10005, "The broker is being removed.", BrokerRemovalInProgressException::new);
+    BROKER_REMOVAL_IN_PROGRESS(10005, "The broker is being removed.", BrokerRemovalInProgressException::new),
+    PLAN_COMPUTATION_FAILED(10006, "Computing the reassignment plan for a broker drain failed.", PlanComputationException::new);
 
     private static final Logger log = LoggerFactory.getLogger(Errors.class);
 

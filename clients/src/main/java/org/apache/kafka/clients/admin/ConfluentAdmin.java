@@ -159,6 +159,48 @@ public interface ConfluentAdmin extends Admin {
     RemoveBrokersResult removeBrokers(List<Integer> brokersToRemove, RemoveBrokersOptions options);
 
     /**
+     * Describes all the broker removals in the cluster.
+     * Note that a removal is considered cleared once a broker starts up with 0 partitions.
+     *
+     * This is a convenience method for {@link #describeBrokerRemovals(DescribeBrokerRemovalsOptions)}
+     * with default options. See the overload for more details.
+     */
+    @Confluent
+    default DescribeBrokerRemovalsResult describeBrokerRemovals() {
+        return describeBrokerRemovals(new DescribeBrokerRemovalsOptions());
+    }
+
+    /**
+     * Describes all the broker removals in the cluster.
+     * Note that a removal is considered cleared once a broker starts up with 0 partitions.
+     *
+     * A broker removal consists of broker shutdown and partition reassignments that move all replicas the now-shutdown broker hosted away from it.
+     * The status of the removal is tracked by two separate status fields:
+     *  1. #{@link BrokerRemovalDescription#brokerShutdownStatus()}, a #{@link org.apache.kafka.clients.admin.BrokerRemovalDescription.BrokerShutdownStatus}
+     *      denoting the status of the shutdown operation
+     *  2. #{@link BrokerRemovalDescription#partitionReassignmentsStatus()}, a #{@link org.apache.kafka.clients.admin.BrokerRemovalDescription.PartitionReassignmentsStatus}
+     *      denoting the status of the partition reassignments operation
+     *
+     * When at least one of the two has a failed status, the broker removal operation is considered failed. The user is expected to retry the removal via #{@link ConfluentAdmin#removeBrokers(List)}.
+     *
+     * When both have a completed status, the broker removal operation is considered a success.
+     *
+     * <ul>
+     * <p>The following exceptions can be anticipated when calling {@code get()} on the futures obtained from
+     * the returned {@link DescribeBrokerRemovalsResult}:</p>
+     *   <li>{@link org.apache.kafka.common.errors.ClusterAuthorizationException}
+     *   If the authenticated user didn't have {@code DESCRIBE} access to the cluster.</li>
+     *   <li>{@link org.apache.kafka.common.errors.TimeoutException}
+     *   If the request timed out before the controller could describe the removals.</li>
+     * </ul>
+     *
+     * @param options The options to use when describing the broker removals.
+     * @return The DescribeBrokerRemovalResult.
+     */
+    @Confluent
+    DescribeBrokerRemovalsResult describeBrokerRemovals(DescribeBrokerRemovalsOptions options);
+
+    /**
      * Creates links to remote clusters with the specified configurations for performing inter-cluster
      * communications. Once established, the cluster links can referenced by their link names for issuing
      * requests.

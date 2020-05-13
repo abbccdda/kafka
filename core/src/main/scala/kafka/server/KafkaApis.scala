@@ -54,7 +54,7 @@ import org.apache.kafka.common.internals.{FatalExitError, Topic}
 import org.apache.kafka.common.internals.Topic.{GROUP_METADATA_TOPIC_NAME, TIER_TOPIC_NAME, TRANSACTION_STATE_TOPIC_NAME, isInternal}
 import org.apache.kafka.common.message.AlterConfigsResponseData.AlterConfigsResourceResponse
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopic
-import org.apache.kafka.common.message.{AddOffsetsToTxnResponseData, AlterConfigsResponseData, AlterPartitionReassignmentsResponseData, CreateAclsResponseData, CreatePartitionsResponseData, CreateTopicsResponseData, DeleteAclsResponseData, DeleteGroupsResponseData, DeleteRecordsResponseData, DeleteTopicsResponseData, DescribeAclsResponseData, DescribeGroupsResponseData, DescribeLogDirsResponseData, EndTxnResponseData, ExpireDelegationTokenResponseData, FindCoordinatorResponseData, HeartbeatResponseData, InitProducerIdResponseData, InitiateShutdownResponseData, JoinGroupResponseData, LeaveGroupResponseData, ListGroupsResponseData, ListPartitionReassignmentsResponseData, MetadataResponseData, OffsetCommitRequestData, OffsetCommitResponseData, OffsetDeleteResponseData, RemoveBrokersResponseData, RenewDelegationTokenResponseData, ReplicaStatusResponseData, SaslAuthenticateResponseData, SaslHandshakeResponseData, StopReplicaResponseData, SyncGroupResponseData, TierListOffsetResponseData, UpdateMetadataResponseData}
+import org.apache.kafka.common.message.{AddOffsetsToTxnResponseData, AlterConfigsResponseData, AlterPartitionReassignmentsResponseData, CreateAclsResponseData, CreatePartitionsResponseData, CreateTopicsResponseData, DeleteAclsResponseData, DeleteGroupsResponseData, DeleteRecordsResponseData, DeleteTopicsResponseData, DescribeAclsResponseData, DescribeBrokerRemovalsResponseData, DescribeGroupsResponseData, DescribeLogDirsResponseData, EndTxnResponseData, ExpireDelegationTokenResponseData, FindCoordinatorResponseData, HeartbeatResponseData, InitProducerIdResponseData, InitiateShutdownResponseData, JoinGroupResponseData, LeaveGroupResponseData, ListGroupsResponseData, ListPartitionReassignmentsResponseData, MetadataResponseData, OffsetCommitRequestData, OffsetCommitResponseData, OffsetDeleteResponseData, RemoveBrokersResponseData, RenewDelegationTokenResponseData, ReplicaStatusResponseData, SaslAuthenticateResponseData, SaslHandshakeResponseData, StopReplicaResponseData, SyncGroupResponseData, TierListOffsetResponseData, UpdateMetadataResponseData}
 import org.apache.kafka.common.message.CreateTopicsResponseData.{CreatableTopicResult, CreatableTopicResultCollection}
 import org.apache.kafka.common.message.DeleteGroupsResponseData.{DeletableGroupResult, DeletableGroupResultCollection}
 import org.apache.kafka.common.message.AlterPartitionReassignmentsResponseData.{ReassignablePartitionResponse, ReassignableTopicResponse}
@@ -197,6 +197,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         case ApiKeys.ALTER_CLIENT_QUOTAS => handleAlterClientQuotasRequest(request)
         case ApiKeys.REPLICA_STATUS => handleReplicaStatusRequest(request)
         case ApiKeys.REMOVE_BROKERS => handleRemoveBrokersRequest(request)
+        case ApiKeys.DESCRIBE_BROKER_REMOVALS => handleDescribeBrokerRemovalsRequest(request)
         case ApiKeys.CREATE_CLUSTER_LINKS => handleCreateClusterLinksRequest(request)
         case ApiKeys.LIST_CLUSTER_LINKS => handleListClusterLinksRequest(request)
         case ApiKeys.DELETE_CLUSTER_LINKS => handleDeleteClusterLinksRequest(request)
@@ -2671,6 +2672,18 @@ class KafkaApis(val requestChannel: RequestChannel,
     }.toMap
 
     controller.alterPartitionReassignments(reassignments, sendResponseCallback)
+  }
+
+  def handleDescribeBrokerRemovalsRequest(request: RequestChannel.Request): Unit = {
+    authorizeClusterOperation(request, DESCRIBE)
+
+    sendResponseMaybeThrottle(request, throttleTimeMs =>
+      new DescribeBrokerRemovalsResponse(
+        new DescribeBrokerRemovalsResponseData()
+          .setThrottleTimeMs(throttleTimeMs)
+          .setErrorCode(Errors.UNSUPPORTED_VERSION.code()).setErrorMessage(Errors.UNSUPPORTED_VERSION.message())
+      )
+    )
   }
 
   def handleRemoveBrokersRequest(request: RequestChannel.Request): Unit = {

@@ -76,6 +76,8 @@ import org.apache.kafka.common.message.DeleteTopicsResponseData.DeletableTopicRe
 import org.apache.kafka.common.message.DescribeAclsResponseData;
 import org.apache.kafka.common.message.DescribeAclsResponseData.AclDescription;
 import org.apache.kafka.common.message.DescribeAclsResponseData.DescribeAclsResource;
+import org.apache.kafka.common.message.DescribeBrokerRemovalsRequestData;
+import org.apache.kafka.common.message.DescribeBrokerRemovalsResponseData;
 import org.apache.kafka.common.message.DescribeGroupsRequestData;
 import org.apache.kafka.common.message.DescribeGroupsResponseData;
 import org.apache.kafka.common.message.DescribeGroupsResponseData.DescribedGroup;
@@ -478,6 +480,9 @@ public class RequestResponseTest {
         checkRequest(createInitiateShutdownRequest(), true);
         checkErrorResponse(createInitiateShutdownRequest(), new UnknownServerException(), true);
         checkResponse(createInitiateShutdownResponse(), 0, true);
+        checkRequest(createDescribeBrokerRemovalsRequest(), true);
+        checkErrorResponse(createDescribeBrokerRemovalsRequest(), new UnknownServerException(), true);
+        checkResponse(createDescribeBrokerRemovalsResponse(), 0, true);
     }
 
     @Test
@@ -2323,5 +2328,22 @@ public class RequestResponseTest {
     private InitiateShutdownResponse createInitiateShutdownResponse() {
         InitiateShutdownResponseData data = new InitiateShutdownResponseData();
         return new InitiateShutdownResponse(data);
+    }
+
+    private DescribeBrokerRemovalsRequest createDescribeBrokerRemovalsRequest() {
+        return new DescribeBrokerRemovalsRequest(new DescribeBrokerRemovalsRequestData(),
+                ApiKeys.DESCRIBE_BROKER_REMOVALS.latestVersion());
+    }
+
+    private DescribeBrokerRemovalsResponse createDescribeBrokerRemovalsResponse() {
+        DescribeBrokerRemovalsResponseData data = new DescribeBrokerRemovalsResponseData();
+        data.setRemovedBrokers(Collections.singletonList(
+                new DescribeBrokerRemovalsResponseData.BrokerRemovalResponse()
+                        .setBrokerId(1)
+                        .setBrokerShutdownStatus("COMPLETE")
+                        .setPartitionReassignmentsStatus("IN_PROGRESS")
+                        .setRemovalErrorCode(Errors.NONE.code())
+        ));
+        return new DescribeBrokerRemovalsResponse(data);
     }
 }

@@ -53,6 +53,7 @@ import org.apache.kafka.common.errors.GroupSubscribedToTopicException;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.errors.InvalidTopicException;
 import org.apache.kafka.common.errors.LeaderNotAvailableException;
+import org.apache.kafka.common.errors.PlanComputationException;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.errors.NotLeaderForPartitionException;
 import org.apache.kafka.common.errors.OffsetOutOfRangeException;
@@ -77,6 +78,7 @@ import org.apache.kafka.common.message.DeleteRecordsResponseData;
 import org.apache.kafka.common.message.DeleteTopicsResponseData;
 import org.apache.kafka.common.message.DeleteTopicsResponseData.DeletableTopicResult;
 import org.apache.kafka.common.message.DescribeAclsResponseData;
+import org.apache.kafka.common.message.DescribeBrokerRemovalsResponseData;
 import org.apache.kafka.common.message.DescribeGroupsResponseData;
 import org.apache.kafka.common.message.DescribeGroupsResponseData.DescribedGroupMember;
 import org.apache.kafka.common.message.ElectLeadersResponseData.PartitionResult;
@@ -126,6 +128,7 @@ import org.apache.kafka.common.requests.DeleteRecordsResponse;
 import org.apache.kafka.common.requests.DeleteTopicsRequest;
 import org.apache.kafka.common.requests.DeleteTopicsResponse;
 import org.apache.kafka.common.requests.DescribeAclsResponse;
+import org.apache.kafka.common.requests.DescribeBrokerRemovalsResponse;
 import org.apache.kafka.common.requests.DescribeClientQuotasResponse;
 import org.apache.kafka.common.requests.DescribeConfigsResponse;
 import org.apache.kafka.common.requests.DescribeGroupsResponse;
@@ -365,6 +368,27 @@ public class KafkaAdminClientTest {
         data.setBrokersToRemove(Collections.singletonList(new RemoveBrokerResponse().
             setBrokerId(brokerId))).setErrorCode(error.code());
         return new RemoveBrokersResponse(data);
+    }
+
+
+    private static DescribeBrokerRemovalsResponse prepareDescribeBrokerRemovalsResponse(Map<Integer, Errors> brokerRemovals) {
+        return prepareDescribeBrokerRemovalsResponse(Errors.NONE, brokerRemovals);
+    }
+
+    private static DescribeBrokerRemovalsResponse prepareDescribeBrokerRemovalsResponse(Errors topLevelError,
+                                                                                        Map<Integer, Errors> brokerRemovals) {
+        DescribeBrokerRemovalsResponseData data = new DescribeBrokerRemovalsResponseData()
+                .setRemovedBrokers(
+                        brokerRemovals.entrySet().stream().map(entry ->
+                                new DescribeBrokerRemovalsResponseData.BrokerRemovalResponse()
+                                        .setBrokerId(entry.getKey())
+                                        .setRemovalErrorCode(entry.getValue().code())
+                                        .setBrokerShutdownStatus(BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE.toString())
+                                        .setPartitionReassignmentsStatus(BrokerRemovalDescription.PartitionReassignmentsStatus.IN_PROGRESS.toString())
+                        ).collect(Collectors.toList())
+                )
+                .setErrorCode(topLevelError.code());
+        return new DescribeBrokerRemovalsResponse(data);
     }
 
     private static DeleteTopicsResponse prepareDeleteTopicsResponse(String topicName, Errors error) {
@@ -687,6 +711,131 @@ public class KafkaAdminClientTest {
             TestUtils.assertFutureError(result.values().get(-2), InvalidRequestException.class);
             TestUtils.assertFutureError(result.values().get(1), InvalidRequestException.class);
             assertEquals(2, result.values().size());
+        }
+    }
+
+    /**
+     * Upon receiving a NOT_CONTROLLER error,
+     * the admin client should update its metadata and retry the call
+     */
+    @Test
+    public void testDescribeBrokerRemovalsHandlesNotControllerException() throws Exception {
+        final Cluster cluster = mockCluster(3, 0);
+        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(cluster)) {
+            int newControllerId = 1;
+            env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
+            env.kafkaClient().prepareResponseFrom(
+                    prepareDescribeBrokerRemovalsResponse(Errors.NOT_CONTROLLER, Collections.emptyMap()),
+                    env.cluster().nodeById(0));
+            env.kafkaClient().prepareResponse(MetadataResponse.prepareResponse(env.cluster().nodes(),
+                    env.cluster().clusterResource().clusterId(),
+                    newControllerId,
+                    Collections.emptyList()));
+            env.kafkaClient().prepareResponseFrom(
+                    KafkaAdminClientTest.prepareDescribeBrokerRemovalsResponse(Collections.emptyMap()),
+                    env.cluster().nodeById(newControllerId));
+            Map<Integer, BrokerRemovalDescription> descriptions = env.adminClient().describeBrokerRemovals().descriptions().get();
+            assertEquals(0, descriptions.size());
+        }
+    }
+
+    @Test
+    public void testDescribeBrokerRemovalsHandlesTopLevelException() throws Exception {
+        try (AdminClientUnitTestEnv env = mockClientEnv()) {
+            env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
+            env.kafkaClient().prepareResponseFrom(
+                    prepareDescribeBrokerRemovalsResponse(Errors.CLUSTER_AUTHORIZATION_FAILED, Collections.emptyMap()),
+                    env.cluster().nodeById(0));
+            DescribeBrokerRemovalsResult result = env.adminClient().describeBrokerRemovals();
+            TestUtils.assertFutureError(result.descriptions(), ClusterAuthorizationException.class);
+        }
+    }
+
+    /**
+     * Test a scenario where the AdminClient cannot find the controller for longer than the request timeout.
+     * It should throw a TimeoutException
+     */
+    @Test
+    public void testDescribeBrokerRemovalsHandlesTimeoutException() throws Exception {
+        final Cluster cluster = mockCluster(3, 0);
+        final Time time = new MockTime(1500);
+        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(time, cluster)) {
+            env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
+            env.kafkaClient().prepareResponseFrom(
+                    prepareDescribeBrokerRemovalsResponse(Errors.NOT_CONTROLLER, Collections.emptyMap()),
+                    env.cluster().nodeById(0));
+
+            DescribeBrokerRemovalsResult result = env.adminClient().describeBrokerRemovals();
+            TestUtils.assertFutureError(result.descriptions(), TimeoutException.class);
+        }
+    }
+
+    @Test
+    public void testDescribeBrokerRemovalsHandlesBrokerLevelRemovalExceptions() throws Exception {
+        Map<Integer, Errors> removalDescriptions = new HashMap<>();
+        removalDescriptions.put(0, Errors.NONE);
+        removalDescriptions.put(1, Errors.PLAN_COMPUTATION_FAILED);
+        removalDescriptions.put(2, Errors.PLAN_COMPUTATION_FAILED);
+        removalDescriptions.put(3, Errors.UNKNOWN_SERVER_ERROR);
+
+        try (AdminClientUnitTestEnv env = mockClientEnv()) {
+            env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
+            env.kafkaClient().prepareResponseFrom(KafkaAdminClientTest.prepareDescribeBrokerRemovalsResponse(removalDescriptions), env.cluster().nodeById(0));
+
+            DescribeBrokerRemovalsResult result = env.adminClient().describeBrokerRemovals();
+            Map<Integer, BrokerRemovalDescription> descriptions = result.descriptions().get();
+            assertEquals(4, descriptions.size());
+            BrokerRemovalDescription broker0Removal = descriptions.get(0);
+            assertEquals(Integer.valueOf(0), broker0Removal.brokerId());
+            assertTrue("Removal error should be populated when not NONE", descriptions.get(1).removalError().isPresent());
+            assertTrue("Removal error should be populated when not NONE", descriptions.get(2).removalError().isPresent());
+            assertTrue("Removal error should be populated when not NONE", descriptions.get(3).removalError().isPresent());
+            assertEquals(descriptions.get(1).removalError().get().getClass(), PlanComputationException.class);
+            assertEquals(descriptions.get(2).removalError().get().getClass(), PlanComputationException.class);
+            assertEquals(descriptions.get(3).removalError().get().getClass(), UnknownServerException.class);
+        }
+    }
+
+    @Test
+    public void testDescribeBrokerRemovalsPopulatesRightBrokerRemovalLevelExceptions() throws ExecutionException, InterruptedException {
+        DescribeBrokerRemovalsResponseData data = new DescribeBrokerRemovalsResponseData()
+            .setRemovedBrokers(
+                Arrays.asList(
+                    new DescribeBrokerRemovalsResponseData.BrokerRemovalResponse()
+                        .setBrokerId(0)
+                        .setRemovalErrorCode(Errors.PLAN_COMPUTATION_FAILED.code())
+                        .setRemovalErrorMessage("plan failed!")
+                        .setBrokerShutdownStatus(BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE.toString())
+                        .setPartitionReassignmentsStatus(BrokerRemovalDescription.PartitionReassignmentsStatus.IN_PROGRESS.toString()),
+                    new DescribeBrokerRemovalsResponseData.BrokerRemovalResponse()
+                        .setBrokerId(1)
+                        .setRemovalErrorCode(Errors.NONE.code())
+                        .setRemovalErrorMessage("")
+                        .setBrokerShutdownStatus(BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE.toString())
+                        .setPartitionReassignmentsStatus(BrokerRemovalDescription.PartitionReassignmentsStatus.COMPLETE.toString())
+                )
+            )
+            .setErrorCode(Errors.NONE.code());
+
+        try (AdminClientUnitTestEnv env = mockClientEnv()) {
+            env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
+            env.kafkaClient().prepareResponseFrom(new DescribeBrokerRemovalsResponse(data), env.cluster().nodeById(0));
+
+            DescribeBrokerRemovalsResult result = env.adminClient().describeBrokerRemovals();
+            Map<Integer, BrokerRemovalDescription> descriptions = result.descriptions().get();
+            assertEquals(2, descriptions.size());
+            BrokerRemovalDescription broker0Removal = descriptions.get(0);
+            assertEquals(Integer.valueOf(0), broker0Removal.brokerId());
+            assertEquals(BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE, broker0Removal.brokerShutdownStatus());
+            assertEquals(BrokerRemovalDescription.PartitionReassignmentsStatus.IN_PROGRESS, broker0Removal.partitionReassignmentsStatus());
+            assertTrue("Removal error should be populated when not NONE", broker0Removal.removalError().isPresent());
+            assertEquals(PlanComputationException.class, broker0Removal.removalError().get().getClass());
+            assertEquals("plan failed!", broker0Removal.removalError().get().getMessage());
+
+            BrokerRemovalDescription broker1Removal = descriptions.get(1);
+            assertEquals(BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE, broker1Removal.brokerShutdownStatus());
+            assertEquals(BrokerRemovalDescription.PartitionReassignmentsStatus.COMPLETE, broker1Removal.partitionReassignmentsStatus());
+            assertFalse("Removal error should not be populated when it is NONE", broker1Removal.removalError().isPresent());
         }
     }
 

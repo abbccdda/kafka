@@ -230,7 +230,8 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
     ApiKeys.DELETE_CLUSTER_LINKS -> ((resp: DeleteClusterLinksResponse) => Errors.forCode(
       resp.data.entries.asScala.find(e => e.linkName == linkName).get.errorCode)),
     ApiKeys.INITIATE_SHUTDOWN -> ((resp: InitiateShutdownResponse) => Errors.forCode(resp.data.errorCode())),
-    ApiKeys.ALTER_MIRRORS -> ((resp: AlterMirrorsResponse) => Errors.forCode(resp.data.ops.asScala.head.errorCode))
+    ApiKeys.ALTER_MIRRORS -> ((resp: AlterMirrorsResponse) => Errors.forCode(resp.data.ops.asScala.head.errorCode)),
+    ApiKeys.DESCRIBE_BROKER_REMOVALS -> ((resp: DescribeBrokerRemovalsResponse) => Errors.forCode(resp.data.errorCode()))
   )
 
   val requestKeysToAcls = Map[ApiKeys, Map[ResourcePattern, Set[AccessControlEntry]]](
@@ -280,7 +281,8 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
     ApiKeys.LIST_CLUSTER_LINKS -> clusterDescribeAcl,
     ApiKeys.DELETE_CLUSTER_LINKS -> clusterAlterAcl,
     ApiKeys.INITIATE_SHUTDOWN -> clusterAlterAcl,
-    ApiKeys.ALTER_MIRRORS -> topicAlterAcl
+    ApiKeys.ALTER_MIRRORS -> topicAlterAcl,
+    ApiKeys.DESCRIBE_BROKER_REMOVALS -> clusterDescribeAcl
   )
 
   @Before
@@ -605,6 +607,8 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
   private def RemoveBrokerRequest = new RemoveBrokersRequest.Builder(
     Set(new BrokerId()).asJava).build()
 
+  private def describeBrokerRemovalsRequest = new DescribeBrokerRemovalsRequest.Builder().build()
+
   private def replicaStatusRequest = new ReplicaStatusRequest.Builder(Collections.singleton(tp)).build()
 
   private def createClusterLinksRequest = new CreateClusterLinksRequest.Builder(
@@ -655,6 +659,7 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
       ApiKeys.ALTER_PARTITION_REASSIGNMENTS -> alterPartitionReassignmentsRequest,
       ApiKeys.LIST_PARTITION_REASSIGNMENTS -> listPartitionReassignmentsRequest,
       ApiKeys.REMOVE_BROKERS -> RemoveBrokerRequest,
+      ApiKeys.DESCRIBE_BROKER_REMOVALS -> describeBrokerRemovalsRequest,
 
       // Inter-broker APIs use an invalid broker epoch, so does not affect the test case
       ApiKeys.UPDATE_METADATA -> createUpdateMetadataRequest,

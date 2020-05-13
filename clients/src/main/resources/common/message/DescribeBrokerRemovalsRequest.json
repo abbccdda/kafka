@@ -1,0 +1,9 @@
+// Copyright 2020 Confluent Inc.
+{
+  "apiKey": 10007,
+  "type": "request",
+  "name": "DescribeBrokerRemovalsRequest",
+  "validVersions": "0",
+  "fields": [
+  ]
+}

@@ -57,6 +57,8 @@ import org.apache.kafka.common.message.DeleteTopicsRequestData;
 import org.apache.kafka.common.message.DeleteTopicsResponseData;
 import org.apache.kafka.common.message.DescribeAclsRequestData;
 import org.apache.kafka.common.message.DescribeAclsResponseData;
+import org.apache.kafka.common.message.DescribeBrokerRemovalsRequestData;
+import org.apache.kafka.common.message.DescribeBrokerRemovalsResponseData;
 import org.apache.kafka.common.message.DescribeClientQuotasRequestData;
 import org.apache.kafka.common.message.DescribeClientQuotasResponseData;
 import org.apache.kafka.common.message.DescribeDelegationTokenRequestData;
@@ -251,6 +253,7 @@ public enum ApiKeys {
     DELETE_CLUSTER_LINKS(10004, "DeleteClusterLinks", DeleteClusterLinksRequestData.SCHEMAS, DeleteClusterLinksResponseData.SCHEMAS),
     INITIATE_SHUTDOWN(10005, "InitiateShutdown", InitiateShutdownRequestData.SCHEMAS, InitiateShutdownResponseData.SCHEMAS),
     ALTER_MIRRORS(10006, "AlterMirrors", AlterMirrorsRequestData.SCHEMAS, AlterMirrorsResponseData.SCHEMAS),
+    DESCRIBE_BROKER_REMOVALS(10007, "DescribeBrokerRemovals", DescribeBrokerRemovalsRequestData.SCHEMAS, DescribeBrokerRemovalsResponseData.SCHEMAS),
 
     // The following APIs are deprecated and will be removed in a future release
     CONFLUENT_LEADER_AND_ISR(32766, "ConfluentLeaderAndIsr", true, ConfluentLeaderAndIsrRequestData.SCHEMAS,
