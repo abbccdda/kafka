@@ -2476,11 +2476,11 @@ public class MultiTenantRequestContextTest {
               new CreatePartitionsResponseData()
                       .setResults(asList(
                               new CreatePartitionsTopicResult()
-                                      .setName("foo")
+                                      .setName("tenant_foo")
                                       .setErrorCode(Errors.POLICY_VIOLATION.code())
                                       .setErrorMessage("Topic tenant_foo is not permitted"),
                               new CreatePartitionsTopicResult()
-                                      .setName("bar")
+                                      .setName("tenant_bar")
                                       .setErrorCode(Errors.NONE.code())));
 
       CreatePartitionsResponse outbound = new CreatePartitionsResponse(responseData);
