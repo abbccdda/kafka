@@ -36,4 +36,12 @@ public interface KafkaHttpServlet {
    */
   default void configurePostResourceHandling(ServletContextHandler context) {
   }
+
+  /**
+   * Shutdown hook that is invoked after the server has processed the shutdown request,
+   * stopped accepting new connections, and tried to gracefully finish existing requests. At this
+   * point it should be safe to clean up any resources used while processing requests.
+   */
+  public void onShutdown();
+
 }
