@@ -167,10 +167,13 @@ class TierSupport():
                     and self.check_heartbeat(last_jmx_entry, TieredStorageMetricsRegistry.DELETED_PARTITIONS_COORDINATOR_HEARTBEAT, 90000)):
                 return False
 
-            partitions_in_error = last_jmx_entry.get(str(TieredStorageMetricsRegistry.ARCHIVER_PARTITIONS_IN_ERROR), -1)
-            if partitions_in_error != 0:
-                self.logger.debug("Archiver " + str(partitions_in_error) + " partitions in error")
+            archiver_partitions_in_error = last_jmx_entry.get(str(TieredStorageMetricsRegistry.ARCHIVER_PARTITIONS_IN_ERROR), -1)
+            if archiver_partitions_in_error != 0:
+                self.logger.debug("Archiver " + str(archiver_partitions_in_error) + " partitions in error")
                 return False
+
+        if not self.check_fenced_partitions(0):
+            return False
 
         return True
 

@@ -97,7 +97,16 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
     def add_tiered_storage_metrics(self):
         self.add_log_metrics(self.topic, partitions=range(0, self.PARTITIONS))
         self.kafka.jmx_object_names += [TieredStorageMetricsRegistry.ARCHIVER_LAG.mbean]
-        self.restart_jmx_tool()
+
+    def add_error_metrics(self):
+        self.kafka.jmx_object_names += [TieredStorageMetricsRegistry.TIER_TOPIC_MANAGER_NUM_FENCED_PARTITIONS.mbean,
+                TieredStorageMetricsRegistry.ARCHIVER_PARTITIONS_IN_ERROR.mbean,
+                TieredStorageMetricsRegistry.TIER_TOPIC_MANAGER_HEARTBEAT.mbean,
+                TieredStorageMetricsRegistry.DELETED_PARTITIONS_COORDINATOR_HEARTBEAT.mbean]
+        self.kafka.jmx_attributes += [TieredStorageMetricsRegistry.TIER_TOPIC_MANAGER_NUM_FENCED_PARTITIONS.attribute,
+                TieredStorageMetricsRegistry.ARCHIVER_PARTITIONS_IN_ERROR.attribute,
+                TieredStorageMetricsRegistry.TIER_TOPIC_MANAGER_HEARTBEAT.attribute,
+                TieredStorageMetricsRegistry.DELETED_PARTITIONS_COORDINATOR_HEARTBEAT.attribute]
 
     @cluster(num_nodes=6)
     @matrix(from_kafka_project=["confluentplatform"], dist_version=["5.5.0"], from_kafka_version=[str(LATEST_2_5)], to_message_format_version=[None], compression_types=[["none"]],
@@ -202,6 +211,7 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
 
         if from_tiered_storage:
             self.add_tiered_storage_metrics()
+            self.restart_jmx_tool()
 
         self.producer = VerifiableProducer(self.test_context, self.num_producers, self.kafka,
                                            self.topic, throughput=self.producer_throughput,
@@ -233,9 +243,8 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
         assert cluster_id is not None
         assert len(cluster_id) == 22
 
-        assert self.kafka.check_protocol_errors(self)
-
         if to_tiered_storage:
+            self.add_error_metrics()
             if not from_tiered_storage:
                 self.add_tiered_storage_metrics()
             self.restart_jmx_tool()
@@ -246,3 +255,8 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
             else:
                 wait_until(lambda: self.tiering_completed(self.topic, partitions=partitions),
                     timeout_sec=120, backoff_sec=2, err_msg="archiving did not complete within timeout")
+
+            wait_until(lambda: self.check_cluster_state(),
+                       timeout_sec=4, backoff_sec=1, err_msg="issue detected with cluster state metrics")
+
+        assert self.kafka.check_protocol_errors(self)
