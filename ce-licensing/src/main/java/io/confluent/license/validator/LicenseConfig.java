@@ -44,6 +44,14 @@ public class LicenseConfig extends AbstractConfig {
   private static final String TOPIC_CREATE_TIMEOUT_DOC = "The number of milliseconds to wait for"
       + " license topic to be created during start up.";
 
+  public static final String RETRY_BACKOFF_MIN_MS_PROP = "confluent.license.retry.backoff.min.ms";
+  private static final int RETRY_BACKOFF_MIN_MS_DEFAULT = 1000;
+  private static final String RETRY_BACKOFF_MIN_MS_DOC = "Minimum backoff when retrying license topic creation.";
+
+  public static final String RETRY_BACKOFF_MAX_MS_PROP = "confluent.license.retry.backoff.max.ms";
+  private static final int RETRY_BACKOFF_MAX_MS_DEFAULT = 100000;
+  private static final String RETRY_BACKOFF_MAX_MS_DOC = "Maximum backoff when retrying license topic creation.";
+
   private static final ConfigDef CONFIG;
 
   static {
@@ -53,13 +61,19 @@ public class LicenseConfig extends AbstractConfig {
         .define(REPLICATION_FACTOR_PROP, Type.SHORT, REPLICATION_FACTOR_DEFAULT,
             atLeast(1), Importance.LOW, REPLICATION_FACTOR_DOC)
         .define(TOPIC_CREATE_TIMEOUT_PROP, Type.INT, TOPIC_CREATE_TIMEOUT_DEFAULT,
-            atLeast(1), Importance.LOW, TOPIC_CREATE_TIMEOUT_DOC);
-  }
+            atLeast(1), Importance.LOW, TOPIC_CREATE_TIMEOUT_DOC)
+        .define(RETRY_BACKOFF_MIN_MS_PROP, Type.INT, RETRY_BACKOFF_MIN_MS_DEFAULT,
+            atLeast(1), Importance.LOW, RETRY_BACKOFF_MIN_MS_DOC)
+        .define(RETRY_BACKOFF_MAX_MS_PROP, Type.INT, RETRY_BACKOFF_MAX_MS_DEFAULT,
+            atLeast(1), Importance.LOW, RETRY_BACKOFF_MAX_MS_DOC);
+}
 
   public final String license;
   public final String topic;
   final Duration topicCreateTimeout;
   final int replicationFactor;
+  final Duration retryBackoffMinMs;
+  final Duration retryBackoffMaxMs;
   private final String componentId;
 
   public LicenseConfig(String componentId, Map<?, ?> props) {
@@ -69,6 +83,8 @@ public class LicenseConfig extends AbstractConfig {
     topic = getString(TOPIC_PROP);
     replicationFactor = getShort(REPLICATION_FACTOR_PROP);
     topicCreateTimeout = Duration.ofMillis(getInt(TOPIC_CREATE_TIMEOUT_PROP));
+    retryBackoffMinMs = Duration.ofMillis(getInt(RETRY_BACKOFF_MIN_MS_PROP));
+    retryBackoffMaxMs = Duration.ofMillis(getInt(RETRY_BACKOFF_MAX_MS_PROP));
   }
 
   public Map<String, Object> producerConfigs() {

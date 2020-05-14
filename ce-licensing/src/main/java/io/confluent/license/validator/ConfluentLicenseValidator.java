@@ -192,7 +192,9 @@ public class ConfluentLicenseValidator implements LicenseValidator, Consumer<Lic
         licenseConfig.producerConfigs(),
         licenseConfig.consumerConfigs(),
         licenseConfig.topicAndAdminClientConfigs(),
-        licenseConfig.topicCreateTimeout);
+        licenseConfig.topicCreateTimeout,
+        licenseConfig.retryBackoffMinMs,
+        licenseConfig.retryBackoffMaxMs);
   }
 
   protected LicenseManager createLicenseManager(LicenseConfig licenseConfig) {
@@ -305,8 +307,10 @@ public class ConfluentLicenseValidator implements LicenseValidator, Consumer<Lic
                       Map<String, Object> producerConfig,
                       Map<String, Object> consumerConfig,
                       Map<String, Object> topicConfig,
-                      Duration topicCreateTimeout) {
-      super(topic, producerConfig, consumerConfig, topicConfig, topicCreateTimeout, Time.SYSTEM);
+                      Duration topicCreateTimeout,
+                      Duration retryBackoffMinMs,
+                      Duration retryBackoffMaxMs) {
+      super(topic, producerConfig, consumerConfig, topicConfig, topicCreateTimeout, retryBackoffMinMs, retryBackoffMaxMs, Time.SYSTEM);
     }
 
     @Override

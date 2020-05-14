@@ -71,6 +71,8 @@ public class LicenseStore {
   private final AtomicBoolean running = new AtomicBoolean();
   private final AtomicReference<String> latestLicense;
   private final Duration topicCreateTimeout;
+  private final Duration retryBackoffMinMs;
+  private final Duration retryBackoffMaxMs;
   private final Time time;
 
   public LicenseStore(
@@ -90,7 +92,7 @@ public class LicenseStore {
       Map<String, Object> topicConfig,
       Time time
   ) {
-    this(topic, producerConfig, consumerConfig, topicConfig, Duration.ZERO, Time.SYSTEM);
+    this(topic, producerConfig, consumerConfig, topicConfig, Duration.ZERO, Duration.ZERO, Duration.ZERO, Time.SYSTEM);
   }
 
   public LicenseStore(
@@ -99,12 +101,16 @@ public class LicenseStore {
       Map<String, Object> consumerConfig,
       Map<String, Object> topicConfig,
       Duration topicCreateTimeout,
+      Duration retryBackoffMinMs,
+      Duration retryBackoffMaxMs,
       Time time
   ) {
     this.topic = topic;
     this.latestLicense = new AtomicReference<>();
     this.time = time;
     this.topicCreateTimeout = topicCreateTimeout;
+    this.retryBackoffMinMs = retryBackoffMinMs;
+    this.retryBackoffMaxMs = retryBackoffMaxMs;
     this.licenseLog = setupAndCreateKafkaBasedLog(
         this.topic,
         producerConfig,
@@ -127,6 +133,8 @@ public class LicenseStore {
     this.licenseLog = licenseLog;
     this.time = time;
     this.topicCreateTimeout = Duration.ZERO;
+    this.retryBackoffMinMs = Duration.ZERO;
+    this.retryBackoffMaxMs = Duration.ZERO;
   }
 
   // package private for testing
@@ -198,76 +206,11 @@ public class LicenseStore {
       final Map<String, Object> topicConfig,
       Time time
   ) {
-    long endTimeMs = time.milliseconds() + topicCreateTimeout.toMillis();
-    Runnable createTopics = new Runnable() {
-      @Override
-      public void run() {
-        // NOTE: This uses AdminClient and not the new Admin API to ensure that connectors
-        // using this framework can be installed into Connect from older CP versions.
-        try (AdminClient admin = AdminClient.create(topicConfig)) {
-          try {
-            admin.describeTopics(Collections.singleton(topic)).all().get();
-            log.debug("Topic {} already exists.", topic);
-            return;
-          } catch (ExecutionException e) {
-            Throwable cause = e.getCause();
-            if (cause instanceof UnknownTopicOrPartitionException)
-              log.debug("Topic {} does not exist, will attempt to create", topic);
-            else if (cause instanceof RetriableException) {
-              log.debug("Topic could not be described, will attempt to create", e);
-            } else
-              throw toKafkaException(cause);
-          } catch (InterruptedException e) {
-            throw new InterruptException(e);
-          }
-
-          Throwable lastException = null;
-          while (true) {
-            try {
-              admin.createTopics(Collections.singleton(topicDescription)).all().get();
-              log.debug("License topic {} created", topic);
-              break;
-            } catch (ExecutionException e) {
-              Throwable cause = e.getCause();
-              if (lastException == null) {
-                if (cause instanceof InvalidReplicationFactorException) {
-                  log.info("Creating topic {} with replication factor {}. " +
-                          "At least {} brokers must be started concurrently to complete license registration.",
-                      topic, topicDescription.replicationFactor(),
-                      topicDescription.replicationFactor());
-                } else if (cause instanceof UnsupportedVersionException) {
-                  log.info("Topic {} could not be created due to UnsupportedVersionException. " +
-                          "This may be indicate that a rolling upgrade from an older version is in progress. " +
-                          "The request will be retried.", topic);
-                }
-              }
-              lastException = cause;
-              if (cause instanceof TopicExistsException) {
-                log.debug("License topic {} was created by different node", topic);
-                break;
-              } else if (!(cause instanceof RetriableException ||
-                  cause instanceof InvalidReplicationFactorException ||
-                  cause instanceof UnsupportedVersionException)) {
-                // Retry for:
-                // 1) any retriable exception
-                // 2) InvalidReplicationFactorException -  may indicate that brokers are starting up
-                // 3) UnsupportedVersionException -  may be a rolling upgrade from a version older than
-                //    0.10.1.0 before CreateTopics request was introduced
-                throw toKafkaException(cause);
-              }
-            } catch (InterruptedException e) {
-              throw new InterruptException(e);
-            }
-
-            long remainingMs = endTimeMs - time.milliseconds();
-            if (remainingMs <= 0) {
-              throw new org.apache.kafka.common.errors.TimeoutException("License topic could not be created", lastException);
-            } else {
-              log.debug("Topic could not be created, retrying: {}", lastException.getMessage());
-              time.sleep(Math.min(remainingMs, TOPIC_CREATE_RETRY_BACKOFF.toMillis()));
-            }
-          }
-        }
+    Runnable createTopics = () -> {
+      // NOTE: This uses AdminClient and not the new Admin API to ensure that connectors
+      // using this framework can be installed into Connect from older CP versions.
+      try (AdminClient admin = AdminClient.create(topicConfig)) {
+        createConfluentLicenseTopic(admin, topic, topicDescription);
       }
     };
     return new KafkaBasedLog<>(
@@ -361,4 +304,76 @@ public class LicenseStore {
       }
     }
   }
+
+  // visible for testing
+  protected void createConfluentLicenseTopic(AdminClient admin, String topic, final NewTopic topicDescription) {
+    long endTimeMs = time.milliseconds() + topicCreateTimeout.toMillis();
+    try {
+      admin.describeTopics(Collections.singleton(topic)).all().get();
+      log.debug("Topic {} already exists.", topic);
+      return;
+    } catch (ExecutionException e) {
+      Throwable cause = e.getCause();
+      if (cause instanceof UnknownTopicOrPartitionException)
+        log.debug("Topic {} does not exist, will attempt to create", topic);
+      else if (cause instanceof RetriableException) {
+        log.debug("Topic could not be described, will attempt to create", e);
+      } else
+        throw toKafkaException(cause);
+    } catch (InterruptedException e) {
+      throw new InterruptException(e);
+    }
+
+    Throwable lastException = null;
+    int numCreateTopicRetries = 0;
+
+    while (true) {
+      try {
+        admin.createTopics(Collections.singleton(topicDescription)).all().get();
+        log.debug("License topic {} created", topic);
+        break;
+      } catch (ExecutionException e) {
+        Throwable cause = e.getCause();
+        if (lastException == null) {
+          if (cause instanceof InvalidReplicationFactorException) {
+            log.info("Creating topic {} with replication factor {}. " +
+                            "At least {} brokers must be started concurrently to complete license registration.",
+                    topic, topicDescription.replicationFactor(),
+                    topicDescription.replicationFactor());
+          } else if (cause instanceof UnsupportedVersionException) {
+            log.info("Topic {} could not be created due to UnsupportedVersionException. " +
+                    "This may be indicate that a rolling upgrade from an older version is in progress. " +
+                    "The request will be retried.", topic);
+          }
+        }
+        lastException = cause;
+        if (cause instanceof TopicExistsException) {
+          log.debug("License topic {} was created by different node", topic);
+          break;
+        } else if (!(cause instanceof RetriableException ||
+                cause instanceof InvalidReplicationFactorException ||
+                cause instanceof UnsupportedVersionException)) {
+          // Retry for:
+          // 1) any retriable exception
+          // 2) InvalidReplicationFactorException -  may indicate that brokers are starting up
+          // 3) UnsupportedVersionException -  may be a rolling upgrade from a version older than
+          //    0.10.1.0 before CreateTopics request was introduced
+          throw toKafkaException(cause);
+        }
+      } catch (InterruptedException e) {
+        throw new InterruptException(e);
+      }
+
+      long remainingMs = endTimeMs - time.milliseconds();
+      if (remainingMs <= 0) {
+        throw new org.apache.kafka.common.errors.TimeoutException("License topic could not be created", lastException);
+      } else {
+        long backoffMs = Math.min(retryBackoffMaxMs.toMillis(), Math.max(retryBackoffMinMs.toMillis(), (long) Math.pow(2, numCreateTopicRetries) * TOPIC_CREATE_RETRY_BACKOFF.toMillis()));
+        numCreateTopicRetries++;
+        long sleepMs = Math.min(remainingMs, backoffMs);
+        log.debug("Topic could not be created, retrying after {}ms: {}", sleepMs, lastException.getMessage());
+        time.sleep(sleepMs);
+      }
+    }
+  };
 }

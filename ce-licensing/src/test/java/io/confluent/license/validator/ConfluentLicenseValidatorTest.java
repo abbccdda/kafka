@@ -263,7 +263,7 @@ public class ConfluentLicenseValidatorTest {
                                                                  String storedLicense) {
     licenseStore = new MockLicenseStore(LicenseConfig.TOPIC_DEFAULT,
         Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap(),
-        Duration.ofSeconds(10), storedLicense);
+        Duration.ofSeconds(10), Duration.ofSeconds(1), Duration.ofSeconds(10), storedLicense);
 
     ConfluentLicenseValidator licenseValidator = new ConfluentLicenseValidator(Duration.ofMillis(10)) {
       @Override
@@ -338,8 +338,10 @@ public class ConfluentLicenseValidatorTest {
                      Map<String, Object> consumerConfig,
                      Map<String, Object> topicConfig,
                      Duration topicCreateTimeout,
+                     Duration retryBackoffMinMs,
+                     Duration retryBackoffMaxMs,
                      String storedLicense) {
-      super(topic, producerConfig, consumerConfig, topicConfig, topicCreateTimeout);
+      super(topic, producerConfig, consumerConfig, topicConfig, topicCreateTimeout, retryBackoffMinMs, retryBackoffMaxMs);
       this.storedLicense = storedLicense;
     }
 

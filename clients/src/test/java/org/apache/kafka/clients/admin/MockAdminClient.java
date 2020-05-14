@@ -74,6 +74,7 @@ public class MockAdminClient extends AdminClient implements ConfluentAdmin {
 
     private Node controller;
     private int timeoutNextRequests = 0;
+    private int numCreateTopicsInvocation = 0;
 
     private Map<MetricName, Metric> mockMetrics = new HashMap<>();
 
@@ -220,6 +221,7 @@ public class MockAdminClient extends AdminClient implements ConfluentAdmin {
 
     @Override
     synchronized public CreateTopicsResult createTopics(Collection<NewTopic> newTopics, CreateTopicsOptions options) {
+        numCreateTopicsInvocation++;
         Map<String, KafkaFuture<CreateTopicsResult.TopicMetadataAndConfig>> createTopicResult = new HashMap<>();
 
         if (timeoutNextRequests > 0) {
@@ -876,5 +878,9 @@ public class MockAdminClient extends AdminClient implements ConfluentAdmin {
 
     synchronized public Node broker(int index) {
         return brokers.get(index);
+    }
+
+    synchronized public int NumCreateTopicsInvocation() {
+        return numCreateTopicsInvocation;
     }
 }

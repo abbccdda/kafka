@@ -152,11 +152,13 @@ public class LicenseManager {
       Map<String, Object> producerConfig,
       Map<String, Object> consumerConfig,
       Map<String, Object> topicConfig,
-      Duration topicCreateTimeout
+      Duration topicCreateTimeout,
+      Duration retryBackoffMinMs,
+      Duration retryBackoffMaxMs
   ) {
     this(
         new BasicClusterClient(topicConfig),
-        new LicenseStore(topic, producerConfig, consumerConfig, topicConfig, topicCreateTimeout, Time.SYSTEM),
+        new LicenseStore(topic, producerConfig, consumerConfig, topicConfig, topicCreateTimeout, retryBackoffMinMs, retryBackoffMaxMs, Time.SYSTEM),
         Time.SYSTEM
     );
   }

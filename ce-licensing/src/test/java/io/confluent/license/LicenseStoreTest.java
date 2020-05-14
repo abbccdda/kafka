@@ -6,6 +6,7 @@ package io.confluent.license;
 
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.admin.MockAdminClient;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.MockConsumer;
@@ -16,8 +17,10 @@ import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.record.TimestampType;
+import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.connect.util.Callback;
 import org.apache.kafka.connect.util.KafkaBasedLog;
@@ -34,6 +37,7 @@ import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 import org.powermock.reflect.Whitebox;
 
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -52,6 +56,7 @@ import io.confluent.command.record.Command.LicenseInfo;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 @RunWith(PowerMockRunner.class)
@@ -60,6 +65,7 @@ import static org.junit.Assert.assertTrue;
 public class LicenseStoreTest {
 
   private static final String TOPIC = "_confluent-command";
+  private static final String CONFLUENT_LICENSE_TOPIC = "_confluent-license";
   private static final TopicPartition LICENSE_TP = new TopicPartition(TOPIC, 0);
   private static final Map<String, Object> PRODUCER_PROPS = new HashMap<>();
   private static final Map<String, Object> CONSUMER_PROPS = new HashMap<>();
@@ -393,5 +399,23 @@ public class LicenseStoreTest {
     producer.close();
     PowerMock.expectLastCall();
     // MockConsumer close is checked after test.
+  }
+
+  @Test
+  public void testCreateConfluentLicenseTopicExponentialBackoff() {
+    List<Node> brokers = Arrays.asList(
+      new Node(0, "localhost", 9092)
+    );
+    MockAdminClient admin = new MockAdminClient(brokers, brokers.get(0));
+    MockTime time = new MockTime();
+    Duration timeout = Duration.ofMinutes(1);
+    Duration retryBackoffMinMs = Duration.ofMillis(1500);
+    Duration retryBackoffMaxMs = Duration.ofMillis(28000);
+    NewTopic topicDescription = new NewTopic(CONFLUENT_LICENSE_TOPIC, 0, (short) 3);
+    LicenseStore licenseStore = new LicenseStore(CONFLUENT_LICENSE_TOPIC, PRODUCER_PROPS, CONSUMER_PROPS, TOPIC_PROPS, timeout, retryBackoffMinMs, retryBackoffMaxMs, time);
+    assertThrows(TimeoutException.class, () -> licenseStore.createConfluentLicenseTopic(admin, CONFLUENT_LICENSE_TOPIC, topicDescription));
+
+    // expected exponential backoff: 1500 + 2000 + 4000 + 8000 + 16000 + 28000 + 500 + 0
+    assertEquals(8, admin.NumCreateTopicsInvocation());
   }
 }
