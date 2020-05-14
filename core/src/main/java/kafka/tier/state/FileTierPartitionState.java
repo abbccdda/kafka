@@ -700,9 +700,10 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                         currentPosition + " size: " + channel.size() + " for partition " + topicIdPartition);
 
             if (header.endOffset() != -1 && endOffset != header.endOffset()) {
-                log.info("File header endOffset does not match the materialized endOffset. Setting state endOffset to be " +
-                        "equal to header endOffset. Header endOffset: " + header.endOffset() + " materialized state endOffset: " +
-                        endOffset + " for partition " + topicIdPartition);
+                if (numSegments() > 0)
+                    log.info("File header endOffset does not match the materialized endOffset. Setting state endOffset to be " +
+                            "equal to header endOffset. Header endOffset: " + header.endOffset() + " materialized state endOffset: " +
+                            endOffset + " for partition " + topicIdPartition);
                 endOffset = header.endOffset();
             }
 
