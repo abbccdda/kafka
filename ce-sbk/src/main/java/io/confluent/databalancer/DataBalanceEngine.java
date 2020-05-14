@@ -30,7 +30,7 @@ public interface DataBalanceEngine {
     /**
      * To be called when the object is going away.
      */
-    void shutdown();
+    void shutdown() throws InterruptedException;
 
     void updateThrottle(Long newThrottle);
 

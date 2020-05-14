@@ -33,6 +33,7 @@ import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -52,6 +53,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         STARTUP_COMPONENTS.add("com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore");
     }
 
+    private static final int SHUTDOWN_TIMEOUT_MS = 15000;
     private static final String START_ANCHOR = "^";
     private static final String END_ANCHOR = "$";
     private static final String WILDCARD_SUFFIX = ".*";
@@ -123,9 +125,15 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         ccRunner.submit(this::stopCruiseControl, null);
     }
 
+    /**
+     * Called when the object is going away for good (end of broker lifetime). May stall for a while for cleanup.
+     * IT IS EXPECTED THAT onDeactivation WILL HAVE ALREADY BEEN CALLED WHEN THIS IS INVOKED.
+     * @throws InterruptedException
+     */
     @Override
-    public void shutdown() {
+    public void shutdown() throws InterruptedException {
         ccRunner.shutdown();
+        ccRunner.awaitTermination(SHUTDOWN_TIMEOUT_MS, TimeUnit.MILLISECONDS);
     }
 
     @Override

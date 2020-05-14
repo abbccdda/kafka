@@ -39,25 +39,41 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
         private final DataBalanceEngine activeDataBalanceEngine;
         private final DataBalanceEngine inactiveDataBalanceEngine;
 
-            DataBalanceEngineFactory(DataBalancerMetricsRegistry dataBalancerMetricsRegistry) {
+        /**
+         * Instantiate the DataBalanceEngine via the normal path.
+         * This creates instances of all DataBalanceEngine objects so that they can be reused as
+         * needed throughout the Factory's lifetime.
+         */
+        DataBalanceEngineFactory(DataBalancerMetricsRegistry dataBalancerMetricsRegistry) {
             this(new ConfluentDataBalanceEngine(dataBalancerMetricsRegistry),
                  new NoOpDataBalanceEngine());
         }
 
+        // Visible for testing
         DataBalanceEngineFactory(DataBalanceEngine activeBalanceEngine, DataBalanceEngine inactiveBalanceEngine) {
             activeDataBalanceEngine = Objects.requireNonNull(activeBalanceEngine);
             inactiveDataBalanceEngine = Objects.requireNonNull(inactiveBalanceEngine);
         }
 
+        /**
+         * Get the instance of the ActiveDataBalanceEngine.
+         */
         DataBalanceEngine getActiveDataBalanceEngine() {
             return activeDataBalanceEngine;
         }
 
+        /**
+         * Get the instance of the inactive DataBalanceEngine.
+         */
         DataBalanceEngine getInactiveDataBalanceEngine() {
             return inactiveDataBalanceEngine;
         }
 
-        void shutdown() {
+        /**
+         * Shutdown the Factory.
+         * This is expected to only be called when the Factory needs to go away (i.e. on broker shutdown).
+         */
+        void shutdown() throws InterruptedException {
             activeDataBalanceEngine.shutdown();
             inactiveDataBalanceEngine.shutdown();
         }
@@ -128,10 +144,17 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
     /**
      * To be called when the KafkaDataBalanceManager is being fully shut down, rather
      * than temporarily disabled for later startup. Expected to be called on broker shutdown only.
+     * IT IS EXPECTED THAT onResignation IS CALLED BEFORE THIS. (KafkaController::shutdown() does exactly that.)
      */
     @Override
     public synchronized void shutdown() {
-        dbeFactory.shutdown();
+        try {
+            // Shutdown all engines
+            dbeFactory.shutdown();
+        } catch (InterruptedException e) {
+            // Interruption during shutdown is not that big a deal. Warn but continue on.
+            LOG.warn("DataBalanceManager interrupted during shutdown.");
+        }
     }
 
     /**

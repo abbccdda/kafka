@@ -543,6 +543,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   public static final String EXECUTION_PROGRESS_CHECK_INTERVAL_MS_CONFIG = "execution.progress.check.interval.ms";
   private static final String EXECUTION_PROGRESS_CHECK_INTERVAL_MS_DOC = "The interval in milliseconds that the " +
       "executor will check on the execution progress.";
+  private static final long DEFAULT_EXECUTION_PROGRESS_CHECK_INTERVAL_MS = 7000L;
 
   /**
    * <code>goals</code>
@@ -1482,7 +1483,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 DEFAULT_REPLICA_MOVEMENT_STRATEGIES_DOC)
         .define(EXECUTION_PROGRESS_CHECK_INTERVAL_MS_CONFIG,
                 ConfigDef.Type.LONG,
-                10000L,
+                DEFAULT_EXECUTION_PROGRESS_CHECK_INTERVAL_MS,
                 atLeast(0),
                 ConfigDef.Importance.LOW,
                 EXECUTION_PROGRESS_CHECK_INTERVAL_MS_DOC)

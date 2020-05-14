@@ -66,7 +66,7 @@ public class KafkaDataBalanceManagerTest {
     }
 
     @Test
-    public void testUpdateConfigBalancerEnable() {
+    public void testUpdateConfigBalancerEnable() throws InterruptedException {
         brokerProps.put(ConfluentConfigs.BALANCER_ENABLE_CONFIG, false);
         updatedConfig = new KafkaConfig(brokerProps);
         dataBalancer = new KafkaDataBalanceManager(initConfig, mockDataBalanceEngineFactory, mockDbMetrics);
@@ -92,7 +92,7 @@ public class KafkaDataBalanceManagerTest {
     }
 
     @Test
-    public void testUpdateConfigBalancerEnableOnNonEligibleNode() {
+    public void testUpdateConfigBalancerEnableOnNonEligibleNode() throws InterruptedException {
         brokerProps.put(ConfluentConfigs.BALANCER_ENABLE_CONFIG, false);
         updatedConfig = new KafkaConfig(brokerProps);
         dataBalancer = new KafkaDataBalanceManager(initConfig, mockDataBalanceEngineFactory, mockDbMetrics);
@@ -189,7 +189,7 @@ public class KafkaDataBalanceManagerTest {
     }
 
     @Test
-    public void testShutdownOnActive() {
+    public void testShutdownOnActive() throws InterruptedException {
         brokerProps.put(ConfluentConfigs.BALANCER_ENABLE_CONFIG, true);
         updatedConfig = new KafkaConfig(brokerProps);
         dataBalancer = new KafkaDataBalanceManager(initConfig,
@@ -213,7 +213,7 @@ public class KafkaDataBalanceManagerTest {
     }
 
     @Test
-    public void testShutdownOnInactive() {
+    public void testShutdownOnInactive() throws InterruptedException {
         brokerProps.put(ConfluentConfigs.BALANCER_ENABLE_CONFIG, true);
         updatedConfig = new KafkaConfig(brokerProps);
         dataBalancer = new KafkaDataBalanceManager(initConfig,
