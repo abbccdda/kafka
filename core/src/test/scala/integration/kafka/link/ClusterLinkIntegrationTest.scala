@@ -283,10 +283,10 @@ class ClusterLinkIntegrationTest extends Logging {
 
     produceToSourceCluster(numRecords)
     waitForMirror(topic)
-    assertTrue(destCluster.topicLinkState(topic).shouldSync)
+    assertTrue(destCluster.topicLinkState(topic).state.shouldSync)
     sourceCluster.createAdminClient().deleteTopics(Collections.singleton(topic)).all()
       .get(20, TimeUnit.SECONDS)
-    TestUtils.waitUntilTrue(() => !destCluster.topicLinkState(topic).shouldSync,
+    TestUtils.waitUntilTrue(() => !destCluster.topicLinkState(topic).state.shouldSync,
       "Source topic deletion not propagated", waitTimeMs = 20000)
 
     val topicProps = new Properties

@@ -796,7 +796,7 @@ class PartitionTest {
           .setReplicas(replicas)
           .setIsNew(true)
           .setClusterLink(clusterLink.orNull)
-          .setClusterLinkTopicState(clusterLink.map(_ => "mirror").orNull)
+          .setClusterLinkTopicState(clusterLink.map(_ => "Mirror").orNull)
       topicIdOpt.foreach { topicId => partitionState.setTopicId(topicId) }
 
       assertTrue("Expected become leader transition to succeed",
@@ -2392,7 +2392,7 @@ class PartitionTest {
       isr = List(brokerId, remoteBrokerId),
       zkVersion = 1,
       isUnclean = true,
-      linkedLeaderEpoch = None)
+      clusterLinkState = None)
     when(tieredPartitionStateStore.expandIsr(controllerEpoch, updatedLeaderAndIsr)).thenReturn(Some(2))
 
     tieredPartition.updateFollowerFetchState(remoteBrokerId,
@@ -2448,7 +2448,7 @@ class PartitionTest {
       isr = List(brokerId),
       zkVersion = 1,
       isUnclean = true,
-      linkedLeaderEpoch = None)
+      clusterLinkState = None)
     when(tieredPartitionStateStore.shrinkIsr(controllerEpoch, updatedLeaderAndIsr)).thenReturn(Some(2))
 
     tieredPartition.maybeShrinkIsr()
@@ -2490,7 +2490,7 @@ class PartitionTest {
       .setReplicas(replicas.map(Int.box).asJava)
       .setIsNew(false)
       .setClusterLink("test-link")
-      .setClusterLinkTopicState("mirror")
+      .setClusterLinkTopicState("Mirror")
     assertFalse(partition.makeLeader(leaderState2, offsetCheckpoints))
     origins.foreach { origin =>
       intercept[InvalidRequestException] {

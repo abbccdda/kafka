@@ -4,11 +4,35 @@
 
 package kafka.server.link
 
+import kafka.common.BaseEnum
 import kafka.utils.Json
 import org.apache.kafka.common.utils.Time
 
 import scala.collection.Map
 import scala.jdk.CollectionConverters._
+
+sealed trait TopicLinkState extends BaseEnum {
+  /**
+    * Returns true if this topic and its metadata should be sync'ed from source.
+    * Returns false if this topic link has failed or is in a paused state.
+    */
+  def shouldSync: Boolean
+}
+
+case object TopicLinkMirror extends TopicLinkState {
+  val name: String = "Mirror"
+  val shouldSync: Boolean = true
+}
+
+case object TopicLinkFailedMirror extends TopicLinkState {
+  val name: String = "FailedMirror"
+  val shouldSync: Boolean = false
+}
+
+case object TopicLinkStoppedMirror extends TopicLinkState {
+  val name: String = "StoppedMirror"
+  val shouldSync: Boolean = false
+}
 
 abstract class ClusterLinkTopicState {
 
@@ -22,13 +46,7 @@ abstract class ClusterLinkTopicState {
   /**
     * State of the topic link, persisted in ZK and propagated to brokers in LeaderAndIsrRequest
     */
-  def state: String
-
-  /**
-    * Returns true if this topic and its metadata should be sync'ed from source.
-    * Returns false if this topic link has failed or is in a paused state.
-    */
-  def shouldSync: Boolean
+  def state: TopicLinkState
 
   /**
     * Returns a JSON-like map of the state's data.
@@ -41,13 +59,16 @@ abstract class ClusterLinkTopicState {
   def toJsonString: String = ClusterLinkTopicState.toJsonString(this)
 }
 
+object TopicLinkState {
+
+  val states = List(TopicLinkMirror, TopicLinkFailedMirror, TopicLinkStoppedMirror)
+
+  def fromString(name: String): TopicLinkState = {
+    states.find(_.name == name).getOrElse(throw new IllegalArgumentException(s"Unknown state $name"))
+  }
+}
+
 object ClusterLinkTopicState {
-
-  private val mirrorKey = "mirror"
-  private val failedMirrorKey = "failed_mirror"
-  private val stoppedMirrorKey = "stopped_mirror"
-  private val stateKeys = List(mirrorKey, failedMirrorKey, stoppedMirrorKey)
-
   /**
     * Indicates an active mirroring setup, where the local topic is the destination.
     *
@@ -58,9 +79,7 @@ object ClusterLinkTopicState {
                     timeMs: Long = Time.SYSTEM.milliseconds())
       extends ClusterLinkTopicState {
 
-    override def state: String = mirrorKey
-
-    override def shouldSync: Boolean = true
+    override def state: TopicLinkState = TopicLinkMirror
 
     override def toMap: Map[String, _] = {
       Map(
@@ -82,9 +101,7 @@ object ClusterLinkTopicState {
                           timeMs: Long = Time.SYSTEM.milliseconds())
     extends ClusterLinkTopicState {
 
-    override def state: String = failedMirrorKey
-
-    override def shouldSync: Boolean = false
+    override def state: TopicLinkState = TopicLinkFailedMirror
 
     override def toMap: Map[String, _] = {
       Map(
@@ -115,9 +132,7 @@ object ClusterLinkTopicState {
                            timeMs: Long = Time.SYSTEM.milliseconds())
       extends ClusterLinkTopicState {
 
-    override def state: String = stoppedMirrorKey
-
-    override def shouldSync: Boolean = false
+    override def state: TopicLinkState = TopicLinkStoppedMirror
 
     override def toMap: Map[String, _] = {
       Map(
@@ -135,14 +150,7 @@ object ClusterLinkTopicState {
     * @return the JSON string
     */
   def toJsonString(state: ClusterLinkTopicState): String = {
-    val name = state match {
-      case cfg: ClusterLinkTopicState.Mirror => mirrorKey
-      case cfg: ClusterLinkTopicState.FailedMirror => failedMirrorKey
-      case cfg: ClusterLinkTopicState.StoppedMirror => stoppedMirrorKey
-      case _ => throw new IllegalStateException("Unexpected cluster link topic state")
-    }
-
-    Json.encodeAsString(Map(name -> state.toMap.asJava).asJava)
+    Json.encodeAsString(Map(state.state.name -> state.toMap.asJava).asJava)
   }
 
   /**
@@ -155,7 +163,7 @@ object ClusterLinkTopicState {
       case Some(jsonValue) =>
         val jsonObj = jsonValue.asJsonObject
 
-        val entries = stateKeys.map(key => key -> jsonObj.get(key)).filter(_._2.isDefined)
+        val entries = TopicLinkState.states.map(key => key -> jsonObj.get(key.name)).filter(_._2.isDefined)
         if (entries.size != 1)
           throw new IllegalStateException("Invalid cluster link topic state(s)")
 
@@ -168,22 +176,22 @@ object ClusterLinkTopicState {
             throw new IllegalStateException(s"Unexpected version '$expectedVersion', actual version '$actualVersion'")
 
         key match {
-          case `mirrorKey` =>
+          case TopicLinkMirror =>
             validateVersion(1, jsonOpt("version").to[Int])
             val timeMs = jsonOpt("time_ms").to[Long]
             val linkName = jsonOpt("link_name").to[String]
             Mirror(linkName, timeMs)
-          case `failedMirrorKey` =>
+          case TopicLinkFailedMirror =>
             validateVersion(1, jsonOpt("version").to[Int])
             val timeMs = jsonOpt("time_ms").to[Long]
             val linkName = jsonOpt("link_name").to[String]
             FailedMirror(linkName, timeMs)
-          case `stoppedMirrorKey` =>
+          case TopicLinkStoppedMirror =>
             validateVersion(1, jsonOpt("version").to[Int])
             val timeMs = jsonOpt("time_ms").to[Long]
             val linkName = jsonOpt("link_name").to[String]
             val logEndOffsets = jsonOpt("log_end_offsets").to[Seq[Long]]
-            new StoppedMirror(linkName, logEndOffsets, timeMs)
+            StoppedMirror(linkName, logEndOffsets, timeMs)
           case _ =>
             // During rolling upgrade, we should ensure that some brokers with new states cannot
             // put the link into a state not known by other brokers. For now, mark this as failed.
@@ -195,15 +203,6 @@ object ClusterLinkTopicState {
 
       case None =>
         throw new IllegalStateException(s"Invalid topic state JSON: $json")
-    }
-  }
-
-  def fromState(linkName: String, state: String): ClusterLinkTopicState = {
-    state match {
-      case `mirrorKey` => Mirror(linkName)
-      case `failedMirrorKey` => FailedMirror(linkName)
-      case `stoppedMirrorKey` => StoppedMirror(linkName, Seq.empty)
-      case _ => FailedMirror(linkName) // If we don't understand the state, don't sync.
     }
   }
 }

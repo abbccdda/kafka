@@ -16,22 +16,22 @@ class ClusterLinkTopicStateTest {
     val timeMs = 123456789
     val result = ClusterLinkTopicState.fromJsonString(
       s"""|{
-          |  "mirror": {
+          |  "Mirror": {
           |    "version": 1,
           |    "time_ms": $timeMs,
           |    "link_name": "$linkName"
           |  }
           |}""".stripMargin)
-    assertEquals(new ClusterLinkTopicState.Mirror(linkName, timeMs), result)
+    assertEquals(ClusterLinkTopicState.Mirror(linkName, timeMs), result)
   }
 
   @Test
   def testToJsonString(): Unit = {
     val linkName = "test-link"
     val timeMs = 123456789
-    val result = new ClusterLinkTopicState.Mirror(linkName, timeMs).toJsonString
+    val result = ClusterLinkTopicState.Mirror(linkName, timeMs).toJsonString
     assertEquals(s"""|{
-                     |  "mirror": {
+                     |  "Mirror": {
                      |    "version": 1,
                      |    "time_ms": $timeMs,
                      |    "link_name": "$linkName"
@@ -43,26 +43,26 @@ class ClusterLinkTopicStateTest {
   def testMirror(): Unit = {
     val linkName = "test-link"
     val timeMs = Time.SYSTEM.milliseconds()
-    val state = new ClusterLinkTopicState.Mirror(linkName, timeMs)
+    val state = ClusterLinkTopicState.Mirror(linkName, timeMs)
 
     val result = ClusterLinkTopicState.fromJsonString(state.toJsonString)
     val data = result.asInstanceOf[ClusterLinkTopicState.Mirror]
     assertEquals(linkName, data.linkName)
     assertEquals(timeMs, data.timeMs)
-    assertTrue(data.shouldSync)
+    assertTrue(data.state.shouldSync)
   }
 
   @Test
   def testFailedMirror(): Unit = {
     val linkName = "test-link"
     val timeMs = Time.SYSTEM.milliseconds()
-    val state = new ClusterLinkTopicState.FailedMirror(linkName, timeMs)
+    val state = ClusterLinkTopicState.FailedMirror(linkName, timeMs)
 
     val result = ClusterLinkTopicState.fromJsonString(state.toJsonString)
     val data = result.asInstanceOf[ClusterLinkTopicState.FailedMirror]
     assertEquals(linkName, data.linkName)
     assertEquals(timeMs, data.timeMs)
-    assertFalse(data.shouldSync)
+    assertFalse(data.state.shouldSync)
   }
 
   @Test
@@ -70,14 +70,14 @@ class ClusterLinkTopicStateTest {
     val linkName = "test-link"
     val logEndOffsets = List[Long](12345, 23456, 34567)
     val timeMs = Time.SYSTEM.milliseconds()
-    val state = new ClusterLinkTopicState.StoppedMirror(linkName, logEndOffsets.toSeq, timeMs)
+    val state = ClusterLinkTopicState.StoppedMirror(linkName, logEndOffsets, timeMs)
 
     val result = ClusterLinkTopicState.fromJsonString(state.toJsonString)
     val data = result.asInstanceOf[ClusterLinkTopicState.StoppedMirror]
     assertEquals(linkName, data.linkName)
     assertEquals(logEndOffsets, data.logEndOffsets)
     assertEquals(timeMs, data.timeMs)
-    assertFalse(data.shouldSync)
+    assertFalse(data.state.shouldSync)
   }
 
   @Test(expected = classOf[IllegalStateException])
@@ -96,7 +96,7 @@ class ClusterLinkTopicStateTest {
   def testBadVersion(): Unit = {
     ClusterLinkTopicState.fromJsonString(
       """|{
-         |  "mirror": {
+         |  "Mirror": {
          |    "version": 0,
          |    "time_ms": 123456789,
          |    "link_name": "test-link"
@@ -108,12 +108,12 @@ class ClusterLinkTopicStateTest {
   def testMultipleEntries(): Unit = {
     ClusterLinkTopicState.fromJsonString(
       """|{
-         |  "mirror": {
+         |  "Mirror": {
          |    "version": 1,
          |    "time_ms": 123456789,
          |    "link_name": "test-link-1",
          |  },
-         |  "mirror": {
+         |  "Mirror": {
          |    "version": 1,
          |    "time_ms": 123456789,
          |    "link_name": "test-link-2"

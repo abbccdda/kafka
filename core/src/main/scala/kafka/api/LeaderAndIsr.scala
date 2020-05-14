@@ -30,19 +30,20 @@ object LeaderAndIsr {
   def duringDelete(isr: List[Int]): LeaderAndIsr = LeaderAndIsr(LeaderDuringDelete, isr, isUnclean = false)
 }
 
+case class PartitionLinkState(linkedLeaderEpoch: Int, linkFailed: Boolean)
+
 case class LeaderAndIsr(leader: Int,
                         leaderEpoch: Int,
                         isr: List[Int],
                         zkVersion: Int,
                         isUnclean: Boolean,
-                        linkedLeaderEpoch: Option[Int],
-                        linkFailed: Boolean = false) {
+                        clusterLinkState: Option[PartitionLinkState]) {
   def withZkVersion(zkVersion: Int) = copy(zkVersion = zkVersion)
 
   def newLeader(leader: Int, isUnclean: Boolean) = newLeaderAndIsr(leader, isr, isUnclean)
 
   def newLeaderAndIsr(leader: Int, isr: List[Int], isUnclean: Boolean) = LeaderAndIsr(leader, nextEpoch,
-    isr, zkVersion, isUnclean, linkedLeaderEpoch, linkFailed)
+    isr, zkVersion, isUnclean, clusterLinkState)
 
   def newEpochAndZkVersion = newLeaderAndIsr(leader, isr, isUnclean)
 
@@ -50,10 +51,10 @@ case class LeaderAndIsr(leader: Int,
     if (leader == LeaderAndIsr.NoLeader) None else Some(leader)
   }
 
-  private def nextEpoch = Math.max(leaderEpoch + 1, linkedLeaderEpoch.getOrElse(-1))
+  private def nextEpoch = Math.max(leaderEpoch + 1, clusterLinkState.map(_.linkedLeaderEpoch).getOrElse(-1))
 
   override def toString: String = {
-    val linkedEpoch = linkedLeaderEpoch.map(epoch => s" linkedLeaderEpoch=$epoch,linkFailed=$linkFailed").getOrElse("")
-    s"LeaderAndIsr(leader=$leader, leaderEpoch=$leaderEpoch,$linkedEpoch isUncleanLeader=$isUnclean, isr=$isr, zkVersion=$zkVersion)"
+    val linkedState = clusterLinkState.map(state => s" linkedLeaderEpoch=${state.linkedLeaderEpoch},linkFailed=${state.linkFailed}").getOrElse("")
+    s"LeaderAndIsr(leader=$leader, leaderEpoch=$leaderEpoch,$linkedState isUncleanLeader=$isUnclean, isr=$isr, zkVersion=$zkVersion)"
   }
 }

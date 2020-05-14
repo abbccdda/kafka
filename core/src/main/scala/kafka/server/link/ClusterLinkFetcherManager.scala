@@ -13,15 +13,13 @@ import kafka.server._
 import kafka.tier.fetcher.TierStateFetcher
 import org.apache.kafka.clients.Metadata.LeaderAndEpoch
 import org.apache.kafka.clients._
+import org.apache.kafka.clients.admin.{Admin, NewPartitions}
 import org.apache.kafka.common.config.SslConfigs
-import org.apache.kafka.common.errors.ReassignmentInProgressException
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.metrics.stats.{Avg, Max}
 import org.apache.kafka.common.protocol.Errors
-import org.apache.kafka.common.requests.ApiError
 import org.apache.kafka.common.utils.Time
 import org.apache.kafka.common._
-import org.apache.kafka.common.message.CreatePartitionsRequestData.CreatePartitionsTopic
 
 import scala.collection.{Map, Set, mutable}
 import scala.jdk.CollectionConverters._
@@ -44,7 +42,7 @@ class ClusterLinkFetcherManager(linkName: String,
                                 clientInterceptor: Option[ClientInterceptor],
                                 brokerConfig: KafkaConfig,
                                 replicaManager: ReplicaManager,
-                                adminManager: AdminManager,
+                                destAdminClient: Admin,
                                 quota: ReplicaQuota,
                                 metrics: Metrics,
                                 time: Time,
@@ -353,31 +351,14 @@ class ClusterLinkFetcherManager(linkName: String,
   }
 
   private def updatePartitionCount(topicPartitionCounts: Map[String, Int], cluster: Cluster): Unit = {
-
-    def callback(results: Map[String, ApiError]): Unit = {
-      val (successful, failed) = results.partition(_._2 == ApiError.NONE)
-      if (failed.nonEmpty)
-        error(s"Could not update partition counts for $failed")
-      if (successful.nonEmpty)
-        debug(s"Updated partition counts for $topicPartitionCounts : ${successful.keySet}")
-    }
-
-    val newPartitions = topicPartitionCounts.map { case (topic, partitionCount) =>
-      new CreatePartitionsTopic().setName(topic).setCount(partitionCount).setAssignments(null)
-    }.toSeq
-    try {
-      adminManager.createPartitions(
-        brokerConfig.requestTimeoutMs,
-        newPartitions,
-        validateOnly = false,
-        brokerConfig.interBrokerListenerName,
-        callback)
-    } catch {
-      case _: ReassignmentInProgressException =>
-        debug(s"Reassignment is in progress, partitions could not be updated for $newPartitions")
-      case e: Throwable =>
-        error(s"Could not update partition counts: $newPartitions", e)
-    }
+    val newPartitions = topicPartitionCounts.map { case (k, v) => k -> NewPartitions.increaseTo(v) }.asJava
+    destAdminClient.createPartitions(newPartitions).values.forEach((topic, future) =>
+      future.whenComplete((_, e) => {
+        if (e != null)
+          error(s"Could not update destination topic partition count for $topic to ${topicPartitionCounts(topic)}", e)
+        else
+          debug(s"Updated destination topic partition count for $topic to ${topicPartitionCounts(topic)}")
+      }))
   }
 
   protected def partitionCount(topic: String): Int = {

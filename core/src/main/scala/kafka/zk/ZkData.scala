@@ -23,7 +23,7 @@ import java.util.UUID
 
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.fasterxml.jackson.core.JsonProcessingException
-import kafka.api.{ApiVersion, KAFKA_0_10_0_IV1, LeaderAndIsr}
+import kafka.api.{ApiVersion, KAFKA_0_10_0_IV1, LeaderAndIsr, PartitionLinkState}
 import kafka.cluster.{Broker, EndPoint}
 import kafka.common.{NotificationHandler, ZkNodeChangeNotificationListener}
 import kafka.controller.{IsrChangeNotificationHandler, LeaderIsrAndControllerEpoch, ReplicaAssignment}
@@ -345,9 +345,11 @@ object TopicPartitionStateZNode {
     val controllerEpoch = leaderIsrAndControllerEpoch.controllerEpoch
     val partitionState = mutable.Map("version" -> 1, "leader" -> leaderAndIsr.leader, "leader_epoch" -> leaderAndIsr.leaderEpoch,
       "controller_epoch" -> controllerEpoch, "isr" -> leaderAndIsr.isr.asJava, "confluent_is_unclean_leader" -> leaderAndIsr.isUnclean)
-    leaderAndIsr.linkedLeaderEpoch.foreach(epoch => partitionState += "confluent_linked_leader_epoch" -> epoch)
-    if (leaderAndIsr.linkFailed)
-      partitionState += "confluent_link_failed" -> true
+    leaderAndIsr.clusterLinkState.foreach { linkState =>
+      val linkStateMap = mutable.Map("confluent_linked_leader_epoch" -> linkState.linkedLeaderEpoch,
+        "confluent_link_failed" -> linkState.linkFailed)
+      partitionState += "confluent_cluster_link" -> linkStateMap.asJava
+    }
     Json.encodeAsBytes(partitionState.asJava)
   }
   def decode(bytes: Array[Byte], stat: Stat): Option[LeaderIsrAndControllerEpoch] = {
@@ -358,11 +360,15 @@ object TopicPartitionStateZNode {
       val isr = leaderIsrAndEpochInfo("isr").to[List[Int]]
       val controllerEpoch = leaderIsrAndEpochInfo("controller_epoch").to[Int]
       val isUncleanOpt = leaderIsrAndEpochInfo.get("confluent_is_unclean_leader").map(_.to[Boolean])
-      val linkedLeaderEpoch = leaderIsrAndEpochInfo.get("confluent_linked_leader_epoch").map(_.to[Int])
-      val linkFailed = leaderIsrAndEpochInfo.get("confluent_link_failed").exists(_.to[Boolean])
+      val clusterLinkJsonOpt = leaderIsrAndEpochInfo.get("confluent_cluster_link").map(_.asJsonObject)
+      val clusterLinkState = clusterLinkJsonOpt.map { linkJson =>
+        val linkedLeaderEpoch = linkJson("confluent_linked_leader_epoch").to[Int]
+        val linkFailed = linkJson.get("confluent_link_failed").exists(_.to[Boolean])
+        PartitionLinkState(linkedLeaderEpoch, linkFailed)
+      }
       val zkPathVersion = stat.getVersion
       LeaderIsrAndControllerEpoch(LeaderAndIsr(leader, epoch, isr, zkPathVersion, isUncleanOpt.getOrElse(false),
-        linkedLeaderEpoch, linkFailed), controllerEpoch)
+        clusterLinkState), controllerEpoch)
     }
   }
 }

@@ -4,6 +4,7 @@
 
 package kafka.server.link
 
+import java.time.Duration
 import java.util.{Collections, Properties, ServiceLoader}
 
 import kafka.api.KAFKA_2_3_IV1
@@ -14,9 +15,10 @@ import kafka.server.link.ClusterLinkManager._
 import kafka.tier.fetcher.TierStateFetcher
 import kafka.utils.Logging
 import kafka.zk.{ClusterLinkProps, KafkaZkClient}
-import org.apache.kafka.clients.{ClientInterceptor, NetworkClient}
-import org.apache.kafka.clients.admin.{Admin, ConfluentAdmin, KafkaAdminClient}
-import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.clients.{ClientInterceptor, CommonClientConfigs, NetworkClient}
+import org.apache.kafka.clients.admin.{Admin, AdminClientConfig, ConfluentAdmin, KafkaAdminClient}
+import org.apache.kafka.common.{Endpoint, TopicPartition}
+import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.apache.kafka.common.errors._
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
 import org.apache.kafka.common.metrics.Metrics
@@ -77,19 +79,24 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
   private var replicaManager: ReplicaManager = _
 
   var adminManager: AdminManager = _
-  var controller: KafkaController = _
-  var authorizer: Option[Authorizer] = _
+  private var controller: KafkaController = _
+  private var authorizer: Option[Authorizer] = _
+  private var interBrokerEndpoint: Endpoint = _
+  private var destAdminClient: Admin = _
 
-  def startup(replicaManager: ReplicaManager,
+  def startup(interBrokerEndpoint: Endpoint,
+              replicaManager: ReplicaManager,
               adminManager: AdminManager,
               controller: KafkaController,
               authorizer: Option[Authorizer]): Unit = {
+    this.interBrokerEndpoint = interBrokerEndpoint
     this.replicaManager = replicaManager
     this.adminManager = adminManager
     this.controller = controller
     this.authorizer = authorizer
-    if (brokerConfig.clusterLinkEnable)
+    if (brokerConfig.clusterLinkEnable) {
       scheduler.startup()
+    }
   }
 
   /**
@@ -144,7 +151,7 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
         clientInterceptor,
         brokerConfig,
         replicaManager,
-        adminManager,
+        getOrCreateDestAdmin(),
         quota,
         metrics,
         time,
@@ -231,7 +238,7 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
     val firstPartitionTopics = partitionStates.map(_._1.topicPartition).filter(_.partition == 0).map(_.topic).toSet
     managersLock synchronized {
       val (linkedPartitions, unlinkedPartitions)  = partitionStates.partition { case (_, partitionState) =>
-        Partition.clusterLinkTopicState(partitionState).exists(_.shouldSync)
+        Partition.clusterLinkShouldSync(partitionState)
       }
       managers.values.foreach { case Managers(fetcherManager, clientManager) =>
         if (unlinkedPartitions.nonEmpty) {
@@ -266,6 +273,8 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
     if (scheduler != null)
       scheduler.shutdown()
     admin.shutdown()
+    if (destAdminClient != null)
+      destAdminClient.close(Duration.ZERO)
     info("shutdown completed")
   }
 
@@ -309,5 +318,16 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
       }
     }
     confluentAdmin
+  }
+
+  private def getOrCreateDestAdmin(): Admin = {
+    // Create an admin client for the destination cluster using the inter-broker listener
+    if (destAdminClient == null) {
+      val adminConfigs = ConfluentConfigs.interBrokerClientConfigs(brokerConfig, interBrokerEndpoint)
+      adminConfigs.remove(AdminClientConfig.METRIC_REPORTER_CLASSES_CONFIG)
+      adminConfigs.put(CommonClientConfigs.CLIENT_ID_CONFIG, s"cluster-link-admin-${brokerConfig.brokerId}")
+      destAdminClient = Admin.create(adminConfigs)
+    }
+    destAdminClient
   }
 }

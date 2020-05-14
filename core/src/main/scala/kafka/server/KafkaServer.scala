@@ -502,7 +502,8 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         }
 
         /* Startup the clusterLinkManager once we have the authorizer and kafkaController */
-        clusterLinkManager.startup(replicaManager, adminManager, kafkaController, authorizer)
+        clusterLinkManager.startup(brokerInfo.broker.endPoint(config.interBrokerListenerName).toJava,
+          replicaManager, adminManager, kafkaController, authorizer)
 
         val fetchManager = new FetchManager(Time.SYSTEM,
           new FetchSessionCache(config.maxIncrementalFetchSessionCacheSlots,

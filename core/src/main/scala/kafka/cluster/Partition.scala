@@ -21,7 +21,7 @@ import java.util.concurrent.{CompletableFuture, Executor}
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import java.util.{Optional, Properties}
 
-import kafka.api.{ApiVersion, LeaderAndIsr}
+import kafka.api.{ApiVersion, LeaderAndIsr, PartitionLinkState}
 import kafka.common.UnexpectedAppendOffsetException
 import kafka.controller.{KafkaController, StateChangeLogger}
 import kafka.log._
@@ -29,8 +29,7 @@ import kafka.metrics.KafkaMetricsGroup
 import kafka.server._
 import kafka.server.checkpoints.OffsetCheckpoints
 import kafka.server.epoch.EpochEntry
-import kafka.server.link.ClusterLinkTopicState
-import kafka.server.link.ClusterLinkTopicState.{FailedMirror, Mirror}
+import kafka.server.link.{TopicLinkFailedMirror, TopicLinkMirror, TopicLinkState}
 import kafka.tier.domain.TierObjectMetadata
 import kafka.tier.fetcher.TierStateFetcher
 import kafka.tier.store.TierObjectStore
@@ -211,11 +210,24 @@ object Partition extends KafkaMetricsGroup {
     }
   }
 
-  def clusterLinkTopicState(partitionState: LeaderAndIsrPartitionState): Option[ClusterLinkTopicState] = {
+  def clusterLinkState(partitionState: LeaderAndIsrPartitionState): Option[ClusterLinkState] = {
     Option(partitionState.clusterLink).flatMap { linkName =>
-      Option(partitionState.clusterLinkTopicState).map(ClusterLinkTopicState.fromState(linkName, _))
+      Option(partitionState.clusterLinkTopicState).map(state => {
+        val topicState = try {
+          TopicLinkState.fromString(state)
+        } catch {
+          case e: IllegalArgumentException =>
+            error(s"Unknown cluster link state $state, disable mirroring", e)
+            TopicLinkFailedMirror
+        }
+        val linkedPartitionState = PartitionLinkState(partitionState.linkedLeaderEpoch, topicState == TopicLinkFailedMirror)
+        ClusterLinkState(linkName, topicState, linkedPartitionState)
+      })
     }
   }
+
+  def clusterLinkShouldSync(partitionState: LeaderAndIsrPartitionState): Boolean =
+    clusterLinkState(partitionState).exists(_.topicState.shouldSync)
 }
 
 
@@ -236,6 +248,8 @@ case class OngoingReassignmentState(addingReplicas: Seq[Int],
 }
 
 case class SimpleAssignmentState(replicas: Seq[Int], observers: Set[Int]) extends AssignmentState
+
+case class ClusterLinkState(linkName: String, topicState: TopicLinkState, partitionState: PartitionLinkState)
 
 /**
  * Data structure that represents a topic partition. The leader maintains the AR, ISR, CUR, RAR
@@ -270,7 +284,7 @@ class Partition(val topicPartition: TopicPartition,
 
   def topic: String = topicPartition.topic
   def partitionId: Int = topicPartition.partition
-  def isActiveLinkDestination: Boolean = clusterLink.exists(_.shouldSync)
+  def isActiveLinkDestination: Boolean = clusterLink.exists(_.topicState.shouldSync)
   def linkedUpdatesOnly: Boolean = clusterLink.nonEmpty
 
   private val stateChangeLogger = new StateChangeLogger(localBrokerId, inControllerContext = false, None)
@@ -286,8 +300,7 @@ class Partition(val topicPartition: TopicPartition,
   // defined when this broker is leader for partition
   @volatile private var leaderEpochStartOffsetOpt: Option[Long] = None
   @volatile private var isUncleanLeader: Boolean = false
-  @volatile private var clusterLink: Option[ClusterLinkTopicState] = None
-  @volatile private var linkedLeaderEpoch: Option[Int] = None
+  @volatile private var clusterLink: Option[ClusterLinkState] = None
   @volatile private var needsLinkedLeaderOffsets: Boolean = false
   @volatile var leaderReplicaIdOpt: Option[Int] = None
   @volatile var inSyncReplicaIds = Set.empty[Int]
@@ -573,7 +586,7 @@ class Partition(val topicPartition: TopicPartition,
 
   def getClusterLink: Option[String] = this.clusterLink.map(_.linkName)
 
-  def getLinkedLeaderEpoch: Option[Int] = this.linkedLeaderEpoch
+  def getLinkedLeaderEpoch: Option[Int] = this.clusterLink.map(_.partitionState.linkedLeaderEpoch)
 
   def linkedLeaderOffsetsPending(newValue: Boolean): Unit = this.needsLinkedLeaderOffsets = newValue
 
@@ -599,7 +612,7 @@ class Partition(val topicPartition: TopicPartition,
         addingReplicas = addingReplicas,
         removingReplicas = removingReplicas,
         observers = observers,
-        clusterLink = Partition.clusterLinkTopicState(partitionState)
+        clusterLink = Partition.clusterLinkState(partitionState)
       )
       createLogIfNotExists(partitionState.isNew, isFutureReplica = false, highWatermarkCheckpoints)
 
@@ -687,7 +700,7 @@ class Partition(val topicPartition: TopicPartition,
         addingReplicas = partitionState.addingReplicas.asScala.map(_.toInt),
         removingReplicas = partitionState.removingReplicas.asScala.map(_.toInt),
         observers = partitionState.observers.asScala.iterator.map(_.toInt).toSet,
-        Partition.clusterLinkTopicState(partitionState)
+        Partition.clusterLinkState(partitionState)
       )
       createLogIfNotExists(partitionState.isNew, isFutureReplica = false, highWatermarkCheckpoints)
       val followerLog = localLogOrException
@@ -785,14 +798,14 @@ class Partition(val topicPartition: TopicPartition,
    *                         the assignment
    * @param observers A sequence of broker ids that have been designated as observers.
    *                  Note that in a degraded state, the leader may be one of the observers.
-   * @param clusterLink Optional cluster link name if this partition is a mirror destination
+   * @param clusterLink Optional cluster link state if this partition is a mirror destination
    */
   def updateAssignmentAndIsr(assignment: Seq[Int],
                              isr: Set[Int],
                              addingReplicas: Seq[Int],
                              removingReplicas: Seq[Int],
                              observers: Set[Int],
-                             clusterLink: Option[ClusterLinkTopicState]): Unit = {
+                             clusterLink: Option[ClusterLinkState]): Unit = {
     remoteReplicasMap.clear()
     assignment
       .filter(_ != localBrokerId)
@@ -1562,7 +1575,8 @@ class Partition(val topicPartition: TopicPartition,
    *         raise a ZK exception, for example if the ZK session has timed out.
    */
   private def clearUncleanLeaderState(): Boolean = {
-    val newLeaderAndIsr = new LeaderAndIsr(localBrokerId, leaderEpoch, inSyncReplicaIds.toList, zkVersion, isUnclean = false, linkedLeaderEpoch)
+    val newLeaderAndIsr = new LeaderAndIsr(localBrokerId, leaderEpoch, inSyncReplicaIds.toList, zkVersion,
+      isUnclean = false, clusterLink.map(_.partitionState))
     val zkVersionOpt = stateStore.clearUncleanLeaderState(controllerEpoch, newLeaderAndIsr)
     zkVersionOpt match {
       case Some(newVersion) =>
@@ -1579,13 +1593,15 @@ class Partition(val topicPartition: TopicPartition,
   }
 
   private def expandIsr(newIsr: Set[Int]): Unit = {
-    val newLeaderAndIsr = new LeaderAndIsr(localBrokerId, leaderEpoch, newIsr.toList, zkVersion, isUnclean = isUncleanLeader, linkedLeaderEpoch)
+    val newLeaderAndIsr = new LeaderAndIsr(localBrokerId, leaderEpoch, newIsr.toList, zkVersion,
+      isUnclean = isUncleanLeader, clusterLink.map(_.partitionState))
     val zkVersionOpt = stateStore.expandIsr(controllerEpoch, newLeaderAndIsr)
     maybeUpdateIsrAndVersion(newIsr, zkVersionOpt)
   }
 
   private[cluster] def shrinkIsr(newIsr: Set[Int]): Unit = {
-    val newLeaderAndIsr = new LeaderAndIsr(localBrokerId, leaderEpoch, newIsr.toList, zkVersion, isUnclean = isUncleanLeader, linkedLeaderEpoch)
+    val newLeaderAndIsr = new LeaderAndIsr(localBrokerId, leaderEpoch, newIsr.toList, zkVersion,
+      isUnclean = isUncleanLeader, clusterLink.map(_.partitionState))
     val zkVersionOpt = stateStore.shrinkIsr(controllerEpoch, newLeaderAndIsr)
     maybeUpdateIsrAndVersion(newIsr, zkVersionOpt)
   }
@@ -1604,43 +1620,49 @@ class Partition(val topicPartition: TopicPartition,
 
   def updateLinkedLeaderEpoch(newLinkedLeaderEpoch: Int): Boolean = inWriteLock(leaderIsrUpdateLock) {
     debug(s"updateLinkedLeaderEpoch $topicPartition newEpoch=$newLinkedLeaderEpoch")
-    val newLeaderAndIsr = new LeaderAndIsr(localBrokerId, leaderEpoch, inSyncReplicaIds.toList, zkVersion, isUnclean = isUncleanLeader, Some(newLinkedLeaderEpoch))
-    val zkVersionOpt = stateStore.updateClusterLinkState(controllerEpoch, newLeaderAndIsr)
-    zkVersionOpt match {
-      case Some(newVersion) =>
-        linkedLeaderEpoch = Some(newLinkedLeaderEpoch)
-        zkVersion = newVersion
-        info(s"Source leader epoch updated to [$newLinkedLeaderEpoch] and zkVersion updated to [$zkVersion]")
-        true
+    clusterLink.exists { link =>
+      val newState = PartitionLinkState(newLinkedLeaderEpoch, link.partitionState.linkFailed)
+      val newLeaderAndIsr = new LeaderAndIsr(localBrokerId, leaderEpoch, inSyncReplicaIds.toList, zkVersion,
+        isUnclean = isUncleanLeader, Some(newState))
+      val zkVersionOpt = stateStore.updateClusterLinkState(controllerEpoch, newLeaderAndIsr)
+      zkVersionOpt match {
+        case Some(newVersion) =>
+          clusterLink = Some(ClusterLinkState(link.linkName, link.topicState, newState))
+          zkVersion = newVersion
+          info(s"Source leader epoch updated to [$newLinkedLeaderEpoch] and zkVersion updated to [$zkVersion]")
+          true
 
-      case None =>
-        info(s"Cached zkVersion $zkVersion not equal to that in zookeeper, skip updating source epoch")
-        false
+        case None =>
+          info(s"Cached zkVersion $zkVersion not equal to that in zookeeper, skip updating source epoch")
+          false
+      }
     }
   }
 
   def failClusterLink(): Boolean = {
-    debug(s"Partition link has failed, mirroring will be stopped from $clusterLink")
-    clusterLink match {
-      case Some(Mirror(linkName, _)) =>
-        inWriteLock(leaderIsrUpdateLock) {
-          val newLeaderAndIsr = LeaderAndIsr(localBrokerId, leaderEpoch, inSyncReplicaIds.toList, zkVersion,
-            isUncleanLeader, linkedLeaderEpoch, linkFailed = true)
-          val zkVersionOpt = stateStore.updateClusterLinkState(controllerEpoch, newLeaderAndIsr)
-          zkVersionOpt match {
-            case Some(newVersion) =>
-              clusterLink = Some(FailedMirror(linkName))
-              linkedLeaderOffsetsPending(false)
-              zkVersion = newVersion
-              info(s"Cluster link marked as failed and zkVersion updated to [$zkVersion]")
-              true
+    debug(s"Partition link has failed, mirroring will be stopped from ${clusterLink.map(_.topicState)}")
+    clusterLink.exists { link =>
+      link.topicState match {
+        case TopicLinkMirror =>
+          inWriteLock(leaderIsrUpdateLock) {
+            val newState = PartitionLinkState(link.partitionState.linkedLeaderEpoch, linkFailed = true)
+            val newLeaderAndIsr = LeaderAndIsr(localBrokerId, leaderEpoch, inSyncReplicaIds.toList, zkVersion,
+              isUncleanLeader, Some(newState))
+            val zkVersionOpt = stateStore.updateClusterLinkState(controllerEpoch, newLeaderAndIsr)
+            zkVersionOpt match {
+              case Some(newVersion) =>
+                clusterLink = Some(ClusterLinkState(link.linkName, TopicLinkFailedMirror, newState))
+                zkVersion = newVersion
+                info(s"Cluster link marked as failed and zkVersion updated to [$zkVersion]")
+                true
 
-            case None =>
-              info(s"Cached zkVersion $zkVersion not equal to that in zookeeper, skip marking cluster link as failed")
-              false
+              case None =>
+                info(s"Cached zkVersion $zkVersion not equal to that in zookeeper, skip marking cluster link as failed")
+                false
+            }
           }
-        }
-      case _ => true // Nothing to do
+        case _ => true // Nothing to do
+      }
     }
   }
 
@@ -1692,7 +1714,7 @@ class Partition(val topicPartition: TopicPartition,
         partitionString.append("; RemovingReplicas: " + removing.mkString(","))
       case _ =>
     }
-    clusterLink.foreach { linkName => partitionString.append(s"; ClusterLink: $linkName") }
+    clusterLink.foreach { link => partitionString.append(s"; ClusterLink: ${link.topicState}") }
     partitionString.toString
   }
 }

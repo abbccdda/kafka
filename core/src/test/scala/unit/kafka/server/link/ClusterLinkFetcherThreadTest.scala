@@ -16,10 +16,11 @@ import kafka.tier.fetcher.TierStateFetcher
 import kafka.utils.{MockTime, TestUtils}
 import kafka.zk.ClusterLinkProps
 import org.apache.kafka.clients.CommonClientConfigs
-import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.{Endpoint, TopicPartition}
 import org.apache.kafka.common.errors.InvalidClusterLinkException
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.protocol.Errors
+import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.utils.{LogContext, SystemTime, Time}
 import org.apache.kafka.server.authorizer.Authorizer
 import org.apache.kafka.test.{TestUtils => JTestUtils}
@@ -81,7 +82,7 @@ class ClusterLinkFetcherThreadTest extends ReplicaFetcherThreadTest {
 
   /*
    * We don't support cluster linking with versions less than 2.3, so using this test to ensure
-   * we dont't create linked fetchers with older versions
+   * we don't create linked fetchers with older versions
    */
   @Test(expected = classOf[InvalidClusterLinkException])
   override def shouldUseLeaderEndOffsetIfInterBrokerVersionBelow20(): Unit = {
@@ -98,7 +99,8 @@ class ClusterLinkFetcherThreadTest extends ReplicaFetcherThreadTest {
       new Metrics,
       new SystemTime,
       tierStateFetcher = None)
-    clusterLinkManager.startup(replicaManager, adminManager = null, controller, authorizer)
+    val brokerEndpoint = new Endpoint("PLAINTEXT", SecurityProtocol.PLAINTEXT, "localhost", 1234)
+    clusterLinkManager.startup(brokerEndpoint, replicaManager, adminManager = null, controller, authorizer)
     clusterLinkManager.addClusterLink(clusterLinkName, ClusterLinkProps(clusterLinkProps, None))
   }
 
@@ -138,7 +140,7 @@ class ClusterLinkFetcherThreadTest extends ReplicaFetcherThreadTest {
                                                        None,
                                                        brokerConfig,
                                                        replicaManager,
-                                                       adminManager = null,
+                                                       destAdminClient = null,
                                                        UnboundedQuota,
                                                        new Metrics,
                                                        time) {

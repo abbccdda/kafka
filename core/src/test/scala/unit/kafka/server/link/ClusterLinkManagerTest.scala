@@ -12,10 +12,11 @@ import kafka.server.{KafkaConfig, MetadataCache, ReplicaManager}
 import kafka.utils.TestUtils
 import kafka.zk.{ClusterLinkData, ClusterLinkProps, KafkaZkClient}
 import org.apache.kafka.clients.CommonClientConfigs
-import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.{Endpoint, TopicPartition}
 import org.apache.kafka.common.errors.{ClusterAuthorizationException, ClusterLinkInUseException, ClusterLinkNotFoundException}
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
 import org.apache.kafka.common.metrics.Metrics
+import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.utils.MockTime
 import org.easymock.EasyMock.{createNiceMock, expect, mock, replay, reset}
 import org.junit.{After, Before, Test}
@@ -81,7 +82,8 @@ class ClusterLinkManagerTest {
 
     val partitionState: LeaderAndIsrPartitionState = mock(classOf[LeaderAndIsrPartitionState])
     expect(partitionState.clusterLink()).andReturn(linkName).anyTimes()
-    expect(partitionState.clusterLinkTopicState()).andReturn("mirror").anyTimes()
+    expect(partitionState.clusterLinkTopicState()).andReturn("Mirror").anyTimes()
+    expect(partitionState.linkedLeaderEpoch()).andReturn(1).anyTimes()
     replay(partitionState)
     clusterLinkManager.removePartitions(Map(partition0 -> partitionState))
     assertTrue("Topic removed from metadata",
@@ -98,7 +100,8 @@ class ClusterLinkManagerTest {
 
     reset(partitionState)
     expect(partitionState.clusterLink()).andReturn(linkName).anyTimes()
-    expect(partitionState.clusterLinkTopicState()).andReturn("failed-mirror").anyTimes()
+    expect(partitionState.clusterLinkTopicState()).andReturn("FailedMirror").anyTimes()
+    expect(partitionState.linkedLeaderEpoch()).andReturn(-1).anyTimes()
     replay(partitionState)
     clusterLinkManager.addPartitions(Set(partition0))
     clusterLinkManager.removePartitions(Map(partition0 -> partitionState))
@@ -203,7 +206,8 @@ class ClusterLinkManagerTest {
       metrics,
       time,
       tierStateFetcher = None)
-    manager.startup(null, null, null, None)
+    val brokerEndpoint = new Endpoint("PLAINTEXT", SecurityProtocol.PLAINTEXT, "localhost", 1234)
+    manager.startup(brokerEndpoint, null, null, null, None)
     manager
   }
 }

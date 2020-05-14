@@ -72,6 +72,8 @@
         "taggedVersions": "4+", "ignorable": true, "about": "Cluster link name if this topic is being mirrored." },
       { "name": "ClusterLinkTopicState", "type": "string", "versions": "4+", "nullableVersions": "4+", "default": "null",  "tag": 10004,
         "taggedVersions": "4+", "ignorable": false, "about": "Cluster link state if this topic is being mirrored." },
+      { "name": "LinkedLeaderEpoch", "type": "int32", "versions": "4+", "default": "-1",  "tag": 10005,
+        "taggedVersions": "4+", "ignorable": false, "about": "Source leader epoch if this topic is being mirrored." },
       { "name": "PartitionIndex", "type": "int32", "versions": "0+",
         "about": "The partition index." },
       { "name": "ControllerEpoch", "type": "int32", "versions": "0+",

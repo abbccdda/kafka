@@ -13,14 +13,14 @@ import kafka.server._
 import kafka.server.QuotaFactory.UnboundedQuota
 import kafka.utils.TestUtils
 import org.apache.kafka.clients.CommonClientConfigs
-import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.clients.admin.{Admin, CreatePartitionsResult, NewPartitions}
+import org.apache.kafka.common.{KafkaFuture, TopicPartition}
 import org.apache.kafka.common.config.SslConfigs
-import org.apache.kafka.common.message.CreatePartitionsRequestData.CreatePartitionsTopic
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.utils.MockTime
 import org.apache.kafka.test.{TestUtils => JTestUtils}
-import org.easymock.{Capture, CaptureType, EasyMock}
+import org.easymock.{Capture, CaptureType}
 import org.easymock.EasyMock._
 import org.junit.{After, Before, Test}
 import org.junit.Assert._
@@ -37,7 +37,7 @@ class ClusterLinkFetcherManagerTest {
   private val replicaManager: ReplicaManager = mock(classOf[ReplicaManager])
   private val log: AbstractLog = createNiceMock(classOf[AbstractLog])
   private var fetcherManager: ClusterLinkFetcherManager = _
-  private var adminManager: AdminManager = _
+  private var destAdminClient: Admin = _
   private var numPartitions = 2
 
 
@@ -47,14 +47,14 @@ class ClusterLinkFetcherManagerTest {
     props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "localhost:1234")
     val clusterLinkConfig = new ClusterLinkConfig(props)
 
-    adminManager = createNiceMock(classOf[AdminManager])
+    destAdminClient = createNiceMock(classOf[Admin])
     fetcherManager = new ClusterLinkFetcherManager(
       linkName,
       clusterLinkConfig,
       None,
       brokerConfig,
       replicaManager,
-      adminManager,
+      destAdminClient,
       UnboundedQuota,
       metrics,
       time) {
@@ -183,10 +183,14 @@ class ClusterLinkFetcherManagerTest {
     val partition: Partition = mock(classOf[Partition])
     setupMock(partition, tp)
 
-    val capturedRequests: Capture[Seq[CreatePartitionsTopic]] = newCapture(CaptureType.ALL)
-    expect(adminManager.createPartitions(anyInt(), capture(capturedRequests), EasyMock.eq(false), anyObject(), anyObject()))
+    val createPartitionsResult: CreatePartitionsResult = createNiceMock(classOf[CreatePartitionsResult])
+    expect(createPartitionsResult.values())
+      .andReturn(Collections.singletonMap(topic, KafkaFuture.completedFuture(null))).anyTimes()
+    val capturedRequests: Capture[util.Map[String, NewPartitions]] = newCapture(CaptureType.ALL)
+    expect(destAdminClient.createPartitions(capture(capturedRequests)))
+      .andReturn(createPartitionsResult)
       .anyTimes()
-    replay(replicaManager, adminManager)
+    replay(replicaManager, destAdminClient, createPartitionsResult)
 
     numPartitions = 1
     var numSourcePartitions: Integer = 1
@@ -201,14 +205,14 @@ class ClusterLinkFetcherManagerTest {
     assertEquals(1, capturedRequests.getValues.size)
     val captured1 = capturedRequests.getValues.get(0)
     assertEquals(1, captured1.size)
-    assertEquals(4, captured1.head.count)
+    assertEquals(4, captured1.get(topic).totalCount)
 
     // Verify that we retry on next metadata if destination partition count hasn't been updated
     updateMetadata(Map(topic -> numSourcePartitions), sourceEpoch)
     assertEquals(2, capturedRequests.getValues.size)
     val captured2 = capturedRequests.getValues.get(1)
     assertEquals(1, captured2.size)
-    assertEquals(4, captured2.head.count)
+    assertEquals(4, captured2.get(topic).totalCount)
 
     // Verify that we dont retry after destination partition count is updated
     numPartitions = 4

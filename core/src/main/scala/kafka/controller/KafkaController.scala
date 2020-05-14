@@ -822,12 +822,12 @@ class KafkaController(val config: KafkaConfig,
     val linkedLeaderChanges = mutable.Set[TopicPartition]()
     val failedLinks = mutable.Set[String]()
     leaderIsrAndControllerEpochs.foreach { case (partition, leaderIsrAndControllerEpoch) =>
-      if (leaderIsrAndControllerEpoch.leaderAndIsr.linkFailed) {
+      if (leaderIsrAndControllerEpoch.leaderAndIsr.clusterLinkState.exists(_.linkFailed)) {
         failedLinks += partition.topic
       } else {
         val oldLinkedEpoch = controllerContext.partitionLeadershipInfo.get(partition)
-          .flatMap(_.leaderAndIsr.linkedLeaderEpoch)
-        val newLinkedEpoch = leaderIsrAndControllerEpoch.leaderAndIsr.linkedLeaderEpoch
+          .flatMap(_.leaderAndIsr.clusterLinkState).map(_.linkedLeaderEpoch)
+        val newLinkedEpoch = leaderIsrAndControllerEpoch.leaderAndIsr.clusterLinkState.map(_.linkedLeaderEpoch)
         if (oldLinkedEpoch != newLinkedEpoch)
           linkedLeaderChanges += partition
       }
@@ -1110,7 +1110,7 @@ class KafkaController(val config: KafkaConfig,
               controllerContext.partitionLeadershipInfo.put(partition, leaderIsrAndControllerEpoch)
               finalLeaderIsrAndControllerEpoch = Some(leaderIsrAndControllerEpoch)
               info(s"Updated leader epoch for partition $partition to ${leaderAndIsr.leaderEpoch}" +
-                leaderAndIsr.linkedLeaderEpoch.map(e => s" linkedEpoch=$e").getOrElse(""))
+                leaderAndIsr.clusterLinkState.map(state => s" linkedEpoch=${state.linkedLeaderEpoch}").getOrElse(""))
               true
             case Some(Left(e)) => throw e
             case None => false
@@ -2258,7 +2258,7 @@ case class LeaderIsrAndControllerEpoch(leaderAndIsr: LeaderAndIsr, controllerEpo
     leaderAndIsrInfo.append("(Leader:" + leaderAndIsr.leader)
     leaderAndIsrInfo.append(",ISR:" + leaderAndIsr.isr.mkString(","))
     leaderAndIsrInfo.append(",LeaderEpoch:" + leaderAndIsr.leaderEpoch)
-    leaderAndIsr.linkedLeaderEpoch.foreach { epoch => leaderAndIsrInfo.append(",LinkedLeaderEpoch:" + epoch) }
+    leaderAndIsr.clusterLinkState.foreach { state => leaderAndIsrInfo.append(",LinkState:" + state) }
     leaderAndIsrInfo.append(",ControllerEpoch:" + controllerEpoch + ")")
     leaderAndIsrInfo.toString()
   }

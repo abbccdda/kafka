@@ -1902,8 +1902,15 @@ class KafkaApis(val requestChannel: RequestChannel,
         .filter { _._2.size > 1 }
         .keySet
       val notDuped = topics.filterNot(topic => dupes.contains(topic.name))
-      val (authorized, unauthorized) = partitionSeqByAuthorized(request.context, ALTER, TOPIC,
-        notDuped)(_.name)
+
+      // For topics mirrored using cluster linking, only brokers performing partition sync
+      // are allowed to create partitions.
+      val (linkedTopics, nonLinkedTopics) = notDuped.map(_.name).partition(controller.controllerContext.linkedTopics.contains)
+      val authorizedLinkedTopics = if (linkedTopics.nonEmpty && authorize(request.context, CLUSTER_ACTION, CLUSTER, CLUSTER_NAME))
+        linkedTopics.toSet else Set.empty
+      val authorizedTopics = filterByAuthorized(request.context, ALTER, TOPIC, nonLinkedTopics)(identity) ++ authorizedLinkedTopics
+
+      val (authorized, unauthorized) = notDuped.partition { topic => authorizedTopics.contains(topic.name) }
 
       val (queuedForDeletion, valid) = authorized.partition { topic =>
         controller.topicDeletionManager.isTopicQueuedUpForDeletion(topic.name)
