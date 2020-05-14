@@ -260,6 +260,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         synchronized (lock) {
             this.basePath = Log.tierStateFile(dir, FILE_OFFSET, "").getAbsolutePath();
             this.dir = dir;
+            state.updateBasePath(basePath);
         }
     }
 
@@ -620,9 +621,9 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         private final ConcurrentNavigableMap<UUID, SegmentState> allSegments = new ConcurrentSkipListMap<>();
         // state format version
         private final byte version;
-        private final String basePath;
         private final Consumer<IOException> ioExceptionHandler;
 
+        private String basePath;
         private TopicIdPartition topicIdPartition = null;
         private TierObjectMetadata uploadInProgress;  // cached for quick lookup
         // boolean denoting whether the state has been mutated and is unflushed
@@ -718,6 +719,9 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                     topicPartition, status, topicIdPartition, currentEpoch, endOffset);
         }
 
+        public void updateBasePath(String path) {
+            basePath = path;
+        }
 
         SegmentState updateAndGetState(long byteOffset, TierObjectMetadata metadata) {
             allSegments.putIfAbsent(metadata.objectId(), new SegmentState(startOffsetOfSegment(metadata), byteOffset));
