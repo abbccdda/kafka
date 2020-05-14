@@ -1,5 +1,6 @@
 package io.confluent.kafka.multitenant;
 
+import org.apache.kafka.common.config.ConfluentTopicConfig;
 import org.apache.kafka.common.utils.Utils;
 
 import java.util.Set;
@@ -38,11 +39,7 @@ public class MultiTenantConfigRestrictions {
   );
 
   public static boolean visibleTopicConfig(String configName) {
-    return !configName.startsWith("confluent.tier") &&
-        // we will not allow users to turn on / off schema validation in CC for now
-        !configName.startsWith("confluent.key.schema.validation") &&
-        !configName.startsWith("confluent.value.schema.validation") &&
-        !configName.equals("confluent.placement.constraints") &&
-        !configName.equals("confluent.segment.speculative.prefetch.enable");
+    // hide all Confluent-specific topic configs in CCloud
+    return !configName.startsWith(ConfluentTopicConfig.CONFLUENT_PREFIX);
   }
 }

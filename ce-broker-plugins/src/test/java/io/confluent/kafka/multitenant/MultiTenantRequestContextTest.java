@@ -7,6 +7,7 @@ import io.confluent.kafka.multitenant.metrics.PartitionSensors;
 import io.confluent.kafka.multitenant.metrics.TenantMetrics;
 import io.confluent.kafka.multitenant.quota.TenantPartitionAssignor;
 import io.confluent.kafka.multitenant.quota.TestCluster;
+import kafka.server.KafkaConfig;
 import kafka.server.link.ClusterLinkManager$;
 import org.apache.kafka.clients.consumer.ConsumerPartitionAssignor.Subscription;
 import org.apache.kafka.clients.consumer.internals.ConsumerProtocol;
@@ -2537,17 +2538,19 @@ public class MultiTenantRequestContextTest {
     DescribeConfigsResponse.ConfigSource topicSource = DescribeConfigsResponse.ConfigSource.TOPIC_CONFIG;
     Set<DescribeConfigsResponse.ConfigSynonym> emptySynonyms = Collections.emptySet();
     Collection<DescribeConfigsResponse.ConfigEntry> brokerConfigEntries = asList(
-      new DescribeConfigsResponse.ConfigEntry("message.max.bytes", "10000", brokerSource, false, false, emptySynonyms),
-      new DescribeConfigsResponse.ConfigEntry("num.network.threads", "5", brokerSource, false, false, emptySynonyms),
-      new DescribeConfigsResponse.ConfigEntry("broker.interceptor.class", "bar", brokerSource, false, false, emptySynonyms),
-      new DescribeConfigsResponse.ConfigEntry("confluent.append.record.interceptor.classes", "foo,bar", brokerSource, false, false, emptySynonyms)
+      new DescribeConfigsResponse.ConfigEntry(KafkaConfig.MessageMaxBytesProp(), "10000", brokerSource, false, false, emptySynonyms),
+      new DescribeConfigsResponse.ConfigEntry(KafkaConfig.NumNetworkThreadsProp(), "5", brokerSource, false, false, emptySynonyms),
+      new DescribeConfigsResponse.ConfigEntry(KafkaConfig.BrokerInterceptorClassProp(), "bar", brokerSource, false, false, emptySynonyms),
+      new DescribeConfigsResponse.ConfigEntry(KafkaConfig.AppendRecordInterceptorClassesProp(), "foo,bar", brokerSource, false, false, emptySynonyms),
+      new DescribeConfigsResponse.ConfigEntry(KafkaConfig.PreferTierFetchMsProp(), "true", brokerSource, false, false, emptySynonyms)
     );
     Collection<DescribeConfigsResponse.ConfigEntry> topicConfigEntries = asList(
-      new DescribeConfigsResponse.ConfigEntry("retention.bytes", "10000000", topicSource, false, false, emptySynonyms),
-      new DescribeConfigsResponse.ConfigEntry("min.insync.replicas", "2", topicSource, false, false, emptySynonyms),
-      new DescribeConfigsResponse.ConfigEntry("min.cleanable.dirty.ratio", "0.5", topicSource, false, false, emptySynonyms),
-      new DescribeConfigsResponse.ConfigEntry("confluent.tier.enable", "true", topicSource, false, false, emptySynonyms),
-      new DescribeConfigsResponse.ConfigEntry("confluent.key.schema.validation", "true", brokerSource, false, false, emptySynonyms)
+      new DescribeConfigsResponse.ConfigEntry(TopicConfig.RETENTION_BYTES_CONFIG, "10000000", topicSource, false, false, emptySynonyms),
+      new DescribeConfigsResponse.ConfigEntry(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, "2", topicSource, false, false, emptySynonyms),
+      new DescribeConfigsResponse.ConfigEntry(TopicConfig.MIN_CLEANABLE_DIRTY_RATIO_CONFIG, "0.5", topicSource, false, false, emptySynonyms),
+      new DescribeConfigsResponse.ConfigEntry(ConfluentTopicConfig.TIER_ENABLE_CONFIG, "true", topicSource, false, false, emptySynonyms),
+      new DescribeConfigsResponse.ConfigEntry(ConfluentTopicConfig.KEY_SCHEMA_VALIDATION_CONFIG, "true", brokerSource, false, false, emptySynonyms),
+      new DescribeConfigsResponse.ConfigEntry(ConfluentTopicConfig.PREFER_TIER_FETCH_MS_CONFIG, "true", brokerSource, false, false, emptySynonyms)
     );
 
     for (short ver = ApiKeys.DESCRIBE_CONFIGS.oldestVersion(); ver <= ApiKeys.DESCRIBE_CONFIGS.latestVersion(); ver++) {
@@ -2579,18 +2582,19 @@ public class MultiTenantRequestContextTest {
       if (allowDescribeBrokerConfigs) {
         assertEquals(
             mkMap(
-                mkEntry("retention.bytes", Boolean.FALSE),
-                mkEntry("min.insync.replicas", Boolean.FALSE),
-                mkEntry("min.cleanable.dirty.ratio", Boolean.FALSE),
-                mkEntry("confluent.tier.enable", Boolean.FALSE),
-                mkEntry("confluent.key.schema.validation", Boolean.FALSE)),
+                mkEntry(TopicConfig.RETENTION_BYTES_CONFIG, Boolean.FALSE),
+                mkEntry(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, Boolean.FALSE),
+                mkEntry(TopicConfig.MIN_CLEANABLE_DIRTY_RATIO_CONFIG, Boolean.FALSE),
+                mkEntry(ConfluentTopicConfig.TIER_ENABLE_CONFIG, Boolean.FALSE),
+                mkEntry(ConfluentTopicConfig.KEY_SCHEMA_VALIDATION_CONFIG, Boolean.FALSE),
+                mkEntry(ConfluentTopicConfig.PREFER_TIER_FETCH_MS_CONFIG, Boolean.FALSE)),
             topicReadOnlyMap);
       } else {
         assertEquals(
             mkMap(
-                mkEntry("retention.bytes", Boolean.FALSE),
-                mkEntry("min.insync.replicas", Boolean.FALSE),
-                mkEntry("min.cleanable.dirty.ratio", Boolean.TRUE)),
+                mkEntry(TopicConfig.RETENTION_BYTES_CONFIG, Boolean.FALSE),
+                mkEntry(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, Boolean.FALSE),
+                mkEntry(TopicConfig.MIN_CLEANABLE_DIRTY_RATIO_CONFIG, Boolean.TRUE)),
             topicReadOnlyMap);
       }
 
@@ -2602,11 +2606,11 @@ public class MultiTenantRequestContextTest {
       }
       if (allowDescribeBrokerConfigs) {
         assertEquals(
-            mkSet(
-                "message.max.bytes",
-                "num.network.threads",
-                "broker.interceptor.class",
-                "confluent.append.record.interceptor.classes"),
+            mkSet(KafkaConfig.MessageMaxBytesProp(),
+                KafkaConfig.NumNetworkThreadsProp(),
+                KafkaConfig.BrokerInterceptorClassProp(),
+                KafkaConfig.AppendRecordInterceptorClassesProp(),
+                KafkaConfig.PreferTierFetchMsProp()),
             interceptedEntries);
       } else {
         assertEquals(mkSet("message.max.bytes"), interceptedEntries);
