@@ -73,12 +73,14 @@ public class CruiseControlMetricsProcessor {
   private void updateCachedNumCoresByBroker(Cluster cluster) {
     for (int brokerId : _brokerLoad.keySet()) {
       // Compute cached number of cores by broker id if they have not been cached already.
-      _cachedNumCoresByBroker.computeIfAbsent(brokerId, bid -> {
-        Node node = cluster.nodeById(bid);
-        BrokerCapacityInfo capacity = _brokerCapacityConfigResolver.capacityForBroker(getRackHandleNull(node), node.host(), bid);
-        // No mapping shall be recorded if capacity is estimated, but estimation is not allowed.
-        return (!_allowCpuCapacityEstimation && capacity.isEstimated()) ? null : capacity.numCpuCores();
-      });
+      Node node = cluster.nodeById(brokerId);
+      if (node != null) {
+        _cachedNumCoresByBroker.computeIfAbsent(brokerId, bid -> {
+          BrokerCapacityInfo capacity = _brokerCapacityConfigResolver.capacityForBroker(getRackHandleNull(node), node.host(), bid);
+          // No mapping shall be recorded if capacity is estimated, but estimation is not allowed.
+          return (!_allowCpuCapacityEstimation && capacity.isEstimated()) ? null : capacity.numCpuCores();
+        });
+      }
     }
   }
 
@@ -91,7 +93,7 @@ public class CruiseControlMetricsProcessor {
       Integer brokerId = entry.getKey();
       BrokerLoad brokerLoad = entry.getValue();
       Node node = cluster.nodeById(brokerId);
-      if (brokerLoad.brokerMetricAvailable(RawMetricType.BROKER_DISK_CAPACITY)) {
+      if (node != null && brokerLoad.brokerMetricAvailable(RawMetricType.BROKER_DISK_CAPACITY)) {
         double brokerDiskCapacityInMiB = brokerLoad.brokerMetric(RawMetricType.BROKER_DISK_CAPACITY) / KafkaCruiseControlUtils.BYTES_IN_MB;
         _brokerCapacityConfigResolver.updateDiskCapacityForBroker(getRackHandleNull(node), node.host(), brokerId, brokerDiskCapacityInMiB);
       }

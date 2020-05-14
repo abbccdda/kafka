@@ -181,6 +181,26 @@ public class CruiseControlMetricsProcessorTest {
   }
 
   @Test
+  public void testDiskCapacityUpdatedMissingNode() {
+    Set<CruiseControlMetric> metrics = getCruiseControlMetrics();
+    Cluster cluster = getClusterMissingNode0();
+    double broker0DiskCapacityBytes = 10d * 1024 * 1024 * 1024; // 10 GB in units of MB
+    metrics.add(new BrokerMetric(RawMetricType.BROKER_DISK_CAPACITY, _time.milliseconds(), BROKER_ID_0, broker0DiskCapacityBytes));
+
+    BrokerCapacityConfigResolver brokerCapacityConfigResolver = EasyMock.mock(BrokerCapacityConfigResolver.class);
+    EasyMock.expect(brokerCapacityConfigResolver.capacityForBroker(EasyMock.anyString(), EasyMock.anyString(), EasyMock.anyInt()))
+            .andReturn(new BrokerCapacityInfo(Collections.emptyMap(), Collections.emptyMap(), MOCK_NUM_CPU_CORES)).anyTimes();
+    // expect updateDiskCapacity not to be called
+    EasyMock.replay(brokerCapacityConfigResolver);
+
+    CruiseControlMetricsProcessor processor = new CruiseControlMetricsProcessor(brokerCapacityConfigResolver, false);
+    for (CruiseControlMetric cruiseControlMetric : metrics) {
+      processor.addMetric(cruiseControlMetric);
+    }
+    processor.process(cluster, TEST_PARTITIONS, MetricSampler.SamplingMode.ALL);
+  }
+
+  @Test
   public void testBasic() {
     CruiseControlMetricsProcessor processor = new CruiseControlMetricsProcessor(mockBrokerCapacityConfigResolver(), false);
     Set<CruiseControlMetric> metrics = getCruiseControlMetrics();
@@ -440,6 +460,16 @@ public class CruiseControlMetricsProcessorTest {
     parts.add(new PartitionInfo(TOPIC1, P1, node1, nodes, nodes));
     parts.add(new PartitionInfo(TOPIC2, P0, node0, nodes, nodes));
     parts.add(new PartitionInfo(TOPIC2, P1, node0, nodes, nodes));
+    return new Cluster("testCluster", allNodes, parts, Collections.emptySet(), Collections.emptySet());
+  }
+
+  private Cluster getClusterMissingNode0() {
+    Node node1 = new Node(BROKER_ID_1, "localhost", 100, "rack1");
+    Node[] nodes = {node1};
+    Set<Node> allNodes = new HashSet<>();
+    allNodes.add(node1);
+    Set<PartitionInfo> parts = new HashSet<>();
+    parts.add(new PartitionInfo(TOPIC1, P1, node1, nodes, nodes));
     return new Cluster("testCluster", allNodes, parts, Collections.emptySet(), Collections.emptySet());
   }
 }
