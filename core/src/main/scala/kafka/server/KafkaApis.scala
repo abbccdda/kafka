@@ -3180,7 +3180,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         val future = try {
           if (newClusterLinks.count(_.linkName == linkName) > 1)
             throw new InvalidRequestException(s"Duplicate link name $linkName")
-          clusterLinkAdminManager.createClusterLink(ncl,
+          clusterLinkAdminManager.createClusterLink(ncl, request.context.tenantPrefix().asScala,
             createClusterLinksRequest.validateOnly, createClusterLinksRequest.validateLink, timeoutMs)
         } catch {
           case e: Throwable =>

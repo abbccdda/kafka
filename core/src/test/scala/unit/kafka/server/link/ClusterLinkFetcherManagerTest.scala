@@ -51,6 +51,7 @@ class ClusterLinkFetcherManagerTest {
     fetcherManager = new ClusterLinkFetcherManager(
       linkName,
       clusterLinkConfig,
+      None,
       brokerConfig,
       replicaManager,
       adminManager,

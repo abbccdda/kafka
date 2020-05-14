@@ -3,6 +3,7 @@
  */
 package kafka.server.link
 
+import java.time.Duration
 import java.util.concurrent.{CompletableFuture, ExecutionException}
 
 import kafka.controller.KafkaController
@@ -40,6 +41,7 @@ class ClusterLinkClientManager(val linkName: String,
   @volatile private var admin: Option[ConfluentAdmin] = None
 
   private var clusterLinkSyncAcls: Option[ClusterLinkSyncAcls] = None
+  private var clusterLinkSyncTopicConfigs: ClusterLinkSyncTopicsConfigs = _
 
   // Protects `topics` and `config`.
   private val lock = new Object
@@ -52,6 +54,10 @@ class ClusterLinkClientManager(val linkName: String,
 
   def startup(): Unit = {
     setAdmin(Some(adminFactory(config)))
+
+    clusterLinkSyncTopicConfigs = new ClusterLinkSyncTopicsConfigs(this, config.topicConfigSyncMs)
+    clusterLinkSyncTopicConfigs.startup()
+
     if (config.aclSyncEnable) {
       authorizer.getOrElse(throw new IllegalArgumentException("ACL migration is enabled but "
         + "authorizer.class.name is not set. Please set authorizer.class.name to proceed with ACL "
@@ -107,7 +113,7 @@ class ClusterLinkClientManager(val linkName: String,
   private def setAdmin(newAdmin: Option[ConfluentAdmin]): Unit = {
     val oldAdmin = admin
     admin = newAdmin
-    oldAdmin.foreach(a => CoreUtils.swallow(a.close(), this))
+    oldAdmin.foreach(a => CoreUtils.swallow(a.close(Duration.ZERO), this))
   }
 
   /**

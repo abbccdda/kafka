@@ -35,10 +35,11 @@ class ClusterLinkMetadataThreadTest {
     val props = new Properties
     props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "localhost:1234")
     val clusterLinkConfig = new ClusterLinkConfig(props)
-    metadataThread = new ClusterLinkMetadataThread(clusterLinkConfig, metadata, metrics, time) {
+    metadataThread = new ClusterLinkMetadataThread(clusterLinkConfig, None, metadata, metrics, time) {
       override protected def createNetworkClient(clusterLinkConfig: ClusterLinkConfig, clusterLinkMetadata: ClusterLinkMetadata): ClusterLinkNetworkClient = {
         new ClusterLinkNetworkClient(
           clusterLinkConfig,
+          None,
           clusterLinkMetadata.throttleTimeSensorName,
           Some(metadata),
           metadataUpdater = None,

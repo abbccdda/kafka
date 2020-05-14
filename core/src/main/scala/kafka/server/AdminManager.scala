@@ -29,7 +29,7 @@ import kafka.utils.Log4jController
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.link.{ClusterLinkClientManager, ClusterLinkConfig, ClusterLinkManager, ClusterLinkUtils}
 import kafka.utils._
-import kafka.zk.{AdminZkClient, KafkaZkClient}
+import kafka.zk.{AdminZkClient, ClusterLinkProps, KafkaZkClient}
 import org.apache.kafka.clients.admin.AlterConfigOp
 import org.apache.kafka.clients.admin.AlterConfigOp.OpType
 import org.apache.kafka.common.TopicPartition
@@ -645,6 +645,7 @@ class AdminManager(val config: KafkaConfig,
 
   private def alterClusterLinkConfigs(resource: ConfigResource,
                                       validateOnly: Boolean,
+                                      tenantPrefix: Option[String],
                                       configProps: Properties,
                                       configEntriesMap: Map[String, String],
                                       principal: KafkaPrincipal): (ConfigResource, ApiError) = {
@@ -653,7 +654,7 @@ class AdminManager(val config: KafkaConfig,
     validateConfigPolicy(resource, configEntriesMap, principal)
     if (!validateOnly) {
       info(s"Updating cluster link $linkName with new configuration $config")
-      adminZkClient.changeClusterLinkConfig(linkName, configProps)
+      adminZkClient.changeClusterLinkConfig(linkName, new ClusterLinkProps(configProps, tenantPrefix))
     }
 
     resource -> ApiError.NONE
@@ -723,9 +724,10 @@ class AdminManager(val config: KafkaConfig,
             resource -> ApiError.NONE
 
           case ConfigResource.Type.CLUSTER_LINK =>
-            val configProps = adminZkClient.fetchEntityConfig(ConfigType.ClusterLink, resource.name)
+            val currentConfig = adminZkClient.fetchClusterLinkConfig(resource.name)
+            val configProps = currentConfig.configs
             prepareIncrementalConfigs(alterConfigOps, configProps, ClusterLinkConfig.configKeys)
-            alterClusterLinkConfigs(resource, validateOnly, configProps, configEntriesMap, principal)
+            alterClusterLinkConfigs(resource, validateOnly, currentConfig.tenantPrefix, configProps, configEntriesMap, principal)
 
           case resourceType =>
             throw new InvalidRequestException(s"AlterConfigs is only supported for topics and brokers, but resource type is $resourceType")

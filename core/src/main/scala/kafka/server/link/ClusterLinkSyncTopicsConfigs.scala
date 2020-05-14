@@ -17,8 +17,8 @@ import scala.collection.mutable
   * Task that periodically fetches remote topics' configurations and synchronizes any necessary
   * changes to the local topics' configurations.
   */
-class ClusterLinkSyncTopicsConfigs(val clientManager: ClusterLinkClientManager)
-    extends ClusterLinkScheduler.PeriodicTask(clientManager.scheduler, name = "SyncTopicsConfigs", 5000) {
+class ClusterLinkSyncTopicsConfigs(clientManager: ClusterLinkClientManager, syncIntervalMs: Int)
+    extends ClusterLinkScheduler.PeriodicTask(clientManager.scheduler, name = "SyncTopicsConfigs", syncIntervalMs) {
 
   // Maps a topic to the remote topic's configuration, otherwise none if unknown.
   private val configs = mutable.Map[String, Option[Config]]()

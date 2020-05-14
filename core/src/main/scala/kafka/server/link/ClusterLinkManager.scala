@@ -10,11 +10,12 @@ import kafka.api.KAFKA_2_3_IV1
 import kafka.cluster.Partition
 import kafka.controller.KafkaController
 import kafka.server.{AdminManager, KafkaConfig, ReplicaManager, ReplicaQuota}
+import kafka.server.link.ClusterLinkManager._
 import kafka.tier.fetcher.TierStateFetcher
 import kafka.utils.Logging
-import kafka.zk.KafkaZkClient
-import org.apache.kafka.clients.ClientInterceptor
-import org.apache.kafka.clients.admin.{Admin, ConfluentAdmin}
+import kafka.zk.{ClusterLinkProps, KafkaZkClient}
+import org.apache.kafka.clients.{ClientInterceptor, NetworkClient}
+import org.apache.kafka.clients.admin.{Admin, ConfluentAdmin, KafkaAdminClient}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors._
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
@@ -36,7 +37,7 @@ object ClusterLinkManager {
           interceptor.configure(configs)
           true
         } catch {
-          case e: Throwable => false
+          case _: Throwable => false
         }
       }.getOrElse(throw new InvalidClusterLinkException("Cluster link interceptor not found"))
   }
@@ -96,27 +97,29 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
     * broker start up and to update existing cluster links when config update notifications
     * are processed. All updates are expected to be processed on a single thread.
     */
-  def processClusterLinkChanges(linkName: String, configs: Properties): Unit = {
+  def processClusterLinkChanges(linkName: String, persistentProps: Properties): Unit = {
     if (!brokerConfig.clusterLinkEnable) {
       error(s"Cluster link $linkName not updated since cluster links are not enabled")
     } else {
+      val clusterLinkProps = ClusterLinkProps.fromPersistentProps(persistentProps)
+
       val existingManager = managersLock synchronized {
         val linkManager = managers.get(linkName)
         if (linkManager.isEmpty) {
-          addClusterLink(linkName, configs)
+          addClusterLink(linkName, clusterLinkProps)
           linkManager
-        } else if (configs.isEmpty) {
+        } else if (persistentProps.isEmpty) {
           removeClusterLink(linkName)
           None
         } else {
           linkManager
         }
       }
-      existingManager.foreach(manager => reconfigureClusterLink(manager, configs))
+      existingManager.foreach(manager => reconfigureClusterLink(manager, clusterLinkProps.configs))
     }
   }
 
-  def addClusterLink(linkName: String, configs: Properties): Unit = {
+  def addClusterLink(linkName: String, clusterLinkProps: ClusterLinkProps): Unit = {
     ensureClusterLinkEnabled()
 
     // Support for OffsetsForLeaderEpoch in clients was added in 2.3.0. This is the minimum supported version
@@ -124,17 +127,32 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
     if (brokerConfig.interBrokerProtocolVersion <= KAFKA_2_3_IV1)
       throw new InvalidClusterLinkException(s"Cluster linking is not supported with inter-broker protocol version ${brokerConfig.interBrokerProtocolVersion}")
 
-    val config = new ClusterLinkConfig(configs)
+    val config = new ClusterLinkConfig(clusterLinkProps.configs)
     managersLock synchronized {
       if (managers.contains(linkName))
         throw new ClusterLinkExistsException(s"Cluster link '$linkName' exists")
 
+      val clientInterceptor = clusterLinkProps.tenantPrefix.map(tenantInterceptor)
       val clientManager = new ClusterLinkClientManager(linkName, scheduler, zkClient, config,
         authorizer, controller,
-        (cfg: ClusterLinkConfig) => Admin.create(cfg.originals).asInstanceOf[ConfluentAdmin])
+        (cfg: ClusterLinkConfig) => newConfluentAdmin(cfg, clientInterceptor))
       clientManager.startup()
 
-      managers.put(linkName, Managers(newClusterLinkFetcherManager(linkName, config), clientManager))
+      val fetcherManager = new ClusterLinkFetcherManager(
+        linkName,
+        config,
+        clientInterceptor,
+        brokerConfig,
+        replicaManager,
+        adminManager,
+        quota,
+        metrics,
+        time,
+        threadNamePrefix,
+        tierStateFetcher)
+      fetcherManager.startup()
+
+      managers.put(linkName, Managers(fetcherManager, clientManager))
     }
   }
 
@@ -251,22 +269,6 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
     info("shutdown completed")
   }
 
-  protected def newClusterLinkFetcherManager(linkName: String, config: ClusterLinkConfig): ClusterLinkFetcherManager = {
-    val manager = new ClusterLinkFetcherManager(
-      linkName,
-      config,
-      brokerConfig,
-      replicaManager,
-      adminManager,
-      quota,
-      metrics,
-      time,
-      threadNamePrefix,
-      tierStateFetcher)
-    manager.startup()
-    manager
-  }
-
   def fetcherManager(linkName: String): Option[ClusterLinkFetcherManager] = {
     ensureClusterLinkEnabled()
     managersLock synchronized {
@@ -291,5 +293,21 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
     managersLock synchronized {
       managers.contains(linkName)
     }
+  }
+
+  private def newConfluentAdmin(config: ClusterLinkConfig,
+                                clientInterceptor: Option[ClientInterceptor]): ConfluentAdmin = {
+    val confluentAdmin = Admin.create(config.originals).asInstanceOf[ConfluentAdmin]
+    clientInterceptor.foreach { interceptor =>
+      confluentAdmin match {
+        case adminClient: KafkaAdminClient =>
+          adminClient.client match {
+            case networkClient: NetworkClient => networkClient.interceptor(interceptor)
+            case client => throw new IllegalStateException(s"Network interceptor not supported for $client")
+          }
+        case client => throw new IllegalStateException(s"Network interceptor not supported for adminClient $client")
+      }
+    }
+    confluentAdmin
   }
 }

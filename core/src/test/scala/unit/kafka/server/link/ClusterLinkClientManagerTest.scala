@@ -184,6 +184,8 @@ class ClusterLinkClientManagerTest {
                                adminFactory: ClusterLinkConfig => ConfluentAdmin,
                                authorizer: Option[Authorizer],
                                controller: KafkaController) = {
+    expect(scheduler.schedule(anyString(), anyObject(), anyLong(), anyLong(), anyObject())).andReturn(null).anyTimes()
+    replay(scheduler)
     new ClusterLinkClientManager(linkName, scheduler, zkClient, config,  authorizer, controller, adminFactory)
   }
 

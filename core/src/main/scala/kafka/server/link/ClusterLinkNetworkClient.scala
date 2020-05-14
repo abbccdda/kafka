@@ -21,6 +21,7 @@ import scala.collection.Map
   * Network client used for clients connecting to other cluster links.
   *
   * @param clusterLinkConfig Link config
+  * @param clientInterceptor Interceptor that handles tenant prefix for Cloud
   * @param throttleTimeSensorName Name of sensor used to track throttle time
   * @param metadata Metadata, which may be empty when manual metadata updater is used
   * @param metadataUpdater Metadata updater, which may be empty if default updater is used
@@ -31,6 +32,7 @@ import scala.collection.Map
   * @param logContext Log context instance
   */
 class ClusterLinkNetworkClient(clusterLinkConfig: ClusterLinkConfig,
+                               clientInterceptor: Option[ClientInterceptor],
                                throttleTimeSensorName: String,
                                metadata: Option[Metadata],
                                metadataUpdater: Option[MetadataUpdater],
@@ -100,7 +102,7 @@ class ClusterLinkNetworkClient(clusterLinkConfig: ClusterLinkConfig,
   }
 
   protected def createNetworkClient(selector: Selector): KafkaClient = {
-    new NetworkClient(
+    val networkClient = new NetworkClient(
       metadataUpdater.orNull,
       metadata.orNull,
       selector,
@@ -117,6 +119,8 @@ class ClusterLinkNetworkClient(clusterLinkConfig: ClusterLinkConfig,
       new ApiVersions,
       throttleTimeSensor,
       logContext)
+    clientInterceptor.foreach(networkClient.interceptor)
+    networkClient
   }
 }
 

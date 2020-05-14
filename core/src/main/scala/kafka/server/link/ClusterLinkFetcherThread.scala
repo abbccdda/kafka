@@ -9,7 +9,7 @@ import kafka.log.LogAppendInfo
 import kafka.server._
 import kafka.tier.fetcher.TierStateFetcher
 import org.apache.kafka.clients.FetchSessionHandler.FetchRequestData
-import org.apache.kafka.clients.ManualMetadataUpdater
+import org.apache.kafka.clients.{ClientInterceptor, ManualMetadataUpdater}
 import org.apache.kafka.common.errors.InvalidMetadataException
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.protocol.Errors
@@ -32,6 +32,7 @@ object ClusterLinkFetcherThread {
             clusterLinkConfig: ClusterLinkConfig,
             clusterLinkMetadata: ClusterLinkMetadata,
             fetcherManager: ClusterLinkFetcherManager,
+            clientInterceptor: Option[ClientInterceptor],
             sourceBroker: BrokerEndPoint,
             failedPartitions: FailedPartitions,
             replicaMgr: ReplicaManager,
@@ -46,6 +47,7 @@ object ClusterLinkFetcherThread {
 
     val clusterLinkClient = new ClusterLinkNetworkClient(
       clusterLinkConfig,
+      clientInterceptor,
       clusterLinkMetadata.throttleTimeSensorName,
       metadata = None,
       Some(new ManualMetadataUpdater),

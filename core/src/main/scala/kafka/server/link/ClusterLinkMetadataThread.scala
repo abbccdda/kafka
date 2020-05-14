@@ -5,6 +5,7 @@
 package kafka.server.link
 
 import kafka.utils.{Logging, ShutdownableThread}
+import org.apache.kafka.clients.ClientInterceptor
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.utils.{LogContext, Time}
 import org.apache.kafka.common.Cluster
@@ -20,6 +21,7 @@ trait MetadataRefreshListener {
 }
 
 class ClusterLinkMetadataThread(clusterLinkConfig: ClusterLinkConfig,
+                                clientInterceptor: Option[ClientInterceptor],
                                 clusterLinkMetadata: ClusterLinkMetadata,
                                 metrics: Metrics,
                                 time: Time)
@@ -65,6 +67,7 @@ class ClusterLinkMetadataThread(clusterLinkConfig: ClusterLinkConfig,
                                     clusterLinkMetadata: ClusterLinkMetadata): ClusterLinkNetworkClient = {
     new ClusterLinkNetworkClient(
       clusterLinkConfig,
+      clientInterceptor,
       clusterLinkMetadata.throttleTimeSensorName,
       Some(clusterLinkMetadata),
       metadataUpdater = None,

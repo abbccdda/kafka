@@ -31,7 +31,6 @@ import kafka.server.KafkaConfig;
 import kafka.server.KafkaConfig$;
 import kafka.server.KafkaServer;
 import kafka.utils.CoreUtils;
-import kafka.utils.MockTime;
 import kafka.utils.TestUtils;
 import kafka.zk.AdminZkClient;
 import kafka.zk.KafkaZkClient;
@@ -75,7 +74,7 @@ public class EmbeddedKafka {
    *               setting currently.
    * @param time Instance of Time
    */
-  private EmbeddedKafka(final Properties config, final MockTime time) throws IOException {
+  private EmbeddedKafka(final Properties config, final Time time) throws IOException {
     tmpFolder = new TemporaryFolder();
     tmpFolder.create();
     logDir = tmpFolder.newFolder();
@@ -156,7 +155,7 @@ public class EmbeddedKafka {
     log.debug("Shutdown of embedded Kafka broker completed %s.", this);
   }
 
-  public void startBroker(final MockTime time) {
+  public void startBroker(final Time time) {
     if (kafka == null) {
       kafka = TestUtils.createServer(kafkaConfig, time);
       isShutdown = false;
@@ -226,9 +225,9 @@ public class EmbeddedKafka {
 
   public static class Builder {
     private final Properties config;
-    private final MockTime time;
+    private final Time time;
 
-    public Builder(MockTime time) {
+    public Builder(Time time) {
       this.config = new Properties();
       this.time = time;
     }

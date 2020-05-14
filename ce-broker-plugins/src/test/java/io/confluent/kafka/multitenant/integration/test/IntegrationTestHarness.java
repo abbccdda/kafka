@@ -6,6 +6,7 @@ import io.confluent.kafka.multitenant.integration.cluster.LogicalClusterUser;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Properties;
 
 import org.apache.kafka.clients.admin.AdminClient;
@@ -13,6 +14,7 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.security.scram.internals.ScramMechanism;
+import org.apache.kafka.common.utils.Time;
 
 public class IntegrationTestHarness {
 
@@ -33,7 +35,11 @@ public class IntegrationTestHarness {
   }
 
   public PhysicalCluster start(Properties brokerOverrideProps) throws Exception {
-    physicalCluster = new PhysicalCluster(brokersInPhysicalCluster, brokerOverrideProps);
+    return start(brokerOverrideProps, Optional.empty());
+  }
+
+  public PhysicalCluster start(Properties brokerOverrideProps, Optional<Time> time) throws Exception {
+    physicalCluster = new PhysicalCluster(brokersInPhysicalCluster, brokerOverrideProps, time);
     physicalCluster.start();
     return physicalCluster;
   }

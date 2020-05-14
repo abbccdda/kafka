@@ -14,6 +14,7 @@ import kafka.server.QuotaFactory.UnboundedQuota
 import kafka.server._
 import kafka.tier.fetcher.TierStateFetcher
 import kafka.utils.{MockTime, TestUtils}
+import kafka.zk.ClusterLinkProps
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.InvalidClusterLinkException
@@ -89,9 +90,16 @@ class ClusterLinkFetcherThreadTest extends ReplicaFetcherThreadTest {
     val replicaManager: ReplicaManager = mock(classOf[ReplicaManager])
     val authorizer: Option[Authorizer] = Some(createNiceMock(classOf[Authorizer]))
     val controller: KafkaController = createNiceMock(classOf[KafkaController])
-    val clusterLinkManager = new ClusterLinkManager(KafkaConfig.fromProps(props), "clusterId", quota = UnboundedQuota, zkClient = null, new Metrics, new SystemTime, tierStateFetcher = None)
+    val clusterLinkManager = new ClusterLinkManager(
+      KafkaConfig.fromProps(props),
+      "clusterId",
+      quota = UnboundedQuota,
+      zkClient = null,
+      new Metrics,
+      new SystemTime,
+      tierStateFetcher = None)
     clusterLinkManager.startup(replicaManager, adminManager = null, controller, authorizer)
-    clusterLinkManager.addClusterLink(clusterLinkName, clusterLinkProps)
+    clusterLinkManager.addClusterLink(clusterLinkName, ClusterLinkProps(clusterLinkProps, None))
   }
 
   @Test
@@ -127,6 +135,7 @@ class ClusterLinkFetcherThreadTest extends ReplicaFetcherThreadTest {
 
     val fetcherManager = new ClusterLinkFetcherManager(clusterLinkName,
                                                        clusterLinkConfig,
+                                                       None,
                                                        brokerConfig,
                                                        replicaManager,
                                                        adminManager = null,

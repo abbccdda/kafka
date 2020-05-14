@@ -16,7 +16,7 @@ import kafka.server.{KafkaConfig, KafkaServer}
 import kafka.server.link.{ClusterLinkConfig, ClusterLinkTopicState}
 import kafka.utils.Implicits._
 import kafka.utils.{JaasTestUtils, Logging, TestUtils}
-import kafka.zk.ConfigEntityChangeNotificationZNode
+import kafka.zk.{ClusterLinkProps, ConfigEntityChangeNotificationZNode}
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.clients.admin.NewPartitions
 import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer}
@@ -471,6 +471,7 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
     val newLink = new NewClusterLink(linkName, null, linkConfigs)
     servers.head.clusterLinkManager.admin.createClusterLink(
       newLink,
+      None,
       validateLink = false,
       validateOnly = false,
       timeoutMs = 10000
@@ -500,7 +501,7 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
     val newProps = new Properties()
     newProps ++= clusterLinks(linkName)
     newProps ++= updatedConfigs
-    adminZkClient.changeClusterLinkConfig(linkName, newProps)
+    adminZkClient.changeClusterLinkConfig(linkName, ClusterLinkProps(newProps, None))
     clusterLinks.put(linkName, newProps)
     servers.foreach { server =>
       TestUtils.waitUntilTrue(() => {

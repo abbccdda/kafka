@@ -322,7 +322,8 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
       case ConfigType.Client => changeClientIdConfig(entityName, configs)
       case ConfigType.User => changeUserOrUserClientIdConfig(entityName, configs)
       case ConfigType.Broker => changeBrokerConfig(parseBroker(entityName), configs)
-      case ConfigType.ClusterLink => changeClusterLinkConfig(entityName, configs)
+      case ConfigType.ClusterLink =>
+        throw new IllegalArgumentException("Cluster link configs can be altered only using Admin API")
       case _ => throw new IllegalArgumentException(s"$entityType is not a known entityType. Should be one of ${ConfigType.Topic}, ${ConfigType.Client}, ${ConfigType.User}, ${ConfigType.Broker}, or ${ConfigType.ClusterLink}.")
     }
   }
@@ -426,11 +427,16 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
     * other brokers.
     *
     * @param linkName the link name for cluster link whose config is being changed
-    * @param configs the configs to change
+    * @param clusterLinkProps the configs to change
     */
-  def changeClusterLinkConfig(linkName: String, configs: Properties): Unit = {
-    validateClusterLinkConfig(linkName, configs)
-    changeEntityConfig(ConfigType.ClusterLink, linkName, configs)
+  def changeClusterLinkConfig(linkName: String, clusterLinkProps: ClusterLinkProps): Unit = {
+    validateClusterLinkConfig(linkName, clusterLinkProps.configs)
+    changeEntityConfig(ConfigType.ClusterLink, linkName, clusterLinkProps.persistentProps)
+  }
+
+  def fetchClusterLinkConfig(linkName: String): ClusterLinkProps = {
+    val props = fetchEntityConfig(ConfigType.ClusterLink, linkName)
+    ClusterLinkProps.fromPersistentProps(props)
   }
 
   /**
@@ -529,11 +535,11 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
     * @param clusterId the linked cluster's ID, or none if not set
     * @param config the initial configuration properties
     */
-  def createClusterLink(linkName: String, linkId: UUID, clusterId: Option[String], config: Properties): Unit = {
+  def createClusterLink(linkName: String, linkId: UUID, clusterId: Option[String], config: ClusterLinkProps): Unit = {
     if (zkClient.clusterLinkExists(linkName))
       throw new ClusterLinkExistsException(s"Cluster link with name '$linkName' already exists.")
     info(s"Creating cluster link '$linkName' with configuration '$config'")
-    changeEntityConfig(ConfigType.ClusterLink, linkName, config)
+    changeEntityConfig(ConfigType.ClusterLink, linkName, config.persistentProps)
     zkClient.createClusterLink(linkName, linkId, clusterId)
   }
 

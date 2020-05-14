@@ -41,6 +41,7 @@ import scala.jdk.CollectionConverters._
   */
 class ClusterLinkFetcherManager(linkName: String,
                                 initialConfig: ClusterLinkConfig,
+                                clientInterceptor: Option[ClientInterceptor],
                                 brokerConfig: KafkaConfig,
                                 replicaManager: ReplicaManager,
                                 adminManager: AdminManager,
@@ -87,7 +88,7 @@ class ClusterLinkFetcherManager(linkName: String,
       linkName,
       config.metadataRefreshBackoffMs,
       config.metadataMaxAgeMs)
-    metadataRefreshThread = new ClusterLinkMetadataThread(config, metadata, metrics, time)
+    metadataRefreshThread = new ClusterLinkMetadataThread(config, clientInterceptor, metadata, metrics, time)
     metadataRefreshThread.addListener(this)
     val addresses = ClientUtils.parseAndValidateAddresses(
       config.bootstrapServers,
@@ -146,7 +147,7 @@ class ClusterLinkFetcherManager(linkName: String,
     val threadName = s"${prefix}ClusterLinkFetcherThread-$fetcherId-$linkName-${sourceBroker.id}"
 
     ClusterLinkFetcherThread(threadName, fetcherId, brokerConfig,
-      clusterLinkConfig, metadata, this, sourceBroker, failedPartitions,
+      clusterLinkConfig, metadata, this, clientInterceptor, sourceBroker, failedPartitions,
       replicaManager, quota, metrics, time, tierStateFetcher)
   }
 

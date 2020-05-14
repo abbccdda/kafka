@@ -33,6 +33,7 @@ import kafka.utils.MockTime;
 import kafka.zk.EmbeddedZookeeper;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.message.UpdateMetadataRequestData.UpdateMetadataPartitionState;
+import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.server.http.MetadataServerConfig;
 import org.apache.kafka.test.TestUtils;
 import org.slf4j.Logger;
@@ -44,12 +45,16 @@ public class EmbeddedKafkaCluster {
   private static final Logger log = LoggerFactory.getLogger(EmbeddedKafkaCluster.class);
   private static final int DEFAULT_BROKER_PORT = 0; // 0 results in a random port being selected
 
-  private final MockTime time;
+  private final Time time;
   private final List<EmbeddedKafka> brokers;
   private EmbeddedZookeeper zookeeper;
 
   public EmbeddedKafkaCluster() {
-    time = new MockTime(System.currentTimeMillis(), System.nanoTime());
+    this(new MockTime(System.currentTimeMillis(), System.nanoTime()));
+  }
+
+  public EmbeddedKafkaCluster(Time time) {
+    this.time = time;
     brokers = new ArrayList<>();
   }
 

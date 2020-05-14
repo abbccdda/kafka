@@ -10,6 +10,7 @@ import kafka.cluster.Partition
 import kafka.server.QuotaFactory.UnboundedQuota
 import kafka.server.{KafkaConfig, MetadataCache, ReplicaManager}
 import kafka.utils.TestUtils
+import kafka.zk.{ClusterLinkData, ClusterLinkProps, KafkaZkClient}
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.{ClusterAuthorizationException, ClusterLinkInUseException, ClusterLinkNotFoundException}
@@ -23,22 +24,25 @@ import org.scalatest.Assertions.intercept
 
 class ClusterLinkManagerTest {
 
-  private val brokerConfig = KafkaConfig.fromProps(TestUtils.createBrokerConfig(1, "localhost:1234"))
+  private val brokerConfig = createBrokerConfig(enableClusterLink = true)
   private val metrics = new Metrics
   private val time = new MockTime
   private val replicaManager: ReplicaManager = mock(classOf[ReplicaManager])
+  private val zkClient: KafkaZkClient = createNiceMock(classOf[KafkaZkClient])
   private val metadataCache: MetadataCache = new MetadataCache(0)
   private var clusterLinkManager: ClusterLinkManager = _
 
   @Before
   def setUp(): Unit = {
     expect(replicaManager.metadataCache).andReturn(metadataCache).anyTimes()
+    expect(replicaManager.zkClient).andReturn(zkClient).anyTimes()
     replay(replicaManager)
     clusterLinkManager = createClusterLinkManager(brokerConfig)
   }
 
   @After
   def tearDown(): Unit = {
+    clusterLinkManager.shutdown()
     metrics.close()
   }
 
@@ -136,6 +140,10 @@ class ClusterLinkManagerTest {
 
     val newProps = new Properties
     newProps.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "localhost:5678")
+    expect(zkClient.getClusterLinks(Set(linkName)))
+      .andReturn(Map(linkName -> ClusterLinkData(linkName, null, None)))
+      .anyTimes()
+    replay(zkClient)
     clusterLinkManager.processClusterLinkChanges(linkName, newProps)
     assertEquals(Collections.singletonList("localhost:5678"), fetcherManager.currentConfig.bootstrapServers)
   }
@@ -144,13 +152,12 @@ class ClusterLinkManagerTest {
   def testClusterLinkDisabled(): Unit = {
     val linkName = "testLink"
 
-    val props = TestUtils.createBrokerConfig(1, "localhost:1234")
-    props.put(KafkaConfig.ClusterLinkEnableProp, "false")
-    val brokerConfig = KafkaConfig.fromProps(props)
+    clusterLinkManager.shutdown()
+    val brokerConfig = createBrokerConfig(enableClusterLink = false)
     clusterLinkManager = createClusterLinkManager(brokerConfig)
     assertThrows(classOf[ClusterAuthorizationException], () => clusterLinkManager.fetcherManager(linkName))
     assertThrows(classOf[ClusterAuthorizationException], () => clusterLinkManager.clientManager(linkName))
-    assertThrows(classOf[ClusterAuthorizationException], () => clusterLinkManager.addClusterLink(linkName, new Properties))
+    assertThrows(classOf[ClusterAuthorizationException], () => clusterLinkManager.addClusterLink(linkName, ClusterLinkProps(new Properties, None)))
     assertThrows(classOf[ClusterAuthorizationException], () => clusterLinkManager.removeClusterLink(linkName))
 
     // Verify that cluster links in ZK created when cluster links were enabled don't
@@ -166,10 +173,16 @@ class ClusterLinkManagerTest {
     assertFalse("Unexpected cluster link", clusterLinkManager.hasLink(linkName))
   }
 
-  private def clusterLinkProps(linkName: String): Properties = {
+  private def createBrokerConfig(enableClusterLink: Boolean): KafkaConfig = {
+    val props = TestUtils.createBrokerConfig(1, "localhost:1234")
+    props.put(KafkaConfig.ClusterLinkEnableProp, enableClusterLink.toString)
+    KafkaConfig.fromProps(props)
+  }
+
+  private def clusterLinkProps(linkName: String): ClusterLinkProps = {
     val props = new Properties
     props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "localhost:1234")
-    props
+    ClusterLinkProps(props, None)
   }
 
   private def setupMock(partition: Partition, tp: TopicPartition, linkName: Option[String]): Unit = {
@@ -182,13 +195,15 @@ class ClusterLinkManagerTest {
   }
 
   private def createClusterLinkManager(brokerConfig: KafkaConfig): ClusterLinkManager = {
-    new ClusterLinkManager(
+    val manager = new ClusterLinkManager(
       brokerConfig,
       "clusterId",
       UnboundedQuota,
-      zkClient = null,
+      zkClient,
       metrics,
       time,
       tierStateFetcher = None)
+    manager.startup(null, null, null, None)
+    manager
   }
 }

@@ -2,6 +2,8 @@
 
 package io.confluent.kafka.multitenant.integration.cluster;
 
+import static org.junit.Assert.assertNotNull;
+
 import io.confluent.kafka.multitenant.MultiTenantInterceptor;
 import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 import io.confluent.kafka.multitenant.MultiTenantPrincipalBuilder;
@@ -10,6 +12,7 @@ import io.confluent.kafka.test.cluster.EmbeddedKafkaCluster;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
@@ -17,11 +20,13 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import kafka.security.authorizer.AclAuthorizer$;
 import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.common.Configurable;
 import org.apache.kafka.common.config.internals.BrokerSecurityConfigs;
 import org.apache.kafka.common.security.auth.AuthenticationContext;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SaslAuthenticationContext;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
+import org.apache.kafka.common.utils.Time;
 
 /**
  * Encapsulation of physical cluster consisting of multiple logical
@@ -48,9 +53,9 @@ public class PhysicalCluster {
       new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "broker");
   private static final Pattern SASL_USERNAME_PATTERN =
       Pattern.compile("(?<clusterId>[^_]*)_(?<apiKey>.*)");
-  // We only create one physical cluster in a test, so it is safe to use a static instance.
-  private static PhysicalCluster instance;
+  private static Map<String, PhysicalCluster> instances = new ConcurrentHashMap<>();
 
+  private final String physicalClusterId = String.valueOf(System.identityHashCode(this));
   private final Properties overrideProps;
   private final EmbeddedKafkaCluster kafkaCluster;
   private AdminClient superAdminClient;
@@ -61,7 +66,14 @@ public class PhysicalCluster {
   private final int numberOfBrokers;
 
   public PhysicalCluster(int brokers, Properties props) {
-    kafkaCluster = new EmbeddedKafkaCluster();
+    this(brokers, props, Optional.empty());
+  }
+
+  public PhysicalCluster(int brokers, Properties props, Optional<Time> time) {
+    if (time.isPresent())
+      kafkaCluster = new EmbeddedKafkaCluster(time.get());
+    else
+      kafkaCluster = new EmbeddedKafkaCluster();
     random = new Random();
     usersById = new HashMap<>();
     usersByApiKey = new ConcurrentHashMap<>();
@@ -74,10 +86,11 @@ public class PhysicalCluster {
         MultiTenantScramPrincipalBuilder.class.getName());
     this.overrideProps.put("listener.name.external.broker.interceptor.class",
         MultiTenantInterceptor.class.getName());
+    this.overrideProps.put("physical.cluster.id", physicalClusterId);
   }
 
   public synchronized void start() throws Exception {
-    instance = this;
+    instances.put(physicalClusterId, this);
     kafkaCluster.startZooKeeper();
 
     overrideProps.setProperty(AclAuthorizer$.MODULE$.SuperUsersProp(),
@@ -92,7 +105,7 @@ public class PhysicalCluster {
       }
       kafkaCluster.shutdown();
     } finally {
-      instance = null;
+      instances.remove(physicalClusterId);
     }
   }
 
@@ -159,13 +172,22 @@ public class PhysicalCluster {
     return superAdminClient;
   }
 
-  public static class MultiTenantScramPrincipalBuilder extends MultiTenantPrincipalBuilder {
+  public static class MultiTenantScramPrincipalBuilder extends MultiTenantPrincipalBuilder implements Configurable {
+
+    PhysicalCluster physicalCluster;
+
+    @Override
+    public void configure(Map<String, ?> configs) {
+      physicalCluster = instances.get((String) configs.get("physical.cluster.id"));
+      assertNotNull("Physical cluster not found", physicalCluster);
+    }
+
     @Override
     public KafkaPrincipal build(AuthenticationContext context) {
       if (context.securityProtocol() == SecurityProtocol.SASL_PLAINTEXT) {
         SaslAuthenticationContext saslContext = (SaslAuthenticationContext) context;
         String authzId = saslContext.server().getAuthorizationID();
-        return instance.principal(authzId);
+        return physicalCluster.principal(authzId);
       } else if (context.securityProtocol() == SecurityProtocol.PLAINTEXT) {
         return BROKER_PRINCIPAL;
       } else {

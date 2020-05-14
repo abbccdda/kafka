@@ -379,8 +379,12 @@ public class MultiTenantRequestContext extends RequestContext {
       if (replication <= 0) {
         throw new InvalidRequestException("Invalid replication factor " + replication);
       }
-      topicInfos.put(topicDetails.name(),
-              new TenantPartitionAssignor.TopicInfo(partitions, replication, 0));
+
+      // Don't perform assignments for linked topics, these will be assigned later.
+      if (topicDetails.linkName() == null || topicDetails.linkName().isEmpty()) {
+        topicInfos.put(topicDetails.name(),
+            new TenantPartitionAssignor.TopicInfo(partitions, replication, 0));
+      }
     }
 
     return partitionAssignor.assignPartitionsForNewTopics(
@@ -495,13 +499,14 @@ public class MultiTenantRequestContext extends RequestContext {
 
       Map<String, List<List<Integer>>> assignments = partitionAssignor.assignPartitionsForExistingTopics(tenant, partitionCounts);
       for (CreatePartitionsTopic create: partitionsRequest.data().topics()) {
-          List<CreatePartitionsRequestData.CreatePartitionsAssignment> updated =
-                           assignments
-                          .get(create.name())
-                          .stream()
-                          .map(brokers -> new CreatePartitionsRequestData.CreatePartitionsAssignment().setBrokerIds(brokers))
-                          .collect(Collectors.toList());
-        create.setAssignments(updated);
+        List<List<Integer>> topicAssignments = assignments.get(create.name());
+        if (!topicAssignments.isEmpty()) {
+          List<CreatePartitionsRequestData.CreatePartitionsAssignment> updated = topicAssignments
+              .stream()
+              .map(brokers -> new CreatePartitionsRequestData.CreatePartitionsAssignment().setBrokerIds(brokers))
+              .collect(Collectors.toList());
+          create.setAssignments(updated);
+        }
       }
     }
 

@@ -9,12 +9,12 @@ import java.util.concurrent.{CompletableFuture, ExecutionException}
 import kafka.server.{DelayedFuturePurgatory, KafkaConfig}
 import kafka.utils.{CoreUtils, Logging}
 import kafka.utils.Implicits._
-import kafka.zk.{AdminZkClient, KafkaZkClient}
+import kafka.zk.{AdminZkClient, ClusterLinkData, ClusterLinkProps, KafkaZkClient}
 import org.apache.kafka.clients.admin.{Admin, DescribeClusterOptions}
 import org.apache.kafka.common.acl.AclOperation
 import org.apache.kafka.common.internals.Topic
 import org.apache.kafka.common.errors.{ClusterAuthorizationException, ClusterLinkExistsException, ClusterLinkInUseException, ClusterLinkNotFoundException, InvalidConfigurationException, InvalidRequestException, UnknownTopicOrPartitionException, UnsupportedVersionException}
-import org.apache.kafka.common.requests.{AlterMirrorsResponse, AlterMirrorsRequest, ApiError, ClusterLinkListing, NewClusterLink}
+import org.apache.kafka.common.requests.{AlterMirrorsRequest, AlterMirrorsResponse, ApiError, ClusterLinkListing, NewClusterLink}
 
 import scala.jdk.CollectionConverters._
 import scala.collection.Seq
@@ -34,6 +34,7 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
   }
 
   def createClusterLink(newClusterLink: NewClusterLink,
+                        tenantPrefix: Option[String],
                         validateOnly: Boolean,
                         validateLink: Boolean,
                         timeoutMs: Int): CompletableFuture[Void] = {
@@ -54,17 +55,18 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
       throw new InvalidRequestException(s"Requested cluster ID matches local cluster ID '$clusterId' - cannot create cluster link to self")
 
     val result = new CompletableFuture[Void]()
+    val clusterLinkProps = ClusterLinkProps(props, tenantPrefix)
     if (validateLink) {
       clusterLinkManager.scheduler.schedule("CreateClusterLink",
         () => try {
           val linkClusterId = validateClusterLink(expectedClusterId, props, timeoutMs)
-          finishCreateClusterLink(linkName, linkClusterId, props, validateOnly)
+          finishCreateClusterLink(linkName, linkClusterId, clusterLinkProps, validateOnly)
           result.complete(null)
         } catch {
           case e: Throwable => result.completeExceptionally(e)
         })
     } else {
-      finishCreateClusterLink(linkName, expectedClusterId, props, validateOnly)
+      finishCreateClusterLink(linkName, expectedClusterId, clusterLinkProps, validateOnly)
       result.complete(null)
     }
     result
@@ -144,7 +146,14 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
     result
   }
 
-  private def finishCreateClusterLink(linkName: String, linkClusterId: Option[String], props: Properties, validateOnly: Boolean): Unit = {
+  private[link] def clusterLinkData(linkName: String): Option[ClusterLinkData] = {
+    adminZkClient.getClusterLink(linkName)
+  }
+
+  private def finishCreateClusterLink(linkName: String,
+                                      linkClusterId: Option[String],
+                                      props: ClusterLinkProps,
+                                      validateOnly: Boolean): Unit = {
     if (!validateOnly) {
       adminZkClient.createClusterLink(linkName, UUID.randomUUID(), linkClusterId, props)
 

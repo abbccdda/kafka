@@ -98,6 +98,9 @@ public class MultiTenantApis {
       case OFFSET_FOR_LEADER_EPOCH:
       case REPLICA_STATUS:
       case OFFSET_DELETE:
+      case CREATE_CLUSTER_LINKS:
+      case LIST_CLUSTER_LINKS:
+      case DELETE_CLUSTER_LINKS:
         return true;
 
       case CONTROLLED_SHUTDOWN:
@@ -117,9 +120,6 @@ public class MultiTenantApis {
       case DESCRIBE_CLIENT_QUOTAS:
       case ALTER_CLIENT_QUOTAS:
       case REMOVE_BROKERS:
-      case CREATE_CLUSTER_LINKS:
-      case LIST_CLUSTER_LINKS:
-      case DELETE_CLUSTER_LINKS:
       case INITIATE_SHUTDOWN:
       case ALTER_MIRRORS:
       case DESCRIBE_BROKER_REMOVALS:

@@ -11,7 +11,7 @@ import kafka.server.KafkaConfig._
 import kafka.server.link.ClusterLinkConfigDefaults._
 import org.apache.kafka.clients.CommonClientConfigs._
 import org.apache.kafka.clients.{ClientDnsLookup, CommonClientConfigs}
-import org.apache.kafka.common.config.ConfigDef.ConfigKey
+import org.apache.kafka.common.config.ConfigDef.{ConfigKey, ValidString}
 import org.apache.kafka.common.config.ConfigDef.Importance.{HIGH, LOW, MEDIUM}
 import org.apache.kafka.common.config.ConfigDef.Range.atLeast
 import org.apache.kafka.common.config.ConfigDef.Type._
@@ -28,7 +28,8 @@ object ClusterLinkConfigDefaults {
   val RetryBackoffMs = 100L
   val MetadataMaxAgeMs = 5 * 60 * 1000
   val RetryTimeoutMs = 5 * 60 * 1000
-  val aclSyncMsDefault = 5000
+  val AclSyncMsDefault = 5000
+  val TopicConfigSyncMsDefault = 5000
 }
 
 case class ClusterLinkConfig(props: java.util.Map[_, _])
@@ -41,6 +42,7 @@ case class ClusterLinkConfig(props: java.util.Map[_, _])
   val aclFilters: Option[AclFiltersJson] = AclJson.parse(getString(
     ClusterLinkConfig.AclFiltersProp))
   val aclSyncMs = getInt(ClusterLinkConfig.AclSyncMsProp)
+  val topicConfigSyncMs = getInt(ClusterLinkConfig.TopicConfigSyncMsProp)
   val bootstrapServers = getList(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG)
   val dnsLookup = ClientDnsLookup.forConfig(getString(CommonClientConfigs.CLIENT_DNS_LOOKUP_CONFIG))
   val securityProtocol = SecurityProtocol.forName(getString(SECURITY_PROTOCOL_CONFIG))
@@ -80,6 +82,13 @@ object ClusterLinkConfig {
   val AclSyncMsProp = "acl.sync.ms"
   val AclSyncMsDoc = "How often to refresh the ACLs."
 
+  val TopicConfigSyncMsProp = "topic.config.sync.ms"
+  val TopicConfigSyncMsDoc = "How often to refresh the topic configs."
+
+  val TenantPrefixProp = "confluent.tenant.prefix"
+  val TenantPrefixPropDoc = "Internal config for tenant prefix for cluster links in Confluent Cloud." +
+    " Cannot be explicitly configured since prefix is automatically persisted based on request context."
+
   def main(args: Array[String]): Unit = {
     println(configDef.toHtml)
   }
@@ -89,7 +98,8 @@ object ClusterLinkConfig {
     .define(RetryTimeoutMsProp, INT, RetryTimeoutMs, MEDIUM, RetryTimeoutMsDoc)
     .define(AclSyncEnableProp, BOOLEAN, false, LOW, AclSyncEnableDoc)
     .define(AclFiltersProp, STRING, "", AclJson.VALIDATOR, LOW, AclFiltersDoc)
-    .define(AclSyncMsProp, INT, aclSyncMsDefault, LOW, AclSyncMsDoc)
+    .define(AclSyncMsProp, INT, AclSyncMsDefault, LOW, AclSyncMsDoc)
+    .define(TopicConfigSyncMsProp, INT, TopicConfigSyncMsDefault, LOW, TopicConfigSyncMsDoc)
     .define(BOOTSTRAP_SERVERS_CONFIG, LIST, Collections.emptyList, new ConfigDef.NonNullValidator, HIGH, BOOTSTRAP_SERVERS_DOC)
     .define(CLIENT_DNS_LOOKUP_CONFIG, STRING, ClientDnsLookup.USE_ALL_DNS_IPS.toString,
       in(ClientDnsLookup.DEFAULT.toString, ClientDnsLookup.USE_ALL_DNS_IPS.toString, ClientDnsLookup.RESOLVE_CANONICAL_BOOTSTRAP_SERVERS_ONLY.toString),
@@ -109,6 +119,7 @@ object ClusterLinkConfig {
 
     .withClientSslSupport()
     .withClientSaslSupport()
+    .defineInternal(TenantPrefixProp, STRING, null, ValidString.in(null), LOW, TenantPrefixPropDoc)
 
   def configNames: Seq[String] = configDef.names.asScala.toSeq.sorted
 
