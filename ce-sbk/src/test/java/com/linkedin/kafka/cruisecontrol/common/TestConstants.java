@@ -40,6 +40,7 @@ public class TestConstants {
   public static final double TYPICAL_CPU_CAPACITY = 100.0;
   public static final double MEDIUM_BROKER_CAPACITY = 200000.0;
   public static final double SMALL_BROKER_CAPACITY = 10.0;
+  public static final double LOW_UTILIZATION_THRESHOLD = 0.2;
 
   private TestConstants() {
 

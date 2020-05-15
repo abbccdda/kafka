@@ -118,6 +118,6 @@ public class SelfHealingWithOptimizedGoalTest {
   public void test() throws Exception {
     assertTrue("Self-healing test failed to improve the existing state.",
                OptimizationVerifier.executeGoalsFor(_balancingConstraint, _cluster, _goalNameByPriority, Collections.emptySet(),
-                                                    _verifications, true));
+                                                    _verifications, true, false));
   }
 }

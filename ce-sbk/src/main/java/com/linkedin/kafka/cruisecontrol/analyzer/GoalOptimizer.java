@@ -354,6 +354,24 @@ public class GoalOptimizer implements Runnable {
                          false);
   }
 
+  // package-private for unit tests
+  OptimizerResult optimizations(ClusterModel clusterModel,
+                                       List<Goal> goalsByPriority,
+                                       OperationProgress operationProgress,
+                                       boolean isTriggeredByGoalViolation)
+          throws KafkaCruiseControlException {
+    return optimizations(clusterModel,
+            goalsByPriority,
+            operationProgress,
+            null,
+            Collections.emptySet(),
+            Collections.emptySet(),
+            isTriggeredByGoalViolation,
+            Collections.emptySet(),
+            null,
+            false);
+  }
+
   /**
    * Depending the existence of dead/broken/decommissioned brokers in the given cluster:
    * (1) Re-balance: Generates proposals to update the state of the cluster to achieve a final balanced state.

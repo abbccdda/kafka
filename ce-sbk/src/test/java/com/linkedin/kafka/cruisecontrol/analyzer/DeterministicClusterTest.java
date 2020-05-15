@@ -4,13 +4,13 @@
 
 package com.linkedin.kafka.cruisecontrol.analyzer;
 
-import com.linkedin.kafka.cruisecontrol.analyzer.goals.LeaderReplicaDistributionGoal;
-import com.linkedin.kafka.cruisecontrol.common.Resource;
+import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUnitTestUtils;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.CpuCapacityGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.CpuUsageDistributionGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.DiskCapacityGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.DiskUsageDistributionGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.LeaderBytesInDistributionGoal;
+import com.linkedin.kafka.cruisecontrol.analyzer.goals.LeaderReplicaDistributionGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkInboundCapacityGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkInboundUsageDistributionGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkOutboundCapacityGoal;
@@ -23,29 +23,29 @@ import com.linkedin.kafka.cruisecontrol.analyzer.goals.ReplicaDistributionGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.TopicReplicaDistributionGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.kafkaassigner.KafkaAssignerDiskUsageDistributionGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.kafkaassigner.KafkaAssignerEvenRackAwareGoal;
-import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
-import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUnitTestUtils;
 import com.linkedin.kafka.cruisecontrol.common.DeterministicCluster;
+import com.linkedin.kafka.cruisecontrol.common.Resource;
 import com.linkedin.kafka.cruisecontrol.common.TestConstants;
+import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.exception.OptimizationFailureException;
 import com.linkedin.kafka.cruisecontrol.model.ClusterModel;
-
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.ArrayList;
-import java.util.List;
-
-import java.util.Properties;
-
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+
 import static com.linkedin.kafka.cruisecontrol.analyzer.OptimizationVerifier.Verification.BROKEN_BROKERS;
 import static com.linkedin.kafka.cruisecontrol.analyzer.OptimizationVerifier.Verification.NEW_BROKERS;
+import static com.linkedin.kafka.cruisecontrol.analyzer.OptimizationVerifier.Verification.NO_SOFT_GOAL_PROPOSALS;
 import static com.linkedin.kafka.cruisecontrol.analyzer.OptimizationVerifier.Verification.REGRESSION;
 import static org.junit.Assert.assertTrue;
 
@@ -106,6 +106,18 @@ public class DeterministicClusterTest {
                                                     TopicReplicaDistributionGoal.class.getName(),
                                                     PreferredLeaderElectionGoal.class.getName());
 
+    List<String> hardAndResourceDistributionGoalsByPriority =
+            Arrays.asList(RackAwareGoal.class.getName(),
+                    ReplicaCapacityGoal.class.getName(),
+                    DiskCapacityGoal.class.getName(),
+                    NetworkInboundCapacityGoal.class.getName(),
+                    NetworkOutboundCapacityGoal.class.getName(),
+                    CpuCapacityGoal.class.getName(),
+                    DiskUsageDistributionGoal.class.getName(),
+                    NetworkInboundUsageDistributionGoal.class.getName(),
+                    NetworkOutboundUsageDistributionGoal.class.getName(),
+                    CpuUsageDistributionGoal.class.getName());
+
     Properties props = KafkaCruiseControlUnitTestUtils.getKafkaCruiseControlProperties();
     props.setProperty(KafkaCruiseControlConfig.MAX_REPLICAS_PER_BROKER_CONFIG, Long.toString(6L));
     BalancingConstraint balancingConstraint = new BalancingConstraint(new KafkaCruiseControlConfig(props));
@@ -121,14 +133,29 @@ public class DeterministicClusterTest {
     // -- TEST DECK #1: SMALL CLUSTER.
     for (Double balancePercentage : balancePercentages) {
       balancingConstraint.setResourceBalancePercentage(balancePercentage);
-      p.add(params(balancingConstraint, DeterministicCluster.smallClusterModel(TestConstants.BROKER_CAPACITY),
+      p.add(params(new BalancingConstraint(balancingConstraint), DeterministicCluster.smallClusterModel(TestConstants.BROKER_CAPACITY),
                    goalNameByPriority, verifications, null));
+
+      // With a high low utilization threshold
+      BalancingConstraint lowUtilizationConstraint = new BalancingConstraint(balancingConstraint);
+      lowUtilizationConstraint.setLowUtilizationThreshold(TestConstants.LOW_UTILIZATION_THRESHOLD);
+      List<OptimizationVerifier.Verification> lowUtilizationVerifications = new ArrayList<>(verifications);
+      lowUtilizationVerifications.add(NO_SOFT_GOAL_PROPOSALS);
+      p.add(params(lowUtilizationConstraint, DeterministicCluster.smallClusterModel(TestConstants.BROKER_CAPACITY),
+                   hardAndResourceDistributionGoalsByPriority, lowUtilizationVerifications, null));
     }
     // -- TEST DECK #2: MEDIUM CLUSTER.
     for (Double balancePercentage : balancePercentages) {
       balancingConstraint.setResourceBalancePercentage(balancePercentage);
-      p.add(params(balancingConstraint, DeterministicCluster.mediumClusterModel(TestConstants.BROKER_CAPACITY),
+      p.add(params(new BalancingConstraint(balancingConstraint), DeterministicCluster.mediumClusterModel(TestConstants.BROKER_CAPACITY),
                    goalNameByPriority, verifications, null));
+      // With a high low utilization threshold
+      BalancingConstraint lowUtilizationConstraint = new BalancingConstraint(balancingConstraint);
+      lowUtilizationConstraint.setLowUtilizationThreshold(TestConstants.LOW_UTILIZATION_THRESHOLD);
+      List<OptimizationVerifier.Verification> lowUtilizationVerifications = new ArrayList<>(verifications);
+      lowUtilizationVerifications.add(NO_SOFT_GOAL_PROPOSALS);
+      p.add(params(lowUtilizationConstraint, DeterministicCluster.mediumClusterModel(TestConstants.BROKER_CAPACITY),
+              hardAndResourceDistributionGoalsByPriority, lowUtilizationVerifications, null));
     }
 
     // ----------##TEST: CAPACITY THRESHOLD.
@@ -141,13 +168,13 @@ public class DeterministicClusterTest {
     // -- TEST DECK #3: SMALL CLUSTER.
     for (Double capacityThreshold : capacityThresholds) {
       balancingConstraint.setCapacityThreshold(capacityThreshold);
-      p.add(params(balancingConstraint, DeterministicCluster.smallClusterModel(TestConstants.BROKER_CAPACITY),
+      p.add(params(new BalancingConstraint(balancingConstraint), DeterministicCluster.smallClusterModel(TestConstants.BROKER_CAPACITY),
                    goalNameByPriority, verifications, null));
     }
     // -- TEST DECK #4: MEDIUM CLUSTER.
     for (Double capacityThreshold : capacityThresholds) {
       balancingConstraint.setCapacityThreshold(capacityThreshold);
-      p.add(params(balancingConstraint, DeterministicCluster.mediumClusterModel(TestConstants.BROKER_CAPACITY),
+      p.add(params(new BalancingConstraint(balancingConstraint), DeterministicCluster.mediumClusterModel(TestConstants.BROKER_CAPACITY),
                    goalNameByPriority, verifications, null));
     }
 
@@ -165,27 +192,33 @@ public class DeterministicClusterTest {
       testBrokerCapacity.put(Resource.NW_IN, capacity);
       testBrokerCapacity.put(Resource.NW_OUT, capacity);
 
-      p.add(params(balancingConstraint, DeterministicCluster.smallClusterModel(testBrokerCapacity),
+      p.add(params(new BalancingConstraint(balancingConstraint), DeterministicCluster.smallClusterModel(testBrokerCapacity),
                    goalNameByPriority, verifications, null));
-      p.add(params(balancingConstraint, DeterministicCluster.mediumClusterModel(testBrokerCapacity),
+      p.add(params(new BalancingConstraint(balancingConstraint), DeterministicCluster.mediumClusterModel(testBrokerCapacity),
                    goalNameByPriority, verifications, null));
     }
+
+    BalancingConstraint lowUtilizationConstraint = new BalancingConstraint(balancingConstraint);
+    lowUtilizationConstraint.setLowUtilizationThreshold(TestConstants.LOW_UTILIZATION_THRESHOLD);
+    p.add(params(new BalancingConstraint(balancingConstraint), DeterministicCluster.singleLoadedBrokerModel(TestConstants.BROKER_CAPACITY),
+            goalNameByPriority, verifications, null));
 
     List<String> kafkaAssignerGoals = Arrays.asList(KafkaAssignerEvenRackAwareGoal.class.getName(),
                                                     KafkaAssignerDiskUsageDistributionGoal.class.getName());
     List<OptimizationVerifier.Verification> kafkaAssignerVerifications = Arrays.asList(BROKEN_BROKERS, REGRESSION);
     // Small cluster.
-    p.add(params(balancingConstraint, DeterministicCluster.smallClusterModel(TestConstants.BROKER_CAPACITY),
+    p.add(params(new BalancingConstraint(balancingConstraint), DeterministicCluster.smallClusterModel(TestConstants.BROKER_CAPACITY),
                  kafkaAssignerGoals, kafkaAssignerVerifications, null));
     // Medium cluster.
-    p.add(params(balancingConstraint, DeterministicCluster.mediumClusterModel(TestConstants.BROKER_CAPACITY),
+    p.add(params(new BalancingConstraint(balancingConstraint), DeterministicCluster.mediumClusterModel(TestConstants.BROKER_CAPACITY),
                  kafkaAssignerGoals, kafkaAssignerVerifications, null));
     // Rack-aware satisfiable.
-    p.add(params(balancingConstraint, DeterministicCluster.rackAwareSatisfiable(),
+    p.add(params(new BalancingConstraint(balancingConstraint), DeterministicCluster.rackAwareSatisfiable(),
                  kafkaAssignerGoals, kafkaAssignerVerifications, null));
     // Rack-aware unsatisfiable.
-    p.add(params(balancingConstraint, DeterministicCluster.rackAwareUnsatisfiable(),
+    p.add(params(new BalancingConstraint(balancingConstraint), DeterministicCluster.rackAwareUnsatisfiable(),
                  kafkaAssignerGoals, kafkaAssignerVerifications, OptimizationFailureException.class));
+
     return p;
   }
 
@@ -202,7 +235,10 @@ public class DeterministicClusterTest {
     if (_expectedException == null) {
       try {
         assertTrue("Deterministic Cluster Test failed to improve the existing state.",
-                OptimizationVerifier.executeGoalsFor(_balancingConstraint, _cluster, _goalNameByPriority, _verifications));
+                _verifications.contains(NO_SOFT_GOAL_PROPOSALS) ?
+                        OptimizationVerifier.executeGoalsFor(_balancingConstraint, _cluster, _goalNameByPriority,
+                                Collections.emptySet(), _verifications, true, true) :
+                        OptimizationVerifier.executeGoalsFor(_balancingConstraint, _cluster, _goalNameByPriority, _verifications));
       } catch (OptimizationFailureException optimizationFailureException) {
         // This exception is thrown if rebalance fails due to alive brokers having insufficient capacity.
         if (!optimizationFailureException.getMessage().contains("Insufficient healthy cluster capacity for resource")) {

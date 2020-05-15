@@ -66,6 +66,18 @@ public class BalancingConstraint {
     _goalViolationDistributionThresholdMultiplier = config.getDouble(KafkaCruiseControlConfig.GOAL_VIOLATION_DISTRIBUTION_THRESHOLD_MULTIPLIER_CONFIG);
   }
 
+  public BalancingConstraint(BalancingConstraint original) {
+    _resources = Collections.unmodifiableList(Arrays.asList(Resource.DISK, Resource.NW_IN, Resource.NW_OUT, Resource.CPU));
+    _resourceBalancePercentage = new HashMap<>(original._resourceBalancePercentage);
+    _replicaBalancePercentage = original._replicaBalancePercentage;
+    _leaderReplicaBalancePercentage = original._leaderReplicaBalancePercentage;
+    _topicReplicaBalancePercentage = original._topicReplicaBalancePercentage;
+    _goalViolationDistributionThresholdMultiplier = original._goalViolationDistributionThresholdMultiplier;
+    _capacityThreshold = new HashMap<>(original._capacityThreshold);
+    _lowUtilizationThreshold = new HashMap<>(original._lowUtilizationThreshold);
+    _maxReplicasPerBroker = original._maxReplicasPerBroker;
+  }
+
   Properties setProps(Properties props) {
     props.put(KafkaCruiseControlConfig.DISK_BALANCE_THRESHOLD_CONFIG, _resourceBalancePercentage.get(Resource.DISK).toString());
     props.put(KafkaCruiseControlConfig.CPU_BALANCE_THRESHOLD_CONFIG, _resourceBalancePercentage.get(Resource.CPU).toString());
@@ -212,6 +224,20 @@ public class BalancingConstraint {
     }
   }
 
+  private void setLowUtilizationThresholdFor(Resource resource, double lowUtilizationThreshold) {
+    if (lowUtilizationThreshold < 0 || lowUtilizationThreshold > 1) {
+      throw new IllegalArgumentException("Low utilization threshold must be in [0, 1].");
+    }
+
+    _lowUtilizationThreshold.put(resource, lowUtilizationThreshold);
+  }
+
+  void setLowUtilizationThreshold(double lowUtilizationThreshold) {
+    for (Resource resource : _resources) {
+      setLowUtilizationThresholdFor(resource, lowUtilizationThreshold);
+    }
+  }
+
   /**
    * Get string representation of {@link BalancingConstraint}.
    */
@@ -221,12 +247,16 @@ public class BalancingConstraint {
                          + "inboundNwBalancePercentage=%.4f,outboundNwBalancePercentage=%.4f,cpuCapacityThreshold=%.4f,"
                          + "diskCapacityThreshold=%.4f,inboundNwCapacityThreshold=%.4f,outboundNwCapacityThreshold=%.4f,"
                          + "maxReplicasPerBroker=%d,replicaBalancePercentage=%.4f,leaderReplicaBalancePercentage=%.4f,"
-                         + "topicReplicaBalancePercentage=%.4f,goalViolationDistributionThresholdMultiplier=%.4f]",
+                         + "topicReplicaBalancePercentage=%.4f,goalViolationDistributionThresholdMultiplier=%.4f,"
+                         + "lowCpuUsageThreshold=%.4f,lowDiskUsageThreshold=%.4f,lowInboundNwUsageThreshold=%.4f,"
+                         + "lowOutboundNwUsageThreshold=%.4f]",
                          _resourceBalancePercentage.get(Resource.CPU), _resourceBalancePercentage.get(Resource.DISK),
                          _resourceBalancePercentage.get(Resource.NW_IN), _resourceBalancePercentage.get(Resource.NW_OUT),
                          _capacityThreshold.get(Resource.CPU), _capacityThreshold.get(Resource.DISK),
                          _capacityThreshold.get(Resource.NW_IN), _capacityThreshold.get(Resource.NW_OUT),
                          _maxReplicasPerBroker, _replicaBalancePercentage, _leaderReplicaBalancePercentage,
-                         _topicReplicaBalancePercentage, _goalViolationDistributionThresholdMultiplier);
+                         _topicReplicaBalancePercentage, _goalViolationDistributionThresholdMultiplier,
+                         _lowUtilizationThreshold.get(Resource.CPU), _lowUtilizationThreshold.get(Resource.DISK),
+                         _lowUtilizationThreshold.get(Resource.NW_IN), _lowUtilizationThreshold.get(Resource.NW_OUT));
   }
 }

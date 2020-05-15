@@ -33,6 +33,7 @@ import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -58,6 +59,7 @@ public abstract class ResourceDistributionGoal extends AbstractGoal {
   private boolean _fixOfflineReplicasOnly;
   private double _balanceUpperThreshold;
   private double _balanceLowerThreshold;
+  private double _lowUtilizationThreshold;
 
   /**
    * Constructor for Resource Distribution Goal.
@@ -220,6 +222,7 @@ public abstract class ResourceDistributionGoal extends AbstractGoal {
     _fixOfflineReplicasOnly = false;
     _balanceUpperThreshold = computeBalanceUpperThreshold(clusterModel, optimizationOptions);
     _balanceLowerThreshold = computeBalanceLowerThreshold(clusterModel, optimizationOptions);
+    _lowUtilizationThreshold = computeLowUtilizationThreshold(clusterModel, optimizationOptions);
     clusterModel.trackSortedReplicas(sortName(),
                                      optimizationOptions.onlyMoveImmigrantReplicas() ? ReplicaSortFunctionFactory.selectImmigrants()
                                                                                      : null,
@@ -314,6 +317,11 @@ public abstract class ResourceDistributionGoal extends AbstractGoal {
                                     Set<Goal> optimizedGoals,
                                     OptimizationOptions optimizationOptions) {
     int numOfflineReplicas = broker.currentOfflineReplicas().size();
+
+    // No need to rebalance if all replicas are online and all brokers are below the low utilization threshold
+    if (numOfflineReplicas == 0 && clusterModel.aliveBrokersOverThreshold(resource(), _lowUtilizationThreshold).isEmpty()) {
+      return;
+    }
 
     boolean requireLessLoad = numOfflineReplicas > 0 || !isLoadUnderBalanceUpperLimit(broker);
     boolean requireMoreLoad = !isLoadAboveBalanceLowerLimit(broker);
@@ -836,13 +844,13 @@ public abstract class ResourceDistributionGoal extends AbstractGoal {
     double brokerBalanceLowerLimit = broker.capacityFor(resource()) * _balanceLowerThreshold;
     double brokerUtilization = broker.load().expectedUtilizationFor(resource());
     boolean isBrokerAboveLowerLimit = changeType == ADD ? brokerUtilization + utilizationDelta >= brokerBalanceLowerLimit :
-                                      brokerUtilization - utilizationDelta >= brokerBalanceLowerLimit;
+            brokerUtilization - utilizationDelta >= brokerBalanceLowerLimit;
 
     if (resource().isHostResource()) {
       double hostBalanceLowerLimit = broker.host().capacityFor(resource()) * _balanceLowerThreshold;
       double hostUtilization = broker.host().load().expectedUtilizationFor(resource());
       boolean isHostAboveLowerLimit = changeType == ADD ? hostUtilization + utilizationDelta >= hostBalanceLowerLimit :
-                                      hostUtilization - utilizationDelta >= hostBalanceLowerLimit;
+              hostUtilization - utilizationDelta >= hostBalanceLowerLimit;
       // As long as either the host or the broker is above the limit, we claim the host resource utilization is
       // above the limit. If the host is below limit, there must be at least one broker below limit. We should just
       // bring more load to that broker.
@@ -1018,6 +1026,14 @@ public abstract class ResourceDistributionGoal extends AbstractGoal {
                                : _balancingConstraint.resourceBalancePercentage(resource());
 
     return (balancePercentage - 1) * BALANCE_MARGIN;
+  }
+
+  private double computeLowUtilizationThreshold(ClusterModel clusterModel, OptimizationOptions optimizationOptions) {
+    // Only honor the low utilization threshold if the rebalance was triggered by a goal violation anomaly. If it
+    // was triggered by a user, assume that it is intentional even if the utilization is low
+    return optimizationOptions.isTriggeredByGoalViolation() ?
+            _balancingConstraint.lowUtilizationThreshold(resource()) * clusterModel.capacityFor(resource()) :
+            0.0;
   }
 
   private String sortName() {
