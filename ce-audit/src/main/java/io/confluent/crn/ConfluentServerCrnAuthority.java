@@ -139,6 +139,10 @@ public class ConfluentServerCrnAuthority implements CrnAuthority, Configurable {
     return authorityName;
   }
 
+  protected String resolvePathElement(Element element) throws CrnSyntaxException {
+    return element.encodedResourceName();
+  }
+
   public ScopedResourcePattern resolveScopePattern(ConfluentResourceName crn)
       throws CrnSyntaxException {
     ResourcePattern resourcePattern = null;
@@ -154,7 +158,7 @@ public class ConfluentServerCrnAuthority implements CrnAuthority, Configurable {
       switch (type) {
         case ORGANIZATION_TYPE:
         case ENVIRONMENT_TYPE:
-          scopeBuilder.addPath(e.encodedResourceName());
+          scopeBuilder.addPath(resolvePathElement(e));
           break;
         case KAFKA_CLUSTER_TYPE:
         case KSQL_CLUSTER_TYPE:
@@ -209,19 +213,23 @@ public class ConfluentServerCrnAuthority implements CrnAuthority, Configurable {
     return new ScopedResourcePattern(scopeBuilder.build(), resourcePattern);
   }
 
-  private ConfluentResourceName uncachedCanonicalCrn(Scope scope, ResourcePattern resourcePattern)
-      throws CrnSyntaxException {
-    ConfluentResourceName.Builder builder = ConfluentResourceName.newBuilder();
-    builder.setAuthority(authorityName);
-
+  protected void parsePathElements(List<String> path, ConfluentResourceName.Builder builder)
+    throws CrnSyntaxException {
     // Arbitrarily, we consider the innermost scope an Environment and all others Organizations
-    List<String> path = scope.path();
     for (int i = 0; i < path.size() - 1; i++) {
       builder.addElement(ORGANIZATION_TYPE, path.get(i));
     }
     if (path.size() > 0) {
       builder.addElement(ENVIRONMENT_TYPE, path.get(path.size() - 1));
     }
+  }
+
+  private ConfluentResourceName uncachedCanonicalCrn(Scope scope, ResourcePattern resourcePattern)
+      throws CrnSyntaxException {
+    ConfluentResourceName.Builder builder = ConfluentResourceName.newBuilder();
+    builder.setAuthority(authorityName);
+
+    parsePathElements(scope.path(), builder);
 
     if (!scope.clusters().isEmpty()) {
       // but if the clusters are not empty, they must contain at least a Kafka cluster
@@ -280,6 +288,10 @@ public class ConfluentServerCrnAuthority implements CrnAuthority, Configurable {
     }
   }
 
+  /**
+   * This is the base canonicalCrn method. The other canonicalCrn methods are convenience
+   * methods that all call this one.
+   */
   public ConfluentResourceName canonicalCrn(Scope scope, ResourcePattern resourcePattern)
       throws CrnSyntaxException {
     ScopedResourcePattern scopedResourcePattern = new ScopedResourcePattern(scope, resourcePattern);
@@ -293,7 +305,6 @@ public class ConfluentServerCrnAuthority implements CrnAuthority, Configurable {
         });
     return result.get();
   }
-
 
   public ConfluentResourceName canonicalCrn(Scope scope) throws CrnSyntaxException {
     return canonicalCrn(scope, null);

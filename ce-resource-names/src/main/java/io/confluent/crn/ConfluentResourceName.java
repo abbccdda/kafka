@@ -50,6 +50,12 @@ public class ConfluentResourceName implements Comparable {
     private String encodedResourceName;
 
     public Element(String resourceType, String encodedResourceName) throws CrnSyntaxException {
+      if (resourceType.isEmpty()) {
+        throw new CrnSyntaxException(resourceType, "resourceType cannot be empty");
+      }
+      if (encodedResourceName.isEmpty()) {
+        throw new CrnSyntaxException(encodedResourceName, "resourceName cannot be empty");
+      }
       if (resourceType.contains(ELEMENT_JOINER) || resourceType.contains(PATH_DELIMITER)) {
         throw new CrnSyntaxException(resourceType,
             String.format("resourceType cannot contain '%s' or '%s'",

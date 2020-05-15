@@ -285,6 +285,27 @@ public class ConfluentResourceNameTest {
     Assert.assertThrows(CrnSyntaxException.class, () -> {
       builder.addElement("kaf/ka", "lkc-a1b2c3");
     });
+    Assert.assertThrows(CrnSyntaxException.class, () -> {
+      builder.addElement("kafka", "");
+    });
+    Assert.assertThrows(CrnSyntaxException.class, () -> {
+      builder.addElement("", "lkc-a1b2c3");
+    });
+  }
+
+  @Test
+  public void testBadStrings() {
+    List<String> samples = Arrays.asList(
+            "crn://confluent.cloud/kaf=ka=lkc-a1b2c3",
+            "crn://confluent.cloud/kaf/ka=lkc-a1b2c3",
+            "crn://confluent.cloud/organization=/kafka=lkc-a1b2c3/",
+            "crn://confluent.cloud/=123/kafka=lkc-a1b2c3/"
+            );
+    for (String sample : samples) {
+      Assert.assertThrows(CrnSyntaxException.class, () -> {
+        ConfluentResourceName.fromString(sample);
+      });
+    }
   }
 
   @Test
