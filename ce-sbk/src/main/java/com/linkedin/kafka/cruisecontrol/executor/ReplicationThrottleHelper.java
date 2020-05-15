@@ -31,6 +31,7 @@ import java.util.TreeSet;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import scala.Option;
 
 import static com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig.AUTO_THROTTLE;
 import static java.lang.String.valueOf;
@@ -275,7 +276,7 @@ class ReplicationThrottleHelper {
     Object oldThrottleRate = config.setProperty(configKey, String.valueOf(_throttleRate));
     if (oldThrottleRate == null) {
       LOG.debug("Setting {} to {} bytes/second for broker {}", configKey, _throttleRate, brokerId);
-      ExecutorUtils.changeBrokerConfig(_adminZkClient, brokerId, config);
+      _adminZkClient.changeBrokerConfig(Option.apply(brokerId), config);
     } else {
       LOG.debug("Not setting {} for broker {} because pre-existing throttle of {} was already set",
         configKey, brokerId, oldThrottleRate);
@@ -302,7 +303,7 @@ class ReplicationThrottleHelper {
     String throttledReplicasStr = String.join(",", newThrottledReplicas);
     config.setProperty(configKey, throttledReplicasStr);
     try {
-      ExecutorUtils.changeTopicConfig(_adminZkClient, topic, config);
+      _adminZkClient.changeTopicConfig(topic, config);
     } catch (AdminOperationException e) {
       LOG.info("Not setting throttled replicas {} for topic {} because it does not exist",
           throttledReplicasStr, topic);
@@ -346,7 +347,7 @@ class ReplicationThrottleHelper {
     removeLeaderThrottledReplicasFromTopic(config, topic, replicas);
     removeFollowerThrottledReplicasFromTopic(config, topic, replicas);
     try {
-      ExecutorUtils.changeTopicConfig(_adminZkClient, topic, config);
+      _adminZkClient.changeTopicConfig(topic, config);
     } catch (AdminOperationException e) {
       LOG.warn("Skip removing throttled replicas {} for topic {} due to error {}",
               replicas, topic, e);
@@ -364,7 +365,7 @@ class ReplicationThrottleHelper {
       LOG.debug("Removing follower throttled replicas for topic {}", topic);
     }
     if (oldLeaderThrottle != null || oldFollowerThrottle != null) {
-      ExecutorUtils.changeTopicConfig(_adminZkClient, topic, config);
+      _adminZkClient.changeTopicConfig(topic, config);
     }
   }
 
@@ -379,7 +380,7 @@ class ReplicationThrottleHelper {
       LOG.debug("Removing follower throttle on broker {}", brokerId);
     }
     if (oldLeaderThrottle != null || oldFollowerThrottle != null) {
-      ExecutorUtils.changeBrokerConfig(_adminZkClient, brokerId, config);
+      _adminZkClient.changeBrokerConfig(Option.apply(brokerId), config);
     }
   }
 

@@ -39,7 +39,7 @@ public class ModelParameters {
         config.getDouble(KafkaCruiseControlConfig.LEADER_NETWORK_OUTBOUND_WEIGHT_FOR_CPU_UTIL_CONFIG);
     CPU_WEIGHT_OF_FOLLOWER_BYTES_IN_RATE =
         config.getDouble(KafkaCruiseControlConfig.FOLLOWER_NETWORK_INBOUND_WEIGHT_FOR_CPU_UTIL_CONFIG);
-    LINEAR_REGRESSION_PARAMETERS.init(config);
+    LinearRegressionModelParameters.init(config);
   }
 
   public static Double getCoefficient(LinearRegressionModelParameters.ModelCoefficient name) {

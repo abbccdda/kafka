@@ -34,6 +34,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import scala.Option;
 
 import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUnitTestUtils.configResourcesForBrokers;
 import static com.linkedin.kafka.cruisecontrol.common.TestConstants.TOPIC0;
@@ -352,7 +353,7 @@ public class ReplicationThrottleHelperTest extends CCKafkaIntegrationTestHarness
       long preExistingBroker0ThrottleRate = 200L;
       broker0Config.setProperty(ReplicationThrottleHelper.LEADER_THROTTLED_RATE, String.valueOf(preExistingBroker0ThrottleRate));
       broker0Config.setProperty(ReplicationThrottleHelper.FOLLOWER_THROTTLED_RATE, String.valueOf(preExistingBroker0ThrottleRate));
-      ExecutorUtils.changeBrokerConfig(new AdminZkClient(kafkaZkClient), 0, broker0Config);
+      new AdminZkClient(kafkaZkClient).changeBrokerConfig(Option.apply(0), broker0Config);
 
       // Partition 1 (which is not involved in any execution proposal) has pre-existing throttled
       // replicas (on both leaders and followers); we expect these configurations to be merged
@@ -360,13 +361,13 @@ public class ReplicationThrottleHelperTest extends CCKafkaIntegrationTestHarness
       Properties topic0Config = kafkaZkClient.getEntityConfigs(ConfigType.Topic(), TOPIC0);
       topic0Config.setProperty(ReplicationThrottleHelper.LEADER_THROTTLED_REPLICAS, "1:0,1:1");
       topic0Config.setProperty(ReplicationThrottleHelper.FOLLOWER_THROTTLED_REPLICAS, "1:0,1:1");
-      ExecutorUtils.changeTopicConfig(new AdminZkClient(kafkaZkClient), TOPIC0, topic0Config);
+      new AdminZkClient(kafkaZkClient).changeTopicConfig(TOPIC0, topic0Config);
 
       // Topic 1 is not involved in any execution proposal. It has pre-existing throttled replicas.
       Properties topic1Config = kafkaZkClient.getEntityConfigs(ConfigType.Topic(), TOPIC1);
       topic1Config.setProperty(ReplicationThrottleHelper.LEADER_THROTTLED_REPLICAS, "1:1");
       topic1Config.setProperty(ReplicationThrottleHelper.FOLLOWER_THROTTLED_REPLICAS, "1:1");
-      ExecutorUtils.changeTopicConfig(new AdminZkClient(kafkaZkClient), TOPIC1, topic1Config);
+      new AdminZkClient(kafkaZkClient).changeTopicConfig(TOPIC1, topic1Config);
 
     throttleHelper.setThrottles(Collections.singletonList(proposal), null);
 

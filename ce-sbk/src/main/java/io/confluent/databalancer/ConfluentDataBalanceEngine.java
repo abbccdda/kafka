@@ -271,6 +271,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
      * Given a KafkaConfig, generate an appropriate KafkaCruiseControlConfig to bring up CruiseControl internally.
      * Visible for testing
      */
+    @SuppressWarnings("deprecation")
     static KafkaCruiseControlConfig generateCruiseControlConfig(KafkaConfig config) {
         // Extract all confluent.databalancer.X properties from the KafkaConfig, so we
         // can create a CruiseControlConfig from it.
@@ -311,7 +312,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         // Derive bootstrap.servers from the provided KafkaConfig, instead of requiring
         // users to specify it.
         if (ccConfigProps.get(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG) == null) {
-            Endpoint interBrokerEp = config.listeners().toStream()
+            Endpoint interBrokerEp = config.listeners()
                 .find(ep -> ep.listenerName().equals(config.interBrokerListenerName()))
                 .get().toJava();
             LOG.info("DataBalancer: Listener endpoint is {}", interBrokerEp);
@@ -351,6 +352,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         return new KafkaCruiseControlConfig(ccConfigProps);
     }
 
+    @SafeVarargs
     private static void removeGoalFromLists(String goal, List<String>... lists) {
         for (List<String> goalList : lists) {
             goalList.remove(goal);

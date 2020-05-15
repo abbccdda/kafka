@@ -14,8 +14,14 @@ import com.linkedin.kafka.cruisecontrol.executor.strategy.ReplicaMovementStrateg
 import com.linkedin.kafka.cruisecontrol.model.ReplicaPlacementInfo;
 import com.linkedin.kafka.cruisecontrol.monitor.LoadMonitor;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
+import java.util.HashMap;
+import java.util.Optional;
+import kafka.admin.PreferredReplicaLeaderElectionCommand;
 import kafka.zk.KafkaZkClient;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
+import org.apache.kafka.clients.admin.ListPartitionReassignmentsResult;
+import org.apache.kafka.clients.admin.NewPartitionReassignment;
+import org.apache.kafka.clients.admin.PartitionReassignment;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartition;
@@ -40,6 +46,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
+import scala.collection.JavaConverters;
 
 import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.OPERATION_LOGGER;
 import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.currentUtcDate;
@@ -623,7 +630,7 @@ public class Executor {
    * @return True if there is any ongoing partition reassignment.
    */
   public boolean hasOngoingPartitionReassignments() {
-    return !ExecutorUtils.partitionsBeingReassigned(_adminClient, _kafkaZkClient).isEmpty();
+    return !partitionsBeingReassigned().isEmpty();
   }
 
   /**
@@ -853,7 +860,7 @@ public class Executor {
           }
           // Execute the tasks.
           _executionTaskManager.markTasksInProgress(tasksToExecute);
-          ExecutorUtils.executeReplicaReassignmentTasks(_adminClient, adminUtils, _kafkaZkClient, tasksToExecute, _config);
+          executeReplicaReassignmentTasks(tasksToExecute);
         }
         // Wait indefinitely for partition movements to finish.
         List<ExecutionTask> completedTasks = waitForExecutionTaskToFinish();
@@ -997,7 +1004,7 @@ public class Executor {
         _executionTaskManager.markTasksInProgress(leadershipMovementTasks);
 
         // Run preferred leader election.
-        ExecutorUtils.executePreferredLeaderElection(_kafkaZkClient, leadershipMovementTasks);
+        executePreferredLeaderElection(leadershipMovementTasks);
         LOG.trace("Waiting for leadership movement batch to finish.");
         while (!_executionTaskManager.inExecutionTasks().isEmpty() && !_stopRequested.get()) {
           waitForExecutionTaskToFinish();
@@ -1263,10 +1270,9 @@ public class Executor {
     private void maybeReexecuteTasks() {
       List<ExecutionTask> interBrokerReplicaActionsToReexecute =
           new ArrayList<>(_executionTaskManager.inExecutionTasks(Collections.singleton(ExecutionTask.TaskType.INTER_BROKER_REPLICA_ACTION)));
-      if (!isSubset(ExecutorUtils.partitionsBeingReassigned(_adminClient, _kafkaZkClient),
-          interBrokerReplicaActionsToReexecute)) {
+      if (!isSubset(partitionsBeingReassigned(), interBrokerReplicaActionsToReexecute)) {
         LOG.info("Reexecuting tasks {}", interBrokerReplicaActionsToReexecute);
-        ExecutorUtils.executeReplicaReassignmentTasks(_adminClient, adminUtils, _kafkaZkClient, interBrokerReplicaActionsToReexecute, _config);
+        executeReplicaReassignmentTasks(interBrokerReplicaActionsToReexecute);
       }
 
       List<ExecutionTask> intraBrokerReplicaActionsToReexecute =
@@ -1286,13 +1292,165 @@ public class Executor {
       // Only reexecute leader actions if there is no replica actions running.
       if (interBrokerReplicaActionsToReexecute.isEmpty() &&
           intraBrokerReplicaActionsToReexecute.isEmpty() &&
-          ExecutorUtils.ongoingLeaderElection(_kafkaZkClient).isEmpty()) {
+          ongoingLeaderElection().isEmpty()) {
         List<ExecutionTask> leaderActionsToReexecute = new ArrayList<>(_executionTaskManager.inExecutionTasks(Collections.singleton(ExecutionTask.TaskType.LEADER_ACTION)));
         if (!leaderActionsToReexecute.isEmpty()) {
           LOG.info("Reexecuting tasks {}", leaderActionsToReexecute);
-          ExecutorUtils.executePreferredLeaderElection(_kafkaZkClient, leaderActionsToReexecute);
+          executePreferredLeaderElection(leaderActionsToReexecute);
         }
       }
     }
+  }
+
+  /**
+   * Add a list of replica reassignment tasks to execute. Replica reassignment indicates tasks that (1) relocate a replica
+   * within the cluster, (2) introduce a new replica to the cluster (3) remove an existing replica from the cluster.
+   *
+   * @param reassignmentTasks Replica reassignment tasks to be executed.
+   */
+  private void executeReplicaReassignmentTasks(List<ExecutionTask> reassignmentTasks) {
+    if (reassignmentTasks != null && !reassignmentTasks.isEmpty()) {
+      Set<TopicPartition> partitionsToReassign = reassignmentTasks.stream()
+          .map(t -> t.proposal().topicPartition()).collect(Collectors.toSet());
+      Map<TopicPartition, List<Integer>> inProgressTargetReplicaReassignment = fetchTargetReplicasBeingReassigned(
+              Optional.of(partitionsToReassign));
+
+      Map<TopicPartition, Optional<NewPartitionReassignment>> newReplicaAssignments = new HashMap<>();
+
+      reassignmentTasks.forEach(task -> {
+        TopicPartition tp = task.proposal().topicPartition();
+        List<Integer> targetReplicas = replicasToWrite(task,
+            Optional.ofNullable(inProgressTargetReplicaReassignment.get(tp)));
+
+        if (!targetReplicas.isEmpty()) {
+          NewPartitionReassignment reassignment = new NewPartitionReassignment(targetReplicas);
+          newReplicaAssignments.put(tp, Optional.of(reassignment));
+        }
+      });
+
+      if (!newReplicaAssignments.isEmpty()) {
+        try {
+          _adminClient.alterPartitionReassignments(newReplicaAssignments).all().get();
+        } catch (Throwable t) {
+          sneakyThrow(t);
+        }
+      }
+    }
+  }
+
+  private Set<TopicPartition> partitionsBeingReassigned() {
+    return fetchTargetReplicasBeingReassigned(Optional.empty()).keySet();
+  }
+
+  /**
+   * Fetches the partitions being reassigned in the cluster
+   *
+   * @param partitionsOpt - an option of a set of partitions we want to check for reassignments.
+   *                        An empty value will search for all reassigning partitions
+   * @return a tuple of a map of partitions being reassigned and their target replicas and
+   *                    a boolean indicating if we fell back to using the ZK API
+   */
+  private Map<TopicPartition, List<Integer>> fetchTargetReplicasBeingReassigned(
+      Optional<Set<TopicPartition>> partitionsOpt) {
+
+    try {
+      ListPartitionReassignmentsResult listPartitionsResult;
+      if (partitionsOpt.isPresent())
+        listPartitionsResult = _adminClient.listPartitionReassignments(partitionsOpt.get());
+      else
+        listPartitionsResult = _adminClient.listPartitionReassignments();
+
+      return listPartitionsResult.reassignments().get().entrySet().stream().collect(
+        Collectors.toMap(
+          entry -> entry.getKey(),
+          entry -> {
+            PartitionReassignment partitionReassignment = entry.getValue();
+            List<Integer> targetReplicas = new ArrayList<>(partitionReassignment.replicas());
+            targetReplicas.removeAll(partitionReassignment.removingReplicas());
+            return targetReplicas;
+          }));
+    } catch (Throwable t) {
+        LOG.error("Fetching reassigning replicas through the listPartitionReassignments API failed with an exception", t);
+        sneakyThrow(t);
+        return null;
+    }
+  }
+
+  /**
+   * Given an ExecutionTask, return the targetReplicas we should write to the Kafka reassignments.
+   * If we should not reassign a partition as part of this task, an empty replica set will be returned
+   */
+  private List<Integer> replicasToWrite(ExecutionTask task,
+      Optional<List<Integer>> inProgressTargetReplicasOpt) {
+    TopicPartition tp = task.proposal().topicPartition();
+    List<Integer> oldReplicas = task.proposal().oldReplicas().stream().map(r -> r.brokerId())
+      .collect(Collectors.toList());
+    List<Integer> newReplicas = task.proposal().newReplicas().stream().map(r -> r.brokerId())
+      .collect(Collectors.toList());
+
+    // If aborting an existing task, trigger a reassignment to the oldReplicas
+    // If no reassignment is in progress, trigger a reassignment to newReplicas
+    // else, do not trigger a reassignment
+    if (inProgressTargetReplicasOpt.isPresent()) {
+      List<Integer> inProgressTargetReplicas = inProgressTargetReplicasOpt.get();
+      if (task.state() == ExecutionTask.State.ABORTING) {
+        return oldReplicas;
+      } else if (task.state() == ExecutionTask.State.DEAD
+          || task.state() == ExecutionTask.State.ABORTED
+          || task.state() == ExecutionTask.State.COMPLETED) {
+        return Collections.emptyList();
+      } else if (task.state() == ExecutionTask.State.IN_PROGRESS) {
+        if (!newReplicas.equals(inProgressTargetReplicas)) {
+          throw new RuntimeException("The provided new replica list " + newReplicas +
+              " is different from the in progress replica list " + inProgressTargetReplicas + " for " + tp);
+        }
+        return Collections.emptyList();
+      } else {
+        throw new IllegalStateException("Should never be here, the state " + task.state());
+      }
+    } else {
+      if (task.state() == ExecutionTask.State.ABORTED
+          || task.state() == ExecutionTask.State.DEAD
+          || task.state() == ExecutionTask.State.ABORTING
+          || task.state() == ExecutionTask.State.COMPLETED) {
+        LOG.warn("No need to abort tasks {} because the partition is not in reassignment", task);
+        return Collections.emptyList();
+      } else {
+        // verify with current assignment
+        List<Integer> currentReplicaAssignment = adminUtils.getReplicasForPartition(tp);
+        if (currentReplicaAssignment.isEmpty()) {
+          LOG.warn("Could not fetch the replicas for partition {}. It is possible the topic or partition doesn't exist.", tp);
+          return Collections.emptyList();
+        } else {
+          // we are not verifying the old replicas because we may be reexecuting a task,
+          // in which case the replica list could be different from the old replicas.
+          return newReplicas;
+        }
+      }
+    }
+  }
+
+  @SuppressWarnings("deprecation")
+  private void executePreferredLeaderElection(List<ExecutionTask> tasks) {
+    Set<TopicPartition> partitionsToExecute = tasks.stream().map(task ->
+        new TopicPartition(task.proposal().topic(), task.proposal().partitionId()))
+        .collect(Collectors.toSet());
+
+    PreferredReplicaLeaderElectionCommand command = new PreferredReplicaLeaderElectionCommand(
+        _kafkaZkClient, JavaConverters.asScalaSet(partitionsToExecute));
+    command.moveLeaderToPreferredReplica();
+  }
+
+  @SuppressWarnings("deprecation")
+  private Set<TopicPartition> ongoingLeaderElection() {
+    return JavaConverters.setAsJavaSet(_kafkaZkClient.getPreferredReplicaElection());
+  }
+
+  // Simulates the behavior of the Scala compiler that throws checked exceptions as unchecked
+  // This makes the migration away from the Scala code in ExecutorUtils easier, but we should
+  // remove it once that's complete
+  @SuppressWarnings("unchecked")
+  private static <E extends Throwable> void sneakyThrow(Throwable e) throws E {
+    throw (E) e;
   }
 }

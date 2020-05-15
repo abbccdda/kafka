@@ -2097,19 +2097,7 @@ project(':connect:basic-auth-extension') {
 }
 
 project(':ce-sbk') {
-  apply plugin: 'scala'
   archivesBaseName = "ce-sbk_${versions.baseScala}"
-
-  sourceSets {
-    main {
-      scala {
-        srcDirs = ['src/main/scala', 'src/main/java', "${buildDir}/generated/src/main/java"]
-      }
-      java {
-        srcDirs = []
-      }
-    }
-  }
 
   dependencies {
     // SBK will only ever run on a Kafka broker so core's libraries are compileOnly --

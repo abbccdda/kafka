@@ -55,7 +55,6 @@ public class BrokerFailureDetector {
   private final boolean _excludeRecentlyDemotedBrokers;
   private final boolean _excludeRecentlyRemovedBrokers;
   private final List<String> _selfHealingGoals;
-  private final Long _replicationThrottle;
 
   public BrokerFailureDetector(KafkaCruiseControlConfig config,
                                LoadMonitor loadMonitor,
@@ -80,7 +79,6 @@ public class BrokerFailureDetector {
     _excludeRecentlyDemotedBrokers = config.getBoolean(KafkaCruiseControlConfig.BROKER_FAILURE_EXCLUDE_RECENTLY_DEMOTED_BROKERS_CONFIG);
     _excludeRecentlyRemovedBrokers = config.getBoolean(KafkaCruiseControlConfig.BROKER_FAILURE_EXCLUDE_RECENTLY_REMOVED_BROKERS_CONFIG);
     _selfHealingGoals = selfHealingGoals;
-    _replicationThrottle = config.getLong(KafkaCruiseControlConfig.DEFAULT_REPLICATION_THROTTLE_CONFIG);
   }
 
   void startDetection() {

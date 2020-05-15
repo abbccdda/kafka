@@ -22,9 +22,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
-import java.util.Set;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeoutException;
 
 import kafka.server.ConfigType;
 import kafka.server.ConfigType$;
@@ -34,20 +32,13 @@ import kafka.zk.KafkaZkClient;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.DeleteTopicsResult;
-import org.apache.kafka.clients.admin.DescribeLogDirsResult;
-import org.apache.kafka.clients.admin.DescribeReplicaLogDirsResult;
 import org.apache.kafka.clients.admin.KafkaAdminClient;
-import org.apache.kafka.clients.admin.ListPartitionReassignmentsResult;
 import org.apache.kafka.clients.admin.NewTopic;
-import org.apache.kafka.clients.admin.PartitionReassignment;
 import org.apache.kafka.clients.admin.TopicDescription;
 import org.apache.kafka.common.Cluster;
-import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.TopicPartitionInfo;
-import org.apache.kafka.common.errors.UnsupportedVersionException;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.SystemTime;
 import org.apache.kafka.common.utils.Time;
@@ -127,66 +118,6 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     try {
       Collection<ExecutionProposal> proposals = getBasicProposals();
       executeAndVerifyProposals(kafkaZkClient, proposals, proposals).shutdown();
-    } finally {
-      KafkaCruiseControlUtils.closeKafkaZkClientWithTimeout(kafkaZkClient);
-    }
-  }
-
-  /**
-   * Test the scenario where the Kafka cluster does not support the AlterPartitionReassignments
-   */
-  @Test
-  public void testBasicBalanceMovementWithZkFallback() throws InterruptedException, TimeoutException, ExecutionException {
-    KafkaZkClient kafkaZkClient = KafkaCruiseControlUtils.createKafkaZkClient(zookeeper().connectionString(),
-        "ExecutorTestMetricGroup",
-        "BasicBalanceMovement",
-        false);
-    Node node0 = new Node(0, "host0", 100);
-    Map<String, TopicDescription> topicDescMap = new HashMap<>();
-    topicDescMap.put(TOPIC0, new TopicDescription(TOPIC0, false,
-        Collections.singletonList(new TopicPartitionInfo(0, node0, Collections.singletonList(node0), Collections.singletonList(node0)))));
-    topicDescMap.put(TOPIC1, new TopicDescription(TOPIC1, false,
-        Collections.singletonList(new TopicPartitionInfo(0, node0, Collections.singletonList(node0), Collections.singletonList(node0)))));
-
-    ConfluentAdmin mockAdminClient = EasyMock.mock(ConfluentAdmin.class);
-    ListPartitionReassignmentsResult mockListReassignResult = EasyMock.mock(ListPartitionReassignmentsResult.class);
-
-    KafkaFuture<Map<TopicPartition, PartitionReassignment>> mockReassignmentFuture = EasyMock.mock(KafkaFuture.class);
-    EasyMock.expect(mockListReassignResult.reassignments())
-            .andReturn(mockReassignmentFuture).anyTimes();
-    EasyMock.expect(mockReassignmentFuture.get())
-            .andThrow(new ExecutionException("failure", new UnsupportedVersionException("Unsupported!"))).anyTimes();
-    EasyMock.replay(mockReassignmentFuture);
-    EasyMock.replay(mockListReassignResult);
-    EasyMock.expect(mockAdminClient.listPartitionReassignments(EasyMock.<Set<TopicPartition>>anyObject())).andReturn(mockListReassignResult).anyTimes();
-    EasyMock.expect(mockAdminClient.listPartitionReassignments()).andReturn(mockListReassignResult).anyTimes();
-
-    DescribeLogDirsResult result = EasyMock.mock(DescribeLogDirsResult.class);
-    EasyMock.expect(result.values()).andReturn(new HashMap<>()).anyTimes();
-    EasyMock.replay(result);
-    EasyMock.expect(mockAdminClient.describeLogDirs(EasyMock.anyObject()))
-        .andReturn(result).anyTimes();
-
-    DescribeReplicaLogDirsResult replicaLogDirResult = EasyMock.mock(DescribeReplicaLogDirsResult.class);
-    EasyMock.expect(replicaLogDirResult.values()).andReturn(new HashMap<>()).anyTimes();
-    EasyMock.replay(replicaLogDirResult);
-    EasyMock.expect(mockAdminClient.describeReplicaLogDirs(EasyMock.anyObject()))
-        .andReturn(replicaLogDirResult).anyTimes();
-
-    KafkaCruiseControlUnitTestUtils.mockDescribeTopics(mockAdminClient, Collections.singletonList(TOPIC0),
-        topicDescMap, Long.parseLong(DESCRIBE_TOPICS_RESPONSE_TIMEOUT_MS));
-    KafkaCruiseControlUnitTestUtils.mockDescribeTopics(mockAdminClient, Collections.singletonList(TOPIC1),
-        topicDescMap, Long.parseLong(DESCRIBE_TOPICS_RESPONSE_TIMEOUT_MS));
-    EasyMock.replay(mockAdminClient);
-
-    try {
-      Executor testExecutor = executor(mockAdminClient);
-      try {
-          Collection<ExecutionProposal> proposals = getBasicProposals();
-          executeAndVerifyProposals(kafkaZkClient, proposals, proposals, testExecutor).shutdown();
-      } finally {
-          testExecutor.shutdown();
-      }
     } finally {
       KafkaCruiseControlUtils.closeKafkaZkClientWithTimeout(kafkaZkClient);
     }

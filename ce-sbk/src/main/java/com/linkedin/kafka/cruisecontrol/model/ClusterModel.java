@@ -254,6 +254,7 @@ public class ClusterModel implements Serializable {
    * @param brokerId Id of the broker for which the alive status is set.
    * @param newState The new state of the broker.
    */
+  @SuppressWarnings("fallthrough")
   public void setBrokerState(int brokerId, Broker.State newState) {
     Broker broker = broker(brokerId);
     if (broker == null) {

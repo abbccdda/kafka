@@ -198,6 +198,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
    * @deprecated (i.e. cannot be configured to a value other than 1).
    * <code>num.metric.fetchers</code>
    */
+  @Deprecated
   public static final String NUM_METRIC_FETCHERS_CONFIG = "num.metric.fetchers";
   private static final String NUM_METRIC_FETCHERS_DOC = "The number of metric fetchers to fetch from the Kafka cluster.";
 
