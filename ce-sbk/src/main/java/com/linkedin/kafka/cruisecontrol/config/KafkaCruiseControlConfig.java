@@ -727,47 +727,6 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   public static final String TOPIC_CONFIG_PROVIDER_CLASS_CONFIG = "topic.config.provider.class";
   private static final String TOPIC_CONFIG_PROVIDER_CLASS_DOC = "The provider class that reports the active configuration of topics.";
 
-  public static final String COMPLETED_KAFKA_MONITOR_USER_TASK_RETENTION_TIME_MS_CONFIG =
-      "completed.kafka.monitor.user.task.retention.time.ms";
-  private static final String COMPLETED_KAFKA_MONITOR_USER_TASK_RETENTION_TIME_MS_DOC = "The maximum time in milliseconds "
-      + "to store the response and access details of a completed kafka monitoring user task. If this config is missing, "
-      + "the value set in config completed.user.task.retention.time.ms will be used.";
-
-  /**
-   * <code>completed.cruise.control.monitor.user.task.retention.time.ms</code>
-   */
-  public static final String COMPLETED_CRUISE_CONTROL_MONITOR_USER_TASK_RETENTION_TIME_MS_CONFIG =
-      "completed.cruise.control.monitor.user.task.retention.time.ms";
-  private static final String COMPLETED_CRUISE_CONTROL_MONITOR_USER_TASK_RETENTION_TIME_MS_DOC = "The maximum time in milliseconds "
-      + "to store the response and access details of a completed cruise control monitoring user task. If this config is missing, "
-      + "the value set in config completed.user.task.retention.time.ms will be used.";
-
-  /**
-   * <code>completed.kafka.admin.user.task.retention.time.ms</code>
-   */
-  public static final String COMPLETED_KAFKA_ADMIN_USER_TASK_RETENTION_TIME_MS_CONFIG =
-      "completed.kafka.admin.user.task.retention.time.ms";
-  private static final String COMPLETED_KAFKA_ADMIN_USER_TASK_RETENTION_TIME_MS_DOC = "The maximum time in milliseconds "
-      + "to store the response and access details of a completed kafka administration user task. If this config is missing, "
-      + "the value set in config completed.user.task.retention.time.ms will be used.";
-
-  /**
-   * <code>completed.cruise.control.admin.user.task.retention.time.ms</code>
-   */
-  public static final String COMPLETED_CRUISE_CONTROL_ADMIN_USER_TASK_RETENTION_TIME_MS_CONFIG =
-      "completed.cruise.control.admin.user.task.retention.time.ms";
-  private static final String COMPLETED_CRUISE_CONTROL_ADMIN_USER_TASK_RETENTION_TIME_MS_DOC = "The maximum time in milliseconds "
-      + "to store the response and access details of a completed cruise control administration user task. If this config is "
-      + "missing, the value set in config completed.user.task.retention.time.ms will be used.";
-
-  /**
-   * <code>completed.user.task.retention.time.ms</code>
-   */
-  public static final String COMPLETED_USER_TASK_RETENTION_TIME_MS_CONFIG = "completed.user.task.retention.time.ms";
-  private static final String COMPLETED_USER_TASK_RETENTION_TIME_MS_DOC = "The fallback maximum time in milliseconds to store "
-      + "the response and access details of a completed user task if more specific config for certain user task type is not set"
-      + " (e.g. COMPLETED_KAFKA_MONITOR_USER_TASK_RETENTION_TIME_MS_CONFIG).";
-
   /**
    * <code>demotion.history.retention.time.ms</code>
    */
@@ -781,55 +740,6 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   public static final String REMOVAL_HISTORY_RETENTION_TIME_MS_CONFIG = "removal.history.retention.time.ms";
   private static final String REMOVAL_HISTORY_RETENTION_TIME_MS_DOC = "The maximum time in milliseconds to retain the"
       + " removal history of brokers.";
-
-  /**
-   * <code>max.cached.completed.kafka.monitor.user.tasks</code>
-   */
-  public static final String MAX_CACHED_COMPLETED_KAFKA_MONITOR_USER_TASKS_CONFIG = "max.cached.completed.kafka.monitor.user.tasks";
-  private static final String MAX_CACHED_COMPLETED_KAFKA_MONITOR_USER_TASKS_DOC = "The maximum number of completed kafka monitoring "
-      + "user tasks for which the response and access details will be cached. If this config is missing, the value set in config "
-      + "max.cached.completed.user.tasks will be used.";
-
-  /**
-   * <code>max.cached.completed.cruise.control.monitor.user.tasks</code>
-   */
-  public static final String MAX_CACHED_COMPLETED_CRUISE_CONTROL_MONITOR_USER_TASKS_CONFIG =
-      "max.cached.completed.cruise.control.monitor.user.tasks";
-  private static final String MAX_CACHED_COMPLETED_CRUISE_CONTROL_MONITOR_USER_TASKS_DOC = "The maximum number of completed "
-      + "cruise control monitoring user tasks for which the response and access details will be cached. If this config is "
-      + "missing, the value set in config max.cached.completed.user.tasks will be used.";
-
-  /**
-   * <code>max.cached.completed.kafka.admin.user.tasks</code>
-   */
-  public static final String MAX_CACHED_COMPLETED_KAFKA_ADMIN_USER_TASKS_CONFIG = "max.cached.completed.kafka.admin.user.tasks";
-  private static final String MAX_CACHED_COMPLETED_KAFKA_ADMIN_USER_TASKS_DOC = "The maximum number of completed kafka administration "
-      + "user tasks for which the response and access details will be cached. If this config is missing, the value set in config "
-      + "max.cached.completed.user.tasks will be used.";
-
-  /**
-   * <code>max.cached.completed.cruise.control.admin.user.tasks</code>
-   */
-  public static final String MAX_CACHED_COMPLETED_CRUISE_CONTROL_ADMIN_USER_TASKS_CONFIG =
-      "max.cached.completed.cruise.control.admin.user.tasks";
-  private static final String MAX_CACHED_COMPLETED_CRUISE_CONTROL_ADMIN_USER_TASKS_DOC = "The maximum number of completed "
-      + "cruise control administration user tasks for which the response and access details will be cached. If this config is "
-      + "missing, the value set in config max.cached.completed.user.tasks will be used.";
-
-  /**
-   * <code>max.cached.completed.user.tasks</code>
-   */
-  public static final String MAX_CACHED_COMPLETED_USER_TASKS_CONFIG = "max.cached.completed.user.tasks";
-  private static final String MAX_CACHED_COMPLETED_USER_TASKS_DOC = "The fallback maximum number of completed user tasks of"
-      + "certain type for which the response and access details will be cached. This config will be used if more specific "
-      + "config for certain user task type is not set (e.g. MAX_CACHED_COMPLETED_KAFKA_MONITOR_USER_TASKS_CONFIG).";
-
-  /**
-   * <code>max.active.user.tasks</code>
-   */
-  public static final String MAX_ACTIVE_USER_TASKS_CONFIG = "max.active.user.tasks";
-  private static final String MAX_ACTIVE_USER_TASKS_DOC = "The maximum number of user tasks for concurrently running in "
-       + "async endpoints across all users.";
 
   /**
    * <code>goal.balancedness.priority.weight</code>
@@ -847,118 +757,6 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   private static final String GOAL_BALANCEDNESS_STRICTNESS_WEIGHT_DOC = "The impact of strictness (i.e. hard or soft goal)"
        + " on the relative balancedness score. For example, 1.5 means that a hard goal will have the 1.5x balancedness "
        + "weight of a soft goal (assuming goal.balancedness.priority.weight is 1).";
-
-  // Web Server Configurations
-  /**
-   * <code>webserver.http.port</code>
-   */
-  public static final String WEBSERVER_HTTP_PORT_CONFIG = "webserver.http.port";
-  private static final String WEBSERVER_HTTP_PORT_DOC = "Cruise Control Webserver bind port.";
-
-  /**
-   * <code>webserver.http.address</code>
-   */
-  public static final String WEBSERVER_HTTP_ADDRESS_CONFIG = "webserver.http.address";
-  private static final String WEBSERVER_HTTP_ADDRESS_DOC = "Cruise Control Webserver bind ip address.";
-
-  /**
-   * <code>webserver.http.cors.enabled</code>
-   */
-  public static final String WEBSERVER_HTTP_CORS_ENABLED_CONFIG = "webserver.http.cors.enabled";
-  private static final String WEBSERVER_HTTP_CORS_ENABLED_DOC = "CORS enablement flag. true if enabled, false otherwise";
-
-  /**
-   * <code>webserver.http.cors.origin</code>
-   */
-  public static final String WEBSERVER_HTTP_CORS_ORIGIN_CONFIG = "webserver.http.cors.origin";
-  private static final String WEBSERVER_HTTP_CORS_ORIGIN_DOC = "Value for the Access-Control-Allow-Origin header.";
-
-  /**
-   * <code>webserver.http.cors.allowmethods</code>
-   */
-  public static final String WEBSERVER_HTTP_CORS_ALLOWMETHODS_CONFIG = "webserver.http.cors.allowmethods";
-  private static final String WEBSERVER_HTTP_CORS_ALLOWMETHODS_DOC = "Value for the Access-Control-Request-Method header.";
-
-  /**
-   * <code>webserver.http.cors.exposeheaders</code>
-   */
-  public static final String WEBSERVER_HTTP_CORS_EXPOSEHEADERS_CONFIG = "webserver.http.cors.exposeheaders";
-  private static final String WEBSERVER_HTTP_CORS_EXPOSEHEADERS_DOC = "Value for the Access-Control-Expose-Headers header.";
-
-  /**
-   * <code>webserver.api.urlprefix</code>
-   */
-  public static final String WEBSERVER_API_URLPREFIX = "webserver.api.urlprefix";
-  private static final String WEBSERVER_API_URLPREFIX_DOC = "REST API default url prefix";
-
-  /**
-   * <code>webserver.ui.diskpath</code>
-   */
-  public static final String WEBSERVER_UI_DISKPATH = "webserver.ui.diskpath";
-  private static final String WEBSERVER_UI_DISKPATH_DOC = "Location where the Cruise Control frontend is deployed";
-
-  /**
-   * <code>webserver.ui.urlprefix</code>
-   */
-  public static final String WEBSERVER_UI_URLPREFIX = "webserver.ui.urlprefix";
-  private static final String WEBSERVER_UI_URLPREFIX_DOC = "URL Path where UI is served from";
-
-  /**
-   * <code>webserver.request.maxBlockTimeMs</code>
-   */
-  public static final String WEBSERVER_REQUEST_MAX_BLOCK_TIME_MS = "webserver.request.maxBlockTimeMs";
-  private static final String WEBSERVER_REQUEST_MAX_BLOCK_TIME_MS_DOC = "Time after which request is converted to Async";
-
-  /**
-   * <code>webserver.session.maxExpiryTimeMs</code>
-   */
-  public static final String WEBSERVER_SESSION_EXPIRY_MS = "webserver.session.maxExpiryTimeMs";
-  private static final String WEBSERVER_SESSION_EXPIRY_MS_DOC = "Default Session Expiry Period";
-
-  /**
-   * <code>webserver.session.path</code>
-   */
-  public static final String WEBSERVER_SESSION_PATH = "webserver.session.path";
-  private static final String WEBSERVER_SESSION_PATH_DOC = "Default Session Path (for cookies)";
-
-  /**
-   * <code>webserver.accesslog.enabled</code>
-   */
-  public static final String WEBSERVER_ACCESSLOG_ENABLED = "webserver.accesslog.enabled";
-  private static final String WEBSERVER_ACCESSLOG_ENABLED_DOC = "true if access log is enabled";
-
-
-  /**
-   * <code>webserver.accesslog.path</code>
-   */
-  public static final String WEBSERVER_ACCESSLOG_PATH = "webserver.accesslog.path";
-  private static final String WEBSERVER_ACCESSLOG_PATH_DOC = "HTTP Request log path";
-
-  /**
-   * <code>webserver.accesslog.retention.days</code>
-   */
-  public static final String WEBSERVER_ACCESSLOG_RETENTION_DAYS = "webserver.accesslog.retention.days";
-  private static final String WEBSERVER_ACCESSLOG_RETENTION_DAYS_DOC = "HTTP Request log retention days";
-
-  /**
-   * <code>two.step.verification.enabled</code>
-   */
-  public static final String TWO_STEP_VERIFICATION_ENABLED_CONFIG = "two.step.verification.enabled";
-  private static final String TWO_STEP_VERIFICATION_ENABLED_DOC = "Enable two-step verification for processing POST requests.";
-
-  /**
-   * <code>two.step.purgatory.retention.time.ms</code>
-   */
-  public static final String TWO_STEP_PURGATORY_RETENTION_TIME_MS_CONFIG = "two.step.purgatory.retention.time.ms";
-  private static final String TWO_STEP_PURGATORY_RETENTION_TIME_MS_DOC = "The maximum time in milliseconds to "
-      + "retain the requests in two-step (verification) purgatory.";
-
-  /**
-   * <code>two.step.purgatory.max.requests</code>
-   */
-  public static final String TWO_STEP_PURGATORY_MAX_REQUESTS_CONFIG = "two.step.purgatory.max.requests";
-  private static final String TWO_STEP_PURGATORY_MAX_REQUESTS_DOC = "The maximum number of requests in two-step "
-      + "(verification) purgatory.";
 
   /**
    * <code>logdir.response.timeout.ms</code>
@@ -1028,38 +826,6 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
 
   static {
     CONFIG = new ConfigDef()
-        .define(WEBSERVER_HTTP_PORT_CONFIG, ConfigDef.Type.INT, 9090, atLeast(0), ConfigDef.Importance.HIGH,
-                WEBSERVER_HTTP_PORT_DOC)
-        .define(WEBSERVER_HTTP_ADDRESS_CONFIG, ConfigDef.Type.STRING, "127.0.0.1", ConfigDef.Importance.HIGH,
-                WEBSERVER_HTTP_ADDRESS_DOC)
-        .define(WEBSERVER_HTTP_CORS_ENABLED_CONFIG, ConfigDef.Type.BOOLEAN, false, ConfigDef.Importance.LOW,
-                WEBSERVER_HTTP_CORS_ENABLED_DOC)
-        .define(TWO_STEP_VERIFICATION_ENABLED_CONFIG, ConfigDef.Type.BOOLEAN, false, ConfigDef.Importance.MEDIUM,
-                TWO_STEP_VERIFICATION_ENABLED_DOC)
-        .define(WEBSERVER_HTTP_CORS_ORIGIN_CONFIG, ConfigDef.Type.STRING, "*", ConfigDef.Importance.LOW,
-                WEBSERVER_HTTP_CORS_ORIGIN_DOC)
-        .define(WEBSERVER_HTTP_CORS_ALLOWMETHODS_CONFIG, ConfigDef.Type.STRING, "OPTIONS, GET, POST", ConfigDef.Importance.HIGH,
-                WEBSERVER_HTTP_CORS_ALLOWMETHODS_DOC)
-        .define(WEBSERVER_HTTP_CORS_EXPOSEHEADERS_CONFIG, ConfigDef.Type.STRING, "User-Task-ID", ConfigDef.Importance.HIGH,
-                WEBSERVER_HTTP_CORS_EXPOSEHEADERS_DOC)
-        .define(WEBSERVER_API_URLPREFIX, ConfigDef.Type.STRING, "/kafkacruisecontrol/*", ConfigDef.Importance.HIGH,
-                WEBSERVER_API_URLPREFIX_DOC)
-        .define(WEBSERVER_UI_DISKPATH, ConfigDef.Type.STRING, "./cruise-control-ui/dist/", ConfigDef.Importance.MEDIUM,
-                WEBSERVER_UI_DISKPATH_DOC)
-        .define(WEBSERVER_UI_URLPREFIX, ConfigDef.Type.STRING, "/*", ConfigDef.Importance.MEDIUM,
-                WEBSERVER_UI_URLPREFIX_DOC)
-        .define(WEBSERVER_REQUEST_MAX_BLOCK_TIME_MS, ConfigDef.Type.LONG, 10000L, atLeast(0L), ConfigDef.Importance.HIGH,
-                WEBSERVER_REQUEST_MAX_BLOCK_TIME_MS_DOC)
-        .define(WEBSERVER_SESSION_EXPIRY_MS, ConfigDef.Type.LONG, 60000L, atLeast(0L), ConfigDef.Importance.HIGH,
-                WEBSERVER_SESSION_EXPIRY_MS_DOC)
-        .define(WEBSERVER_SESSION_PATH, ConfigDef.Type.STRING, "/", ConfigDef.Importance.HIGH,
-                WEBSERVER_SESSION_PATH_DOC)
-        .define(WEBSERVER_ACCESSLOG_ENABLED, ConfigDef.Type.BOOLEAN, true, ConfigDef.Importance.MEDIUM,
-                WEBSERVER_ACCESSLOG_ENABLED_DOC)
-        .define(WEBSERVER_ACCESSLOG_PATH, ConfigDef.Type.STRING, "access.log", ConfigDef.Importance.LOW,
-                WEBSERVER_ACCESSLOG_PATH_DOC)
-        .define(WEBSERVER_ACCESSLOG_RETENTION_DAYS, ConfigDef.Type.INT, 7, atLeast(0), ConfigDef.Importance.LOW,
-                WEBSERVER_ACCESSLOG_RETENTION_DAYS_DOC)
         .define(BOOTSTRAP_SERVERS_CONFIG, ConfigDef.Type.LIST, ConfigDef.Importance.HIGH,
                 CommonClientConfigs.BOOTSTRAP_SERVERS_DOC)
         .define(CLIENT_ID_CONFIG, ConfigDef.Type.STRING, "kafka-cruise-control", ConfigDef.Importance.MEDIUM,
@@ -1129,32 +895,6 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 atLeast(1),
                 ConfigDef.Importance.HIGH,
                 BROKER_METRICS_WINDOW_MS_DOC)
-        .define(COMPLETED_KAFKA_MONITOR_USER_TASK_RETENTION_TIME_MS_CONFIG,
-                ConfigDef.Type.LONG,
-                null,
-                ConfigDef.Importance.MEDIUM,
-                COMPLETED_KAFKA_MONITOR_USER_TASK_RETENTION_TIME_MS_DOC)
-        .define(COMPLETED_CRUISE_CONTROL_MONITOR_USER_TASK_RETENTION_TIME_MS_CONFIG,
-                ConfigDef.Type.LONG,
-                null,
-                ConfigDef.Importance.MEDIUM,
-                COMPLETED_CRUISE_CONTROL_MONITOR_USER_TASK_RETENTION_TIME_MS_DOC)
-        .define(COMPLETED_KAFKA_ADMIN_USER_TASK_RETENTION_TIME_MS_CONFIG,
-                ConfigDef.Type.LONG,
-                null,
-                ConfigDef.Importance.MEDIUM,
-                COMPLETED_KAFKA_ADMIN_USER_TASK_RETENTION_TIME_MS_DOC)
-        .define(COMPLETED_CRUISE_CONTROL_ADMIN_USER_TASK_RETENTION_TIME_MS_CONFIG,
-                ConfigDef.Type.LONG,
-                null,
-                ConfigDef.Importance.MEDIUM,
-                COMPLETED_CRUISE_CONTROL_ADMIN_USER_TASK_RETENTION_TIME_MS_DOC)
-        .define(COMPLETED_USER_TASK_RETENTION_TIME_MS_CONFIG,
-                ConfigDef.Type.LONG,
-                TimeUnit.HOURS.toMillis(24),
-                atLeast(0),
-                ConfigDef.Importance.MEDIUM,
-                COMPLETED_USER_TASK_RETENTION_TIME_MS_DOC)
         .define(DEMOTION_HISTORY_RETENTION_TIME_MS_CONFIG,
                 ConfigDef.Type.LONG,
                 TimeUnit.HOURS.toMillis(336),
@@ -1166,48 +906,6 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 TimeUnit.HOURS.toMillis(336),
                 atLeast(0),
                 ConfigDef.Importance.MEDIUM, REMOVAL_HISTORY_RETENTION_TIME_MS_DOC)
-        .define(TWO_STEP_PURGATORY_RETENTION_TIME_MS_CONFIG,
-                ConfigDef.Type.LONG,
-                TimeUnit.HOURS.toMillis(336),
-                atLeast(TimeUnit.HOURS.toMillis(1)),
-                ConfigDef.Importance.MEDIUM, TWO_STEP_PURGATORY_RETENTION_TIME_MS_DOC)
-        .define(TWO_STEP_PURGATORY_MAX_REQUESTS_CONFIG,
-                ConfigDef.Type.INT,
-                25,
-                atLeast(1),
-                ConfigDef.Importance.MEDIUM, TWO_STEP_PURGATORY_MAX_REQUESTS_DOC)
-        .define(MAX_CACHED_COMPLETED_KAFKA_MONITOR_USER_TASKS_CONFIG,
-                ConfigDef.Type.INT,
-                null,
-                ConfigDef.Importance.MEDIUM,
-                MAX_CACHED_COMPLETED_KAFKA_MONITOR_USER_TASKS_DOC)
-        .define(MAX_CACHED_COMPLETED_CRUISE_CONTROL_MONITOR_USER_TASKS_CONFIG,
-                ConfigDef.Type.INT,
-                null,
-                ConfigDef.Importance.MEDIUM,
-                MAX_CACHED_COMPLETED_CRUISE_CONTROL_MONITOR_USER_TASKS_DOC)
-        .define(MAX_CACHED_COMPLETED_KAFKA_ADMIN_USER_TASKS_CONFIG,
-                ConfigDef.Type.INT,
-                null,
-                ConfigDef.Importance.MEDIUM,
-                MAX_CACHED_COMPLETED_KAFKA_ADMIN_USER_TASKS_DOC)
-        .define(MAX_CACHED_COMPLETED_CRUISE_CONTROL_ADMIN_USER_TASKS_CONFIG,
-                ConfigDef.Type.INT,
-                null,
-                ConfigDef.Importance.MEDIUM,
-                MAX_CACHED_COMPLETED_CRUISE_CONTROL_ADMIN_USER_TASKS_DOC)
-        .define(MAX_CACHED_COMPLETED_USER_TASKS_CONFIG,
-                ConfigDef.Type.INT,
-                25,
-                atLeast(0),
-                ConfigDef.Importance.MEDIUM,
-                MAX_CACHED_COMPLETED_USER_TASKS_DOC)
-        .define(MAX_ACTIVE_USER_TASKS_CONFIG,
-                ConfigDef.Type.INT,
-                5,
-                atLeast(1),
-                ConfigDef.Importance.HIGH,
-                MAX_ACTIVE_USER_TASKS_DOC)
         .define(NUM_BROKER_METRICS_WINDOWS_CONFIG,
                 ConfigDef.Type.INT,
                 DEFAULT_NUM_BROKER_METRICS_WINDOWS,
