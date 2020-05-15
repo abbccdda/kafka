@@ -6,7 +6,7 @@ package com.linkedin.kafka.cruisecontrol.server;
 import com.linkedin.kafka.cruisecontrol.BrokerShutdownIntegrationTestHarness;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils;
 import com.linkedin.kafka.cruisecontrol.client.BlockingSendClient;
-import com.linkedin.kafka.cruisecontrol.common.SBKAdminUtils;
+import com.linkedin.kafka.cruisecontrol.common.SbkAdminUtils;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import java.util.Optional;
 import java.util.Properties;
@@ -35,7 +35,7 @@ public class BrokerShutdownManagerIntegrationTest extends BrokerShutdownIntegrat
     KafkaConfig kafkaConfig = brokerToShutdown().kafkaServer().config();
     BlockingSendClient.Builder builder = new BlockingSendClient.Builder(kafkaConfig, new Metrics(),
         new SystemTime(), "client-id", new LogContext());
-    SBKAdminUtils adminUtils = new SBKAdminUtils(KafkaCruiseControlUtils.createAdmin(cruiseControlConfig.originals()), cruiseControlConfig);
+    SbkAdminUtils adminUtils = new SbkAdminUtils(KafkaCruiseControlUtils.createAdmin(cruiseControlConfig.originals()), cruiseControlConfig);
     shutdownManager = new BrokerShutdownManager(adminUtils, cruiseControlConfig, builder, new SystemTime());
   }
 

@@ -47,7 +47,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-public class SBKAdminUtilsTest {
+public class SbkAdminUtilsTest {
   private final String clusterId = "cluster";
   private final Node _controllerNode = new Node(0, "host0", 100);
   private final Node _simpleNode = new Node(1, "host1", 100);
@@ -81,7 +81,7 @@ public class SBKAdminUtilsTest {
     mockDescribeCluster(mockAdminClient, clusterId, _controllerNode, _nodes, _defaultDescribeClusterTimeoutMs);
     EasyMock.replay(mockAdminClient);
 
-    SBKAdminUtils adminUtils = new SBKAdminUtils(mockAdminClient, config());
+    SbkAdminUtils adminUtils = new SbkAdminUtils(mockAdminClient, config());
     AdminClientResult<KafkaCluster> clusterResult = adminUtils.describeCluster();
 
     assertNotNull("Expected describeCluster to return a cluster", clusterResult.result());
@@ -101,7 +101,7 @@ public class SBKAdminUtilsTest {
     mockDescribeClusterThrows(mockAdminClient, adminClientExc, _defaultDescribeClusterTimeoutMs);
     EasyMock.replay(mockAdminClient);
 
-    SBKAdminUtils adminUtils = new SBKAdminUtils(mockAdminClient, config());
+    SbkAdminUtils adminUtils = new SbkAdminUtils(mockAdminClient, config());
     AdminClientResult<KafkaCluster> clusterResult = adminUtils.describeCluster();
 
     assertNotNull("Expected describeCluster to return an exception", clusterResult.exception());
@@ -141,7 +141,7 @@ public class SBKAdminUtilsTest {
     EasyMock.expect(resultsMock.values()).andReturn(response);
     EasyMock.expect(mockAdminClient.alterPartitionReassignments(expectedPartitionCancellations)).andReturn(resultsMock);
     EasyMock.replay(resultsMock, mockAdminClient);
-    SBKAdminUtils adminUtils = new SBKAdminUtils(mockAdminClient, config());
+    SbkAdminUtils adminUtils = new SbkAdminUtils(mockAdminClient, config());
 
     int receivedNumSuccessfulCancellations =
         adminUtils.cancelInterBrokerReplicaMovements(Arrays.asList(_t0P0, _t0P1, _t0P2));
@@ -167,7 +167,7 @@ public class SBKAdminUtilsTest {
     EasyMock.expect(resultsMock.values()).andReturn(response);
     EasyMock.expect(mockAdminClient.alterPartitionReassignments(expectedPartitionCancellations)).andReturn(resultsMock);
     EasyMock.replay(resultsMock, mockAdminClient);
-    SBKAdminUtils adminUtils = new SBKAdminUtils(mockAdminClient, config());
+    SbkAdminUtils adminUtils = new SbkAdminUtils(mockAdminClient, config());
 
     int receivedNumSuccessfulCancellations =
         adminUtils.cancelInterBrokerReplicaMovements(Arrays.asList(_t0P0, _t0P1, _t0P2));
@@ -183,7 +183,7 @@ public class SBKAdminUtilsTest {
     topicDescriptions.put(TOPIC0, _topic0TopicDescription);
     KafkaCruiseControlUnitTestUtils.mockDescribeTopics(mockAdminClient, _topics, topicDescriptions, 10);
     EasyMock.replay(mockAdminClient);
-    SBKAdminUtils adminUtils = new SBKAdminUtils(mockAdminClient, config);
+    SbkAdminUtils adminUtils = new SbkAdminUtils(mockAdminClient, config);
 
     List<Integer> receivedReplicas = adminUtils.getReplicasForPartition(_t0P0);
     Assert.assertArrayEquals(_nodeIds, receivedReplicas.toArray(new Integer[0]));
@@ -193,7 +193,7 @@ public class SBKAdminUtilsTest {
   public void testGetReplicasForPartitionReturnsEmptyReplicasForPartitionDuringExceptions()
       throws InterruptedException, ExecutionException, TimeoutException {
     KafkaCruiseControlConfig config = config();
-    SBKAdminUtils adminUtils = new SBKAdminUtils(mockAdminClient, config);
+    SbkAdminUtils adminUtils = new SbkAdminUtils(mockAdminClient, config);
 
     // 1. Mock #describeTopics() to throw an exception
     EasyMock.expect(mockAdminClient.describeTopics(_topics)).andThrow(new InvalidTopicException());
@@ -226,7 +226,7 @@ public class SBKAdminUtilsTest {
   public void testGetReplicasForPartitionReturnsEmptyReplicasForPartitionIfPartitionNotPresent()
       throws InterruptedException, ExecutionException, TimeoutException {
     KafkaCruiseControlConfig config = config();
-    SBKAdminUtils adminUtils = new SBKAdminUtils(mockAdminClient, config);
+    SbkAdminUtils adminUtils = new SbkAdminUtils(mockAdminClient, config);
     Map<String, TopicDescription> topicDescriptions = new HashMap<>();
     topicDescriptions.put(TOPIC0, _topic0TopicDescription);
     KafkaCruiseControlUnitTestUtils.mockDescribeTopics(mockAdminClient, _topics, topicDescriptions, _defaultDescribeTopicsTimeoutMs);

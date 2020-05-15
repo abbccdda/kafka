@@ -8,7 +8,7 @@ import com.linkedin.kafka.cruisecontrol.client.BlockingSendClient;
 import com.linkedin.kafka.cruisecontrol.client.ConnectionException;
 import com.linkedin.kafka.cruisecontrol.common.AdminClientResult;
 import com.linkedin.kafka.cruisecontrol.common.KafkaCluster;
-import com.linkedin.kafka.cruisecontrol.common.SBKAdminUtils;
+import com.linkedin.kafka.cruisecontrol.common.SbkAdminUtils;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import java.io.IOException;
 import java.util.Optional;
@@ -35,11 +35,11 @@ public class BrokerShutdownManager {
 
   private final BlockingSendClient.Builder blockingSendClientBuilder;
   private final Time time;
-  private final SBKAdminUtils adminUtils;
+  private final SbkAdminUtils adminUtils;
   private final long apiTimeoutMs;
   private final long shutdownWaitMs;
 
-  public BrokerShutdownManager(SBKAdminUtils adminUtils, KafkaCruiseControlConfig config,
+  public BrokerShutdownManager(SbkAdminUtils adminUtils, KafkaCruiseControlConfig config,
                                BlockingSendClient.Builder blockingSendClientBuilder,
                                Time time) {
     this.adminUtils = adminUtils;

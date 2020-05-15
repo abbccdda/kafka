@@ -7,7 +7,7 @@ import com.linkedin.kafka.cruisecontrol.client.BlockingSendClient;
 import com.linkedin.kafka.cruisecontrol.client.ConnectionException;
 import com.linkedin.kafka.cruisecontrol.common.AdminClientResult;
 import com.linkedin.kafka.cruisecontrol.common.KafkaCluster;
-import com.linkedin.kafka.cruisecontrol.common.SBKAdminUtils;
+import com.linkedin.kafka.cruisecontrol.common.SbkAdminUtils;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import java.io.IOException;
 import java.util.Arrays;
@@ -61,7 +61,7 @@ public class BrokerShutdownManagerTest {
   private AdminClientResult<KafkaCluster> noBrokerClusterOpt = new AdminClientResult<>(
       new KafkaCluster(clusterWithBrokerRemoved, null, null, null));
 
-  private SBKAdminUtils mockAdminUtils;
+  private SbkAdminUtils mockAdminUtils;
   private Time mockTime;
   private BrokerShutdownManager removalManager;
   private BlockingSendClient mockShutdownClient;
@@ -70,7 +70,7 @@ public class BrokerShutdownManagerTest {
   @Before
   public void setUp() {
     mockTime = new MockTime();
-    mockAdminUtils = mock(SBKAdminUtils.class);
+    mockAdminUtils = mock(SbkAdminUtils.class);
     mockShutdownClientBuilder = mock(BlockingSendClient.Builder.class);
     mockShutdownClient = mock(BlockingSendClient.class);
     when(mockShutdownClientBuilder.build(any())).thenReturn(mockShutdownClient);

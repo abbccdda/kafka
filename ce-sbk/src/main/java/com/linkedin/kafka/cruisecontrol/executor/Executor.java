@@ -7,7 +7,7 @@ package com.linkedin.kafka.cruisecontrol.executor;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils;
 import com.linkedin.kafka.cruisecontrol.common.KafkaCruiseControlThreadFactory;
 import com.linkedin.kafka.cruisecontrol.common.MetadataClient;
-import com.linkedin.kafka.cruisecontrol.common.SBKAdminUtils;
+import com.linkedin.kafka.cruisecontrol.common.SbkAdminUtils;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.detector.AnomalyDetector;
 import com.linkedin.kafka.cruisecontrol.executor.strategy.ReplicaMovementStrategy;
@@ -70,7 +70,7 @@ public class Executor {
   private final ExecutorService _proposalExecutor;
   private final KafkaZkClient _kafkaZkClient;
   private final ConfluentAdmin _adminClient;
-  private final SBKAdminUtils adminUtils;
+  private final SbkAdminUtils adminUtils;
 
   private static final long METADATA_REFRESH_BACKOFF = 100L;
   private static final long METADATA_EXPIRY_MS = Long.MAX_VALUE;
@@ -170,7 +170,7 @@ public class Executor {
     _kafkaZkClient = KafkaCruiseControlUtils.createKafkaZkClient(zkUrl, ZK_EXECUTOR_METRIC_GROUP, ZK_EXECUTOR_METRIC_TYPE,
         zkSecurityEnabled);
     _adminClient = adminClient;
-    adminUtils = new SBKAdminUtils(_adminClient, config);
+    adminUtils = new SbkAdminUtils(_adminClient, config);
     _executionTaskManager =
         new ExecutionTaskManager(config.getInt(KafkaCruiseControlConfig.NUM_CONCURRENT_PARTITION_MOVEMENTS_PER_BROKER_CONFIG),
                                  config.getInt(KafkaCruiseControlConfig.NUM_CONCURRENT_INTRA_BROKER_PARTITION_MOVEMENTS_CONFIG),

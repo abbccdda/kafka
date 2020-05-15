@@ -50,8 +50,8 @@ import static org.apache.kafka.clients.admin.DescribeReplicaLogDirsResult.Replic
 import static org.apache.kafka.common.requests.DescribeLogDirsResponse.LogDirInfo;
 
 @ThreadSafe
-public class SBKAdminUtils {
-  private static final Logger LOG = LoggerFactory.getLogger(SBKAdminUtils.class);
+public class SbkAdminUtils {
+  private static final Logger LOG = LoggerFactory.getLogger(SbkAdminUtils.class);
 
   private ConfluentAdmin adminClient;
 
@@ -59,7 +59,7 @@ public class SBKAdminUtils {
   private final long describeTopicsResponseTimeoutMs;
   private final long describeClusterResponseTimeoutMs;
 
-  public SBKAdminUtils(ConfluentAdmin adminClient, KafkaCruiseControlConfig config) {
+  public SbkAdminUtils(ConfluentAdmin adminClient, KafkaCruiseControlConfig config) {
     this.adminClient = adminClient;
     this.logDirResponseTimeoutMs = config.getLong(LOGDIR_RESPONSE_TIMEOUT_MS_CONFIG);
     this.describeTopicsResponseTimeoutMs = config.getLong(DESCRIBE_TOPICS_RESPONSE_TIMEOUT_MS_CONFIG);

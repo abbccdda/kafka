@@ -8,7 +8,7 @@ import java.util
 import java.util.concurrent.ExecutionException
 import java.util.{Properties, Optional}
 
-import com.linkedin.kafka.cruisecontrol.common.SBKAdminUtils
+import com.linkedin.kafka.cruisecontrol.common.SbkAdminUtils
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig
 import kafka.admin.PreferredReplicaLeaderElectionCommand
 import org.apache.kafka.clients.admin.{NewPartitionReassignment, Admin}
@@ -39,7 +39,7 @@ object ExecutorUtils {
    * @param config the configuration of Cruise Control.
    */
   def executeReplicaReassignmentTasks(adminClient: Admin,
-                                      executorAdminUtils: SBKAdminUtils,
+                                      executorAdminUtils: SbkAdminUtils,
                                       kafkaZkClient: KafkaZkClient,
                                       reassignmentTasks: java.util.List[ExecutionTask],
                                       config: KafkaCruiseControlConfig): Unit = {
@@ -82,7 +82,7 @@ object ExecutorUtils {
    * Given an ExecutionTask, return the targetReplicas we should write to the Kafka reassignments.
    * If we should not reassign a partition as part of this task, an empty replica set will be returned
    */
-  def replicasToWrite(executorAdminUtils: SBKAdminUtils, config: KafkaCruiseControlConfig,
+  def replicasToWrite(executorAdminUtils: SbkAdminUtils, config: KafkaCruiseControlConfig,
                       task: ExecutionTask, inProgressTargetReplicasOpt: Option[Seq[Int]]): Seq[Int] = {
     val tp = task.proposal.topicPartition()
     val oldReplicas = task.proposal.oldReplicas.asScala.map(_.brokerId.toInt)
