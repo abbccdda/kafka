@@ -1,5 +1,6 @@
 package io.confluent.http.server;
 
+import static java.util.Collections.emptyMap;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -16,7 +17,7 @@ import org.mockito.Mockito;
 public class KafkaHttpServerLoaderTest {
 
   @Test
-  public void serverImpl_servletImpl_returnsServer() {
+  public void testServerImplServletImplReturnsServer() {
     Optional<KafkaHttpServer> httpServer =
         KafkaHttpServerLoader.load(
             configuration(/* server= */ "test", /* servlet= */ "test"),
@@ -26,21 +27,21 @@ public class KafkaHttpServerLoaderTest {
   }
 
   @Test(expected = KafkaHttpServletLoadingException.class)
-  public void serverImpl_servletImplAndThrowingServlet_returnsServer() {
+  public void testServerImplServletImplAndThrowingServletReturnsServer() {
     KafkaHttpServerLoader.load(
         configuration(/* server= */ "test", /* servlet= */ "test,throwing"),
         new KafkaHttpServerBinder().createInjector());
   }
 
   @Test(expected = KafkaHttpServletLoadingException.class)
-  public void serverImpl_throwingServlet_doesNotReturnServer() {
+  public void testServerImplThrowingServletDoesNotReturnServer() {
     KafkaHttpServerLoader.load(
         configuration(/* server= */ "test", /* servlet= */ "throwing"),
         new KafkaHttpServerBinder().createInjector());
   }
 
   @Test
-  public void serverImpl_noServlet_doesNotReturnServer() {
+  public void testServerImplNoServletDoesNotReturnServer() {
     Optional<KafkaHttpServer> httpServer =
         KafkaHttpServerLoader.load(
             configuration(/* server= */ "test", /* servlet= */ ""),
@@ -50,28 +51,28 @@ public class KafkaHttpServerLoaderTest {
   }
 
   @Test(expected = KafkaHttpServerLoadingException.class)
-  public void throwingServer_servletImpl_returnsServer() {
+  public void testThrowingServerServletImplReturnsServer() {
     KafkaHttpServerLoader.load(
         configuration(/* server= */ "throwing", /* servlet= */ "test"),
         new KafkaHttpServerBinder().createInjector());
   }
 
   @Test(expected = KafkaHttpServletLoadingException.class)
-  public void throwingServer_servletImplAndThrowingServlet_returnsServer() {
+  public void testThrowingServerServletImplAndThrowingServletReturnsServer() {
     KafkaHttpServerLoader.load(
         configuration(/* server= */ "throwing", /* servlet= */ "test,throwing"),
         new KafkaHttpServerBinder().createInjector());
   }
 
   @Test(expected = KafkaHttpServletLoadingException.class)
-  public void throwingServer_throwingServlet_doesNotReturnServer() {
+  public void testThrowingServerThrowingServletDoesNotReturnServer() {
     KafkaHttpServerLoader.load(
         configuration(/* server= */ "throwing", /* servlet= */ "throwing"),
         new KafkaHttpServerBinder().createInjector());
   }
 
   @Test
-  public void throwingServer_noServlet_doesNotReturnServer() {
+  public void testThrowingServerNoServletDoesNotReturnServer() {
     Optional<KafkaHttpServer> httpServer =
         KafkaHttpServerLoader.load(
             configuration(/* server= */ "throwing", /* servlet= */ ""),
@@ -81,7 +82,7 @@ public class KafkaHttpServerLoaderTest {
   }
 
   @Test
-  public void noServer_servletImpl_returnsServer() {
+  public void testNoServerServletImplReturnsServer() {
     Optional<KafkaHttpServer> httpServer =
         KafkaHttpServerLoader.load(
             configuration(/* server= */ "", /* servlet= */ "test"),
@@ -91,25 +92,33 @@ public class KafkaHttpServerLoaderTest {
   }
 
   @Test(expected = KafkaHttpServletLoadingException.class)
-  public void noServer_servletImplAndThrowingServlet_returnsServer() {
+  public void testNoServerServletImplAndThrowingServletReturnsServer() {
     KafkaHttpServerLoader.load(
         configuration(/* server= */ "", /* servlet= */ "test,throwing"),
         new KafkaHttpServerBinder().createInjector());
   }
 
   @Test(expected = KafkaHttpServletLoadingException.class)
-  public void noServer_throwingServlet_doesNotReturnServer() {
+  public void testNoServerThrowingServletDoesNotReturnServer() {
     KafkaHttpServerLoader.load(
         configuration(/* server= */ "", /* servlet= */ "throwing"),
         new KafkaHttpServerBinder().createInjector());
   }
 
   @Test
-  public void noServer_noServlet_doesNotReturnServer() {
+  public void testNoServerNoServletDoesNotReturnServer() {
     Optional<KafkaHttpServer> httpServer =
         KafkaHttpServerLoader.load(
             configuration(/* server= */ "", /* servlet= */ ""),
             new KafkaHttpServerBinder().createInjector());
+
+    assertFalse(httpServer.isPresent());
+  }
+
+  @Test
+  public void testInvalidConfigDoesNotReturnServer() {
+    Optional<KafkaHttpServer> httpServer =
+        KafkaHttpServerLoader.load(emptyMap(), new KafkaHttpServerBinder().createInjector());
 
     assertFalse(httpServer.isPresent());
   }
@@ -126,7 +135,7 @@ public class KafkaHttpServerLoaderTest {
     @Override
     public Optional<KafkaHttpServer> provide(
         Map<String, Object> configuration, List<KafkaHttpServlet> applications) {
-      if (configuration.get("kafka.http.server").equals("test")) {
+      if (configuration.getOrDefault("kafka.http.server", "").equals("test")) {
         return Optional.of(Mockito.mock(KafkaHttpServer.class));
       } else {
         return Optional.empty();
@@ -139,7 +148,7 @@ public class KafkaHttpServerLoaderTest {
     @Override
     public Optional<KafkaHttpServer> provide(
         Map<String, Object> configuration, List<KafkaHttpServlet> applications) {
-      if (configuration.get("kafka.http.server").equals("throwing")) {
+      if (configuration.getOrDefault("kafka.http.server", "").equals("throwing")) {
         throw new RuntimeException();
       } else {
         return Optional.empty();
@@ -152,7 +161,7 @@ public class KafkaHttpServerLoaderTest {
     @Override
     public Optional<KafkaHttpServlet> provide(
         Map<String, Object> configuration, KafkaHttpServerInjector injector) {
-      if (configuration.get("kafka.http.servlet").toString().contains("test")) {
+      if (configuration.getOrDefault("kafka.http.servlet", "").toString().contains("test")) {
         return Optional.of(Mockito.mock(KafkaHttpServlet.class));
       } else {
         return Optional.empty();
@@ -165,7 +174,7 @@ public class KafkaHttpServerLoaderTest {
     @Override
     public Optional<KafkaHttpServlet> provide(
         Map<String, Object> configuration, KafkaHttpServerInjector injector) {
-      if (configuration.get("kafka.http.servlet").toString().contains("throwing")) {
+      if (configuration.getOrDefault("kafka.http.servlet", "").toString().contains("throwing")) {
         throw new RuntimeException();
       } else {
         return Optional.empty();
