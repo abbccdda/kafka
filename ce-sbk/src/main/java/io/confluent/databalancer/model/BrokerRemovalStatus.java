@@ -4,6 +4,7 @@
 package io.confluent.databalancer.model;
 
 import java.util.Objects;
+import org.apache.kafka.clients.admin.BrokerRemovalDescription;
 
 /**
  * Class to store status of broker removal progress. This can be then queried by
@@ -11,45 +12,59 @@ import java.util.Objects;
  */
 public class BrokerRemovalStatus {
 
-    private final int brokerId; // Id of the broker getting removed
-    private final Exception ex;
+    private final int brokerId; // id of the broker getting removed
+    private final Exception exception;
+    private final BrokerRemovalDescription.BrokerShutdownStatus brokerShutdownStatus;
+    private final BrokerRemovalDescription.PartitionReassignmentsStatus partitionReassignmentsStatus;
 
-    public BrokerRemovalStatus(int brokerId, Exception ex) {
+    public BrokerRemovalStatus(int brokerId,
+                               BrokerRemovalDescription.BrokerShutdownStatus brokerShutdownStatus,
+                               BrokerRemovalDescription.PartitionReassignmentsStatus partitionReassignmentsStatus,
+                               Exception e) {
         this.brokerId = brokerId;
-        this.ex = ex;
+        this.brokerShutdownStatus = brokerShutdownStatus;
+        this.partitionReassignmentsStatus = partitionReassignmentsStatus;
+        this.exception = e;
     }
 
-    public int getBrokerId() {
-        return brokerId;
+    /**
+     * The nullable #{@link Exception} that this broker removal operation experienced
+     */
+    public Exception exception() {
+        return exception;
     }
 
-    public Exception getException() {
-        return ex;
+    public BrokerRemovalDescription.PartitionReassignmentsStatus partitionReassignmentsStatus() {
+        return partitionReassignmentsStatus;
+    }
+
+    public BrokerRemovalDescription.BrokerShutdownStatus brokerShutdownStatus() {
+        return brokerShutdownStatus;
     }
 
     @Override
     public String toString() {
         return "BrokerRemovalStatus{" +
-                "brokerId=" + brokerId +
-                ", ex=" + ex +
-                '}';
+            "brokerId=" + brokerId +
+            ", brokerShutdownStatus=" + brokerShutdownStatus.name() +
+            ", partitionReassignmentsStatus=" + partitionReassignmentsStatus.name() +
+            ", exception=" + exception +
+            '}';
     }
 
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-
         BrokerRemovalStatus that = (BrokerRemovalStatus) o;
-
-        if (brokerId != that.brokerId) return false;
-        return Objects.equals(ex, that.ex);
+        return brokerId == that.brokerId &&
+            brokerShutdownStatus == that.brokerShutdownStatus &&
+            partitionReassignmentsStatus == that.partitionReassignmentsStatus &&
+            Objects.equals(exception, that.exception);
     }
 
     @Override
     public int hashCode() {
-        int result = brokerId;
-        result = 31 * result + (ex != null ? ex.hashCode() : 0);
-        return result;
+        return Objects.hash(brokerId, brokerShutdownStatus, partitionReassignmentsStatus, exception);
     }
 }
