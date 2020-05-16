@@ -96,6 +96,21 @@ public class KafkaCruiseControl {
   }
 
   /**
+   * Package private for unit test.
+   */
+  KafkaCruiseControl(
+          KafkaCruiseControlConfig config, LoadMonitor loadMonitor, GoalOptimizer goalOptimizer,
+          ExecutorService goalOptimizerExecutor, Executor executor, AnomalyDetector anomalyDetector, Time time) {
+    this._config = config;
+    this._loadMonitor = loadMonitor;
+    this._goalOptimizer = goalOptimizer;
+    this._goalOptimizerExecutor = goalOptimizerExecutor;
+    this._executor = executor;
+    this._anomalyDetector = anomalyDetector;
+    this._time = time;
+  }
+
+  /**
    * Start up the Cruise Control.
    */
   public void startUp() {
@@ -357,24 +372,24 @@ public class KafkaCruiseControl {
    * @throws KafkaCruiseControlException When the rebalance encounter errors.
    */
   public OptimizerResult rebalance(List<String> goals,
-                                                 boolean dryRun,
-                                                 ModelCompletenessRequirements requirements,
-                                                 OperationProgress operationProgress,
-                                                 boolean allowCapacityEstimation,
-                                                 Integer concurrentInterBrokerPartitionMovements,
-                                                 Integer concurrentIntraBrokerPartitionMovements,
-                                                 Integer concurrentLeaderMovements,
-                                                 boolean skipHardGoalCheck,
-                                                 Pattern excludedTopics,
-                                                 ReplicaMovementStrategy replicaMovementStrategy,
-                                                 Long replicationThrottle,
-                                                 String uuid,
-                                                 boolean excludeRecentlyDemotedBrokers,
-                                                 boolean excludeRecentlyRemovedBrokers,
-                                                 boolean ignoreProposalCache,
-                                                 boolean isTriggeredByGoalViolation,
-                                                 Set<Integer> requestedDestinationBrokerIds,
-                                                 boolean isRebalanceDiskMode) throws KafkaCruiseControlException {
+                                   boolean dryRun,
+                                   ModelCompletenessRequirements requirements,
+                                   OperationProgress operationProgress,
+                                   boolean allowCapacityEstimation,
+                                   Integer concurrentInterBrokerPartitionMovements,
+                                   Integer concurrentIntraBrokerPartitionMovements,
+                                   Integer concurrentLeaderMovements,
+                                   boolean skipHardGoalCheck,
+                                   Pattern excludedTopics,
+                                   ReplicaMovementStrategy replicaMovementStrategy,
+                                   Long replicationThrottle,
+                                   String uuid,
+                                   boolean excludeRecentlyDemotedBrokers,
+                                   boolean excludeRecentlyRemovedBrokers,
+                                   boolean ignoreProposalCache,
+                                   boolean isTriggeredByGoalViolation,
+                                   Set<Integer> requestedDestinationBrokerIds,
+                                   boolean isRebalanceDiskMode) throws KafkaCruiseControlException {
     sanityCheckDryRun(dryRun);
     OptimizerResult result = getProposals(goals, requirements, operationProgress,
                                           allowCapacityEstimation, skipHardGoalCheck,
@@ -547,6 +562,7 @@ public class KafkaCruiseControl {
    * 4. The request is triggered by goal violation detector.
    * 5. The request involves explicitly requested destination broker Ids.
    * 6. The caller wants to rebalance across disks within the brokers.
+   * 7. The caller wants to explicitly ignore the cache.
    *
    * @param goals A list of goal names (i.e. each matching {@link Goal#name()}) to optimize. When empty all goals will be used.
    * @param requirements Model completeness requirements.
@@ -567,15 +583,22 @@ public class KafkaCruiseControl {
                                       boolean isTriggeredByGoalViolation,
                                       Set<Integer> requestedDestinationBrokerIds,
                                       boolean isRebalanceDiskMode) {
-    ModelCompletenessRequirements requirementsForCache = _goalOptimizer.modelCompletenessRequirementsForPrecomputing();
-    boolean hasWeakerRequirement =
-        requirementsForCache.minMonitoredPartitionsPercentage() > requirements.minMonitoredPartitionsPercentage()
-        || requirementsForCache.minRequiredNumWindows() > requirements.minRequiredNumWindows()
-        || (requirementsForCache.includeAllTopics() && !requirements.includeAllTopics());
 
-    return _executor.hasOngoingExecution() || ignoreProposalCache || (goals != null && !goals.isEmpty())
-           || hasWeakerRequirement || excludedTopics != null || excludeBrokers || isTriggeredByGoalViolation
-           || !requestedDestinationBrokerIds.isEmpty() || isRebalanceDiskMode;
+    return (goals != null && !goals.isEmpty()) || excludedTopics != null || excludeBrokers ||
+           hasWeakerRequirementsThan(requirements) || _executor.hasOngoingExecution() || isTriggeredByGoalViolation ||
+           ignoreProposalCache || !requestedDestinationBrokerIds.isEmpty() || isRebalanceDiskMode;
+  }
+
+  /**
+   * Check if the cached proposal requirement is weaker than the given requirements.
+   * @param requirements Model completeness requirements.
+   * @return True if it is weaker.
+   */
+  private boolean hasWeakerRequirementsThan(ModelCompletenessRequirements requirements) {
+    ModelCompletenessRequirements requirementsForCache = _goalOptimizer.modelCompletenessRequirementsForPrecomputing();
+    return requirementsForCache.minMonitoredPartitionsPercentage() > requirements.minMonitoredPartitionsPercentage()
+            || requirementsForCache.minRequiredNumWindows() > requirements.minRequiredNumWindows()
+            || (requirementsForCache.includeAllTopics() && !requirements.includeAllTopics());
   }
 
   /**
