@@ -5,8 +5,8 @@ package io.confluent.security.authorizer;
 import io.confluent.security.authorizer.AuthorizePolicy.PolicyType;
 import io.confluent.security.authorizer.AuthorizePolicy.SuperUser;
 import io.confluent.security.authorizer.provider.AccessRuleProvider;
-import io.confluent.security.authorizer.provider.AuditLogProvider;
-import io.confluent.security.authorizer.provider.AuthorizationLogData;
+import io.confluent.security.authorizer.provider.Auditable;
+import io.confluent.security.authorizer.provider.ConfluentAuthorizationEvent;
 import io.confluent.security.authorizer.provider.DefaultAuditLogProvider;
 import io.confluent.security.authorizer.provider.GroupProvider;
 import io.confluent.security.authorizer.provider.InvalidScopeException;
@@ -33,6 +33,9 @@ import java.util.stream.Collectors;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.server.audit.AuditEvent;
+import org.apache.kafka.server.audit.AuditLogProvider;
+import org.apache.kafka.server.audit.NoOpAuditLogProvider;
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -88,13 +91,14 @@ public class EmbeddedAuthorizer implements Authorizer {
       providersCreated.add(providers.groupProvider);
     if (providers.metadataProvider != null)
       providersCreated.add(providers.metadataProvider);
-    if (providers.auditLogProvider != null)
-      providersCreated.add(providers.auditLogProvider);
+
+    providersCreated.stream().filter(provider -> provider instanceof Auditable)
+        .forEach(provider -> ((Auditable) provider).auditLogProvider(serverInfo.auditLogProvider()));
 
     configureProviders(providers.accessRuleProviders,
         providers.groupProvider,
         providers.metadataProvider,
-        providers.auditLogProvider);
+        serverInfo.auditLogProvider());
   }
 
   @Override
@@ -155,7 +159,7 @@ public class EmbeddedAuthorizer implements Authorizer {
         .thenAccept(unused -> this.ready = true)
         //server startup will fail if any error/invalid mds configs during migration/init task
         .thenRunAsync(initTask)
-        .thenAccept(unused -> auditLogProvider.start(serverInfo, interBrokerListenerConfigs));
+        .thenAccept(unused -> auditLogProvider.start(interBrokerListenerConfigs));
     CompletableFuture<Void> future = futureOrTimeout(readyFuture, initTimeout);
 
     // For clusters that are not hosting the metadata topic, we can safely wait for the
@@ -167,7 +171,7 @@ public class EmbeddedAuthorizer implements Authorizer {
         (groupProvider != null && groupProvider.usesMetadataFromThisKafkaCluster()) ||
         (metadataProvider != null && metadataProvider.usesMetadataFromThisKafkaCluster()) ||
          accessRuleProviders.stream().anyMatch(AccessRuleProvider::usesMetadataFromThisKafkaCluster) ||
-         auditLogProvider.usesMetadataFromThisKafkaCluster();
+            auditLogProvider.usesMetadataFromThisKafkaCluster();
     if (!usesMetadataFromThisKafkaCluster)
       future.join();
     return future;
@@ -180,7 +184,8 @@ public class EmbeddedAuthorizer implements Authorizer {
     this.accessRuleProviders = accessRuleProviders;
     this.groupProvider = groupProvider;
     this.metadataProvider = metadataProvider;
-    this.auditLogProvider = auditLogProvider == null ? new DefaultAuditLogProvider() : auditLogProvider;
+    this.auditLogProvider = (auditLogProvider == null || auditLogProvider == NoOpAuditLogProvider.INSTANCE) ?
+        new DefaultAuditLogProvider() : auditLogProvider;
   }
 
   protected boolean ready() {
@@ -329,9 +334,9 @@ public class EmbeddedAuthorizer implements Authorizer {
       Action action,
       AuthorizeResult authorizeResult,
       AuthorizePolicy authorizePolicy) {
-    auditLogProvider.logAuthorization(
-        new AuthorizationLogData(sourceScope, requestContext, action, authorizeResult,
-            authorizePolicy));
+    AuditEvent auditEvent = new ConfluentAuthorizationEvent(sourceScope, requestContext, action,
+        authorizeResult, authorizePolicy);
+    auditLogProvider.logEvent(auditEvent);
   }
 
   // Visibility for testing

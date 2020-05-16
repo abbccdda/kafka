@@ -5,6 +5,7 @@ package io.confluent.security.authorizer;
 import java.util.Objects;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.resource.PatternType;
 
 /**
@@ -141,5 +142,17 @@ public class Action {
             ", logIfAllowed='" + logIfAllowed + '\'' +
             ", logIfDenied='" + logIfDenied + '\'' +
             ')';
+  }
+
+  public org.apache.kafka.server.authorizer.Action toKafkaAction() {
+    return new org.apache.kafka.server.authorizer.Action(
+        AclOperation.fromString(this.operation.name()),
+        new org.apache.kafka.common.resource.ResourcePattern(
+            org.apache.kafka.common.resource.ResourceType.fromString(resourcePattern.resourceType().name()),
+            resourcePattern.name(),
+            PatternType.fromString(resourcePattern.patternType().name())),
+        this.resourceReferenceCount,
+        this.logIfAllowed,
+        this.logIfDenied);
   }
 }

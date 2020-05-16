@@ -64,6 +64,7 @@ import org.apache.kafka.common.{ClusterResource, Endpoint, Node}
 import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.apache.kafka.common.security.fips.FipsValidator
 import org.apache.kafka.common.errors.StaleBrokerEpochException
+import org.apache.kafka.server.audit.{AuditLogProvider, AuditLogProviderFactory}
 import org.apache.kafka.server.authorizer.Authorizer
 import org.apache.kafka.server.http.{MetadataServer, MetadataServerFactory}
 import org.apache.kafka.server.license.LicenseValidator
@@ -243,6 +244,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
   var controlPlaneRequestProcessor: KafkaApis = null
 
   var metadataServer: MetadataServer = null
+  var auditLogProvider: AuditLogProvider = null
 
   var authorizer: Option[Authorizer] = None
   var socketServer: SocketServer = null
@@ -423,6 +425,9 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         // initialized and before socket server processors
         multitenantMetadata = ConfluentConfigs.buildMultitenantMetadata(config.values)
 
+        //auditLogProvider.start() will called as part of authorizer.start()
+        auditLogProvider = AuditLogProviderFactory.create(config.originals)
+
         // Create and start the socket server acceptor threads so that the bound port is known.
         // Delay starting processors until the end of the initialization sequence to ensure
         // that credentials have been loaded before processing authentications.
@@ -492,7 +497,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         authorizer.foreach(_.configure(config.originals))
         val authorizerFutures: Map[Endpoint, CompletableFuture[Void]] = authorizer match {
           case Some(authZ) =>
-            authZ.start(brokerInfo.broker.toServerInfo(clusterId, config, metadataServer, httpServerBinder)).asScala.map { case (ep, cs) =>
+            authZ.start(brokerInfo.broker.toServerInfo(clusterId, config, metadataServer, httpServerBinder, auditLogProvider)).asScala.map { case (ep, cs) =>
               ep -> cs.toCompletableFuture
             }
           case None =>
@@ -946,6 +951,9 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         if (metadataServer != null)
           CoreUtils.swallow(metadataServer.close(), this)
+
+        if (auditLogProvider != null)
+          CoreUtils.swallow(auditLogProvider.close(), this)
 
         CoreUtils.swallow(authorizer.foreach(_.close()), this)
         if (adminManager != null)

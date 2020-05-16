@@ -1,21 +1,18 @@
 package org.apache.kafka.jmh.audit;
 
-import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG;
-import static org.apache.kafka.common.config.internals.ConfluentConfigs.CRN_AUTHORITY_NAME_CONFIG;
-
 import io.confluent.security.audit.AuditLogConfig;
 import io.confluent.security.audit.provider.ConfluentAuditLogProvider;
+import org.apache.kafka.clients.CommonClientConfigs;
+import org.apache.kafka.common.protocol.ApiKeys;
+
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
-import org.apache.kafka.clients.CommonClientConfigs;
-import org.apache.kafka.common.ClusterResource;
-import org.apache.kafka.common.Endpoint;
-import org.apache.kafka.common.protocol.ApiKeys;
-import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
+
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.CRN_AUTHORITY_NAME_CONFIG;
 
 public class LogAuthorizationBenchmarkDefaults {
 
@@ -213,28 +210,7 @@ public class LogAuthorizationBenchmarkDefaults {
       configs.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
       configs.put(AuditLogConfig.EVENT_EXPORTER_CLASS_CONFIG, CountExporter.class.getName());
       provider.configure(configs);
-      AuthorizerServerInfo serverInfo = new AuthorizerServerInfo() {
-        @Override
-        public ClusterResource clusterResource() {
-          return new ClusterResource(CLUSTER_ID);
-        }
-
-        @Override
-        public int brokerId() {
-          return 0;
-        }
-
-        @Override
-        public Collection<Endpoint> endpoints() {
-          return null;
-        }
-
-        @Override
-        public Endpoint interBrokerEndpoint() {
-          return null;
-        }
-      };
-      CompletableFuture<Void> startFuture = provider.start(serverInfo, configs)
+      CompletableFuture<Void> startFuture = provider.start(configs)
           .toCompletableFuture();
       startFuture.get(10_000, TimeUnit.MILLISECONDS);
       return provider;

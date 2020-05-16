@@ -16,6 +16,7 @@ import java.util.stream.Collectors;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.server.audit.AuditLogProvider;
 
 public class ConfluentBuiltInProviders {
 

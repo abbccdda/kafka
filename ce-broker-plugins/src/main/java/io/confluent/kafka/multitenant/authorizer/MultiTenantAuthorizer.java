@@ -7,7 +7,6 @@ import io.confluent.kafka.multitenant.utils.TenantSanitizer;
 import io.confluent.kafka.security.authorizer.ConfluentServerAuthorizer;
 import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
 import io.confluent.security.authorizer.provider.AccessRuleProvider;
-import io.confluent.security.authorizer.provider.AuditLogProvider;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
 import io.confluent.security.authorizer.provider.GroupProvider;
 import io.confluent.security.authorizer.provider.MetadataProvider;
@@ -24,6 +23,7 @@ import org.apache.kafka.common.resource.ResourcePattern;
 import org.apache.kafka.common.resource.ResourceType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.SecurityUtils;
+import org.apache.kafka.server.audit.AuditLogProvider;
 import org.apache.kafka.server.authorizer.AclCreateResult;
 import org.apache.kafka.server.authorizer.AclDeleteResult;
 import org.apache.kafka.server.authorizer.Action;
@@ -156,7 +156,7 @@ public class MultiTenantAuthorizer extends ConfluentServerAuthorizer {
       AuditLogProvider auditLogProvider) {
 
     if (auditLogEnabled) {
-      auditLogProvider.setSanitizer(TenantSanitizer::tenantAuthorizationLogData);
+      auditLogProvider.setSanitizer(TenantSanitizer::tenantAuditEvent);
       super.configureProviders(accessRuleProviders, groupProvider,
           metadataProvider, auditLogProvider);
     } else {

@@ -21,10 +21,13 @@ import io.confluent.security.audit.AuditLogEntry;
 import io.confluent.security.audit.AuditLogUtils;
 import io.confluent.security.audit.router.AuditLogRouter;
 import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
-import io.confluent.security.authorizer.provider.AuditLogProvider;
-import io.confluent.security.authorizer.provider.AuthorizationLogData;
+import io.confluent.security.authorizer.provider.ConfluentAuthorizationEvent;
+import org.apache.kafka.server.audit.AuditEvent;
+import org.apache.kafka.server.audit.AuditEventType;
+import org.apache.kafka.server.audit.AuditLogProvider;
 import io.confluent.security.authorizer.utils.ThreadUtils;
 import java.time.Duration;
+import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -39,7 +42,6 @@ import java.util.function.UnaryOperator;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.errors.InterruptException;
 import org.apache.kafka.common.utils.Utils;
-import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -52,7 +54,7 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
   // Fallback logger that is used if audit logging to Kafka topic fails or if events are not generated
   // TODO(sumit): Make sure this logger has sane defaults.
   protected final Logger fallbackLog = LoggerFactory.getLogger(FALLBACK_LOGGER);
-  private UnaryOperator<AuthorizationLogData> sanitizer;
+  private UnaryOperator<AuditEvent> sanitizer;
 
   // The audit logger needs to be configured to produce to a destination Kafka cluster. If no
   // cluster is explicitly configured (which is the case in the default config, but might also
@@ -174,8 +176,7 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
   }
 
   @Override
-  public CompletionStage<Void> start(AuthorizerServerInfo serverInfo,
-      Map<String, ?> interBrokerListenerConfigs) {
+  public CompletionStage<Void> start(Map<String, ?> interBrokerListenerConfigs) {
     initExecutor = Executors.
         newSingleThreadScheduledExecutor(ThreadUtils.createThreadFactory("audit-init-%d", true));
 
@@ -202,8 +203,12 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
   }
 
   @Override
-  public String providerName() {
-    return "CONFLUENT";
+  public void logEvent(final AuditEvent auditEvent) {
+    if (auditEvent.type() == AuditEventType.AUTHORIZATION) {
+      logAuthorization((ConfluentAuthorizationEvent) auditEvent);
+    } else {
+      log.error("Unknown event received {}", auditEvent);
+    }
   }
 
   @Override
@@ -220,21 +225,21 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
   }
 
   @Override
-  public void setSanitizer(UnaryOperator<AuthorizationLogData> sanitizer) {
+  public void setSanitizer(UnaryOperator<AuditEvent> sanitizer) {
     this.sanitizer = sanitizer;
   }
 
-  @Override
-  public void logAuthorization(AuthorizationLogData data) {
+
+  private void logAuthorization(ConfluentAuthorizationEvent authZEvent) {
 
     // Should this event be sent to Kafka ?
     boolean generateEvent;
-    switch (data.authorizeResult) {
+    switch (authZEvent.authorizeResult()) {
       case ALLOWED:
-        generateEvent = data.action.logIfAllowed();
+        generateEvent = authZEvent.action().logIfAllowed();
         break;
       case DENIED:
-        generateEvent = data.action.logIfDenied();
+        generateEvent = authZEvent.action().logIfDenied();
         break;
       default:
         generateEvent = true;
@@ -242,16 +247,16 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
     }
 
     try {
-      String source = crnAuthority.canonicalCrn(data.sourceScope).toString();
-      String subject = crnAuthority.canonicalCrn(data.action.scope(), data.action.resourcePattern())
+      String source = crnAuthority.canonicalCrn(authZEvent.sourceScope()).toString();
+      String subject = crnAuthority.canonicalCrn(authZEvent.action().scope(), authZEvent.action().resourcePattern())
           .toString();
 
       // use the config and event logger from a particular point in time
       ConfiguredState state = this.configuredState;
 
       AuditLogEntry entry = AuditLogUtils
-          .authorizationEvent(source, subject, data.requestContext, data.action,
-              data.authorizeResult, data.authorizePolicy);
+          .authorizationEvent(source, subject, authZEvent.requestContext(), authZEvent.action(),
+              authZEvent.authorizeResult(), authZEvent.authorizePolicy());
 
       // Figure out the topic.
       Optional<String> route = state.router.topic(entry);
@@ -262,21 +267,23 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
 
       // at this point we've decided that we intend to log, so we calculate the content
       if (sanitizer != null) {
-        data = sanitizer.apply(data);
-        if (data == null) {
+        authZEvent = (ConfluentAuthorizationEvent) sanitizer.apply(authZEvent);
+        if (authZEvent == null) {
           return;
         }
 
-        // need to recalculate these with the transformed data
-        source = crnAuthority.canonicalCrn(data.sourceScope).toString();
-        subject = crnAuthority.canonicalCrn(data.action.scope(), data.action.resourcePattern())
+        // need to recalculate these with the transformed authZEvent
+        source = crnAuthority.canonicalCrn(authZEvent.sourceScope()).toString();
+        subject = crnAuthority.canonicalCrn(authZEvent.action().scope(), authZEvent.action().resourcePattern())
             .toString();
         entry = AuditLogUtils
-            .authorizationEvent(source, subject, data.requestContext, data.action,
-                data.authorizeResult, data.authorizePolicy);
+            .authorizationEvent(source, subject, authZEvent.requestContext(), authZEvent.action(),
+                authZEvent.authorizeResult(), authZEvent.authorizePolicy());
       }
 
       ProtobufEvent.Builder eventBuilder = ProtobufEvent.newBuilder()
+          .setId(authZEvent.uuid().toString())
+          .setTime(authZEvent.timestamp().atZone(ZoneOffset.UTC))
           .setData(entry)
           .setSource(source)
           .setSubject(subject)

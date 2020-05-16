@@ -12,7 +12,7 @@ import io.confluent.security.authorizer.RequestContext;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.ResourceType;
 import io.confluent.security.authorizer.Scope;
-import io.confluent.security.authorizer.provider.AuthorizationLogData;
+import io.confluent.security.authorizer.provider.ConfluentAuthorizationEvent;
 import java.net.InetAddress;
 import java.util.Comparator;
 import java.util.Map.Entry;
@@ -39,7 +39,7 @@ import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 
 /**
- * Benchmarks for tuning Audit Logging performance. This calls the logAuthorization
+ * Benchmarks for tuning Audit Logging performance. This calls the logEvent
  * method with a number of different configurations:
  * - not logging any messages (with the defaults set to "")
  *   This measures the cost of creating an AuditLogEntry and using the router
@@ -102,17 +102,17 @@ public class MultiTenantProviderLogAuthorizationBenchmark {
     }
 
     LogAuthorizationBenchmarkDefaults.noneProvider.setSanitizer(
-        TenantSanitizer::tenantAuthorizationLogData);
+        TenantSanitizer::tenantAuditEvent);
     LogAuthorizationBenchmarkDefaults.createProvider.setSanitizer(
-        TenantSanitizer::tenantAuthorizationLogData);
+        TenantSanitizer::tenantAuditEvent);
     LogAuthorizationBenchmarkDefaults.createProduceOneLogProvider.setSanitizer(
-        TenantSanitizer::tenantAuthorizationLogData);
+        TenantSanitizer::tenantAuditEvent);
     LogAuthorizationBenchmarkDefaults.createProduceSomeLogProvider.setSanitizer(
-        TenantSanitizer::tenantAuthorizationLogData);
+        TenantSanitizer::tenantAuditEvent);
     LogAuthorizationBenchmarkDefaults.createProduceAllLogProvider.setSanitizer(
-        TenantSanitizer::tenantAuthorizationLogData);
+        TenantSanitizer::tenantAuditEvent);
     LogAuthorizationBenchmarkDefaults.everythingLogProvider.setSanitizer(
-        TenantSanitizer::tenantAuthorizationLogData);
+        TenantSanitizer::tenantAuditEvent);
   }
 
   @TearDown(Level.Trial)
@@ -131,7 +131,7 @@ public class MultiTenantProviderLogAuthorizationBenchmark {
     int index = (int) (counter % LogAuthorizationBenchmarkDefaults.DISTINCT_KEYS);
     LogAuthorizationArguments arg = args[index];
     provider
-        .logAuthorization(new AuthorizationLogData(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
+        .logEvent(new ConfluentAuthorizationEvent(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
             arg.authorizePolicy));
   }
 
@@ -142,7 +142,7 @@ public class MultiTenantProviderLogAuthorizationBenchmark {
     int index = (int) (counter % LogAuthorizationBenchmarkDefaults.DISTINCT_KEYS);
     LogAuthorizationArguments arg = args[index];
     provider
-        .logAuthorization(new AuthorizationLogData(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
+        .logEvent(new ConfluentAuthorizationEvent(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
             arg.authorizePolicy));
   }
 
@@ -153,7 +153,7 @@ public class MultiTenantProviderLogAuthorizationBenchmark {
     int index = (int) (counter % LogAuthorizationBenchmarkDefaults.DISTINCT_KEYS);
     LogAuthorizationArguments arg = args[index];
     provider
-        .logAuthorization(new AuthorizationLogData(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
+        .logEvent(new ConfluentAuthorizationEvent(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
             arg.authorizePolicy));
   }
 
@@ -164,7 +164,7 @@ public class MultiTenantProviderLogAuthorizationBenchmark {
     int index = (int) (counter % LogAuthorizationBenchmarkDefaults.DISTINCT_KEYS);
     LogAuthorizationArguments arg = args[index];
     provider
-        .logAuthorization(new AuthorizationLogData(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
+        .logEvent(new ConfluentAuthorizationEvent(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
             arg.authorizePolicy));
   }
 
@@ -175,7 +175,7 @@ public class MultiTenantProviderLogAuthorizationBenchmark {
     int index = (int) (counter % LogAuthorizationBenchmarkDefaults.DISTINCT_KEYS);
     LogAuthorizationArguments arg = args[index];
     provider
-        .logAuthorization(new AuthorizationLogData(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
+        .logEvent(new ConfluentAuthorizationEvent(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
             arg.authorizePolicy));
   }
 
@@ -186,7 +186,7 @@ public class MultiTenantProviderLogAuthorizationBenchmark {
     int index = (int) (counter % LogAuthorizationBenchmarkDefaults.DISTINCT_KEYS);
     LogAuthorizationArguments arg = args[index];
     provider
-        .logAuthorization(new AuthorizationLogData(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
+        .logEvent(new ConfluentAuthorizationEvent(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
             arg.authorizePolicy));
   }
 

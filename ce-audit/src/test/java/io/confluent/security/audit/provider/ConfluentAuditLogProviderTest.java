@@ -15,10 +15,9 @@ import static org.junit.Assert.assertThrows;
 import io.confluent.events.EventLogger;
 import io.confluent.events.exporter.LogExporter;
 import io.confluent.events.exporter.kafka.KafkaExporter;
-import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.security.audit.AuditLogConfig;
 import io.confluent.security.audit.AuditLogRouterJsonConfigUtils;
-import io.confluent.security.authorizer.provider.AuditLogProvider;
+import org.apache.kafka.server.audit.AuditLogProvider;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders;
 import io.confluent.security.authorizer.provider.DefaultAuditLogProvider;
 import java.util.Collections;
@@ -33,14 +32,12 @@ import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.metrics.KafkaMetric;
 import org.apache.kafka.common.metrics.MetricsReporter;
 import org.apache.kafka.common.utils.Utils;
-import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 import org.apache.kafka.test.TestUtils;
 import org.junit.Before;
 import org.junit.Test;
 
 public class ConfluentAuditLogProviderTest {
 
-  private final AuthorizerServerInfo serverInfo = KafkaTestUtils.serverInfo("clusterA");
   private Map<String, Object> configs = Utils.mkMap(
       Utils.mkEntry(
           AuditLogConfig.BOOTSTRAP_SERVERS_CONFIG,
@@ -63,7 +60,7 @@ public class ConfluentAuditLogProviderTest {
     assertEquals(ConfluentAuditLogProvider.class, provider.getClass());
 
     ConfluentAuditLogProvider confluentProvider = (ConfluentAuditLogProvider) provider;
-    provider.start(serverInfo, configs).toCompletableFuture().get();
+    provider.start(configs).toCompletableFuture().get();
     verifyExecutorTerminated(confluentProvider);
 
     EventLogger eventLogger = ((ConfluentAuditLogProvider) provider).getEventLogger();
@@ -164,7 +161,7 @@ public class ConfluentAuditLogProviderTest {
     assertEquals(ConfluentAuditLogProvider.class, provider.getClass());
 
     ConfluentAuditLogProvider confluentProvider = (ConfluentAuditLogProvider) provider;
-    provider.start(serverInfo, configs).toCompletableFuture().get();
+    provider.start(configs).toCompletableFuture().get();
     verifyExecutorTerminated(confluentProvider);
 
     EventLogger eventLogger = ((ConfluentAuditLogProvider) provider).getEventLogger();
@@ -184,7 +181,7 @@ public class ConfluentAuditLogProviderTest {
 
   private CompletableFuture<Void> startProvider(ConfluentAuditLogProvider provider)
       throws Exception {
-    CompletableFuture<Void> startFuture = provider.start(serverInfo, configs).toCompletableFuture();
+    CompletableFuture<Void> startFuture = provider.start(configs).toCompletableFuture();
     TestUtils
         .waitForCondition(() -> TestExporter.instance != null, "Event exporter not created");
     return startFuture;

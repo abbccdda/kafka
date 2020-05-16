@@ -23,7 +23,7 @@ import io.confluent.security.authorizer.AuthorizePolicy.SuperUser;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
 import io.confluent.security.authorizer.PermissionType;
-import io.confluent.security.authorizer.provider.AuthorizationLogData;
+import io.confluent.security.authorizer.provider.ConfluentAuthorizationEvent;
 import io.confluent.security.rbac.RbacAccessRule;
 import io.confluent.security.test.utils.LdapTestUtils;
 import io.confluent.security.test.utils.RbacClusters;
@@ -439,19 +439,19 @@ public class ConfluentServerAuthorizerTest {
       String operation,
       AuthorizeResult result,
       PolicyType policyType) {
-    Queue<AuthorizationLogData> entries = MockAuditLogProvider.AUDIT_LOG;
+    Queue<ConfluentAuthorizationEvent> entries = MockAuditLogProvider.AUDIT_LOG;
     assertFalse("No audit log entries", entries.isEmpty());
-    boolean hasEntry = entries.stream().anyMatch(e -> e.requestContext.principal().getName().equals(userName) &&
-        e.action.resourceName().equals(resourceName) &&
-        e.action.operation().name().equals(operation) &&
-        e.authorizeResult == result &&
-        e.authorizePolicy.policyType() == policyType);
+    boolean hasEntry = entries.stream().anyMatch(e -> e.requestContext().principal().getName().equals(userName) &&
+        e.action().resourceName().equals(resourceName) &&
+        e.action().operation().name().equals(operation) &&
+        e.authorizeResult() == result &&
+        e.authorizePolicy().policyType() == policyType);
     assertTrue("Entry not found for " + policyType + ", logs=" + entries, hasEntry);
     entries.forEach(this::verifyAuditLogEntry);
   }
 
-  private void verifyAuditLogEntry(AuthorizationLogData data) {
-    AuthorizePolicy policy = data.authorizePolicy;
+  private void verifyAuditLogEntry(ConfluentAuthorizationEvent data) {
+    AuthorizePolicy policy = data.authorizePolicy();
     switch (policy.policyType()) {
       case SUPER_USER:
       case SUPER_GROUP:

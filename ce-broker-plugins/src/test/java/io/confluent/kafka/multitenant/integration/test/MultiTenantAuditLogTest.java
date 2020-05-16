@@ -20,7 +20,7 @@ import io.confluent.kafka.test.utils.SecurityTestUtils;
 import io.confluent.security.authorizer.AclAccessRule;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.Scope;
-import io.confluent.security.authorizer.provider.AuthorizationLogData;
+import io.confluent.security.authorizer.provider.ConfluentAuthorizationEvent;
 import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
@@ -109,70 +109,70 @@ public class MultiTenantAuditLogTest {
     testHarness.produceConsume(user1, user2, topic, consumerGroup, 0);
 
     // for debugging
-    List<AuthorizationLogData> user1s = MockAuditLogProvider.instance.auditLog.stream()
-        .filter(e -> e.requestContext.principal().toString().equals("User:1")
+    List<ConfluentAuthorizationEvent> user1s = MockAuditLogProvider.instance.auditLog.stream()
+        .filter(e -> e.requestContext().principal().toString().equals("User:1")
         ).collect(toList());
 
     // make sure we have an appropriate produce event
-    List<AuthorizationLogData> produces = MockAuditLogProvider.instance.auditLog.stream()
-        .filter(e -> e.requestContext.principal().toString().equals("User:1") &&
-            e.action.resourceName().equals(topic) &&
-            e.action.operation().name().equals("Write") &&
-            e.authorizePolicy instanceof AclAccessRule &&
-            ((AclAccessRule) e.authorizePolicy).resourcePattern().name().equals(topic)
+    List<ConfluentAuthorizationEvent> produces = MockAuditLogProvider.instance.auditLog.stream()
+        .filter(e -> e.requestContext().principal().toString().equals("User:1") &&
+            e.action().resourceName().equals(topic) &&
+            e.action().operation().name().equals("Write") &&
+            e.authorizePolicy() instanceof AclAccessRule &&
+            ((AclAccessRule) e.authorizePolicy()).resourcePattern().name().equals(topic)
         ).collect(toList());
     assertEquals(1, produces.size());
 
     // make sure we have at least one appropriate consume event (probably multiple because
     // message might not be delivered for the first)
-    List<AuthorizationLogData> topicReads = MockAuditLogProvider.instance.auditLog.stream()
-        .filter(e -> e.requestContext.principal().toString().equals("User:2") &&
-            e.action.resourceName().equals(topic) &&
-            e.action.operation().name().equals("Read") &&
-            e.authorizePolicy instanceof AclAccessRule &&
-            ((AclAccessRule) e.authorizePolicy).resourcePattern().name().equals(topic)
+    List<ConfluentAuthorizationEvent> topicReads = MockAuditLogProvider.instance.auditLog.stream()
+        .filter(e -> e.requestContext().principal().toString().equals("User:2") &&
+            e.action().resourceName().equals(topic) &&
+            e.action().operation().name().equals("Read") &&
+            e.authorizePolicy() instanceof AclAccessRule &&
+            ((AclAccessRule) e.authorizePolicy()).resourcePattern().name().equals(topic)
         ).collect(toList());
     assertFalse(topicReads.isEmpty());
 
-    List<AuthorizationLogData> groupReads = MockAuditLogProvider.instance.auditLog.stream()
-        .filter(e -> e.requestContext.principal().toString().equals("User:2") &&
-            e.action.resourceName().equals(consumerGroup) &&
-            e.action.operation().name().equals("Read") &&
-            e.authorizePolicy instanceof AclAccessRule &&
-            ((AclAccessRule) e.authorizePolicy).resourcePattern().name().equals(consumerGroup)
+    List<ConfluentAuthorizationEvent> groupReads = MockAuditLogProvider.instance.auditLog.stream()
+        .filter(e -> e.requestContext().principal().toString().equals("User:2") &&
+            e.action().resourceName().equals(consumerGroup) &&
+            e.action().operation().name().equals("Read") &&
+            e.authorizePolicy() instanceof AclAccessRule &&
+            ((AclAccessRule) e.authorizePolicy()).resourcePattern().name().equals(consumerGroup)
         ).collect(toList());
     assertFalse(groupReads.isEmpty());
 
     // make sure we have no events that refer to TenantUsers
     assertFalse(
         MockAuditLogProvider.instance.auditLog.stream()
-            .anyMatch(e -> e.requestContext.principal().toString().contains("TenantUser:")));
+            .anyMatch(e -> e.requestContext().principal().toString().contains("TenantUser:")));
 
     // make sure that for all events for Tenant users, all of the other information is correct
-    List<AuthorizationLogData> tenantUserEntries = MockAuditLogProvider.instance.auditLog.stream()
-        .filter(e -> e.requestContext.principal().toString().equals("User:1") ||
-            e.requestContext.principal().toString().equals("User:2"))
+    List<ConfluentAuthorizationEvent> tenantUserEntries = MockAuditLogProvider.instance.auditLog.stream()
+        .filter(e -> e.requestContext().principal().toString().equals("User:1") ||
+            e.requestContext().principal().toString().equals("User:2"))
         .collect(toList());
 
     assertTrue(
         tenantUserEntries.stream()
-            .allMatch(e -> e.sourceScope.equals(Scope.kafkaClusterScope(logicalClusterId))));
+            .allMatch(e -> e.sourceScope().equals(Scope.kafkaClusterScope(logicalClusterId))));
 
     assertTrue(
         tenantUserEntries.stream()
-            .allMatch(e -> e.sourceScope.equals(Scope.kafkaClusterScope(logicalClusterId))));
+            .allMatch(e -> e.sourceScope().equals(Scope.kafkaClusterScope(logicalClusterId))));
 
     assertTrue(
         tenantUserEntries.stream()
-            .allMatch(e -> e.action.scope().equals(Scope.kafkaClusterScope(logicalClusterId))));
+            .allMatch(e -> e.action().scope().equals(Scope.kafkaClusterScope(logicalClusterId))));
 
     assertTrue(
         tenantUserEntries.stream()
-            .allMatch(e -> e.authorizePolicy instanceof AclAccessRule &&
+            .allMatch(e -> e.authorizePolicy() instanceof AclAccessRule &&
                 // Should *not* be tenant-prefixed
-                !((AclAccessRule) e.authorizePolicy).resourcePattern().name()
+                !((AclAccessRule) e.authorizePolicy()).resourcePattern().name()
                     .contains(logicalClusterId) &&
-                !((AclAccessRule) e.authorizePolicy).aclBinding().entry().principal()
+                !((AclAccessRule) e.authorizePolicy()).aclBinding().entry().principal()
                     .startsWith("TenantUser:")));
   }
 
@@ -193,16 +193,16 @@ public class MultiTenantAuditLogTest {
     }
 
     // for debugging
-    List<AuthorizationLogData> user1s = MockAuditLogProvider.instance.auditLog.stream()
-        .filter(e -> e.requestContext.principal().toString().equals("User:1")
+    List<ConfluentAuthorizationEvent> user1s = MockAuditLogProvider.instance.auditLog.stream()
+        .filter(e -> e.requestContext().principal().toString().equals("User:1")
         ).collect(toList());
 
     // make sure we have an appropriate describe denial event
-    List<AuthorizationLogData> describes = MockAuditLogProvider.instance.auditLog.stream()
-        .filter(e -> e.requestContext.principal().toString().equals("User:1") &&
-            e.action.resourceName().equals(CLUSTER_NAME) &&
-            e.action.operation().name().equals("DescribeConfigs") &&
-            e.authorizeResult == AuthorizeResult.DENIED
+    List<ConfluentAuthorizationEvent> describes = MockAuditLogProvider.instance.auditLog.stream()
+        .filter(e -> e.requestContext().principal().toString().equals("User:1") &&
+            e.action().resourceName().equals(CLUSTER_NAME) &&
+            e.action().operation().name().equals("DescribeConfigs") &&
+            e.authorizeResult() == AuthorizeResult.DENIED
         ).collect(toList());
     assertEquals(1, describes.size());
   }

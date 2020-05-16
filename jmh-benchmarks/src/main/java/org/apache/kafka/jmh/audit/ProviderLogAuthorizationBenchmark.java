@@ -9,11 +9,12 @@ import io.confluent.security.authorizer.RequestContext;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.ResourceType;
 import io.confluent.security.authorizer.Scope;
-import io.confluent.security.authorizer.provider.AuthorizationLogData;
 import java.net.InetAddress;
 import java.util.Comparator;
 import java.util.Map.Entry;
 import java.util.concurrent.TimeUnit;
+
+import io.confluent.security.authorizer.provider.ConfluentAuthorizationEvent;
 import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.requests.RequestHeader;
 import org.apache.kafka.common.resource.PatternType;
@@ -36,7 +37,7 @@ import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 
 /**
- * Benchmarks for tuning Audit Logging performance. This calls the logAuthorization
+ * Benchmarks for tuning Audit Logging performance. This calls the logEvent
  * method with a number of different configurations:
  * - not logging any messages (with the defaults set to "")
  *   This measures the cost of creating an AuditLogEntry and using the router
@@ -116,7 +117,7 @@ public class ProviderLogAuthorizationBenchmark {
     int index = (int) (counter % LogAuthorizationBenchmarkDefaults.DISTINCT_KEYS);
     LogAuthorizationArguments arg = args[index];
     provider
-        .logAuthorization(new AuthorizationLogData(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
+        .logEvent(new ConfluentAuthorizationEvent(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
             arg.authorizePolicy));
   }
 
@@ -127,7 +128,7 @@ public class ProviderLogAuthorizationBenchmark {
     int index = (int) (counter % LogAuthorizationBenchmarkDefaults.DISTINCT_KEYS);
     LogAuthorizationArguments arg = args[index];
     provider
-        .logAuthorization(new AuthorizationLogData(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
+        .logEvent(new ConfluentAuthorizationEvent(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
             arg.authorizePolicy));
   }
 
@@ -138,7 +139,7 @@ public class ProviderLogAuthorizationBenchmark {
     int index = (int) (counter % LogAuthorizationBenchmarkDefaults.DISTINCT_KEYS);
     LogAuthorizationArguments arg = args[index];
     provider
-        .logAuthorization(new AuthorizationLogData(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
+        .logEvent(new ConfluentAuthorizationEvent(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
             arg.authorizePolicy));
   }
 
@@ -149,7 +150,7 @@ public class ProviderLogAuthorizationBenchmark {
     int index = (int) (counter % LogAuthorizationBenchmarkDefaults.DISTINCT_KEYS);
     LogAuthorizationArguments arg = args[index];
     provider
-        .logAuthorization(new AuthorizationLogData(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
+        .logEvent(new ConfluentAuthorizationEvent(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
             arg.authorizePolicy));
   }
 
@@ -160,7 +161,7 @@ public class ProviderLogAuthorizationBenchmark {
     int index = (int) (counter % LogAuthorizationBenchmarkDefaults.DISTINCT_KEYS);
     LogAuthorizationArguments arg = args[index];
     provider
-        .logAuthorization(new AuthorizationLogData(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
+        .logEvent(new ConfluentAuthorizationEvent(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
             arg.authorizePolicy));
   }
 
@@ -171,7 +172,7 @@ public class ProviderLogAuthorizationBenchmark {
     int index = (int) (counter % LogAuthorizationBenchmarkDefaults.DISTINCT_KEYS);
     LogAuthorizationArguments arg = args[index];
     provider
-        .logAuthorization(new AuthorizationLogData(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
+        .logEvent(new ConfluentAuthorizationEvent(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
             arg.authorizePolicy));
   }
 

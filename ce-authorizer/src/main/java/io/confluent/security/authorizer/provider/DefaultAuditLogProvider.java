@@ -13,14 +13,16 @@ import java.util.function.UnaryOperator;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.SecurityUtils;
-import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
+import org.apache.kafka.server.audit.AuditEvent;
+import org.apache.kafka.server.audit.AuditEventType;
+import org.apache.kafka.server.audit.AuditLogProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class DefaultAuditLogProvider implements AuditLogProvider {
 
   protected static final Logger log = LoggerFactory.getLogger("kafka.authorizer.logger");
-  protected UnaryOperator<AuthorizationLogData> sanitizer;
+  protected UnaryOperator<AuditEvent> sanitizer;
 
   @Override
   public void configure(Map<String, ?> configs) {
@@ -40,13 +42,8 @@ public class DefaultAuditLogProvider implements AuditLogProvider {
   }
 
   @Override
-  public CompletionStage<Void> start(AuthorizerServerInfo serverInfo, Map<String, ?> interBrokerListenerConfigs) {
+  public CompletionStage<Void> start(Map<String, ?> interBrokerListenerConfigs) {
     return CompletableFuture.completedFuture(null);
-  }
-
-  @Override
-  public String providerName() {
-    return "DEFAULT";
   }
 
   @Override
@@ -60,8 +57,15 @@ public class DefaultAuditLogProvider implements AuditLogProvider {
   }
 
   @Override
-  public void setSanitizer(UnaryOperator<AuthorizationLogData> sanitizer) {
+  public void setSanitizer(UnaryOperator<AuditEvent> sanitizer) {
     this.sanitizer = sanitizer;
+  }
+
+  @Override
+  public void logEvent(final AuditEvent auditEvent) {
+    if (auditEvent.type() == AuditEventType.AUTHORIZATION) {
+      logAuthorization(auditEvent);
+    }
   }
 
   /**
@@ -75,25 +79,25 @@ public class DefaultAuditLogProvider implements AuditLogProvider {
    *  }
    * </pre>
    */
-  @Override
-  public void logAuthorization(AuthorizationLogData data) {
+  private void logAuthorization(AuditEvent auditEvent) {
     if (sanitizer != null) {
-      data = sanitizer.apply(data);
+      auditEvent = sanitizer.apply(auditEvent);
     }
+    ConfluentAuthorizationEvent authZEvent = (ConfluentAuthorizationEvent) auditEvent;
     String logMessage = "Principal = {} is {} Operation = {} from host = {} on resource = {}";
-    KafkaPrincipal principal = data.requestContext.principal();
-    String host = data.requestContext.clientAddress().getHostAddress();
-    String operation = data.action.operation().name();
-    String resource = SecurityUtils.toPascalCase(data.action.resourceType().name()) + ":" +
-        data.action.resourcePattern().patternType() + ":" +
-        data.action.resourceName();
-    if (data.authorizeResult == AuthorizeResult.ALLOWED) {
-      if (data.action.logIfAllowed())
+    KafkaPrincipal principal = authZEvent.requestContext().principal();
+    String host = authZEvent.requestContext().clientAddress().getHostAddress();
+    String operation = authZEvent.action().operation().name();
+    String resource = SecurityUtils.toPascalCase(authZEvent.action().resourceType().name()) + ":" +
+        authZEvent.action().resourcePattern().patternType() + ":" +
+        authZEvent.action().resourceName();
+    if (authZEvent.authorizeResult() == AuthorizeResult.ALLOWED) {
+      if (authZEvent.action().logIfAllowed())
         log.debug(logMessage, principal, "Allowed", operation, host, resource);
       else
         log.trace(logMessage, principal, "Allowed", operation, host, resource);
     } else {
-      if (data.action.logIfDenied())
+      if (authZEvent.action().logIfDenied())
         log.info(logMessage, principal, "Denied", operation, host, resource);
       else
         log.trace(logMessage, principal, "Denied", operation, host, resource);

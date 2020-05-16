@@ -25,6 +25,7 @@ import kafka.server.KafkaConfig
 import org.apache.kafka.common.{ClusterResource, Endpoint, Node}
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.security.auth.SecurityProtocol
+import org.apache.kafka.server.audit.{AuditLogProvider, NoOpAuditLogProvider}
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo
 import org.apache.kafka.server.http.MetadataServer
 
@@ -37,7 +38,8 @@ object Broker {
                                          endpoints: util.List[Endpoint],
                                          interBrokerEndpoint: Endpoint,
                                          override val metadataServer: MetadataServer,
-                                         override val httpServerBinder: KafkaHttpServerBinder) extends AuthorizerServerInfo
+                                         override val httpServerBinder: KafkaHttpServerBinder,
+                                         override val auditLogProvider: AuditLogProvider) extends AuthorizerServerInfo
 }
 
 /**
@@ -87,10 +89,11 @@ case class Broker(id: Int, endPoints: Seq[EndPoint], rack: Option[String]) {
   def toServerInfo(clusterId: String,
                    config: KafkaConfig,
                    metadataServer: MetadataServer,
-                   httpServerBinder: KafkaHttpServerBinder): AuthorizerServerInfo = {
+                   httpServerBinder: KafkaHttpServerBinder,
+                   auditLogProvider: AuditLogProvider = NoOpAuditLogProvider.INSTANCE): AuthorizerServerInfo = {
     val clusterResource: ClusterResource = new ClusterResource(clusterId)
     val interBrokerEndpoint: Endpoint = endPoint(config.interBrokerListenerName).toJava
     val brokerEndpoints: util.List[Endpoint] = endPoints.toList.map(_.toJava).asJava
-    Broker.ServerInfo(clusterResource, id, brokerEndpoints, interBrokerEndpoint, metadataServer, httpServerBinder)
+    Broker.ServerInfo(clusterResource, id, brokerEndpoints, interBrokerEndpoint, metadataServer, httpServerBinder, auditLogProvider)
   }
 }

@@ -11,13 +11,15 @@ import io.confluent.security.authorizer.AuthorizePolicy;
 import io.confluent.security.authorizer.RequestContext;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.Scope;
-import io.confluent.security.authorizer.provider.AuthorizationLogData;
-import java.net.InetAddress;
+import io.confluent.security.authorizer.provider.ConfluentAuthorizationEvent;
 import org.apache.kafka.common.acl.AccessControlEntry;
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.SecurityUtils;
+import org.apache.kafka.server.audit.AuditEvent;
+
+import java.net.InetAddress;
 
 /**
  * These functions transform various pieces of internal information to remove internal
@@ -153,28 +155,30 @@ public class TenantSanitizer {
     }
   }
 
-  public static AuthorizationLogData tenantAuthorizationLogData(AuthorizationLogData data) {
-    if (data.requestContext.principal() instanceof MultiTenantPrincipal) {
+  public static AuditEvent tenantAuditEvent(AuditEvent auditEvent) {
+    ConfluentAuthorizationEvent data =  (ConfluentAuthorizationEvent) auditEvent;
+
+    if (data.requestContext().principal() instanceof MultiTenantPrincipal) {
       // Note that this will throw a NotTenantPrefixedException if a tenant attempts
       // to access a non-tenant resource. This exception will be caught and logged as
       // an error in the Authorizer
-      TenantMetadata metadata = ((MultiTenantPrincipal) data.requestContext.principal())
+      TenantMetadata metadata = ((MultiTenantPrincipal) data.requestContext().principal())
           .tenantMetadata();
-      RequestContext tenantRequestContext = tenantRequestContext(data.requestContext);
-      Scope tenantScope = tenantScope(data.action.scope(), metadata.clusterId);
-      Scope tenantSourceScope = tenantScope(data.sourceScope, metadata.clusterId);
-      ResourcePattern tenantResourcePattern = tenantResourcePattern(data.action.resourcePattern(),
+      RequestContext tenantRequestContext = tenantRequestContext(data.requestContext());
+      Scope tenantScope = tenantScope(data.action().scope(), metadata.clusterId);
+      Scope tenantSourceScope = tenantScope(data.sourceScope(), metadata.clusterId);
+      ResourcePattern tenantResourcePattern = tenantResourcePattern(data.action().resourcePattern(),
           metadata.tenantPrefix());
       Action tenantAction = new Action(tenantScope, tenantResourcePattern,
-          data.action.operation(), data.action.resourceReferenceCount(),
-          data.action.logIfAllowed(), data.action.logIfDenied());
-      AuthorizePolicy tenantAuthorizePolicy = tenantAuthorizePolicy(data.authorizePolicy,
+          data.action().operation(), data.action().resourceReferenceCount(),
+          data.action().logIfAllowed(), data.action().logIfDenied());
+      AuthorizePolicy tenantAuthorizePolicy = tenantAuthorizePolicy(data.authorizePolicy(),
           metadata.tenantPrefix());
 
-      return new AuthorizationLogData(tenantSourceScope, tenantRequestContext, tenantAction,
-          data.authorizeResult, tenantAuthorizePolicy);
+      return new ConfluentAuthorizationEvent(tenantSourceScope, tenantRequestContext, tenantAction,
+          data.authorizeResult(), tenantAuthorizePolicy);
     } else {
-      return data;
+      return auditEvent;
     }
   }
 

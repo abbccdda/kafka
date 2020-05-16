@@ -3,6 +3,8 @@
 package io.confluent.security.authorizer.provider;
 
 
+import org.apache.kafka.server.audit.AuditLogProvider;
+
 /**
  * Interface used by providers which perform audit and require an audit log provider.
  * This is used to ensure that a single audit log provider can be shared across all

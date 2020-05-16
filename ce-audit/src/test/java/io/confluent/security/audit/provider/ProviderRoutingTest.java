@@ -17,7 +17,6 @@ import io.cloudevents.CloudEvent;
 import io.cloudevents.v03.AttributesImpl;
 import io.confluent.events.ProtobufEvent;
 import io.confluent.events.cloudevents.extensions.RouteExtension;
-import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.security.audit.AuditLogConfig;
 import io.confluent.security.audit.AuditLogEntry;
 import io.confluent.security.audit.AuditLogRouterJsonConfigUtils;
@@ -30,12 +29,13 @@ import io.confluent.security.authorizer.RequestContext;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.ResourceType;
 import io.confluent.security.authorizer.Scope;
-import io.confluent.security.authorizer.provider.AuthorizationLogData;
 import java.net.InetAddress;
 import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+
+import io.confluent.security.authorizer.provider.ConfluentAuthorizationEvent;
 import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.protocol.ApiKeys;
@@ -74,7 +74,7 @@ public class ProviderRoutingTest {
     configs.putAll(configOverrides);
     provider.configure(configs);
     CompletableFuture<Void> startFuture = provider
-        .start(KafkaTestUtils.serverInfo(clusterId), configs).toCompletableFuture();
+        .start(configs).toCompletableFuture();
     startFuture.get(10_000, TimeUnit.MILLISECONDS);
     return provider;
   }
@@ -101,8 +101,8 @@ public class ProviderRoutingTest {
     AuthorizePolicy policy = new AuthorizePolicy.SuperUser(AuthorizePolicy.PolicyType.SUPER_USER,
         principal);
 
-    provider.logAuthorization(
-        new AuthorizationLogData(clusterScope, requestContext, write, AuthorizeResult.ALLOWED,
+    provider.logEvent(
+        new ConfluentAuthorizationEvent(clusterScope, requestContext, write, AuthorizeResult.ALLOWED,
             policy));
 
     MockExporter ma = (MockExporter) provider.getEventLogger().eventExporter();
@@ -167,8 +167,8 @@ public class ProviderRoutingTest {
         principal);
 
     provider
-        .logAuthorization(
-            new AuthorizationLogData(clusterScope, requestContext, create, AuthorizeResult.ALLOWED,
+        .logEvent(
+            new ConfluentAuthorizationEvent(clusterScope, requestContext, create, AuthorizeResult.ALLOWED,
                 policy));
     MockExporter ma = (MockExporter) provider.getEventLogger().eventExporter();
 
@@ -203,8 +203,8 @@ public class ProviderRoutingTest {
         principal);
 
     provider
-        .logAuthorization(
-            new AuthorizationLogData(clusterScope, requestContext, create, AuthorizeResult.ALLOWED,
+        .logEvent(
+            new ConfluentAuthorizationEvent(clusterScope, requestContext, create, AuthorizeResult.ALLOWED,
                 policy));
     MockExporter ma = (MockExporter) provider.getEventLogger().eventExporter();
 
@@ -235,8 +235,8 @@ public class ProviderRoutingTest {
         principal);
 
     provider
-        .logAuthorization(
-            new AuthorizationLogData(clusterScope, requestContext, create, AuthorizeResult.ALLOWED,
+        .logEvent(
+            new ConfluentAuthorizationEvent(clusterScope, requestContext, create, AuthorizeResult.ALLOWED,
                 policy));
 
     assertEquals(0, ma.events.size());
@@ -276,8 +276,8 @@ public class ProviderRoutingTest {
         principal);
 
     provider
-        .logAuthorization(
-            new AuthorizationLogData(clusterScope, requestContext, create, AuthorizeResult.ALLOWED,
+        .logEvent(
+            new ConfluentAuthorizationEvent(clusterScope, requestContext, create, AuthorizeResult.ALLOWED,
                 policy));
 
     assertEquals(0, ma.events.size());
@@ -307,16 +307,16 @@ public class ProviderRoutingTest {
 
     ma.routeReady = false;
     provider
-        .logAuthorization(
-            new AuthorizationLogData(clusterScope, requestContext, create, AuthorizeResult.ALLOWED,
+        .logEvent(
+            new ConfluentAuthorizationEvent(clusterScope, requestContext, create, AuthorizeResult.ALLOWED,
                 policy));
 
     assertEquals(0, ma.events.size());
 
     ma.routeReady = true;
     provider
-        .logAuthorization(
-            new AuthorizationLogData(clusterScope, requestContext, create, AuthorizeResult.ALLOWED,
+        .logEvent(
+            new ConfluentAuthorizationEvent(clusterScope, requestContext, create, AuthorizeResult.ALLOWED,
                 policy));
     assertEquals(1, ma.events.size());
 
@@ -444,8 +444,8 @@ public class ProviderRoutingTest {
     MockExporter ma = (MockExporter) provider.getEventLogger().eventExporter();
     ma.events.clear();
     provider
-        .logAuthorization(
-            new AuthorizationLogData(clusterScope, requestContext, create, result,
+        .logEvent(
+            new ConfluentAuthorizationEvent(clusterScope, requestContext, create, result,
                 policy));
 
     if (expectedTopic != null && !expectedTopic.isEmpty()) {

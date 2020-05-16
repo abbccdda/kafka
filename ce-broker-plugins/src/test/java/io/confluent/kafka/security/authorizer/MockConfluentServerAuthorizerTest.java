@@ -43,6 +43,7 @@ import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.resource.ResourceType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
+import org.apache.kafka.server.audit.AuditLogProvider;
 import org.apache.kafka.server.authorizer.AuthorizableRequestContext;
 import org.apache.kafka.server.authorizer.AuthorizationResult;
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
@@ -101,6 +102,11 @@ public class MockConfluentServerAuthorizerTest {
       @Override
       public Endpoint interBrokerEndpoint() {
         return interBrokerEndpoint;
+      }
+
+      @Override
+      public AuditLogProvider auditLogProvider() {
+        return new MockAuditLogProvider();
       }
     };
   }
@@ -167,10 +173,10 @@ public class MockConfluentServerAuthorizerTest {
 
     MockAuditLogProvider auditLogProvider = MockAuditLogProvider.instance;
     assertEquals(1, auditLogProvider.auditLog.size());
-    assertEquals("allowedWithLog", auditLogProvider.lastEntry().action.resourcePattern().name());
-    assertEquals(AuthorizeResult.ALLOWED, auditLogProvider.lastEntry().authorizeResult);
-    assertEquals(KafkaPrincipal.ANONYMOUS, auditLogProvider.lastEntry().requestContext.principal());
-    assertEquals(PolicyType.ALLOW_ACL, auditLogProvider.lastEntry().authorizePolicy.policyType());
+    assertEquals("allowedWithLog", auditLogProvider.lastEntry().action().resourcePattern().name());
+    assertEquals(AuthorizeResult.ALLOWED, auditLogProvider.lastEntry().authorizeResult());
+    assertEquals(KafkaPrincipal.ANONYMOUS, auditLogProvider.lastEntry().requestContext().principal());
+    assertEquals(PolicyType.ALLOW_ACL, auditLogProvider.lastEntry().authorizePolicy().policyType());
     auditLogProvider.auditLog.clear();
 
     assertEquals(AuthorizationResult.ALLOWED, authorizer.authorize(requestContext, Collections.singletonList(allowedNoLog)).get(0));
@@ -178,9 +184,9 @@ public class MockConfluentServerAuthorizerTest {
 
     assertEquals(AuthorizationResult.DENIED, authorizer.authorize(requestContext, Collections.singletonList(deniedWithLog)).get(0));
     assertEquals(1, auditLogProvider.auditLog.size());
-    assertEquals("deniedWithLog", auditLogProvider.lastEntry().action.resourcePattern().name());
-    assertEquals(AuthorizeResult.DENIED, auditLogProvider.lastEntry().authorizeResult);
-    assertEquals(PolicyType.DENY_ON_NO_RULE, auditLogProvider.lastEntry().authorizePolicy.policyType());
+    assertEquals("deniedWithLog", auditLogProvider.lastEntry().action().resourcePattern().name());
+    assertEquals(AuthorizeResult.DENIED, auditLogProvider.lastEntry().authorizeResult());
+    assertEquals(PolicyType.DENY_ON_NO_RULE, auditLogProvider.lastEntry().authorizePolicy().policyType());
     auditLogProvider.auditLog.clear();
 
     assertEquals(AuthorizationResult.DENIED, authorizer.authorize(requestContext, Collections.singletonList(deniedNoLog)).get(0));

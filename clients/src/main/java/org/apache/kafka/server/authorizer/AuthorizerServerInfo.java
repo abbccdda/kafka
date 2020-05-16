@@ -22,6 +22,8 @@ import java.util.Collection;
 import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.Endpoint;
 import org.apache.kafka.common.annotation.InterfaceStability;
+import org.apache.kafka.server.audit.AuditLogProvider;
+import org.apache.kafka.server.audit.NoOpAuditLogProvider;
 import org.apache.kafka.server.http.MetadataServer;
 import org.apache.kafka.server.http.MetadataServerFactory;
 
@@ -63,5 +65,12 @@ public interface AuthorizerServerInfo {
 
     default KafkaHttpServerBinder httpServerBinder() {
         return new KafkaHttpServerBinder();
+    }
+
+    /**
+     * Returns the {@link org.apache.kafka.server.audit.AuditLogProvider} configured in this broker.
+     */
+    default AuditLogProvider auditLogProvider() {
+        return NoOpAuditLogProvider.INSTANCE;
     }
 }

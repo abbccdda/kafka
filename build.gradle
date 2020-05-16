@@ -2671,6 +2671,7 @@ project(':ce-auth-providers') {
     testCompile project(':ce-broker-plugins').sourceSets.test.output
     testCompile project(':ce-licensing')
     testCompile project(':ce-licensing').sourceSets.test.output
+    testCompile project(':connect:runtime').sourceSets.test.output
 
     testCompile libs.apachedaLdapCodec
     testCompile libs.apachedsCoreApi
