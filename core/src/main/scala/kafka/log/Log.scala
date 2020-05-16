@@ -2305,8 +2305,8 @@ class Log(@volatile private var _dir: File,
           producerStateManager.reloadFromTieredSnapshot(newOffset, time.milliseconds(), buf, newOffset)
           producerStateManager.takeSnapshot()
         }
-        for (entry <- tierState.leaderEpochState)
-          leaderEpochCache.get.assign(entry.epoch, entry.startOffset)
+
+        leaderEpochCache.get.restore(tierState.leaderEpochState)
 
         // 3. Now that we have recovered all state necessary to ensure a crash proof restart
         //    we can create a segment and set the log and start offset

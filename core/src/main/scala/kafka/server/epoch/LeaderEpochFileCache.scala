@@ -72,6 +72,19 @@ class LeaderEpochFileCache(topicPartition: TopicPartition,
   }
 
   /**
+   * Restores a list snapshot of leader epoch entries.
+   * This is currently for use in tier epoch state restoration so that
+   * we can avoid flushing once per entry restored.
+   */
+  def restore(entries: List[EpochEntry]): Unit = {
+    inWriteLock(lock) {
+      epochs.clear()
+      entries.foreach(truncateAndAppend)
+      flush()
+    }
+  }
+
+  /**
    * Remove any entries which violate monotonicity following the insertion of an assigned epoch.
    */
   private def truncateAndAppend(entryToAppend: EpochEntry): Unit = {

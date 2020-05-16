@@ -538,6 +538,21 @@ class LeaderEpochFileCacheTest {
   }
 
   @Test
+  def shouldCorrectlyRestoreFullSnapshot(): Unit = {
+    //Given
+    cache.assign(epoch = 2, startOffset = 6)
+    cache.assign(epoch = 3, startOffset = 8)
+    cache.assign(epoch = 4, startOffset = 11)
+
+    //Restore a snapshot
+    val snapshot = List(EpochEntry(3, 8), EpochEntry(4, 11), EpochEntry(5, 14))
+    cache.restore(snapshot)
+
+    //Cache should now match the restored cache
+    assertEquals(snapshot, cache.epochEntries)
+  }
+
+  @Test
   def shouldFetchLatestEpochOfEmptyCache(): Unit = {
     //Then
     assertEquals(None, cache.latestEpoch)
