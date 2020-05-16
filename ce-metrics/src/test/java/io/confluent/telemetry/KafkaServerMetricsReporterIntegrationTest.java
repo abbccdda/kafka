@@ -1,6 +1,7 @@
 package io.confluent.telemetry;
 
 import io.confluent.metrics.reporter.integration.MetricReporterClusterTestHarness;
+import io.confluent.telemetry.exporter.ExporterConfig;
 import io.confluent.telemetry.exporter.kafka.KafkaExporterConfig;
 import io.confluent.telemetry.reporter.KafkaServerMetricsReporter;
 import io.confluent.telemetry.serde.OpencensusMetricsProto;
@@ -57,8 +58,17 @@ public class KafkaServerMetricsReporterIntegrationTest extends MetricReporterClu
 
     protected void injectMetricReporterProperties(Properties props, String brokerList) {
         props.setProperty(KafkaConfig.MetricReporterClassesProp(), "io.confluent.telemetry.reporter.KafkaServerMetricsReporter");
-        props.setProperty(KafkaExporterConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList);
-        props.setProperty(KafkaExporterConfig.TOPIC_REPLICAS_CONFIG, "1");
+
+        // disable the default exporters
+        props.setProperty(ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_CONFLUENT_NAME)
+            + ExporterConfig.ENABLED_CONFIG, "false");
+        props.setProperty(ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME)
+            + ExporterConfig.ENABLED_CONFIG, "false");
+
+        props.setProperty(ConfluentTelemetryConfig.exporterPrefixForName("test") + ExporterConfig.TYPE_CONFIG, ExporterConfig.ExporterType.kafka.name());
+        props.setProperty(ConfluentTelemetryConfig.exporterPrefixForName("test") + ExporterConfig.ENABLED_CONFIG, "true");
+        props.setProperty(ConfluentTelemetryConfig.exporterPrefixForName("test") + KafkaExporterConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList);
+        props.setProperty(ConfluentTelemetryConfig.exporterPrefixForName("test") + KafkaExporterConfig.TOPIC_REPLICAS_CONFIG, "1");
         props.setProperty(ConfluentTelemetryConfig.COLLECT_INTERVAL_CONFIG, "500");
         props.setProperty(ConfluentTelemetryConfig.WHITELIST_CONFIG, "");
         props.setProperty(ConfluentTelemetryConfig.PREFIX_LABELS + "region", "test");

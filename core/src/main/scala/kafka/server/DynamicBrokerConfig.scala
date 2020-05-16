@@ -803,10 +803,20 @@ class DynamicMetricsReporters(brokerId: Int, server: KafkaServer) extends Reconf
     createReporters(added.asJava, configs)
   }
 
+  private def localClientConfigs(): Map[String, AnyRef] = {
+    // interbroker client with prefix added
+    ConfluentConfigs.interBrokerClientConfigs(
+      dynamicConfig.currentKafkaConfig,
+      dynamicConfig.currentKafkaConfig.listeners.filter(
+        endpoint => endpoint.listenerName.value() == dynamicConfig.currentKafkaConfig.interBrokerListenerName.value()).head.toJava
+    ).asScala.map(e => (ConfluentConfigs.INTERBROKER_REPORTER_CLIENT_CONFIG_PREFIX + e._1, e._2))
+  }
+
   private def createReporters(reporterClasses: util.List[String],
                               updatedConfigs: util.Map[String, _]): Unit = {
     val props = new util.HashMap[String, AnyRef]
     updatedConfigs.forEach { (k, v) => props.put(k, v.asInstanceOf[AnyRef]) }
+    localClientConfigs().foreach { case (k, v) => props.put(k, v) }
     propsOverride.foreach { case (k, v) => props.put(k, v) }
     val reporters = dynamicConfig.currentKafkaConfig.getConfiguredInstances(reporterClasses, classOf[MetricsReporter], props)
     reporters.forEach { reporter =>

@@ -2,6 +2,7 @@ package io.confluent.telemetry.exporter.http;
 
 import com.google.common.collect.ImmutableMap;
 import io.confluent.telemetry.client.BufferingAsyncTelemetryHttpClient.Builder;
+import io.confluent.telemetry.exporter.ExporterConfig;
 import io.confluent.telemetry.client.CompressionAlgorithm;
 import io.confluent.telemetry.client.TelemetryHttpClient;
 import io.opencensus.proto.agent.metrics.v1.ExportMetricsServiceRequest;
@@ -16,7 +17,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 public class HttpExporterConfigTest {
 
-    Map<String, String> minimalConfig = ImmutableMap.of();
+    Map<String, String> minimalConfig = ImmutableMap.of(
+        ExporterConfig.TYPE_CONFIG, ExporterConfig.ExporterType.http.name()
+    );
 
     @Test
     public void testGetUriValid() {

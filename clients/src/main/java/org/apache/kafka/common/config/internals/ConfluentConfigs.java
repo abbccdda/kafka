@@ -352,6 +352,9 @@ public class ConfluentConfigs {
     public static final String HTTP_SERVER_STOP_TIMEOUT_MS_DOC =
         "How long to wait for the Kafka HTTP server to shutdown, in milliseconds. Default is 30s.";
 
+    // used by the telemetry-reporter to handle default inter-broker client configs
+    public static final String INTERBROKER_REPORTER_CLIENT_CONFIG_PREFIX = "kafka.server.local.client.";
+
     public enum ClientType {
         PRODUCER("producer", ProducerConfig.configNames()),
         CONSUMER("consumer", ConsumerConfig.configNames()),

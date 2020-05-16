@@ -10,13 +10,13 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 import io.confluent.telemetry.collector.MetricsCollector;
 import io.confluent.telemetry.exporter.Exporter;
@@ -30,20 +30,19 @@ public class MetricsCollectorTask implements MetricsCollector {
 
     private final ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
     private final Context context;
-    private final Set<Exporter> exporters;
+    private final Supplier<Collection<Exporter>> exportersSupplier;
     private final Collection<MetricsCollector> collectors;
     private final long collectIntervalMs;
     private final ConcurrentMap<MetricsCollector, AtomicLong> metricsCollected = new ConcurrentHashMap<>();
     private volatile Predicate<MetricKey> whitelistPredicate;
 
     public MetricsCollectorTask(
-        Context ctx, Set<Exporter> exporters, Collection<MetricsCollector> collectors,
+        Context ctx, Supplier<Collection<Exporter>> exportersSupplier, Collection<MetricsCollector> collectors,
         long collectIntervalMs, Predicate<MetricKey> whitelistPredicate
     ) {
         Verify.verify(collectIntervalMs > 0, "collection interval cannot be less than 1");
 
-        this.exporters = Objects.requireNonNull(exporters);
-        Verify.verify(!exporters.isEmpty(), "At least one exporter must be enabled");
+        this.exportersSupplier = Objects.requireNonNull(exportersSupplier);
 
         this.collectors = Objects.requireNonNull(collectors);
         this.context = Objects.requireNonNull(ctx);
@@ -83,7 +82,7 @@ public class MetricsCollectorTask implements MetricsCollector {
         Exporter exporter = new Exporter() {
             @Override
             public void emit(Metric metric) {
-                exporters.forEach(e -> e.emit(metric));
+                exportersSupplier.get().forEach(e -> e.emit(metric));
                 collectedMetricsCount.incrementAndGet();
             }
 

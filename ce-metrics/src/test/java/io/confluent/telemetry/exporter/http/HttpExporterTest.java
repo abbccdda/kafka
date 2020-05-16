@@ -24,6 +24,7 @@ import io.opencensus.proto.agent.metrics.v1.ExportMetricsServiceResponse;
 import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.confluent.telemetry.Context;
 import io.confluent.telemetry.collector.MetricsCollector;
+import io.confluent.telemetry.exporter.ExporterConfig;
 import io.confluent.telemetry.exporter.TestExporter;
 import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.metrics.v1.MetricDescriptor;
@@ -44,8 +45,9 @@ public class HttpExporterTest {
     @Test
     public void testBuildFromConfig() {
         Map<String, String> minimalConfig = ImmutableMap.of(
+            ExporterConfig.TYPE_CONFIG, ExporterConfig.ExporterType.http.name(),
             HttpExporterConfig.API_KEY, "apikey",
-            HttpExporterConfig.API_SECRET_KEY, "apisecretkey");
+            HttpExporterConfig.API_SECRET, "apisecretkey");
 
         HttpExporter exporter = new HttpExporter(new HttpExporterConfig(minimalConfig));
 
@@ -59,6 +61,7 @@ public class HttpExporterTest {
 
         when(bufferingClient.getBatchResults()).thenReturn(Observable.empty());
         HttpExporter exporter = new HttpExporter(bufferingClient);
+        exporter.setCanEmitMetrics(true);
 
         Metric metric = Metric.newBuilder().setMetricDescriptor(
             MetricDescriptor.newBuilder().setName("test").build()).build();
@@ -70,8 +73,9 @@ public class HttpExporterTest {
     @Test
     public void testCollector() {
         Map<String, String> minimalConfig = ImmutableMap.of(
+            ExporterConfig.TYPE_CONFIG, ExporterConfig.ExporterType.http.name(),
             HttpExporterConfig.API_KEY, "apikey",
-            HttpExporterConfig.API_SECRET_KEY, "apisecretkey",
+            HttpExporterConfig.API_SECRET, "apisecretkey",
             ConfluentTelemetryConfig.WHITELIST_CONFIG, ".*");
 
         HttpExporter exporter = new HttpExporter(new HttpExporterConfig(minimalConfig));

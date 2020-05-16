@@ -48,6 +48,7 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
         }
     };
     private final BufferingAsyncTelemetryHttpClient<Metric, ExportMetricsServiceRequest, ExportMetricsServiceResponse> bufferingClient;
+    public volatile boolean canEmitMetrics = false;
 
     public HttpExporter(HttpExporterConfig config) {
 
@@ -60,13 +61,20 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
             )
             .setCreateRequestFn(REQUEST_CONVERTER)
             .build());
+        this.canEmitMetrics = config.canEmitMetrics();
     }
 
-    public HttpExporter(
+    @VisibleForTesting
+    HttpExporter(
         BufferingAsyncTelemetryHttpClient<Metric, ExportMetricsServiceRequest, ExportMetricsServiceResponse> bufferingClient) {
         this.bufferingClient = bufferingClient;
         // subscribe to batch results.
         this.bufferingClient.getBatchResults().doOnNext(this::trackMetricResponses);
+    }
+
+    @VisibleForTesting
+    void setCanEmitMetrics(boolean canEmitMetrics) {
+        this.canEmitMetrics = canEmitMetrics;
     }
 
     private void trackMetricResponses(
@@ -83,6 +91,9 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
 
     @Override
     public void emit(Metric metric) throws RuntimeException {
+        if (!canEmitMetrics) {
+            return;
+        }
         this.bufferingClient.submit(Collections.singleton(metric));
     }
 
@@ -184,7 +195,12 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
 
     public void reconfigure(HttpExporterConfig config) {
         String apiKey = config.getString(HttpExporterConfig.API_KEY);
-        String apiSecretKey = config.getString(HttpExporterConfig.API_SECRET_KEY);
+        String apiSecretKey = config.getString(HttpExporterConfig.API_SECRET);
+        if (config.canEmitMetrics()) {
+            canEmitMetrics = true;
+        } else {
+            canEmitMetrics = false;
+        }
         this.bufferingClient.updateCredentials(apiKey, apiSecretKey);
     }
 }

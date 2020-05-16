@@ -3,14 +3,13 @@ package io.confluent.telemetry.exporter.kafka;
 import com.google.common.base.Verify;
 import io.confluent.monitoring.common.MonitoringProducerDefaults;
 import io.confluent.telemetry.ConfigPropertyTranslater;
-import io.confluent.telemetry.ConfluentTelemetryConfig;
+import io.confluent.telemetry.exporter.ExporterConfig;
 import io.confluent.telemetry.serde.OpencensusMetricsProto;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import org.apache.kafka.clients.producer.ProducerConfig;
-import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.TopicConfig;
@@ -18,11 +17,10 @@ import org.apache.kafka.common.record.TimestampType;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 import static io.confluent.metrics.reporter.ConfluentMetricsReporterConfig.DEFAULT_MIN_ISR;
 
-public class KafkaExporterConfig extends AbstractConfig {
+public class KafkaExporterConfig extends ExporterConfig {
 
-    public static final String PREFIX = ConfluentTelemetryConfig.PREFIX_EXPORTER + "kafka.";
-    public static final String PREFIX_PRODUCER = PREFIX + "producer.";
-    public static final String PREFIX_TOPIC = PREFIX + "topic.";
+    public static final String PREFIX_PRODUCER = "producer.";
+    public static final String PREFIX_TOPIC = "topic.";
 
     public static final String BOOTSTRAP_SERVERS_CONFIG = PREFIX_PRODUCER + ProducerConfig.BOOTSTRAP_SERVERS_CONFIG;
     public static final String BOOTSTRAP_SERVERS_DOC = "Bootstrap servers for the Kafka cluster "
@@ -125,12 +123,8 @@ public class KafkaExporterConfig extends AbstractConfig {
         );
 
 
-    private static final String LEGACY_PREFIX = "confluent.telemetry.metrics.reporter.";
-
     private static final ConfigPropertyTranslater DEPRECATION_TRANSLATER =
         new ConfigPropertyTranslater.Builder()
-            .withPrefixTranslation(ConfluentTelemetryConfig.LEGACY_PREFIX + "topic.", PREFIX_TOPIC)
-            .withPrefixTranslation(ConfluentTelemetryConfig.LEGACY_PREFIX, PREFIX_PRODUCER)
             .build();
 
     public KafkaExporterConfig(Map<String, ?> originals) {

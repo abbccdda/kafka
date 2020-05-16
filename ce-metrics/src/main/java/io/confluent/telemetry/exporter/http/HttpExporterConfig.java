@@ -6,9 +6,10 @@ import io.confluent.telemetry.client.BufferingAsyncTelemetryHttpClient;
 import io.confluent.telemetry.client.CompressionAlgorithm;
 import io.confluent.telemetry.client.TelemetryHttpClient;
 import io.confluent.telemetry.client.TelemetryHttpClient.Builder;
+import io.confluent.telemetry.exporter.ExporterConfig;
+
 import io.opencensus.proto.agent.metrics.v1.ExportMetricsServiceRequest;
 import io.opencensus.proto.agent.metrics.v1.ExportMetricsServiceResponse;
-import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.opencensus.proto.metrics.v1.Metric;
 import java.net.URI;
 import java.time.Duration;
@@ -17,7 +18,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.ConfigDef.Validator;
 import org.apache.kafka.common.config.ConfigException;
@@ -31,21 +31,20 @@ import org.slf4j.LoggerFactory;
  * Note that we maintain the defaults in the `telemetry-client` library, so many of the defaults
  * in this class are null.
  */
-public class HttpExporterConfig extends AbstractConfig {
+public class HttpExporterConfig extends ExporterConfig {
 
     private static final Logger log = LoggerFactory.getLogger(HttpExporterConfig.class);
 
-    public static final String PREFIX = ConfluentTelemetryConfig.PREFIX_EXPORTER + "http.";
-    public static final String PREFIX_BUFFER = PREFIX + "buffer.";
-    public static final String PREFIX_CLIENT = PREFIX + "client.";
-    public static final String PREFIX_PROXY = PREFIX + "proxy.";
+    public static final String PREFIX_BUFFER = "buffer.";
+    public static final String PREFIX_CLIENT = "client.";
+    public static final String PREFIX_PROXY = "proxy.";
 
-    public static final String API_KEY = PREFIX + "api.key";
-    public static final String API_KEY_DOC = "The API key used to authenticate with the Confluent telemetry API";
+    public static final String API_KEY = "api.key";
+    public static final String API_KEY_DOC = "The API key used to authenticate the requests made by HttpExporter";
 
-    public static final String API_SECRET_KEY = PREFIX + "api.key.secret";
-    public static final String API_SECRET_KEY_DOC = "The API secret key used to authenticate with the Confluent Telemetry API";
-    public static final Set<String> RECONFIGURABLE_CONFIGS = Utils.mkSet(API_KEY, API_SECRET_KEY);
+    public static final String API_SECRET = "api.secret";
+    public static final String API_SECRET_DOC = "The API secret used to authenticate requests made by HttpExporter";
+    public static final Set<String> RECONFIGURABLE_CONFIGS = Utils.mkSet(API_KEY, API_SECRET);
 
     public static final String BUFFER_MAX_BATCH_DURATION_MS = PREFIX_BUFFER + "batch.duration.max.ms";
     public static final String BUFFER_MAX_BATCH_DURATION_MS_DOC = "The maximum duration (in millis) to buffer items before sending them upstream";
@@ -98,11 +97,11 @@ public class HttpExporterConfig extends AbstractConfig {
             ConfigDef.Importance.HIGH,
             API_KEY_DOC
         ).define(
-            API_SECRET_KEY,
+            API_SECRET,
             ConfigDef.Type.STRING,
             null,
             ConfigDef.Importance.HIGH,
-            API_SECRET_KEY_DOC
+            API_SECRET_DOC
         ).define(
             BUFFER_MAX_BATCH_DURATION_MS,
             ConfigDef.Type.LONG,
@@ -213,11 +212,11 @@ public class HttpExporterConfig extends AbstractConfig {
         TelemetryHttpClient.Builder<ExportMetricsServiceResponse> builder = new Builder<>();
 
         String apiKey = getString(API_KEY);
-        String apiSecretKey = getString(API_SECRET_KEY);
+        String apiSecretKey = getString(API_SECRET);
         Verify.verify(
             (Strings.isNullOrEmpty(apiKey) && Strings.isNullOrEmpty(apiSecretKey)) ||
             (!Strings.isNullOrEmpty(apiKey) && !Strings.isNullOrEmpty(apiSecretKey)),
-            "Must specify both %s and %s", API_KEY, API_SECRET_KEY);
+            "Must specify both %s and %s", API_KEY, API_SECRET);
         if (apiKey != null && apiSecretKey != null) {
             builder.setCredentials(apiKey, apiSecretKey);
         }
@@ -249,13 +248,13 @@ public class HttpExporterConfig extends AbstractConfig {
         return builder;
     }
 
-    public static void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
-        String apiKey = (String) configs.get(API_KEY);
-        String apiSecretKey = (String) configs.get(API_SECRET_KEY);
-
-        if (Strings.isNullOrEmpty(apiKey) ^ Strings.isNullOrEmpty(apiSecretKey)) {
-            throw new ConfigException("Must specify both %s and %s", API_KEY, API_SECRET_KEY);
+    public Boolean canEmitMetrics() {
+        String apiKey = getString(API_KEY);
+        String apiSecretKey = getString(API_SECRET);
+        if (!Strings.isNullOrEmpty(apiKey) && !Strings.isNullOrEmpty(apiSecretKey)) {
+            return true;
         }
+        return false;
     }
 
     private static class URIValidator implements Validator {

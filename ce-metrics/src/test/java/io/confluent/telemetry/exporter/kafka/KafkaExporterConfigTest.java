@@ -5,17 +5,22 @@ import static org.assertj.core.api.Assertions.entry;
 
 import com.google.common.collect.ImmutableMap;
 import io.confluent.telemetry.ConfluentTelemetryConfig;
+import io.confluent.telemetry.exporter.ExporterConfig;
+
 import java.util.Map;
 import java.util.Properties;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.config.TopicConfig;
+
+import org.assertj.core.api.Condition;
 import org.junit.Test;
 
 public class KafkaExporterConfigTest {
 
   private final ImmutableMap.Builder<String, Object> builder = ImmutableMap.<String, Object>builder()
-      .put(KafkaExporterConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:1234");
+      .put(KafkaExporterConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:1234")
+      .put(ExporterConfig.TYPE_CONFIG, ExporterConfig.ExporterType.kafka.name());
 
   @Test
   public void testTopicConfig() {
@@ -40,19 +45,22 @@ public class KafkaExporterConfigTest {
   }
 
   @Test
-  public void testDeprecatedProperties() {
-    // See https://github.com/confluentinc/cc-cluster-spec-service/blob/master/plugins/kafka/templates/serverConfig.tmpl#L75-L92
-    // for properties for which we must ensure backwards compatibility
+  public void testExporterProperties() {
+    String prefix = ConfluentTelemetryConfig.exporterPrefixForName("test");
     Map<String, Object> properties = ImmutableMap.<String, Object>builder()
-        .put("confluent.telemetry.metrics.reporter.bootstrap.servers", "localhost:1234")
-        .put("confluent.telemetry.metrics.reporter.security.protocol", "SASL_SSL")
-        .put("confluent.telemetry.metrics.reporter.sasl.mechanism", "PLAIN")
-        .put("confluent.telemetry.metrics.reporter.sasl.jaas.config", "org.apache.kafka.common.security.plain.PlainLoginModule")
-        .put("confluent.telemetry.metrics.reporter.topic.max.message.bytes", 8388608)
+        .put(prefix + "type", "kafka")
+        .put(prefix + "producer.bootstrap.servers", "localhost:1234")
+        .put(prefix + "producer.security.protocol", "SASL_SSL")
+        .put(prefix + "producer.sasl.mechanism", "PLAIN")
+        .put(prefix + "producer.sasl.jaas.config", "org.apache.kafka.common.security.plain.PlainLoginModule")
+        .put(prefix + "topic.max.message.bytes", 8388608)
         .build();
 
     ConfluentTelemetryConfig telemetryConfig = new ConfluentTelemetryConfig(properties);
-    KafkaExporterConfig exporterConfig = telemetryConfig.createKafkaExporterConfig().get();
+    Map<String, ExporterConfig> exporterConfigs = telemetryConfig.enabledExporters();
+    assertThat(exporterConfigs)
+      .hasEntrySatisfying("test", new Condition<>(c -> c instanceof KafkaExporterConfig, "is KafkaExporterConfig"));
+    KafkaExporterConfig exporterConfig = (KafkaExporterConfig) exporterConfigs.get("test");
 
     Properties producerProperties = exporterConfig.getProducerProperties();
     assertThat(producerProperties).contains(
