@@ -4,12 +4,33 @@
 
 package com.linkedin.kafka.cruisecontrol.monitor.sampling;
 
+import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils;
+import com.linkedin.kafka.cruisecontrol.SbkTopicUtils;
 import com.linkedin.kafka.cruisecontrol.common.KafkaCruiseControlThreadFactory;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
-import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils;
 import com.linkedin.kafka.cruisecontrol.metricsreporter.exception.UnknownVersionException;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.BrokerMetricSample;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.PartitionMetricSample;
+import io.confluent.databalancer.StartupCheckInterruptedException;
+import kafka.log.LogConfig;
+import org.apache.kafka.clients.consumer.Consumer;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.consumer.OffsetAndTimestamp;
+import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.Producer;
+import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.PartitionInfo;
+import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.errors.CorruptRecordException;
+import org.apache.kafka.common.serialization.ByteArrayDeserializer;
+import org.apache.kafka.common.serialization.ByteArraySerializer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -21,45 +42,12 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Random;
 import java.util.Set;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-
-import io.confluent.databalancer.StartupCheckInterruptedException;
-import kafka.admin.RackAwareMode;
-import kafka.controller.ReplicaAssignment;
-import kafka.log.LogConfig;
-import kafka.zk.AdminZkClient;
-import kafka.zk.KafkaZkClient;
-import org.apache.kafka.clients.admin.ConfluentAdmin;
-import org.apache.kafka.clients.admin.TopicDescription;
-import org.apache.kafka.clients.consumer.Consumer;
-import org.apache.kafka.clients.consumer.ConsumerConfig;
-import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.clients.consumer.ConsumerRecords;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
-import org.apache.kafka.clients.consumer.OffsetAndTimestamp;
-import org.apache.kafka.clients.producer.Callback;
-import org.apache.kafka.clients.producer.KafkaProducer;
-import org.apache.kafka.clients.producer.Producer;
-import org.apache.kafka.clients.producer.ProducerConfig;
-import org.apache.kafka.clients.producer.ProducerRecord;
-import org.apache.kafka.clients.producer.RecordMetadata;
-import org.apache.kafka.common.PartitionInfo;
-import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.errors.CorruptRecordException;
-import org.apache.kafka.common.serialization.ByteArrayDeserializer;
-import org.apache.kafka.common.serialization.ByteArraySerializer;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import scala.collection.JavaConverters;
-import scala.Option$;
-
-import static com.linkedin.kafka.cruisecontrol.monitor.MonitorUtils.ensureTopicNotUnderPartitionReassignment;
 
 /**
  * The sample store that implements the {@link SampleStore}. It stores the partition metric samples and broker metric
@@ -87,7 +75,7 @@ import static com.linkedin.kafka.cruisecontrol.monitor.MonitorUtils.ensureTopicN
  */
 public class KafkaSampleStore implements SampleStore {
   private static final Logger LOG = LoggerFactory.getLogger(KafkaSampleStore.class);
-  private static final String DEFAULT_CLEANUP_POLICY = "delete";
+  private static final String DEFAULT_CLEANUP_POLICY = LogConfig.Delete();
   // Keep additional windows in case some of the windows do not have enough samples.
   private static final int ADDITIONAL_WINDOW_TO_RETAIN_FACTOR = 2;
   private static final ConsumerRecords<byte[], byte[]> SHUTDOWN_RECORDS = new ConsumerRecords<>(Collections.emptyMap());
@@ -102,10 +90,10 @@ public class KafkaSampleStore implements SampleStore {
   protected static final long DEFAULT_MIN_PARTITION_SAMPLE_STORE_TOPIC_RETENTION_TIME_MS = 3600000L; // 1 hour
   protected static final long DEFAULT_MIN_BROKER_SAMPLE_STORE_TOPIC_RETENTION_TIME_MS = 3600000L; // 1 hour
   protected static final boolean DEFAULT_SKIP_SAMPLE_STORE_TOPIC_RACK_AWARENESS_CHECK = true;
-  protected static final long DEFAULT_RECONNECT_BACKOFF_MS = 50L;
-  protected static final String PRODUCER_CLIENT_ID = "KafkaCruiseControlSampleStoreProducer";
-  protected static final String CONSUMER_CLIENT_ID = "KafkaCruiseControlSampleStoreConsumer";
-  protected static final Random RANDOM = new Random();
+  protected static final String PRODUCER_CLIENT_ID = "ConfluentBalancerSampleStoreProducer";
+  protected static final String CONSUMER_CLIENT_ID = "ConfluentBalancerSampleStoreConsumer";
+  protected static final String CONSUMER_GROUP = "ConfluentBalancerSampleStoreGroup";
+  private static final Random RANDOM = new Random();
   protected List<KafkaConsumer<byte[], byte[]>> _consumers;
   protected ExecutorService _metricProcessorExecutor;
   protected String _partitionMetricSampleStoreTopic;
@@ -147,17 +135,30 @@ public class KafkaSampleStore implements SampleStore {
     _producer = createProducer(config);
     _loadingProgress = -1.0;
 
-    checkTopicPropertiesMaybeCreate(config, _consumers.get(0));
+    SbkTopicUtils.SbkTopicConfig partitionMetricTopicConfig = getTopicConfig(_partitionMetricSampleStoreTopic, config)
+            .setMinRetentionTimeMs(getMinPartitionRetentionTimeMs(config))
+            .setPartitionCount(config,
+                    PARTITION_SAMPLE_STORE_TOPIC_PARTITION_COUNT_CONFIG,
+                    DEFAULT_PARTITION_SAMPLE_STORE_TOPIC_PARTITION_COUNT)
+            .build();
+    SbkTopicUtils.checkTopicPropertiesMaybeCreate(partitionMetricTopicConfig, config);
+
+    SbkTopicUtils.SbkTopicConfig brokerMetricTopicConfig = getTopicConfig(_brokerMetricSampleStoreTopic, config)
+            .setMinRetentionTimeMs(getMinBrokerRetentionTimeMs(config))
+            .setPartitionCount(config,
+                    BROKER_SAMPLE_STORE_TOPIC_PARTITION_COUNT_CONFIG,
+                    DEFAULT_BROKER_SAMPLE_STORE_TOPIC_PARTITION_COUNT)
+            .build();
+    SbkTopicUtils.checkTopicPropertiesMaybeCreate(brokerMetricTopicConfig, config);
   }
 
+  @SuppressWarnings("unchecked")
   protected KafkaProducer<byte[], byte[]> createProducer(Map<String, ?> config) {
     Properties producerProps = new Properties();
     producerProps.putAll(KafkaCruiseControlUtils.filterProducerConfigs(config));
-    String bootstrapServers = config.get(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG).toString();
-    // Trim the brackets in List's String representation.
-    if (bootstrapServers.length() > 2) {
-      bootstrapServers = bootstrapServers.substring(1, bootstrapServers.length() - 1);
-    }
+    List<String> bootstrapServerList = (List<String>) config.get(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG);
+    String bootstrapServers = String.join(",", bootstrapServerList);
+
     producerProps.setProperty(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
     producerProps.setProperty(ProducerConfig.CLIENT_ID_CONFIG, PRODUCER_CLIENT_ID);
     // Set batch.size and linger.ms to a big number to have better batching.
@@ -173,17 +174,15 @@ public class KafkaSampleStore implements SampleStore {
     return new KafkaProducer<>(producerProps);
   }
 
-  protected static KafkaConsumer<byte[], byte[]> createConsumer(Map<String, ?> config) {
+  @SuppressWarnings("unchecked")
+  public static KafkaConsumer<byte[], byte[]> createConsumer(Map<String, ?> config) {
     Properties consumerProps = new Properties();
     consumerProps.putAll(KafkaCruiseControlUtils.filterConsumerConfigs(config));
     long randomToken = RANDOM.nextLong();
-    String bootstrapServers = config.get(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG).toString();
-    // Trim the brackets in List's String representation.
-    if (bootstrapServers.length() > 2) {
-      bootstrapServers = bootstrapServers.substring(1, bootstrapServers.length() - 1);
-    }
+    List<String> bootstrapServerList = (List<String>) config.get(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG);
+    String bootstrapServers = String.join(",", bootstrapServerList);
     consumerProps.setProperty(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-    consumerProps.setProperty(ConsumerConfig.GROUP_ID_CONFIG, "KafkaCruiseControlSampleStore" + randomToken);
+    consumerProps.setProperty(ConsumerConfig.GROUP_ID_CONFIG, CONSUMER_GROUP + randomToken);
     consumerProps.setProperty(ConsumerConfig.CLIENT_ID_CONFIG, CONSUMER_CLIENT_ID + randomToken);
     consumerProps.setProperty(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
     consumerProps.setProperty(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
@@ -191,7 +190,7 @@ public class KafkaSampleStore implements SampleStore {
     consumerProps.setProperty(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
     consumerProps.setProperty(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
     consumerProps.setProperty(ConsumerConfig.RECONNECT_BACKOFF_MS_CONFIG,
-                                             config.get(KafkaCruiseControlConfig.RECONNECT_BACKOFF_MS_CONFIG).toString());
+            config.get(KafkaCruiseControlConfig.RECONNECT_BACKOFF_MS_CONFIG).toString());
     return new KafkaConsumer<>(consumerProps);
   }
 
@@ -199,20 +198,31 @@ public class KafkaSampleStore implements SampleStore {
    * Make sure any condition needed to start this {@code CruiseControlComponent} is satisfied.
    */
   public static void checkStartupCondition(KafkaCruiseControlConfig config,
-                                           Semaphore abortStartupCheck) throws InterruptedException {
+                                           Semaphore abortStartupCheck) {
     Map<String, Object> configPairs = config.mergedConfigValues();
-    try (KafkaConsumer<byte[], byte[]> consumer = createConsumer(configPairs)) {
-      long maxTimeoutSec = 60;
-      long currentTimeoutInSec = 1;
-      while (!checkTopicsCreated(configPairs, consumer)) {
-        LOG.info("Waiting for {} seconds to ensure that sample store topics are created/exists.",
-                currentTimeoutInSec);
+    long maxTimeoutSec = 60;
+    long currentTimeoutInSec = 1;
+    while (!checkTopicsCreated(configPairs)) {
+      LOG.info("Waiting for {} seconds to ensure that sample store topics are created/exists.",
+              currentTimeoutInSec);
+      try {
         if (abortStartupCheck.tryAcquire(currentTimeoutInSec, TimeUnit.SECONDS)) {
           throw new StartupCheckInterruptedException();
         }
-        currentTimeoutInSec = Math.min(2 * currentTimeoutInSec, maxTimeoutSec);
+      } catch (InterruptedException e) {
+        throw new StartupCheckInterruptedException(e);
       }
+      currentTimeoutInSec = Math.min(2 * currentTimeoutInSec, maxTimeoutSec);
     }
+  }
+
+  private static SbkTopicUtils.SbkTopicConfigBuilder getTopicConfig(String topic, Map<String, ?> config) {
+    return new SbkTopicUtils.SbkTopicConfigBuilder()
+            .setTopic(topic)
+            .setReplicationFactor(config,
+                    SAMPLE_STORE_TOPIC_REPLICATION_FACTOR_CONFIG,
+                    DEFAULT_SAMPLE_STORE_TOPIC_REPLICATION_FACTOR)
+            .setCleanupPolicy(DEFAULT_CLEANUP_POLICY);
   }
 
   private static String getBrokerMetricSampleStoreTopic(Map<String, ?> config) {
@@ -229,182 +239,58 @@ public class KafkaSampleStore implements SampleStore {
             : partitionSampleStoreTopic;
   }
 
-
-  private static int getBrokerSampleStoreTopicPartitionCount(Map<String, ?> config) {
-    String brokerSampleStoreTopicPartitionCount = (String) config.get(BROKER_SAMPLE_STORE_TOPIC_PARTITION_COUNT_CONFIG);
-    return brokerSampleStoreTopicPartitionCount == null || brokerSampleStoreTopicPartitionCount.isEmpty()
-            ? DEFAULT_BROKER_SAMPLE_STORE_TOPIC_PARTITION_COUNT
-            : Integer.parseInt(brokerSampleStoreTopicPartitionCount);
-  }
-
-  private static int getPartitionSampleStoreTopicPartitionCount(Map<String, ?> config) {
-    String partitionSampleStoreTopicPartitionCount = (String) config.get(PARTITION_SAMPLE_STORE_TOPIC_PARTITION_COUNT_CONFIG);
-    return partitionSampleStoreTopicPartitionCount == null || partitionSampleStoreTopicPartitionCount.isEmpty()
-            ? DEFAULT_PARTITION_SAMPLE_STORE_TOPIC_PARTITION_COUNT
-            : Integer.parseInt(partitionSampleStoreTopicPartitionCount);
-  }
-
-  private static int getSampleStoreTopicReplicationFactor(Map<String, ?> config) {
-    String replicationFactorConfig = (String) config.get(SAMPLE_STORE_TOPIC_REPLICATION_FACTOR_CONFIG);
-    return replicationFactorConfig == null || replicationFactorConfig.isEmpty()
-            ? DEFAULT_SAMPLE_STORE_TOPIC_REPLICATION_FACTOR
-            : Integer.parseInt(replicationFactorConfig);
-  }
-
   private static long getMinPartitionRetentionTimeMs(Map<String, ?> config) {
     String minPartitionRetentionTimeMs = (String) config.get(MIN_PARTITION_SAMPLE_STORE_TOPIC_RETENTION_TIME_MS_CONFIG);
-    return minPartitionRetentionTimeMs == null || minPartitionRetentionTimeMs.isEmpty()
+    long minRetentionTimeMs = minPartitionRetentionTimeMs == null || minPartitionRetentionTimeMs.isEmpty()
             ? DEFAULT_MIN_PARTITION_SAMPLE_STORE_TOPIC_RETENTION_TIME_MS
             : Long.parseLong(minPartitionRetentionTimeMs);
+
+    long partitionSampleWindowMs = (Long) config.get(KafkaCruiseControlConfig.PARTITION_METRICS_WINDOW_MS_CONFIG);
+    int numPartitionSampleWindows = (Integer) config.get(KafkaCruiseControlConfig.NUM_PARTITION_METRICS_WINDOWS_CONFIG);
+    long partitionSampleRetentionMs = (numPartitionSampleWindows * ADDITIONAL_WINDOW_TO_RETAIN_FACTOR) * partitionSampleWindowMs;
+    return Math.max(minRetentionTimeMs, partitionSampleRetentionMs);
   }
 
   private static long getMinBrokerRetentionTimeMs(Map<String, ?> config) {
     String minBrokerRetentionTimeMs = (String) config.get(MIN_BROKER_SAMPLE_STORE_TOPIC_RETENTION_TIME_MS_CONFIG);
-    return minBrokerRetentionTimeMs == null || minBrokerRetentionTimeMs.isEmpty()
+    long minRetentionTimeMs =  minBrokerRetentionTimeMs == null || minBrokerRetentionTimeMs.isEmpty()
             ? DEFAULT_MIN_BROKER_SAMPLE_STORE_TOPIC_RETENTION_TIME_MS
             : Long.parseLong(minBrokerRetentionTimeMs);
+
+    long brokerSampleWindowMs = (Long) config.get(KafkaCruiseControlConfig.BROKER_METRICS_WINDOW_MS_CONFIG);
+    int numBrokerSampleWindows = (Integer) config.get(KafkaCruiseControlConfig.NUM_BROKER_METRICS_WINDOWS_CONFIG);
+    long brokerSampleRetentionMs = (numBrokerSampleWindows * ADDITIONAL_WINDOW_TO_RETAIN_FACTOR) * brokerSampleWindowMs;
+    return Math.max(minRetentionTimeMs, brokerSampleRetentionMs);
   }
 
   /**
-   * A wrapper around {@code #ensureTopicsCreated} method that catches all errors and returns
+   * A wrapper around {@code TopicUtils.checkTopicPropertiesMaybeCreate} method that catches all errors and returns
    * a boolean indicating if the sample store topics exist (or can be successfully created).
    * Visible for testing
    */
-  static boolean checkTopicsCreated(Map<String, ?> config, KafkaConsumer<byte[], byte[]> consumer) {
+  static boolean checkTopicsCreated(Map<String, ?> config) {
     try {
-      return checkTopicPropertiesMaybeCreate(config, consumer);
+      SbkTopicUtils.SbkTopicConfig partitionMetricTopicConfig = getTopicConfig(getPartitionMetricSampleStoreTopic(config), config)
+              .setMinRetentionTimeMs(getMinPartitionRetentionTimeMs(config))
+              .setPartitionCount(config,
+                      PARTITION_SAMPLE_STORE_TOPIC_PARTITION_COUNT_CONFIG,
+                      DEFAULT_PARTITION_SAMPLE_STORE_TOPIC_PARTITION_COUNT)
+              .build();
+
+      SbkTopicUtils.SbkTopicConfig brokerMetricTopicConfig = getTopicConfig(getBrokerMetricSampleStoreTopic(config), config)
+              .setMinRetentionTimeMs(getMinBrokerRetentionTimeMs(config))
+              .setPartitionCount(config,
+                      BROKER_SAMPLE_STORE_TOPIC_PARTITION_COUNT_CONFIG,
+                      DEFAULT_BROKER_SAMPLE_STORE_TOPIC_PARTITION_COUNT)
+              .build();
+
+      boolean partitionMetricTopicExists = SbkTopicUtils.checkTopicPropertiesMaybeCreate(partitionMetricTopicConfig, config);
+      boolean brokerMetricTopicExists = SbkTopicUtils.checkTopicPropertiesMaybeCreate(brokerMetricTopicConfig, config);
+      return partitionMetricTopicExists && brokerMetricTopicExists;
     } catch (Exception ex) {
       LOG.error("Error when checking for sample store topics: {}", ex.getMessage());
       LOG.debug("Error: ", ex);
       return false;
-    }
-  }
-
-  @SuppressWarnings("unchecked")
-  private static boolean checkTopicPropertiesMaybeCreate(Map<String, ?> config, KafkaConsumer<byte[], byte[]> consumer) {
-    String connectString = (String) config.get(KafkaCruiseControlConfig.ZOOKEEPER_CONNECT_CONFIG);
-    boolean zkSecurityEnabled = (Boolean) config.get(KafkaCruiseControlConfig.ZOOKEEPER_SECURITY_ENABLED_CONFIG);
-    KafkaZkClient kafkaZkClient = KafkaCruiseControlUtils.createKafkaZkClient(connectString,
-        "KafkaSampleStore",
-        "EnsureTopicCreated",
-        zkSecurityEnabled);
-    AdminZkClient adminZkClient = new AdminZkClient(kafkaZkClient);
-    ConfluentAdmin adminClient = KafkaCruiseControlUtils.createAdmin(KafkaCruiseControlUtils.filterAdminClientConfigs(config));
-    try {
-      long partitionSampleWindowMs = (Long) config.get(KafkaCruiseControlConfig.PARTITION_METRICS_WINDOW_MS_CONFIG);
-      long brokerSampleWindowMs = (Long) config.get(KafkaCruiseControlConfig.BROKER_METRICS_WINDOW_MS_CONFIG);
-
-      int numPartitionSampleWindows = (Integer) config.get(KafkaCruiseControlConfig.NUM_PARTITION_METRICS_WINDOWS_CONFIG);
-      long partitionSampleRetentionMs = (numPartitionSampleWindows * ADDITIONAL_WINDOW_TO_RETAIN_FACTOR) * partitionSampleWindowMs;
-      partitionSampleRetentionMs = Math.max(getMinPartitionRetentionTimeMs(config), partitionSampleRetentionMs);
-
-      int numBrokerSampleWindows = (Integer) config.get(KafkaCruiseControlConfig.NUM_BROKER_METRICS_WINDOWS_CONFIG);
-      long brokerSampleRetentionMs = (numBrokerSampleWindows * ADDITIONAL_WINDOW_TO_RETAIN_FACTOR) * brokerSampleWindowMs;
-      brokerSampleRetentionMs = Math.max(getMinBrokerRetentionTimeMs(config), brokerSampleRetentionMs);
-
-      int numberOfBrokersInCluster = kafkaZkClient.getAllBrokersInCluster().size();
-
-      int replicationFactor = getSampleStoreTopicReplicationFactor(config);
-      if (numberOfBrokersInCluster < replicationFactor) {
-        throw new IllegalStateException(
-            String.format("Kafka cluster has %d brokers but the requested replication factor is %d " +
-                    "(brokers in cluster=%d, zookeeper.connect=%s)", numberOfBrokersInCluster,
-                replicationFactor, numberOfBrokersInCluster,
-                config.get(KafkaCruiseControlConfig.ZOOKEEPER_CONNECT_CONFIG)));
-      }
-
-      Map<String, List<PartitionInfo>> topics = consumer.listTopics();
-      return ensureTopicCreated(kafkaZkClient, adminZkClient, adminClient, topics.keySet(),
-                    getPartitionMetricSampleStoreTopic(config), partitionSampleRetentionMs,
-                    replicationFactor, getPartitionSampleStoreTopicPartitionCount(config))
-              &
-              ensureTopicCreated(kafkaZkClient, adminZkClient, adminClient, topics.keySet(),
-                      getBrokerMetricSampleStoreTopic(config), brokerSampleRetentionMs,
-                      replicationFactor, getBrokerSampleStoreTopicPartitionCount(config));
-    } finally {
-      KafkaCruiseControlUtils.closeKafkaZkClientWithTimeout(kafkaZkClient);
-      KafkaCruiseControlUtils.closeAdminClientWithTimeout(adminClient);
-    }
-  }
-
-  /**
-   * Add new partitions to the Kafka topic.
-   *
-   * @param kafkaZkClient KafkaZkClient class to use to add new partitions.
-   * @param adminZkClient AdminZkClient class to use to add new partitions.
-   * @param topic The topic to apply the change.
-   * @param topicDescription The description of the topic ot apply the change.
-   * @param partitionCount The target partition count of the topic.
-   */
-  @SuppressWarnings({"unchecked", "deprecation"})
-  private static void maybeIncreaseTopicPartitionCount(KafkaZkClient kafkaZkClient,
-                                                       AdminZkClient adminZkClient,
-                                                       String topic,
-                                                       TopicDescription topicDescription,
-                                                       int partitionCount) {
-    if (partitionCount > topicDescription.partitions().size()) {
-      if (!ensureTopicNotUnderPartitionReassignment(kafkaZkClient, topic)) {
-        LOG.warn("There are ongoing partition reassignments for topic {}, skip checking its partition count.", topic);
-        return;
-      }
-      scala.collection.mutable.Map<Object, ReplicaAssignment> existingAssignment = new scala.collection.mutable.HashMap<>();
-      scala.collection.immutable.Set<String> topics = (scala.collection.immutable.Set<String>)
-          scala.collection.immutable.Set$.MODULE$.apply(
-              JavaConverters.asScalaBufferConverter(Collections.singletonList(topic)).asScala().toSeq());
-      JavaConverters.asJavaIterable(kafkaZkClient.getFullReplicaAssignmentForTopics(topics))
-          .forEach(e -> existingAssignment.put(e._1.partition(), e._2));
-      LOG.info("DataBalancer: Adjusting sample store topic {} partition count to {}", topic, partitionCount);
-      adminZkClient.addPartitions(topic, existingAssignment, adminZkClient.getBrokerMetadatas(RackAwareMode.Safe$.MODULE$, null),
-                                  partitionCount, null, false, null, Option$.MODULE$.empty());
-      LOG.info("Kafka topic " + topic + " now has " + partitionCount + " partitions.");
-    }
-  }
-
-  /**
-   * Check that topic "topic" exists and has the correct configuration. If the topic does not exist, it
-   * will be created. Return value indicates if the topic did exist (but NOT that the topic configuration
-   * has been updated to match the desired configuration).
-   *
-   * @param kafkaZkClient -- KafkaZK Client to use for topic create/update operations
-   * @param adminZkClient -- AdminZK client to use for topic create/update operations
-   * @param adminClient -- for topic describe operations
-   * @param allTopics -- List of topics known to the system
-   * @param topic -- topic whose existence and configuration is under question
-   * @param retentionMs -- desired retention period for the topic
-   * @param replicationFactor -- desired replication factor for the topic
-   * @param partitionCount -- desired partition count for the topic
-   * @return true if the topic exists and false if the topic had to be created.
-   */
-  private static boolean ensureTopicCreated(KafkaZkClient kafkaZkClient,
-                                            AdminZkClient adminZkClient,
-                                            ConfluentAdmin adminClient,
-                                            Set<String> allTopics,
-                                            String topic,
-                                            long retentionMs,
-                                            int replicationFactor,
-                                            int partitionCount) {
-    Properties props = new Properties();
-    props.setProperty(LogConfig.RetentionMsProp(), Long.toString(retentionMs));
-    props.setProperty(LogConfig.CleanupPolicyProp(), DEFAULT_CLEANUP_POLICY);
-    if (!allTopics.contains(topic)) {
-      LOG.info("DataBalancer: Creating sample store topic {} ", topic);
-      adminZkClient.createTopic(topic, partitionCount, replicationFactor, props, RackAwareMode.Safe$.MODULE$, false, Option$.MODULE$.empty());
-      return false;
-    } else {
-      try {
-        LOG.info("DataBalancer: Adjusting sample store topic {} configuration", topic);
-        adminZkClient.changeTopicConfig(topic, props);
-        TopicDescription topicDescription;
-        try {
-          topicDescription = adminClient.describeTopics(Collections.singleton(topic)).values().get(topic).get();
-        } catch (InterruptedException | ExecutionException e) {
-          throw new RuntimeException(e.getMessage());
-        }
-        maybeIncreaseTopicPartitionCount(kafkaZkClient, adminZkClient, topic, topicDescription, partitionCount);
-      }  catch (RuntimeException re) {
-        LOG.error("Skip updating configuration of topic " +  topic + " due to exception.", re);
-      }
-      return true;
     }
   }
 
@@ -413,31 +299,25 @@ public class KafkaSampleStore implements SampleStore {
     final AtomicInteger metricSampleCount = new AtomicInteger(0);
     for (PartitionMetricSample sample : samples.partitionMetricSamples()) {
       _producer.send(new ProducerRecord<>(_partitionMetricSampleStoreTopic, null, sample.sampleTime(), null, sample.toBytes()),
-                     new Callback() {
-                       @Override
-                       public void onCompletion(RecordMetadata recordMetadata, Exception e) {
-                         if (e == null) {
-                           metricSampleCount.incrementAndGet();
-                         } else {
-                           LOG.error("Failed to produce partition metric sample for {} of timestamp {} due to exception",
-                                     sample.entity().tp(), sample.sampleTime(), e);
-                         }
-                       }
-                     });
+              (recordMetadata, e) -> {
+                if (e == null) {
+                  metricSampleCount.incrementAndGet();
+                } else {
+                  LOG.error("Failed to produce partition metric sample for {} of timestamp {} due to exception",
+                            sample.entity().tp(), sample.sampleTime(), e);
+                }
+              });
     }
     final AtomicInteger brokerMetricSampleCount = new AtomicInteger(0);
     for (BrokerMetricSample sample : samples.brokerMetricSamples()) {
       _producer.send(new ProducerRecord<>(_brokerMetricSampleStoreTopic, sample.toBytes()),
-                     new Callback() {
-                       @Override
-                       public void onCompletion(RecordMetadata recordMetadata, Exception e) {
-                         if (e == null) {
-                           brokerMetricSampleCount.incrementAndGet();
-                         } else {
-                           LOG.error("Failed to produce model training sample due to exception", e);
-                         }
-                       }
-                     });
+              (recordMetadata, e) -> {
+                if (e == null) {
+                  brokerMetricSampleCount.incrementAndGet();
+                } else {
+                  LOG.error("Failed to produce model training sample due to exception", e);
+                }
+              });
     }
     _producer.flush();
     if (LOG.isDebugEnabled()) {

@@ -42,7 +42,6 @@ import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.requests.DescribeLogDirsResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import scala.collection.JavaConverters;
 
 import static com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig.LOGDIR_RESPONSE_TIMEOUT_MS_CONFIG;
 import static com.linkedin.kafka.cruisecontrol.model.Disk.State.DEAD;
@@ -170,29 +169,6 @@ public class MonitorUtils {
       totalNumPartitions += cluster.partitionCountForTopic(topic);
     }
     return totalNumPartitions;
-  }
-
-  /**
-   * Check whether the topic has partitions undergoing partition reassignment and wait for the reassignments to finish.
-   *
-   * @param kafkaZkClient the KafkaZkClient class used to check ongoing partition reassignments.
-   * @return Whether there are no ongoing partition reassignments.
-   */
-  @SuppressWarnings("deprecation")
-  public static boolean ensureTopicNotUnderPartitionReassignment(KafkaZkClient kafkaZkClient, String topic) {
-    int attempt = 0;
-    while (JavaConverters.asJavaCollection(kafkaZkClient.getPartitionReassignment().keys()).stream()
-                          .anyMatch(tp -> tp.topic().equals(topic))) {
-      try {
-        sleep(1000 << attempt);
-      } catch (InterruptedException e) {
-        // Let it go.
-      }
-      if (++attempt == 10) {
-        return false;
-      }
-    }
-    return true;
   }
 
   /**

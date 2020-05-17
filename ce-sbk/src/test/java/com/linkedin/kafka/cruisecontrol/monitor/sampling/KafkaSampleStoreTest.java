@@ -9,7 +9,6 @@ import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.metricsreporter.utils.CCKafkaIntegrationTestHarness;
 import kafka.zk.KafkaZkClient;
 import org.apache.kafka.clients.CommonClientConfigs;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.TopicPartition;
 import org.junit.After;
 import org.junit.Before;
@@ -26,7 +25,6 @@ import scala.collection.JavaConverters;
 import scala.collection.Seq;
 
 import static com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore.checkTopicsCreated;
-import static com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore.createConsumer;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -132,24 +130,22 @@ public class KafkaSampleStoreTest extends CCKafkaIntegrationTestHarness {
     try {
       Map<String, Object> configMap = new KafkaCruiseControlConfig(getConfig()).mergedConfigValues();
       // At this point, no topics should exist
-      try (KafkaConsumer<byte[], byte[]> consumer = createConsumer(configMap)) {
-        // First pass should fail, and instantiate the topics
-        assertFalse(checkTopicsCreated(configMap, consumer));
-        Set<String> topics = JavaConverters.setAsJavaSet(kafkaZkClient.getAllTopicsInCluster(false));
-        assertTrue(topics.contains(PARTITION_TOPIC));
-        assertTrue(topics.contains(BROKER_TOPIC));
-        // Topic creation is not instantaneous; wait for completion.
-        // This is rather yucky but the test doesn't control the topic creation components.
-        int i = 0;
-        for (; i < testMaxIteration; i++) {
-          if (checkTopicsCreated(configMap, consumer)) {
-            break;
-          }
-          Thread.sleep(testSleepDurationMs);
+      // First pass should fail, and instantiate the topics
+      assertFalse(checkTopicsCreated(configMap));
+      Set<String> topics = JavaConverters.setAsJavaSet(kafkaZkClient.getAllTopicsInCluster(false));
+      assertTrue(topics.contains(PARTITION_TOPIC));
+      assertTrue(topics.contains(BROKER_TOPIC));
+      // Topic creation is not instantaneous; wait for completion.
+      // This is rather yucky but the test doesn't control the topic creation components.
+      int i = 0;
+      for (; i < testMaxIteration; i++) {
+        if (checkTopicsCreated(configMap)) {
+          break;
         }
-        assertTrue("Topics not created after " + i * testSleepDurationMs + " ms",
-                i < testMaxIteration);
+        Thread.sleep(testSleepDurationMs);
       }
+      assertTrue("Topics not created after " + i * testSleepDurationMs + " ms",
+              i < testMaxIteration);
     } finally {
       KafkaCruiseControlUtils.closeKafkaZkClientWithTimeout(kafkaZkClient);
     }

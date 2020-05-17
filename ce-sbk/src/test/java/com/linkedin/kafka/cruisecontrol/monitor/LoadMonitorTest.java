@@ -35,6 +35,7 @@ import java.util.Properties;
 import java.util.Set;
 
 import com.yammer.metrics.core.MetricsRegistry;
+import kafka.log.LogConfig;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.clients.admin.DescribeLogDirsResult;
 import org.apache.kafka.common.Cluster;
@@ -86,7 +87,7 @@ public class LoadMonitorTest {
   private static final int NUM_WINDOWS = 2;
   private static final int MIN_SAMPLES_PER_WINDOW = 4;
   private static final long WINDOW_MS = 1000;
-  private static final String DEFAULT_CLEANUP_POLICY = "delete";
+  private static final String DEFAULT_CLEANUP_POLICY = LogConfig.Delete();
 
   private final Time _time = new MockTime(0);
 

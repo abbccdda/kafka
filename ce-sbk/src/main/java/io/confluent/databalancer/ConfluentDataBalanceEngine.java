@@ -23,7 +23,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.collection.JavaConverters;
 
-import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -34,6 +33,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -45,12 +45,11 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     // A list of classes that need to be checked to make sure that conditions are met for
     // successful startup.
     // Visible for testing
-    static final List<String> STARTUP_COMPONENTS = new LinkedList<>();
-    private static final String CHECK_STARTUP_CONDITION_METHOD_NAME = "checkStartupCondition";
+    static final List<BiConsumer<KafkaCruiseControlConfig, Semaphore>> STARTUP_COMPONENTS = new LinkedList<>();
 
     static {
-        STARTUP_COMPONENTS.add("io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSampler");
-        STARTUP_COMPONENTS.add("com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore");
+        STARTUP_COMPONENTS.add(ConfluentMetricsReporterSampler::checkStartupCondition);
+        STARTUP_COMPONENTS.add(KafkaSampleStore::checkStartupCondition);
     }
 
     private static final int SHUTDOWN_TIMEOUT_MS = 15000;
@@ -212,15 +211,10 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
      * Check if all components needed for successful startup are ready.
      */
     // Visible for testing
-    void checkStartupComponentsReady(KafkaCruiseControlConfig config) throws Exception {
-        for (String startupComponent : STARTUP_COMPONENTS) {
+    void checkStartupComponentsReady(KafkaCruiseControlConfig config) {
+        for (BiConsumer<KafkaCruiseControlConfig, Semaphore> startupComponent : STARTUP_COMPONENTS) {
             LOG.info("DataBalancer: Checking startup component {}", startupComponent);
-            // Get the method object to validate
-            Class<?> startupComponentClass = Class.forName(startupComponent);
-            LOG.info("DataBalancer: Checking startup readiness for {}", startupComponent);
-            Method method = startupComponentClass.getMethod(
-                    CHECK_STARTUP_CONDITION_METHOD_NAME, KafkaCruiseControlConfig.class, Semaphore.class);
-            method.invoke(null, config, abortStartupCheck);
+            startupComponent.accept(config, abortStartupCheck);
             LOG.info("DataBalancer: Startup component {} ready to proceed", startupComponent);
         }
         LOG.info("DataBalancer: Startup checking succeeded, proceeding to full validation.");

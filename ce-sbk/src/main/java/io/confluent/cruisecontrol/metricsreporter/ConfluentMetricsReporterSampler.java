@@ -462,7 +462,7 @@ public class ConfluentMetricsReporterSampler implements MetricSampler {
      * Make sure any condition needed to start this {@code CruiseControlComponent} is satisfied.
      */
     public static void checkStartupCondition(KafkaCruiseControlConfig config,
-                                             Semaphore abortStartupCheck) throws InterruptedException {
+                                             Semaphore abortStartupCheck) {
         Map<String, Object> configPairs = config.mergedConfigValues();
         String metricReporterTopic = getMetricReporterTopic(configPairs);
         Properties metricConsumerProperties = getMetricConsumerProperties(configPairs);
@@ -474,8 +474,12 @@ public class ConfluentMetricsReporterSampler implements MetricSampler {
             while (!checkIfMetricReporterTopicExist(metricReporterTopic, metricConsumer)) {
                 LOG.info("Waiting for {} seconds for metric reporter topic {} to become available.",
                         currentTimeoutInSec, metricReporterTopic);
-                if (abortStartupCheck.tryAcquire(currentTimeoutInSec, TimeUnit.SECONDS)) {
-                    throw new StartupCheckInterruptedException();
+                try {
+                    if (abortStartupCheck.tryAcquire(currentTimeoutInSec, TimeUnit.SECONDS)) {
+                        throw new StartupCheckInterruptedException();
+                    }
+                } catch (InterruptedException e) {
+                    throw new StartupCheckInterruptedException(e);
                 }
                 currentTimeoutInSec = Math.min(2 * currentTimeoutInSec, maxTimeoutSec);
             }

@@ -41,7 +41,6 @@ import org.mockito.MockitoAnnotations;
 import scala.collection.JavaConverters;
 import scala.collection.Seq;
 
-import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -56,6 +55,7 @@ import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BiConsumer;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -239,29 +239,38 @@ public class ConfluentDataBalanceEngineTest  {
 
         KafkaConfig config = new KafkaConfig(brokerProps);
         // We expect only one listener in a bare-bones config.
-        assertTrue(config.listeners().length() == 1);
+        assertEquals("More than one listeners found: " + config.listeners(),
+                1, config.listeners().length());
         Endpoint interBpEp = config.listeners().head().toJava();
         String expectedBootstrapServers = (interBpEp.host() == null ? "" : interBpEp.host()) + ":" + interBpEp.port();
         //String expectedBootstrapServers = config.listeners().head().connectionString();
         KafkaCruiseControlConfig ccConfig = ConfluentDataBalanceEngine.generateCruiseControlConfig(config);
 
-        assertTrue("expected bootstrap servers " + expectedBootstrapServers + " not set, got " + ccConfig.getList(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG),
+        assertTrue("expected bootstrap servers " + expectedBootstrapServers + " not set, got " +
+                ccConfig.getList(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG),
                 ccConfig.getList(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG).contains(expectedBootstrapServers));
-        assertEquals(sampleZkString, ccConfig.getString(KafkaCruiseControlConfig.ZOOKEEPER_CONNECT_CONFIG));
+        String actualZkString = ccConfig.getString(KafkaCruiseControlConfig.ZOOKEEPER_CONNECT_CONFIG);
+        assertEquals(actualZkString + " not same as expected " + sampleZkString,
+                sampleZkString, actualZkString);
         assertNotNull("balancer n/w input capacity property not present",
                 ccConfig.getDouble(KafkaCruiseControlConfig.NETWORK_INBOUND_CAPACITY_THRESHOLD_CONFIG));
         assertNotNull("balancer metrics sampler class property not present",
                 ccConfig.getClass(KafkaCruiseControlConfig.METRIC_SAMPLER_CLASS_CONFIG));
         assertThrows("nonBalancerPropertyValue present", ConfigException.class,
                 () -> ccConfig.getString(nonBalancerPropertyKey));
-        assertEquals(expectedGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.GOALS_CONFIG));
-        assertEquals(Collections.emptyList(), ccConfig.getList(KafkaCruiseControlConfig.DEFAULT_GOALS_CONFIG));
+        List<String> actualGoalsConfig = ccConfig.getList(KafkaCruiseControlConfig.GOALS_CONFIG);
+        assertEquals(actualGoalsConfig + " not same as expected " + expectedGoalsConfig,
+                expectedGoalsConfig, actualGoalsConfig);
+        List<String> actualDefaultGoalsConfig = ccConfig.getList(KafkaCruiseControlConfig.DEFAULT_GOALS_CONFIG);
+        assertEquals("Goal config is not empty: " + actualGoalsConfig, Collections.emptyList(), actualDefaultGoalsConfig);
 
         // Not all properties go into the KafkaCruiseControlConfig. Extract everything for validation.
         // Expect nothing to be present as no overrides were present in this config
         Map<String, Object> ccOriginals = ccConfig.originals();
-        assertFalse(ccOriginals.containsKey(ConfluentMetricsReporterSampler.METRIC_REPORTER_TOPIC_PATTERN));
-        assertFalse(ccOriginals.containsKey(KafkaSampleStore.SAMPLE_STORE_TOPIC_REPLICATION_FACTOR_CONFIG));
+        assertFalse("ConfluentMetricsReporterSampler.METRIC_REPORTER_TOPIC_PATTERN found in config",
+                ccOriginals.containsKey(ConfluentMetricsReporterSampler.METRIC_REPORTER_TOPIC_PATTERN));
+        assertFalse("KafkaSampleStore.SAMPLE_STORE_TOPIC_REPLICATION_FACTOR_CONFIG found in config",
+                ccOriginals.containsKey(KafkaSampleStore.SAMPLE_STORE_TOPIC_REPLICATION_FACTOR_CONFIG));
 
     }
 
@@ -340,16 +349,25 @@ public class ConfluentDataBalanceEngineTest  {
         KafkaConfig config = new KafkaConfig(brokerProps);
         KafkaCruiseControlConfig ccConfig = ConfluentDataBalanceEngine.generateCruiseControlConfig(config);
         // Validate the non-default listener
-        assertTrue(ccConfig.getList(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG).contains(expectedBootstrapServers));
+        assertTrue("KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG doesn't contian " + expectedBootstrapServers,
+                ccConfig.getList(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG).contains(expectedBootstrapServers));
 
         // Not all properties go into the KafkaCruiseControlConfig. Extract everything for validation.
         Map<String, Object> ccOriginals = ccConfig.originals();
 
-        assertEquals(testMetricsTopic, ccOriginals.get(ConfluentMetricsReporterSampler.METRIC_REPORTER_TOPIC_PATTERN));
-        assertEquals(testMetricsRfValue, ccOriginals.get(KafkaSampleStore.SAMPLE_STORE_TOPIC_REPLICATION_FACTOR_CONFIG));
+        Object actualMetricsTopic = ccOriginals.get(ConfluentMetricsReporterSampler.METRIC_REPORTER_TOPIC_PATTERN);
+        assertEquals(actualMetricsTopic + " is not same as expected " + testMetricsTopic,
+                testMetricsTopic, actualMetricsTopic);
+        Object actualTopicRf = ccOriginals.get(KafkaSampleStore.SAMPLE_STORE_TOPIC_REPLICATION_FACTOR_CONFIG);
+        assertEquals(actualTopicRf + " is not same as expected " + testMetricsRfValue,
+                testMetricsRfValue, actualTopicRf);
 
-        assertEquals(expectedGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.GOALS_CONFIG));
-        assertEquals(testDefaultGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.DEFAULT_GOALS_CONFIG));
+        List<String> actualGoalsConfig = ccConfig.getList(KafkaCruiseControlConfig.GOALS_CONFIG);
+        assertEquals(actualGoalsConfig + " is not same as expected " + expectedGoalsConfig,
+                expectedGoalsConfig, actualGoalsConfig);
+        List<String> actualDefaultGoalsConfig = ccConfig.getList(KafkaCruiseControlConfig.DEFAULT_GOALS_CONFIG);
+        assertEquals(actualDefaultGoalsConfig + " is not same as expected " + testDefaultGoalsConfig,
+                testDefaultGoalsConfig, actualDefaultGoalsConfig);
     }
 
     @Test
@@ -452,7 +470,8 @@ public class ConfluentDataBalanceEngineTest  {
         props.put("inter.broker.listener.name", "INTERNAL");
 
         KafkaCruiseControlConfig ccConfig = ConfluentDataBalanceEngine.generateCruiseControlConfig(new KafkaConfig(props));
-        assertTrue(ccConfig.getList(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG).contains(localListener));
+        assertTrue("AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG doesn't contain " + localListener,
+                ccConfig.getList(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG).contains(localListener));
 
         // Security operations may not be present in default KafkaCruiseControlConfig
         Map<String, Object> clientConfigs = KafkaCruiseControlUtils.filterAdminClientConfigs(ccConfig.values());
@@ -466,16 +485,18 @@ public class ConfluentDataBalanceEngineTest  {
 
     @Test
     public void testStartupComponentsReadySuccessful() throws Exception {
-        List<String> startupComponents = ConfluentDataBalanceEngine.STARTUP_COMPONENTS;
+        List<BiConsumer<KafkaCruiseControlConfig, Semaphore>> startupComponents = ConfluentDataBalanceEngine.STARTUP_COMPONENTS;
         try {
             ConfluentDataBalanceEngine.STARTUP_COMPONENTS.clear();
-            ConfluentDataBalanceEngine.STARTUP_COMPONENTS.add(ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent.class.getName());
+            ConfluentDataBalanceEngine.STARTUP_COMPONENTS.add(
+                    ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent::checkStartupCondition);
 
             KafkaCruiseControlConfig ccConfig = mock(KafkaCruiseControlConfig.class);
 
             ConfluentDataBalanceEngine cc = getTestDataBalanceEngine();
             cc.checkStartupComponentsReady(ccConfig);
-            assertTrue(ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent.checkupMethodCalled);
+            assertTrue("Check startup method was not called.",
+                    ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent.checkupMethodCalled);
         } finally {
             // Restore components
             ConfluentDataBalanceEngine.STARTUP_COMPONENTS.clear();
@@ -486,10 +507,11 @@ public class ConfluentDataBalanceEngineTest  {
 
     @Test
     public void testStartupComponentsReadyAbort() throws Exception {
-        List<String> startupComponents = ConfluentDataBalanceEngine.STARTUP_COMPONENTS;
+        List<BiConsumer<KafkaCruiseControlConfig, Semaphore>> startupComponents = ConfluentDataBalanceEngine.STARTUP_COMPONENTS;
         try {
             ConfluentDataBalanceEngine.STARTUP_COMPONENTS.clear();
-            ConfluentDataBalanceEngine.STARTUP_COMPONENTS.add(ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent.class.getName());
+            ConfluentDataBalanceEngine.STARTUP_COMPONENTS.add(
+                    ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent::checkStartupCondition);
 
             KafkaCruiseControlConfig ccConfig = mock(KafkaCruiseControlConfig.class);
 
@@ -500,12 +522,8 @@ public class ConfluentDataBalanceEngineTest  {
             Thread testThread = new Thread(() -> {
                 try {
                     dataBalancer.checkStartupComponentsReady(ccConfig);
-                } catch (InvocationTargetException e) {
-                    if (e.getTargetException() instanceof StartupCheckInterruptedException) {
-                        abortCalled.set(true);
-                    }
-                } catch (Exception e) {
-                    // Should not come here and assert should fail
+                } catch (StartupCheckInterruptedException e) {
+                    abortCalled.set(true);
                 }
             });
             testThread.start();
@@ -516,8 +534,9 @@ public class ConfluentDataBalanceEngineTest  {
             dataBalancer.onDeactivation();
             testThread.join();
 
-            assertTrue(ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent.checkupMethodCalled);
-            assertTrue(abortCalled.get());
+            assertTrue("Check Startup method was not called.",
+                    ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent.checkupMethodCalled);
+            assertTrue("Startup method was not aborted.", abortCalled.get());
         } finally {
             // Restore components
             ConfluentDataBalanceEngine.STARTUP_COMPONENTS.clear();
@@ -534,14 +553,18 @@ public class ConfluentDataBalanceEngineTest  {
         public static final Semaphore TEST_SYNC_SEMAPHORE = new Semaphore(0);
 
         public static void checkStartupCondition(KafkaCruiseControlConfig config,
-                                                 Semaphore abortStartupCheck) throws InterruptedException {
+                                                 Semaphore abortStartupCheck) {
             checkupMethodCalled = true;
             if (block) {
                 TEST_SYNC_SEMAPHORE.release();
 
                 // This will be unblocked when databalancer.shutdown is called
-                abortStartupCheck.acquire();
-                throw new StartupCheckInterruptedException();
+                try {
+                    abortStartupCheck.acquire();
+                    throw new StartupCheckInterruptedException();
+                } catch (InterruptedException e) {
+                    throw new StartupCheckInterruptedException(e);
+                }
             }
         }
     }
@@ -601,7 +624,7 @@ public class ConfluentDataBalanceEngineTest  {
     @Test
     @SuppressWarnings("deprecation") // JavaConverters is deprecated in scala 2.13
     public void testStartCruiseControlSuccess() {
-        List<String> startupComponents = ConfluentDataBalanceEngine.STARTUP_COMPONENTS;
+        List<BiConsumer<KafkaCruiseControlConfig, Semaphore>> startupComponents = ConfluentDataBalanceEngine.STARTUP_COMPONENTS;
         try {
             ConfluentDataBalanceEngine.STARTUP_COMPONENTS.clear();
             KafkaConfig config = mock(KafkaConfig.class);
@@ -623,7 +646,7 @@ public class ConfluentDataBalanceEngineTest  {
 
     @Test
     public void testStartCruiseControlFailed() {
-        List<String> startupComponents = ConfluentDataBalanceEngine.STARTUP_COMPONENTS;
+        List<BiConsumer<KafkaCruiseControlConfig, Semaphore>> startupComponents = ConfluentDataBalanceEngine.STARTUP_COMPONENTS;
         try {
             ConfluentDataBalanceEngine.STARTUP_COMPONENTS.clear();
             KafkaConfig config = mock(KafkaConfig.class);
