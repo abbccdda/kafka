@@ -5,6 +5,10 @@
 package kafka.tier.topic
 
 import java.io.File
+import java.io.IOException
+import java.nio.ByteBuffer
+import java.nio.file.Files
+import java.nio.file.Paths
 import java.util
 import java.util.{Collections, UUID}
 import java.util.function.Supplier
@@ -20,15 +24,22 @@ import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.state.{FileTierPartitionState, OffsetAndEpoch, TierPartitionStatus}
 import kafka.tier.topic.TierTopicConsumer.ClientCtx
 import kafka.tier.{TierReplicaManager, TierTopicManagerCommitter, TopicIdPartition}
+import kafka.tier.domain.TierPartitionForceRestore
+import kafka.tier.fetcher.TierStateFetcher
+import kafka.tier.state
+import kafka.tier.state.TierPartitionState.RestoreResult
+import kafka.tier.store.TierObjectStore.TierStateRestoreSnapshotMetadata
 import kafka.utils.TestUtils
 import kafka.zk.AdminZkClient
 import org.apache.kafka.clients.CommonClientConfigs
+import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.errors.{TimeoutException, TopicExistsException}
 import org.apache.kafka.common.utils.Utils
 import org.junit.Assert._
 import org.junit.{After, Test}
 import org.mockito.ArgumentMatchers
 import org.mockito.ArgumentMatchers.any
+import org.mockito.Mockito
 import org.mockito.Mockito._
 import org.scalatest.Assertions.intercept
 
@@ -43,6 +54,7 @@ class TierTopicManagerTest {
   private val logDir = tempDir.getAbsolutePath
   private val logDirs = new util.ArrayList(util.Collections.singleton(logDir))
 
+  private val tierStateFetcher = mock(classOf[TierStateFetcher])
   private val tierTopicNumPartitions = 7.toShort
   private val tierTopicManagerConfig = new TierTopicManagerConfig(
     () => Collections.singletonMap(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "bootstrap"),
@@ -208,7 +220,7 @@ class TierTopicManagerTest {
     becomeArchiver(topicIdPartition, leaderEpoch, tierTopicManager, tierTopicConsumer)
 
     val objectId = UUID.randomUUID
-    val uploadInitiate = new TierSegmentUploadInitiate(topicIdPartition, 0, objectId, 0, 100, 100, 100, true, false, false)
+    val uploadInitiate = new TierSegmentUploadInitiate(topicIdPartition, 0, objectId, 0, 100, 100, 100, true, false, false, new OffsetAndEpoch(Long.MaxValue, Optional.empty()))
     val initiateResult = tierTopicManager.addMetadata(uploadInitiate)
     moveRecordsToAllConsumers()
     tierTopicConsumer.doWork()
@@ -268,7 +280,7 @@ class TierTopicManagerTest {
     // Check that a valid SegmentUploadInitiate event gets accepted.
     val uploadInitiate = new TierSegmentUploadInitiate(
       topicIdPartition, leaderEpoch, UUID.randomUUID, 0, 100,
-      100, 100, true, false, false)
+      100, 100, true, false, false, tierPartitionStateFiles(0).lastLocalMaterializedSrcOffsetAndEpoch())
     val uploadInitiateFuture = tierTopicManager.addMetadata(uploadInitiate)
     moveRecordsToAllConsumers()
     tierTopicConsumer.doWork()
@@ -311,7 +323,7 @@ class TierTopicManagerTest {
     addReplica(topicIdPartition, tierTopicConsumer)
 
     val objectId = UUID.randomUUID
-    val uploadInitiate = new TierSegmentUploadInitiate(topicIdPartition, 0, objectId, 0, 100, 100, 100, true, false, false)
+    val uploadInitiate = new TierSegmentUploadInitiate(topicIdPartition, 0, objectId, 0, 100, 100, 100, true, false, false, tierPartitionStateFiles(0).lastLocalMaterializedSrcOffsetAndEpoch())
 
     val initiateResultFuture = tierTopicManager.addMetadata(uploadInitiate)
     TestUtils.waitUntilTrue(() => {
@@ -328,6 +340,133 @@ class TierTopicManagerTest {
     assertEquals(Set(topicIdPartition), tierTopicConsumer.catchUpConsumerErrorPartitions().asScala)
   }
 
+  /**
+   * Tests tier state restore recovery when a restore message is encountered
+   * while a partition is materializing via the catch up consumer
+   */
+  @Test
+  def testRecoverWhileCatchupConsumer(): Unit = {
+    val topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID, 0)
+    val leaderEpoch = 0
+
+    val (tierTopicConsumer, _, tierTopicManager) = setupTierComponents(becomeReady = true)
+    addReplica(topicIdPartition, tierTopicConsumer)
+    val state = tierPartitionStateFiles(0)
+    assertEquals(TierPartitionStatus.INIT, tierPartitionStateFiles(0).status())
+    becomeArchiver(topicIdPartition, leaderEpoch, tierTopicManager, tierTopicConsumer)
+    assertEquals(TierPartitionStatus.CATCHUP, tierPartitionStateFiles(0).status())
+
+    state.flush()
+    val beforeFenceBytes = Files.readAllBytes(Paths.get(state.flushedPath()))
+
+    // TierSegmentUploadComplete is attempted without TierSegmentUploadInitiate, therefore it should
+    // fence the partition state.
+    val objectId = UUID.randomUUID
+    val uploadComplete = new TierSegmentUploadComplete(topicIdPartition, 0, objectId, state.lastLocalMaterializedSrcOffsetAndEpoch())
+    val uploadCompleteFuture = tierTopicManager.addMetadata(uploadComplete)
+
+    // Now, TierSegmentUploadInitiate is attempted. It still gets processed with
+    // AppendResult.FAILED.
+    val uploadInitiate = new TierSegmentUploadInitiate(topicIdPartition, 0, objectId, 0, 100, 100, 100, true, false, false, state.lastLocalMaterializedSrcOffsetAndEpoch())
+    val uploadInitiateFuture = tierTopicManager.addMetadata(uploadInitiate)
+
+    // stage recovery
+    val recoverMetadata = new TierPartitionForceRestore(topicIdPartition, UUID.randomUUID(), state.startOffset().orElse(-1L), state.endOffset(), state.lastLocalMaterializedSrcOffsetAndEpoch(), "myhash");
+
+    val recoverSnapshotMetadata = new TierStateRestoreSnapshotMetadata(recoverMetadata)
+    Mockito.when(tierStateFetcher.fetchRecoverSnapshot(recoverSnapshotMetadata)).thenThrow(new IOException("couldn't fetch")).thenReturn(ByteBuffer.wrap(beforeFenceBytes))
+
+    val tierTopic: TierTopic = new TierTopic("")
+    tierTopic.initialize(tierTopicNumPartitions)
+    producerSupplier
+      .producer()
+      .send(
+        new ProducerRecord[Array[Byte], Array[Byte]](
+          tierTopic.topicName(),
+          tierTopic.toTierTopicPartition(topicIdPartition).partition(),
+          recoverMetadata.serializeKey(),
+          recoverMetadata.serializeValue()))
+
+    assertEquals(0, tierTopicConsumer.primaryConsumerPartitions().size())
+    assertEquals(1, tierTopicConsumer.catchUpConsumerPartitions().size())
+    // error partitions is still 0 as no messages have been processed yet
+    assertTrue(tierTopicConsumer.primaryConsumerErrorPartitions().isEmpty)
+    assertTrue(tierTopicConsumer.catchUpConsumerErrorPartitions().isEmpty)
+
+    TestUtils.waitUntilTrue(() => {
+      moveRecordsToAllConsumers()
+      tierTopicConsumer.doWork()
+      tierPartitionStateFiles(0).status() == TierPartitionStatus.ONLINE && uploadCompleteFuture.isDone && uploadInitiateFuture.isDone
+    }, "Timed out waiting for recover metadata future")
+
+    // Now TierTopicInitLeader is attempted with a new epoch.
+    // This new init leader message should succeed
+    val becomeArchiverFinalFuture = tierTopicManager.becomeArchiver(topicIdPartition, leaderEpoch+1)
+    moveRecordsToAllConsumers()
+    tierTopicConsumer.doWork()
+    assertTrue(becomeArchiverFinalFuture.isDone)
+    assertEquals(AppendResult.ACCEPTED, becomeArchiverFinalFuture.get)
+    verify(tierStateFetcher, times(2)).fetchRecoverSnapshot(recoverSnapshotMetadata)
+  }
+
+  /**
+   * When a restore message is encountered and the TierStatePartition is not in error status
+   * the TierPartitionState should be newly placed in ERROR status by the TierTopicConsumer
+   */
+  @Test
+  def testHandlingForRestoreOnNonErrorStatus(): Unit = {
+    val topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID, 0)
+    val leaderEpoch = 0
+    val (tierTopicConsumer, _, tierTopicManager) = setupTierComponents(becomeReady = true)
+    addReplica(topicIdPartition, tierTopicConsumer)
+    val state = tierPartitionStateFiles(0)
+    assertEquals(TierPartitionStatus.INIT, state.status())
+    moveRecordsToAllConsumers()
+    tierTopicConsumer.doWork()
+    // checkpoint while in CATCHUP state
+    assertEquals(TierPartitionStatus.CATCHUP, state.status())
+
+    val becomeArchiverFinalFuture = tierTopicManager.becomeArchiver(topicIdPartition, leaderEpoch+1)
+    moveRecordsToAllConsumers()
+    tierTopicConsumer.doWork()
+    assertTrue(becomeArchiverFinalFuture.isDone)
+    assertEquals(AppendResult.ACCEPTED, becomeArchiverFinalFuture.get)
+
+    assertEquals(0, tierTopicConsumer.catchUpConsumerErrorPartitions().size())
+    assertEquals(0, tierTopicConsumer.primaryConsumerErrorPartitions().size())
+    assertEquals(1, tierTopicConsumer.primaryConsumerPartitions().size())
+    state.flush()
+    assertEquals(TierPartitionStatus.ONLINE, state.status())
+
+    val restoreBytes = Files.readAllBytes(Paths.get(state.flushedPath()))
+    // stage recovery on a non ERROR partition
+    val recoverMetadata = new TierPartitionForceRestore(topicIdPartition, UUID.randomUUID(), state.startOffset().orElse(-1L), state.endOffset(), state.lastLocalMaterializedSrcOffsetAndEpoch(), "myhash");
+    Mockito.when(tierStateFetcher.fetchRecoverSnapshot(new TierStateRestoreSnapshotMetadata(recoverMetadata))).thenReturn(ByteBuffer.wrap(restoreBytes))
+
+    val tierTopic: TierTopic = new TierTopic("")
+    tierTopic.initialize(tierTopicNumPartitions)
+    producerSupplier
+      .producer()
+      .send(
+        new ProducerRecord[Array[Byte], Array[Byte]](
+          tierTopic.topicName(),
+          tierTopic.toTierTopicPartition(topicIdPartition).partition(),
+          recoverMetadata.serializeKey(),
+          recoverMetadata.serializeValue()))
+
+    TestUtils.waitUntilTrue(() => {
+      moveRecordsToAllConsumers()
+      tierTopicConsumer.doWork()
+      tierPartitionStateFiles(0).status() == TierPartitionStatus.ERROR
+    }, "Timed out waiting for recover metadata future")
+    assertFalse(tierTopicConsumer.primaryConsumerErrorPartitions().isEmpty)
+    assertTrue(tierTopicConsumer.catchUpConsumerErrorPartitions().isEmpty)
+    assertEquals(TierPartitionStatus.ERROR, state.status())
+  }
+
+  /**
+   * Test the TierTopicConsumer's processing of tier metadata after a TierPartitionState restore
+   */
   @Test
   def testProcessMessagesPostStateFencingDuringOnlineState(): Unit = {
     val topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID, 0)
@@ -335,6 +474,7 @@ class TierTopicManagerTest {
 
     val (tierTopicConsumer, _, tierTopicManager) = setupTierComponents(becomeReady = true)
     addReplica(topicIdPartition, tierTopicConsumer)
+    val state = tierPartitionStateFiles(0)
     assertEquals(TierPartitionStatus.INIT, tierPartitionStateFiles(0).status())
     becomeArchiver(topicIdPartition, leaderEpoch, tierTopicManager, tierTopicConsumer)
     assertEquals(TierPartitionStatus.CATCHUP, tierPartitionStateFiles(0).status())
@@ -347,7 +487,7 @@ class TierTopicManagerTest {
     // TierSegmentUploadComplete is attempted without TierSegmentUploadInitiate, therefore it should
     // fence the partition state.
     val objectId = UUID.randomUUID
-    val uploadComplete = new TierSegmentUploadComplete(topicIdPartition, 0, objectId)
+    val uploadComplete = new TierSegmentUploadComplete(topicIdPartition, 0, objectId, tierPartitionStateFiles(0).lastLocalMaterializedSrcOffsetAndEpoch())
     val uploadCompleteFuture = tierTopicManager.addMetadata(uploadComplete)
     moveRecordsToAllConsumers()
     tierTopicConsumer.doWork()
@@ -358,9 +498,12 @@ class TierTopicManagerTest {
     assertEquals(1, tierTopicConsumer.primaryConsumerErrorPartitions().size())
     assertEquals(Set(topicIdPartition), tierTopicConsumer.primaryConsumerErrorPartitions().asScala)
 
+    state.flush()
+    val beforeFenceBytes = Files.readAllBytes(Paths.get(state.flushedPath()))
+
     // Now, TierSegmentUploadInitiate is attempted. It still gets processed with
     // AppendResult.FAILED.
-    val uploadInitiate = new TierSegmentUploadInitiate(topicIdPartition, 0, objectId, 0, 100, 100, 100, true, false, false)
+    val uploadInitiate = new TierSegmentUploadInitiate(topicIdPartition, 0, objectId, 0, 100, 100, 100, true, false, false, tierPartitionStateFiles(0).lastLocalMaterializedSrcOffsetAndEpoch())
     val uploadInitiateFuture = tierTopicManager.addMetadata(uploadInitiate)
     moveRecordsToAllConsumers()
     tierTopicConsumer.doWork()
@@ -370,25 +513,67 @@ class TierTopicManagerTest {
     assertEquals(0, tierTopicConsumer.catchUpConsumerErrorPartitions().size())
     assertEquals(1, tierTopicConsumer.primaryConsumerErrorPartitions().size())
     assertEquals(Set(topicIdPartition), tierTopicConsumer.primaryConsumerErrorPartitions().asScala)
+
+    // stage recovery
+    val recoverMetadata = new TierPartitionForceRestore(topicIdPartition, UUID.randomUUID(), state.startOffset().orElse(-1L), state.endOffset(), tierPartitionStateFiles(0).lastLocalMaterializedSrcOffsetAndEpoch(), "myhash");
+    val recoverSnapshotMetadata = new TierStateRestoreSnapshotMetadata(recoverMetadata)
+    Mockito.when(tierStateFetcher.fetchRecoverSnapshot(recoverSnapshotMetadata)).thenReturn(ByteBuffer.wrap(beforeFenceBytes))
+
+    val tierTopic: TierTopic = new TierTopic("")
+    tierTopic.initialize(tierTopicNumPartitions)
+    producerSupplier
+      .producer()
+      .send(
+        new ProducerRecord[Array[Byte], Array[Byte]](
+          tierTopic.topicName(),
+          tierTopic.toTierTopicPartition(topicIdPartition).partition(),
+          recoverMetadata.serializeKey(),
+          recoverMetadata.serializeValue()))
+
+    TestUtils.waitUntilTrue(() => {
+      moveRecordsToAllConsumers()
+      tierTopicConsumer.doWork()
+      tierPartitionStateFiles(0).status() == TierPartitionStatus.ONLINE
+    }, "Timed out waiting for recover metadata future")
+    assertTrue(tierTopicConsumer.primaryConsumerErrorPartitions().isEmpty)
+    assertTrue(tierTopicConsumer.catchUpConsumerErrorPartitions().isEmpty)
+
+    // Now TierTopicInitLeader is attempted with a new epoch.
+    // This new init leader message should succeed
+    val becomeArchiverFinalFuture = tierTopicManager.becomeArchiver(topicIdPartition, leaderEpoch+1)
+    moveRecordsToAllConsumers()
+    tierTopicConsumer.doWork()
+    assertTrue(becomeArchiverFinalFuture.isDone)
+    assertEquals(AppendResult.ACCEPTED, becomeArchiverFinalFuture.get)
+
+    verify(tierStateFetcher, times(1)).fetchRecoverSnapshot(recoverSnapshotMetadata)
   }
 
+  /**
+   * Tests the transition of a fenced partition from the catchup consumer to the primary consumer while in ERROR status.
+   * Then restores the partition while using the primary consumer and ensures the state is in ONLINE status.
+   */
   @Test
-  def testProcessMessagesPostStateFencingDuringCatchup(): Unit = {
+  def testTransitionFromCatchupConsumerToPrimaryConsumerInErrorStateThenRecovery(): Unit = {
     val topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID, 0)
     val leaderEpoch = 0
 
     val (tierTopicConsumer, _, tierTopicManager) = setupTierComponents(becomeReady = true)
     addReplica(topicIdPartition, tierTopicConsumer)
-    assertEquals(TierPartitionStatus.INIT, tierPartitionStateFiles(0).status())
+    val state = tierPartitionStateFiles(0)
+    assertEquals(TierPartitionStatus.INIT, state.status())
     moveRecordsToAllConsumers()
     tierTopicConsumer.doWork()
-    assertEquals(TierPartitionStatus.CATCHUP, tierPartitionStateFiles(0).status())
+    // checkpoint while in CATCHUP state
+    assertEquals(TierPartitionStatus.CATCHUP, state.status())
     assertEquals(0, tierTopicConsumer.catchUpConsumerErrorPartitions().size())
     assertEquals(0, tierTopicConsumer.primaryConsumerErrorPartitions().size())
+    state.flush()
+    val beforeFenceBytes = Files.readAllBytes(Paths.get(state.flushedPath()))
 
     // TierSegmentUploadInitiate is attempted without TierTopicInitLeader. It still gets processed with
     // AppendResult.FAILED.
-    val uploadInitiate = new TierSegmentUploadInitiate(topicIdPartition, 0, UUID.randomUUID, 0, 100, 100, 100, true, false, false)
+    val uploadInitiate = new TierSegmentUploadInitiate(topicIdPartition, 0, UUID.randomUUID, 0, 100, 100, 100, true, false, false, state.lastLocalMaterializedSrcOffsetAndEpoch())
     val uploadInitiateFuture = tierTopicManager.addMetadata(uploadInitiate)
     TestUtils.waitUntilTrue(() => {
       moveRecordsToAllConsumers()
@@ -398,9 +583,11 @@ class TierTopicManagerTest {
     assertTrue(uploadInitiateFuture.isDone)
     assertEquals(TierPartitionStatus.ERROR, tierPartitionStateFiles(0).status())
     assertEquals(AppendResult.FAILED, uploadInitiateFuture.get)
-    assertEquals(0, tierTopicConsumer.catchUpConsumerErrorPartitions().size())
     assertEquals(1, tierTopicConsumer.primaryConsumerErrorPartitions().size())
+    assertTrue(tierTopicConsumer.catchUpConsumerErrorPartitions().isEmpty)
     assertEquals(Set(topicIdPartition), tierTopicConsumer.primaryConsumerErrorPartitions().asScala)
+    assertEquals(1, tierTopicConsumer.primaryConsumerPartitions().size())
+    assertEquals(0, tierTopicConsumer.catchUpConsumerPartitions().size())
 
     // Now TierTopicInitLeader is attempted. It still gets processed with
     // AppendResult.FAILED.
@@ -412,6 +599,37 @@ class TierTopicManagerTest {
     assertEquals(0, tierTopicConsumer.catchUpConsumerErrorPartitions().size())
     assertEquals(1, tierTopicConsumer.primaryConsumerErrorPartitions().size())
     assertEquals(Set(topicIdPartition), tierTopicConsumer.primaryConsumerErrorPartitions().asScala)
+
+    // stage recovery
+    val recoverMetadata = new TierPartitionForceRestore(topicIdPartition, UUID.randomUUID(), state.startOffset().orElse(-1L), state.endOffset(), state.lastLocalMaterializedSrcOffsetAndEpoch(), "myhash");
+    Mockito.when(tierStateFetcher.fetchRecoverSnapshot(new TierStateRestoreSnapshotMetadata(recoverMetadata))).thenReturn(ByteBuffer.wrap(beforeFenceBytes))
+
+    val tierTopic: TierTopic = new TierTopic("")
+    tierTopic.initialize(tierTopicNumPartitions)
+    producerSupplier
+      .producer()
+      .send(
+        new ProducerRecord[Array[Byte], Array[Byte]](
+          tierTopic.topicName(),
+          tierTopic.toTierTopicPartition(topicIdPartition).partition(),
+          recoverMetadata.serializeKey(),
+          recoverMetadata.serializeValue()))
+
+    TestUtils.waitUntilTrue(() => {
+      moveRecordsToAllConsumers()
+      tierTopicConsumer.doWork()
+     tierPartitionStateFiles(0).status() == TierPartitionStatus.ONLINE
+    }, "Timed out waiting for recover metadata future")
+    assertTrue(tierTopicConsumer.primaryConsumerErrorPartitions().isEmpty)
+    assertTrue(tierTopicConsumer.catchUpConsumerErrorPartitions().isEmpty)
+
+    // Now TierTopicInitLeader is attempted with a new epoch.
+    // This new init leader message should succeed
+    val becomeArchiverFinalFuture = tierTopicManager.becomeArchiver(topicIdPartition, leaderEpoch+1)
+    moveRecordsToAllConsumers()
+    tierTopicConsumer.doWork()
+    assertTrue(becomeArchiverFinalFuture.isDone)
+    assertEquals(AppendResult.ACCEPTED, becomeArchiverFinalFuture.get)
   }
 
   private def addReplica(topicIdPartition: TopicIdPartition, tierTopicConsumer: TierTopicConsumer): Unit = {
@@ -425,6 +643,9 @@ class TierTopicManagerTest {
     tierTopicConsumer.register(topicIdPartition, new ClientCtx {
       override def process(metadata: AbstractTierMetadata, offsetAndEpoch: OffsetAndEpoch): AppendResult = tierPartitionState.append(metadata, offsetAndEpoch)
       override def status(): TierPartitionStatus = tierPartitionState.status
+      override def restoreState(metadata: TierPartitionForceRestore, buffer: ByteBuffer, status: TierPartitionStatus, offsetAndEpoch: state.OffsetAndEpoch): RestoreResult = {
+        tierPartitionState.restoreState(metadata, buffer, status, offsetAndEpoch)
+      }
       override def beginCatchup(): Unit = tierPartitionState.beginCatchup()
       override def completeCatchup(): Unit = tierPartitionState.onCatchUpComplete()
     })
@@ -436,6 +657,7 @@ class TierTopicManagerTest {
       primaryConsumerSupplier,
       catchupConsumerSupplier,
       new TierTopicManagerCommitter(tierTopicManagerConfig, new LogDirFailureChannel(1)),
+      tierStateFetcher,
       Optional.empty())
 
     val tierReplicaManager = new TierReplicaManager()

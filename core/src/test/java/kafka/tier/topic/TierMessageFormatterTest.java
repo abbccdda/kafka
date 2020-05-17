@@ -24,7 +24,6 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.record.TimestampType;
 import org.junit.Test;
 
-
 public class TierMessageFormatterTest {
 
     private TierMessageFormatter formatter = new TierMessageFormatter();
@@ -114,7 +113,8 @@ public class TierMessageFormatterTest {
                         + "topicIdPartition=TaPDhhKMSPO9KowOTdyBxA-foo-0, "
                         + "messageIdAsBase64=ca0LdNijSHq69rsVLY9w0w, "
                         + "startOffset=1, endOffset=100, "
-                        + "stateValidityOffsetAndEpoch=Optional[OffsetAndEpoch(offset=300, epoch=Optional[30])], "
+                        + "stateOffsetAndEpoch=OffsetAndEpoch(offset=300, "
+                        + "epoch=Optional[30]), "
                         + "contentHash=contenthash)",
                 partitionRestore.toString());
     }
@@ -123,8 +123,10 @@ public class TierMessageFormatterTest {
     public void formatTierSegmentDeleteTest() {
         UUID topicId = UUID.randomUUID();
         TopicIdPartition topicIdPartition = new TopicIdPartition("foo", topicId, 0);
-        AbstractTierMetadata segDeleteInit = new TierSegmentDeleteInitiate(topicIdPartition, 1, UUID.randomUUID());
-        AbstractTierMetadata segDeleteComplete = new TierSegmentDeleteComplete(topicIdPartition, 1, UUID.randomUUID());
+        AbstractTierMetadata segDeleteInit = new TierSegmentDeleteInitiate(topicIdPartition, 1,
+                UUID.randomUUID(), new OffsetAndEpoch(300L, Optional.of(30)));
+        AbstractTierMetadata segDeleteComplete = new TierSegmentDeleteComplete(topicIdPartition,
+                1, UUID.randomUUID(), new OffsetAndEpoch(300L, Optional.of(30)));
 
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         PrintStream ps = new PrintStream(baos);
@@ -163,8 +165,11 @@ public class TierMessageFormatterTest {
     public void formatTierSegmentUploadTest() {
         UUID topicId = UUID.randomUUID();
         TopicIdPartition topicIdPartition = new TopicIdPartition("foo", topicId, 0);
-        AbstractTierMetadata segUploadInit = new TierSegmentUploadInitiate(topicIdPartition, 1, UUID.randomUUID(), 0, 0, 0, 0, false, false, false);
-        AbstractTierMetadata segUploadComplete = new TierSegmentUploadComplete(topicIdPartition, 1, UUID.randomUUID());
+        AbstractTierMetadata segUploadInit = new TierSegmentUploadInitiate(topicIdPartition, 1,
+                UUID.randomUUID(), 0, 0, 0, 0, false, false, false, new OffsetAndEpoch(300,
+                Optional.empty()));
+        AbstractTierMetadata segUploadComplete = new TierSegmentUploadComplete(topicIdPartition,
+                1, UUID.randomUUID(), new OffsetAndEpoch(400, Optional.of(3)));
 
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         PrintStream ps = new PrintStream(baos);
@@ -248,6 +253,11 @@ public class TierMessageFormatterTest {
         }
 
         @Override
+        public OffsetAndEpoch stateOffsetAndEpoch() {
+            return OffsetAndEpoch.EMPTY;
+        }
+
+        @Override
         public UUID messageId() {
             return UUID.randomUUID();
         }
@@ -255,6 +265,11 @@ public class TierMessageFormatterTest {
         @Override
         public byte[] serializeValue() {
             return new byte[]{-1};
+        }
+
+        @Override
+        public int expectedSizeLatestVersion() {
+            return 0;
         }
     }
 

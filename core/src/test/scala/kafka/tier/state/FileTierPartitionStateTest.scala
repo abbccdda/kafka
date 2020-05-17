@@ -8,15 +8,16 @@ import java.io.{ByteArrayOutputStream, File, PrintStream}
 import java.nio.channels.FileChannel
 import java.nio.file.{Files, Paths, StandardOpenOption}
 import java.nio.{ByteBuffer, ByteOrder}
-import java.util
 import java.util.concurrent.TimeUnit
-import java.util.{Optional, UUID}
+import java.util.{Optional, TreeSet, UUID}
 
 import kafka.log.{Log, LogConfig}
 import kafka.server.LogDirFailureChannel
 import kafka.tier.{TierTestUtils, TopicIdPartition}
 import kafka.tier.domain.{AbstractTierMetadata, TierPartitionFence, TierSegmentDeleteComplete, TierSegmentDeleteInitiate, TierSegmentUploadComplete, TierSegmentUploadInitiate, TierTopicInitLeader}
+import kafka.tier.domain.TierPartitionForceRestore
 import kafka.tier.state.TierPartitionState.AppendResult
+import kafka.tier.state.TierPartitionState.RestoreResult
 import kafka.tier.tools.DumpTierPartitionState
 import kafka.utils.TestUtils
 import org.apache.kafka.common.TopicPartition
@@ -86,7 +87,7 @@ class FileTierPartitionStateTest {
     offsetAndEpoch = new OffsetAndEpoch(100, Optional.of(5))
     val initLeader_2 = new TierTopicInitLeader(tpid, 5, UUID.randomUUID, 1)
     assertEquals(AppendResult.ACCEPTED, state.append(initLeader_2, offsetAndEpoch))
-    assertEquals(offsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch)
+    assertEquals(offsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch)
 
     // append with a lower offset but a higher epoch fails
     val initLeader_3 = new TierTopicInitLeader(tpid, 7, UUID.randomUUID, 2)
@@ -94,7 +95,7 @@ class FileTierPartitionStateTest {
     assertEquals(AppendResult.FAILED, state.append(initLeader_3, errorOffsetAndEpoch))
     assertEquals(TierPartitionStatus.ERROR, state.status)
     assertEquals(errorOffsetAndEpoch, state.lastFlushedErrorOffsetAndEpoch)
-    assertEquals(offsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch)
+    assertEquals(offsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch)
   }
 
   @Test
@@ -106,7 +107,7 @@ class FileTierPartitionStateTest {
     offsetAndEpoch = new OffsetAndEpoch(100, Optional.of(5))
     val initLeader_2 = new TierTopicInitLeader(tpid, 5, UUID.randomUUID, 1)
     assertEquals(AppendResult.ACCEPTED, state.append(initLeader_2, offsetAndEpoch))
-    assertEquals(offsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch)
+    assertEquals(offsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch)
 
     // append with a higher offset but a lower epoch fails
     val initLeader_3 = new TierTopicInitLeader(tpid, 7, UUID.randomUUID, 2)
@@ -114,7 +115,7 @@ class FileTierPartitionStateTest {
     assertEquals(AppendResult.FAILED, state.append(initLeader_3, errorOffsetAndEpoch))
     assertEquals(TierPartitionStatus.ERROR, state.status)
     assertEquals(errorOffsetAndEpoch, state.lastFlushedErrorOffsetAndEpoch)
-    assertEquals(offsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch)
+    assertEquals(offsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch)
   }
 
   @Test
@@ -124,11 +125,11 @@ class FileTierPartitionStateTest {
     var offsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
 
     assertEquals(AppendResult.ACCEPTED, state.append(initLeaderEvent, offsetAndEpoch))
-    assertEquals("Last consumed offset mismatch", offsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch)
+    assertEquals("Last consumed offset mismatch", offsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch)
 
     offsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
     assertEquals(AppendResult.ACCEPTED, state.append(newInitLeaderEvent, offsetAndEpoch))
-    assertEquals("Last consumed offset mismatch", offsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch)
+    assertEquals("Last consumed offset mismatch", offsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch)
   }
 
   @Test
@@ -142,8 +143,9 @@ class FileTierPartitionStateTest {
     var size = 0
     for (i <- 0 until numSegments) {
       val objectId = UUID.randomUUID
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId, i * 2, i * 2 + 1, 100, i, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+      val uploadStateOffset = state.lastLocalMaterializedSrcOffsetAndEpoch()
+      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId, i * 2, i * 2 + 1, 100, i, false, false, false, uploadStateOffset), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId, uploadStateOffset), TierTestUtils.nextTierTopicOffsetAndEpoch()))
       size += i
       currentSegments += 1
     }
@@ -164,8 +166,9 @@ class FileTierPartitionStateTest {
     // append more segments after flush
     for (i <- numSegments until numSegments * 2) {
       val objectId = UUID.randomUUID
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId, i * 2, i * 2 + 1, 100, i, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+      val uploadStateOffset = state.lastLocalMaterializedSrcOffsetAndEpoch()
+      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId, i * 2, i * 2 + 1, 100, i, false, false, false, uploadStateOffset), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId, uploadStateOffset), TierTestUtils.nextTierTopicOffsetAndEpoch()))
       size += i
       currentSegments += 1
     }
@@ -194,12 +197,14 @@ class FileTierPartitionStateTest {
 
     state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffsetAndEpoch())
     val objectId1 = UUID.randomUUID
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId1, 0, 50, 100, 0, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId1), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    val uploadStateOffset = state.lastLocalMaterializedSrcOffsetAndEpoch()
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId1, 0, 50, 100, 0, false, false, false, uploadStateOffset), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId1, uploadStateOffset), TierTestUtils.nextTierTopicOffsetAndEpoch()))
 
+    val uploadStateOffset2 = state.lastLocalMaterializedSrcOffsetAndEpoch()
     val objectId2 = UUID.randomUUID
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId2, 75, 150, 100, 0, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId2), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId2, 75, 150, 100, 0, false, false, false, uploadStateOffset2), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId2, uploadStateOffset2), TierTestUtils.nextTierTopicOffsetAndEpoch()))
     state.flush()
 
     assertEquals(objectId1, state.metadata(50).get().objectId())
@@ -222,12 +227,10 @@ class FileTierPartitionStateTest {
     // add two segments
     state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffsetAndEpoch())
     val objectId1 = UUID.randomUUID
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId1, 0, 50, 100, 0, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId1), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    uploadInitateAndComplete(0, objectId1, 0, 50, 0)
 
     val objectId2 = UUID.randomUUID
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId2, 25, 150, 100, 0, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId2), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    uploadInitateAndComplete(0, objectId2, 25, 150, 0)
     state.flush()
 
     // verify objectId target offsets
@@ -238,10 +241,10 @@ class FileTierPartitionStateTest {
     assertFalse(state.metadata(151).isPresent)
 
     // delete all segments tiered
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, epoch, objectId1), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteComplete(tpid, epoch, objectId1), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, epoch, objectId2), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteComplete(tpid, epoch, objectId2), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, epoch, objectId1, currentStateOffset()), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteComplete(tpid, epoch, objectId1, currentStateOffset()), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, epoch, objectId2, currentStateOffset()), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteComplete(tpid, epoch, objectId2, currentStateOffset()), TierTestUtils.nextTierTopicOffsetAndEpoch()))
     state.flush()
 
     // verify the endOffset is tracked as expected
@@ -250,8 +253,9 @@ class FileTierPartitionStateTest {
 
     // upload another object with overlap with the current endOffset
     val objectId3 = UUID.randomUUID
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId3, 75, 175, 100, 0, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId3), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    val uploadStateOffset3 = state.lastLocalMaterializedSrcOffsetAndEpoch()
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId3, 75, 175, 100, 0, false, false, false, uploadStateOffset3), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId3, uploadStateOffset3), TierTestUtils.nextTierTopicOffsetAndEpoch()))
     state.flush()
 
     // verify objectId target overlap offsets
@@ -286,9 +290,7 @@ class FileTierPartitionStateTest {
     state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffsetAndEpoch())
     var size = 0
     for (i <- 0 until n) {
-      val objectId = UUID.randomUUID
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId, i * 2, i * 2 + 1, 100, i, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+      uploadInitateAndComplete(0, UUID.randomUUID(), i * 2, i * 2 + 1, i)
       size += i
     }
 
@@ -311,9 +313,7 @@ class FileTierPartitionStateTest {
   def updateEndOffsetTest(): Unit = {
     assertEquals(TierPartitionState.AppendResult.ACCEPTED, state.append(new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffsetAndEpoch()))
 
-    val objectId = UUID.randomUUID
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId, 0, 100, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, 0, objectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    uploadInitateAndComplete(0, UUID.randomUUID(), 0, 100, 100)
 
     // committedEndOffset is unavailable before first flush
     assertEquals(100L, state.endOffset)
@@ -335,9 +335,7 @@ class FileTierPartitionStateTest {
   def flushAvailabilityTest(): Unit = {
     assertEquals(TierPartitionState.AppendResult.ACCEPTED, state.append(new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffsetAndEpoch()))
 
-    var objectId = UUID.randomUUID
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId, 0, 100, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, 0, objectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    uploadInitateAndComplete(0, UUID.randomUUID(), 0, 100, 100)
 
     // committedEndOffset is unavailable before first flush
     assertEquals(100L, state.endOffset)
@@ -349,9 +347,7 @@ class FileTierPartitionStateTest {
     assertEquals(100L, state.endOffset)
     assertEquals(100L, state.committedEndOffset)
 
-    objectId = UUID.randomUUID
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId, 100, 200, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, 0, objectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    uploadInitateAndComplete(0, UUID.randomUUID(), 100, 200, 100)
     assertEquals(0L, state.startOffset.get)
     assertEquals(100L, state.committedEndOffset)
     assertEquals(200L, state.endOffset)
@@ -375,9 +371,7 @@ class FileTierPartitionStateTest {
     state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffsetAndEpoch())
     var size = 0
     for (i <- 0 until numSegments) {
-      val objectId = UUID.randomUUID
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId, i * 2, i * 2 + 1, 100, i, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+      uploadInitateAndComplete(epoch, UUID.randomUUID(), i * 2, i * 2 + 1, 100)
       size += i
     }
     state.flush()
@@ -405,9 +399,7 @@ class FileTierPartitionStateTest {
     // upload few segments at epoch=0
     state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffsetAndEpoch())
     for (i <- 0 until numSegments) {
-      val objectId = UUID.randomUUID
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId, offset, offset + 1, 100, i, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+      uploadInitateAndComplete(epoch, UUID.randomUUID(), offset, offset + 1, 100)
       offset += 1
     }
 
@@ -416,14 +408,15 @@ class FileTierPartitionStateTest {
 
     // initiate a new upload
     val inProgressObjectId = UUID.randomUUID
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, inProgressObjectId, offset, offset + 1, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    val inProgressStateOffset = currentStateOffset()
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, inProgressObjectId, offset, offset + 1, 100, 100, false, false, false, inProgressStateOffset), TierTestUtils.nextTierTopicOffsetAndEpoch()))
 
     // upload must not be visible to readers
     assertEquals(offset, state.endOffset)
     assertEquals(numSegments, state.segments.asScala.size)
 
     // complete upload
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, inProgressObjectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, inProgressObjectId, currentStateOffset), TierTestUtils.nextTierTopicOffsetAndEpoch()))
     assertEquals(offset + 1, state.endOffset)
     assertEquals(numSegments + 1, state.segments.asScala.size)
   }
@@ -431,30 +424,27 @@ class FileTierPartitionStateTest {
   @Test
   def testMetadataReadReturnsValidSegments(): Unit = {
     var epoch = 0
-
     assertEquals(TierPartitionState.AppendResult.ACCEPTED, state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffsetAndEpoch()))
 
     // upload few segments at epoch=0
-    val objectId = UUID.randomUUID
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId, 0, 100, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, 0, objectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    uploadInitateAndComplete(epoch, UUID.randomUUID(), 0, 100, 100)
 
     // fenced segment
     val fencedObjectId = UUID.randomUUID()
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, fencedObjectId, 101, 200, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, fencedObjectId, 101, 200, 100, 100, false, false, false, state.lastLocalMaterializedSrcOffsetAndEpoch()),
+      TierTestUtils.nextTierTopicOffsetAndEpoch()))
 
     // append object at the same offset range as the fenced segment
     epoch += 1
     val expectedObjectId =  UUID.randomUUID
     state.append(new TierTopicInitLeader(tpid, epoch, UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffsetAndEpoch())
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, expectedObjectId, 150, 200, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, expectedObjectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    uploadInitateAndComplete(epoch, expectedObjectId, 150, 200, 100)
 
     assertEquals(2, state.numSegments())
     assertEquals(1, state.fencedSegments().size())
 
     // delete the fenced segment
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, epoch, fencedObjectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, epoch, fencedObjectId, currentStateOffset()), TierTestUtils.nextTierTopicOffsetAndEpoch()))
 
     assertEquals(2, state.numSegments())
     assertEquals(0, state.fencedSegments().size())
@@ -471,11 +461,11 @@ class FileTierPartitionStateTest {
 
     // upload few segments at epoch=0
     state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffsetAndEpoch())
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, UUID.randomUUID(), offset, offset + 1, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, UUID.randomUUID(), offset, offset + 1, 100, 100, false, false, false, state.lastLocalMaterializedSrcOffsetAndEpoch()), TierTestUtils.nextTierTopicOffsetAndEpoch()))
     epoch += 1
     offset += 1
     state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffsetAndEpoch())
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, UUID.randomUUID(), offset, offset + 1, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, UUID.randomUUID(), offset, offset + 1, 100, 100, false, false, false, state.lastLocalMaterializedSrcOffsetAndEpoch()), TierTestUtils.nextTierTopicOffsetAndEpoch()))
     epoch += 1
     state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffsetAndEpoch())
     val initialFenced = state.fencedSegments()
@@ -501,9 +491,7 @@ class FileTierPartitionStateTest {
     // upload few segments at epoch=0
     state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffsetAndEpoch())
     for (i <- 0 until numSegments) {
-      val objectId = UUID.randomUUID
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId, offset, offset + 1, 100, i, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+      uploadInitateAndComplete(epoch, UUID.randomUUID(), offset, offset + 1, 100)
       offset += 1
     }
 
@@ -511,15 +499,13 @@ class FileTierPartitionStateTest {
     epoch = 1
     state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffsetAndEpoch())
     for (i <- 0 until numSegments) {
-      val objectId = UUID.randomUUID
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId, offset, offset + 1, 100, i, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+      uploadInitateAndComplete(epoch, UUID.randomUUID(), offset, offset + 1, 100)
       offset += 1
     }
 
     // attempt to upload at epoch=0 must be fenced
     val fencedObjectId = UUID.randomUUID
-    assertEquals(AppendResult.FENCED, state.append(new TierSegmentUploadInitiate(tpid, epoch - 1, fencedObjectId, offset, offset + 1, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.FENCED, state.append(new TierSegmentUploadInitiate(tpid, epoch - 1, fencedObjectId, offset, offset + 1, 100, 100, false, false, false, state.lastLocalMaterializedSrcOffsetAndEpoch()), TierTestUtils.nextTierTopicOffsetAndEpoch()))
 
     // unsuccessful initiate uploads are not tracked as fenced
     assertEquals(0, state.fencedSegments.size)
@@ -545,22 +531,25 @@ class FileTierPartitionStateTest {
     // upload a segment at epoch=0
     var nextOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
     state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID(), 0), nextOffsetAndEpoch)
+
+    val stateOffset = state.lastLocalMaterializedSrcOffsetAndEpoch()
     val objectId = UUID.randomUUID
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId, offset, offset + 1, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId, offset, offset + 1, 100, 100, false, false, false, stateOffset), TierTestUtils.nextTierTopicOffsetAndEpoch()))
     nextOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId), nextOffsetAndEpoch))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId, stateOffset), nextOffsetAndEpoch))
     assertEquals(0, state.fencedSegments.size)
     assertEquals(1, state.segments.asScala.size)
     assertEquals(OffsetAndEpoch.EMPTY, state.lastFlushedErrorOffsetAndEpoch)
-    assertEquals(nextOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch)
+    assertEquals(nextOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch)
 
     // an attempt to upload at epoch=1 without init leader, should fail
     epoch += 1
     offset += 1
+    val stateOffsetBeforeFail = state.lastLocalMaterializedSrcOffsetAndEpoch()
     val errorTierTopicOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
-    assertEquals(AppendResult.FAILED, state.append(new TierSegmentUploadInitiate(tpid, epoch, UUID.randomUUID, offset, offset + 1, 100, 100, false, false, false), errorTierTopicOffsetAndEpoch))
+    assertEquals(AppendResult.FAILED, state.append(new TierSegmentUploadInitiate(tpid, epoch, UUID.randomUUID, offset, offset + 1, 100, 100, false, false, false, stateOffsetBeforeFail), errorTierTopicOffsetAndEpoch))
     assertEquals(errorTierTopicOffsetAndEpoch, state.lastFlushedErrorOffsetAndEpoch)
-    assertEquals(nextOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch)
+    assertEquals(nextOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch)
 
     // subsequent init leader (at the same epoch as the stray TierSegmentUploadInitiate), also does not go through
     assertEquals(AppendResult.FAILED, state.append(new TierTopicInitLeader(tpid, epoch, UUID.randomUUID, 0), errorTierTopicOffsetAndEpoch));
@@ -568,7 +557,7 @@ class FileTierPartitionStateTest {
     assertEquals(0, state.fencedSegments.size)
     assertEquals(1, state.segments.asScala.size)
     assertEquals(errorTierTopicOffsetAndEpoch, state.lastFlushedErrorOffsetAndEpoch)
-    assertEquals(nextOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch)
+    assertEquals(nextOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch)
   }
 
   @Test
@@ -579,32 +568,33 @@ class FileTierPartitionStateTest {
     // Upload a segment at epoch=0
     state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffsetAndEpoch())
     val objectId = UUID.randomUUID
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId, offset, offset + 1, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    val stateOffset = state.lastLocalMaterializedSrcOffsetAndEpoch()
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId, offset, offset + 1, 100, 100, false, false, false, stateOffset), TierTestUtils.nextTierTopicOffsetAndEpoch()))
     val nextTierTopicOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId), nextTierTopicOffsetAndEpoch))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId, stateOffset), nextTierTopicOffsetAndEpoch))
     assertEquals(0, state.fencedSegments.size)
     assertEquals(1, state.segments.asScala.size)
     assertEquals(OffsetAndEpoch.EMPTY, state.lastFlushedErrorOffsetAndEpoch)
-    assertEquals(nextTierTopicOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch)
+    assertEquals(nextTierTopicOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch)
 
     // An attempt to delete at epoch=1 without init leader, should fail
     epoch += 1
     offset += 1
+    val stateOffsetForFail = state.lastLocalMaterializedSrcOffsetAndEpoch()
     val errorTierTopicOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
-    assertEquals(AppendResult.FAILED, state.append(new TierSegmentDeleteInitiate(tpid, epoch, objectId), errorTierTopicOffsetAndEpoch))
-    assertEquals(nextTierTopicOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch)
+    assertEquals(AppendResult.FAILED, state.append(new TierSegmentDeleteInitiate(tpid, epoch, objectId, stateOffsetForFail), errorTierTopicOffsetAndEpoch))
+    assertEquals(nextTierTopicOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch)
     assertEquals(TierPartitionStatus.ERROR, state.status)
     assertEquals(errorTierTopicOffsetAndEpoch, state.lastFlushedErrorOffsetAndEpoch)
 
     // Subsequent init leader (at the same epoch as the stray TierSegmentDeleteInitiate), also does not go through
     assertEquals(AppendResult.FAILED, state.append(new TierTopicInitLeader(tpid, epoch, UUID.randomUUID, 0), errorTierTopicOffsetAndEpoch));
-    assertEquals(nextTierTopicOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch)
+    assertEquals(nextTierTopicOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch)
     assertEquals(0, state.fencedSegments.size)
     assertEquals(1, state.segments.asScala.size)
     assertEquals(TierPartitionStatus.ERROR, state.status)
     assertEquals(errorTierTopicOffsetAndEpoch, state.lastFlushedErrorOffsetAndEpoch)
   }
-
 
   @Test
   def testOngoingUploadFenced(): Unit = {
@@ -615,9 +605,7 @@ class FileTierPartitionStateTest {
     // upload few segments
     state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffsetAndEpoch())
     for (i <- 0 until numSegments) {
-      val objectId = UUID.randomUUID
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId, offset, offset + 1, 100, i, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+      uploadInitateAndComplete(epoch, UUID.randomUUID(), offset, offset + 1, 100)
       offset += 1
     }
 
@@ -627,11 +615,11 @@ class FileTierPartitionStateTest {
     // upload segments without completing them
     for (_ <- 0 until numAbortedSegments) {
       abortedObjectIds += UUID.randomUUID
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, abortedObjectIds.last, offset, offset + 1, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, abortedObjectIds.last, offset, offset + 1, 100, 100, false, false, false, state.lastLocalMaterializedSrcOffsetAndEpoch()), TierTestUtils.nextTierTopicOffsetAndEpoch()))
     }
 
     val ongoingUpload = UUID.randomUUID
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, ongoingUpload, offset, offset + 1, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, ongoingUpload, offset, offset + 1, 100, 100, false, false, false, state.lastLocalMaterializedSrcOffsetAndEpoch()), TierTestUtils.nextTierTopicOffsetAndEpoch()))
 
     // all but the last in-progress upload must now be fenced
     assertEquals(numAbortedSegments, state.fencedSegments.asScala.size)
@@ -648,7 +636,7 @@ class FileTierPartitionStateTest {
       assertEquals(numSegments, reopenedState.numSegments)
 
       // complete the ongoing upload
-      assertEquals(AppendResult.ACCEPTED, reopenedState.append(new TierSegmentUploadComplete(tpid, epoch, ongoingUpload), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+      assertEquals(AppendResult.ACCEPTED, reopenedState.append(new TierSegmentUploadComplete(tpid, epoch, ongoingUpload, state.lastLocalMaterializedSrcOffsetAndEpoch()), TierTestUtils.nextTierTopicOffsetAndEpoch()))
       assertEquals(ongoingUpload, reopenedState.segments.asScala.toList.last.objectId)
     } finally {
       reopenedState.close()
@@ -665,18 +653,16 @@ class FileTierPartitionStateTest {
     // upload few segments at epoch=0
     state.append(new TierTopicInitLeader(tpid, epoch, UUID.randomUUID, 0), TierTestUtils.nextTierTopicOffsetAndEpoch())
     for (i <- 0 until numSegments) {
-      val objectId = objectIds(i)
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId, offset, offset + 1, 100, i, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+      uploadInitateAndComplete(epoch, objectIds(i), offset, offset + 1, 100)
       offset += 1
     }
 
     // begin an upload at epoch=0
     val abortedObjectId = UUID.randomUUID
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, abortedObjectId, offset, offset + 1, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, abortedObjectId, offset, offset + 1, 100, 100, false, false, false, currentStateOffset()), TierTestUtils.nextTierTopicOffsetAndEpoch()))
 
     // begin deletion at epoch=0
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, epoch, objectIds(0)), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, epoch, objectIds(0), currentStateOffset()), TierTestUtils.nextTierTopicOffsetAndEpoch()))
 
     // leader change; epoch=1
     epoch = 1
@@ -687,7 +673,7 @@ class FileTierPartitionStateTest {
     assertEquals(Set(abortedObjectId, objectIds(0)), state.fencedSegments.asScala.map(_.objectId).toSet)
 
     // attempt to complete upload must be fenced
-    assertEquals(AppendResult.FENCED, state.append(new TierSegmentUploadComplete(tpid, epoch - 1, abortedObjectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.FENCED, state.append(new TierSegmentUploadComplete(tpid, epoch - 1, abortedObjectId, currentStateOffset()), TierTestUtils.nextTierTopicOffsetAndEpoch()))
   }
 
   @Test
@@ -700,19 +686,21 @@ class FileTierPartitionStateTest {
     val abortedObjectId = UUID.randomUUID
 
     // initiate an upload to be fenced
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, abortedObjectId, 0, 1, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    val initialUploadStateOffset = state.lastLocalMaterializedSrcOffsetAndEpoch()
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, abortedObjectId, 0, 1, 100, 100, false, false, false, initialUploadStateOffset), TierTestUtils.nextTierTopicOffsetAndEpoch()))
     // transition to epoch=1
     state.append(new TierTopicInitLeader(tpid, 1, UUID.randomUUID, 0), TierTestUtils.nextTierTopicOffsetAndEpoch())
     // check segment is fenced
     val fenced = state.fencedSegments().stream().findFirst()
     assertEquals(fenced.get().objectId(), abortedObjectId)
     // try to complete fenced upload, should be fenced
-    assertEquals(AppendResult.FENCED, state.append(new TierSegmentUploadComplete(tpid, 0, abortedObjectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.FENCED, state.append(new TierSegmentUploadComplete(tpid, 0, abortedObjectId, initialUploadStateOffset), TierTestUtils.nextTierTopicOffsetAndEpoch()))
     val completedObjectId = UUID.randomUUID
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 1, completedObjectId, 0, 1, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    val overlappingStateOffset = currentStateOffset()
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 1, completedObjectId, 0, 1, 100, 100, false, false, false, overlappingStateOffset), TierTestUtils.nextTierTopicOffsetAndEpoch()))
     // delete initiated upload in between initiate and upload of overlapping segment
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, 1, abortedObjectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, 1, completedObjectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, 1, abortedObjectId, currentStateOffset()), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, 1, completedObjectId, overlappingStateOffset), TierTestUtils.nextTierTopicOffsetAndEpoch()))
 
     // check fenced segment is removed after delete initiate for fenced segment
     val fencedBefore = state.fencedSegments()
@@ -740,18 +728,18 @@ class FileTierPartitionStateTest {
 
     // begin an upload at epoch=0
     val abortedObjectId = UUID.randomUUID
+    val abortedStateOffset = currentStateOffset()
     // initiate an upload that will be fenced
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, abortedObjectId, 0, 1, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, abortedObjectId, 0, 1, 100, 100, false, false, false, abortedStateOffset), TierTestUtils.nextTierTopicOffsetAndEpoch()))
     // transition to epoch=1
     state.append(new TierTopicInitLeader(tpid, 1, UUID.randomUUID, 0), TierTestUtils.nextTierTopicOffsetAndEpoch())
     val completedObjectId = UUID.randomUUID
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 1, completedObjectId, 0, 1, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, 1, completedObjectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    uploadInitateAndComplete(1, completedObjectId, 0, 1, 100)
 
     // completed segment should be able to be looked up
     assertEquals(completedObjectId, state.metadata(0).get().objectId())
     // delete the fenced segment
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, 1, abortedObjectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, 1, abortedObjectId, currentStateOffset()), TierTestUtils.nextTierTopicOffsetAndEpoch()))
     // completed segment should still be able to be looked up after fenced segment deletion
     assertEquals(completedObjectId, state.metadata(0).get().objectId())
   }
@@ -767,16 +755,15 @@ class FileTierPartitionStateTest {
     state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID, 0), TierTestUtils.nextTierTopicOffsetAndEpoch())
     for (i <- 0 until numSegments) {
       val objectId = UUID.randomUUID
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId, offset, offset, 100, i, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+      uploadInitateAndComplete(epoch, objectId, offset, offset, i)
       offset += 1
       objectIds += objectId
     }
 
     val numSegmentsToDelete = 5
     for (i <- 0 until numSegmentsToDelete) {
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, epoch, objectIds(i)), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteComplete(tpid, epoch, objectIds(i)), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, epoch, objectIds(i), currentStateOffset()), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteComplete(tpid, epoch, objectIds(i), currentStateOffset()), TierTestUtils.nextTierTopicOffsetAndEpoch()))
     }
 
     val validObjectIds = objectIds.takeRight(numSegments - numSegmentsToDelete)
@@ -799,8 +786,7 @@ class FileTierPartitionStateTest {
     state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID, 0), TierTestUtils.nextTierTopicOffsetAndEpoch())
     for (i <- 0 until numSegments) {
       val objectId = UUID.randomUUID
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId, offset, offset + 10, 100, i, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+      uploadInitateAndComplete(epoch, objectId, offset, offset + 10, i)
       objectIds += objectId
       endOffsets += (offset + 10)
       offset += 5
@@ -809,8 +795,8 @@ class FileTierPartitionStateTest {
 
     val numSegmentsToDelete = 5
     for (i <- 0 until numSegmentsToDelete) {
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, epoch, objectIds(i)), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteComplete(tpid, epoch, objectIds(i)), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, epoch, objectIds(i), currentStateOffset()), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteComplete(tpid, epoch, objectIds(i), currentStateOffset()), TierTestUtils.nextTierTopicOffsetAndEpoch()))
       size -= i
     }
 
@@ -856,9 +842,7 @@ class FileTierPartitionStateTest {
     state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID, 0), TierTestUtils.nextTierTopicOffsetAndEpoch())
     for (i <- 0 until numSegments) {
       val objectId = UUID.randomUUID
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId, offset,
-        offset + 10, 100, 1, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+      uploadInitateAndComplete(epoch, objectId, offset, offset + 10, 1)
       objectIds += objectId
       endOffset = offset + 10
       offset += 5
@@ -892,7 +876,7 @@ class FileTierPartitionStateTest {
       // Transition each segment to DeleteInitiate and then since leader restarts the segment should be transitioned to
       // fenced state
       for (i <- 0 until numSegments/2) {
-        assertEquals(AppendResult.ACCEPTED, currentState.append(new TierSegmentDeleteInitiate(tpid, epoch, objectIds(i)), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+        assertEquals(AppendResult.ACCEPTED, currentState.append(new TierSegmentDeleteInitiate(tpid, epoch, objectIds(i), currentStateOffset()), TierTestUtils.nextTierTopicOffsetAndEpoch()))
         maybeIncrementEpochAndValidateTierState(currentState, true, endOffset, numSegments - (i + 1))
         currentState = new FileTierPartitionState(dir, logDirFailureChannel, tp, true)
       }
@@ -900,10 +884,10 @@ class FileTierPartitionStateTest {
       // Transition each segment to DeleteInitiate and then DeleteComplete and at each step verify state before and after
       // reopening the FileTierPartitionState.
       for (i <- numSegments/2 until numSegments) {
-        assertEquals(AppendResult.ACCEPTED, currentState.append(new TierSegmentDeleteInitiate(tpid, epoch, objectIds(i)), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+        assertEquals(AppendResult.ACCEPTED, currentState.append(new TierSegmentDeleteInitiate(tpid, epoch, objectIds(i), currentStateOffset()), TierTestUtils.nextTierTopicOffsetAndEpoch()))
         maybeIncrementEpochAndValidateTierState(currentState, false, endOffset, numSegments - (i + 1))
         currentState = new FileTierPartitionState(dir, logDirFailureChannel, tp, true)
-        assertEquals(AppendResult.ACCEPTED, currentState.append(new TierSegmentDeleteComplete(tpid, epoch, objectIds(i)), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+        assertEquals(AppendResult.ACCEPTED, currentState.append(new TierSegmentDeleteComplete(tpid, epoch, objectIds(i), currentStateOffset()), TierTestUtils.nextTierTopicOffsetAndEpoch()))
         maybeIncrementEpochAndValidateTierState(currentState, false, endOffset, numSegments - (i + 1))
         currentState = new FileTierPartitionState(dir, logDirFailureChannel, tp, true)
       }
@@ -926,18 +910,16 @@ class FileTierPartitionStateTest {
 
     // upload few segments at epoch=0
     state.append(new TierTopicInitLeader(tpid, epoch, java.util.UUID.randomUUID, 0), TierTestUtils.nextTierTopicOffsetAndEpoch())
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId, offset,
-      offset + 10, 100, 1, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    uploadInitateAndComplete(epoch, objectId, offset, offset + 10, 1)
     endOffset = offset + 10
 
     // 1. deleteInitiate the one and only segment
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, epoch, objectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, epoch, objectId, currentStateOffset()), TierTestUtils.nextTierTopicOffsetAndEpoch()))
     // 2. uploadInitiate an new segment
     objectId = UUID.randomUUID
     offset += 5
     assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId, offset,
-      offset + 10, 100, 1, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+      offset + 10, 100, 1, false, false, false, currentStateOffset()), TierTestUtils.nextTierTopicOffsetAndEpoch()))
 
     // New leader
     epoch = 1
@@ -964,22 +946,22 @@ class FileTierPartitionStateTest {
   @Test
   def testMaterializedOffset(): Unit = {
     // Make sure it's initialized with -1.
-    assertEquals(new OffsetAndEpoch(-1L, Optional.empty()), state.lastConsumedSrcOffsetAndEpoch)
+    assertEquals(new OffsetAndEpoch(-1L, Optional.empty()), state.lastLocalMaterializedSrcOffsetAndEpoch)
     assertEquals(new OffsetAndEpoch(-1L, Optional.empty()), state.lastFlushedSrcOffsetAndEpoch)
 
     // Send materialization request at offset 100.
     val offsetAndEpoch = new OffsetAndEpoch(100L, Optional.of(3))
     state.append(new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0), offsetAndEpoch)
-    assertEquals(offsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch)
+    assertEquals(offsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch)
 
     // Send previous offset request, simulating possible duplicates during recovery or during transition from catchup.
     state.append(new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0), new OffsetAndEpoch(98L, Optional.of(3)))
-    assertEquals(offsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch)
+    assertEquals(offsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch)
 
     // Broker restart.
     state.close()
     val restartState = new FileTierPartitionState(dir, logDirFailureChannel, tp, true)
-    assertEquals(offsetAndEpoch, restartState.lastConsumedSrcOffsetAndEpoch)
+    assertEquals(offsetAndEpoch, restartState.lastLocalMaterializedSrcOffsetAndEpoch)
     assertEquals(new OffsetAndEpoch(-1L, Optional.empty()), state.lastFlushedSrcOffsetAndEpoch)
   }
 
@@ -987,8 +969,9 @@ class FileTierPartitionStateTest {
   def testAllowedTransitionUploadInitiateToDeleteInitiate(): Unit = {
     assertEquals(AppendResult.ACCEPTED, state.append(new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0), TierTestUtils.nextTierTopicOffsetAndEpoch()))
     val objectId = UUID.randomUUID
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId, 0, 10, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, 0, objectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    val stateOffset = currentStateOffset()
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId, 0, 10, 100, 100, false, false, false, stateOffset), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentDeleteInitiate(tpid, 0, objectId, stateOffset), TierTestUtils.nextTierTopicOffsetAndEpoch()))
     assertEquals(TierPartitionStatus.ONLINE, state.status())
   }
 
@@ -996,13 +979,14 @@ class FileTierPartitionStateTest {
   def testIllegalTransitionInitLeaderToUploadComplete(): Unit = {
     val nextOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
     assertEquals(AppendResult.ACCEPTED, state.append(new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0), nextOffsetAndEpoch))
-    assertEquals(nextOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch())
+    assertEquals(nextOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch())
     assertEquals(TierPartitionStatus.ONLINE, state.status())
     assertEquals(OffsetAndEpoch.EMPTY, state.lastFlushedErrorOffsetAndEpoch())
 
+    val stateOffset = currentStateOffset()
     val errorOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
-    assertEquals(AppendResult.FAILED, state.append(new TierSegmentUploadComplete(tpid, 0, UUID.randomUUID), errorOffsetAndEpoch))
-    assertEquals(nextOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch())
+    assertEquals(AppendResult.FAILED, state.append(new TierSegmentUploadComplete(tpid, 0, UUID.randomUUID, stateOffset), errorOffsetAndEpoch))
+    assertEquals(nextOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch())
     assertEquals(TierPartitionStatus.ERROR, state.status())
     assertEquals(errorOffsetAndEpoch, state.lastFlushedErrorOffsetAndEpoch())
   }
@@ -1011,13 +995,14 @@ class FileTierPartitionStateTest {
   def testIllegalTransitionInitLeaderToDeleteInitiate(): Unit = {
     val nextOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
     assertEquals(AppendResult.ACCEPTED, state.append(new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0), nextOffsetAndEpoch))
-    assertEquals(nextOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch())
+    assertEquals(nextOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch())
     assertEquals(TierPartitionStatus.ONLINE, state.status())
     assertEquals(OffsetAndEpoch.EMPTY, state.lastFlushedErrorOffsetAndEpoch())
 
+    val stateOffset = currentStateOffset()
     val errorOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
-    assertEquals(AppendResult.FAILED, state.append(new TierSegmentDeleteInitiate(tpid, 0, UUID.randomUUID), errorOffsetAndEpoch))
-    assertEquals(nextOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch())
+    assertEquals(AppendResult.FAILED, state.append(new TierSegmentDeleteInitiate(tpid, 0, UUID.randomUUID, stateOffset), errorOffsetAndEpoch))
+    assertEquals(nextOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch())
     assertEquals(TierPartitionStatus.ERROR, state.status())
     assertEquals(errorOffsetAndEpoch, state.lastFlushedErrorOffsetAndEpoch())
   }
@@ -1026,13 +1011,14 @@ class FileTierPartitionStateTest {
   def testIllegalTransitionInitLeaderToDeleteComplete(): Unit = {
     val nextOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
     assertEquals(AppendResult.ACCEPTED, state.append(new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0), nextOffsetAndEpoch))
-    assertEquals(nextOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch())
+    assertEquals(nextOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch())
     assertEquals(TierPartitionStatus.ONLINE, state.status())
     assertEquals(OffsetAndEpoch.EMPTY, state.lastFlushedErrorOffsetAndEpoch())
+    val stateOffset = currentStateOffset()
 
     val errorOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
-    assertEquals(AppendResult.FAILED, state.append(new TierSegmentDeleteComplete(tpid, 0, UUID.randomUUID), errorOffsetAndEpoch))
-    assertEquals(nextOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch())
+    assertEquals(AppendResult.FAILED, state.append(new TierSegmentDeleteComplete(tpid, 0, UUID.randomUUID, stateOffset), errorOffsetAndEpoch))
+    assertEquals(nextOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch())
     assertEquals(TierPartitionStatus.ERROR, state.status())
     assertEquals(errorOffsetAndEpoch, state.lastFlushedErrorOffsetAndEpoch())
   }
@@ -1042,20 +1028,21 @@ class FileTierPartitionStateTest {
     var nextOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
     assertEquals(AppendResult.ACCEPTED, state.append(new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0), nextOffsetAndEpoch))
     assertEquals(TierPartitionStatus.ONLINE, state.status())
-    assertEquals(nextOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch())
+    assertEquals(nextOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch())
     assertEquals(OffsetAndEpoch.EMPTY, state.lastFlushedErrorOffsetAndEpoch())
 
     val objectId = UUID.randomUUID
+    val stateOffset = currentStateOffset()
     nextOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId, 0, 10, 100, 100, false, false, false), nextOffsetAndEpoch))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId, 0, 10, 100, 100, false, false, false, stateOffset), nextOffsetAndEpoch))
     assertEquals(TierPartitionStatus.ONLINE, state.status())
-    assertEquals(nextOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch())
+    assertEquals(nextOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch())
     assertEquals(OffsetAndEpoch.EMPTY, state.lastFlushedErrorOffsetAndEpoch())
 
     val errorOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
-    assertEquals(AppendResult.FAILED, state.append(new TierSegmentDeleteComplete(tpid, 0, objectId), errorOffsetAndEpoch))
+    assertEquals(AppendResult.FAILED, state.append(new TierSegmentDeleteComplete(tpid, 0, objectId, stateOffset), errorOffsetAndEpoch))
     assertEquals(TierPartitionStatus.ERROR, state.status())
-    assertEquals(nextOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch())
+    assertEquals(nextOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch())
     assertEquals(errorOffsetAndEpoch, state.lastFlushedErrorOffsetAndEpoch())
   }
 
@@ -1064,25 +1051,27 @@ class FileTierPartitionStateTest {
     var nextOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
     assertEquals(AppendResult.ACCEPTED, state.append(new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0), nextOffsetAndEpoch))
     assertEquals(TierPartitionStatus.ONLINE, state.status())
-    assertEquals(nextOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch())
+    assertEquals(nextOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch())
     assertEquals(OffsetAndEpoch.EMPTY, state.lastFlushedErrorOffsetAndEpoch())
 
     val objectId = UUID.randomUUID
+    val stateOffset = currentStateOffset()
     nextOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId, 0, 10, 100, 100, false, false, false), nextOffsetAndEpoch))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId, 0, 10, 100, 100, false, false, false, stateOffset), nextOffsetAndEpoch))
     assertEquals(TierPartitionStatus.ONLINE, state.status())
-    assertEquals(nextOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch())
+    assertEquals(nextOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch())
     assertEquals(OffsetAndEpoch.EMPTY, state.lastFlushedErrorOffsetAndEpoch())
 
     nextOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, 0, objectId), nextOffsetAndEpoch))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, 0, objectId, stateOffset), nextOffsetAndEpoch))
     assertEquals(TierPartitionStatus.ONLINE, state.status())
-    assertEquals(nextOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch())
+    assertEquals(nextOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch())
     assertEquals(OffsetAndEpoch.EMPTY, state.lastFlushedErrorOffsetAndEpoch())
 
+    val stateOffsetBeforeFence = currentStateOffset()
     val errorOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
-    assertEquals(AppendResult.FAILED, state.append(new TierSegmentDeleteComplete(tpid, 0, objectId), errorOffsetAndEpoch))
-    assertEquals(nextOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch())
+    assertEquals(AppendResult.FAILED, state.append(new TierSegmentDeleteComplete(tpid, 0, objectId, stateOffsetBeforeFence), errorOffsetAndEpoch))
+    assertEquals(nextOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch())
     assertEquals(TierPartitionStatus.ERROR, state.status())
     assertEquals(errorOffsetAndEpoch, state.lastFlushedErrorOffsetAndEpoch())
   }
@@ -1093,20 +1082,22 @@ class FileTierPartitionStateTest {
     val nextOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
     assertEquals(AppendResult.ACCEPTED, state.append(new TierTopicInitLeader(tpid, 0, objectId, 0), nextOffsetAndEpoch))
     assertEquals(TierPartitionStatus.ONLINE, state.status)
-    assertEquals(nextOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch())
+    assertEquals(nextOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch())
     assertEquals(OffsetAndEpoch.EMPTY, state.lastFlushedErrorOffsetAndEpoch())
 
     // 1. upon first illegal transition, the failure should be fenced
+    val stateOffset = currentStateOffset()
     val errorOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
-    assertEquals(AppendResult.FAILED, state.append(new TierSegmentUploadComplete(tpid, 0, objectId), errorOffsetAndEpoch))
-    assertEquals(nextOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch())
+    assertEquals(AppendResult.FAILED, state.append(new TierSegmentUploadComplete(tpid, 0, objectId, stateOffset), errorOffsetAndEpoch))
+    assertEquals(nextOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch())
     assertEquals(TierPartitionStatus.ERROR, state.status)
     assertEquals(errorOffsetAndEpoch, state.lastFlushedErrorOffsetAndEpoch())
 
     // 2. fenced failure is not unblocked even if a legal transition is tried
+    val stateOffset2 = currentStateOffset()
     val nextErrorOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
-    assertEquals(AppendResult.FAILED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId, 0, 10, 100, 100, false, false, false), nextErrorOffsetAndEpoch))
-    assertEquals(nextOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch())
+    assertEquals(AppendResult.FAILED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId, 0, 10, 100, 100, false, false, false, stateOffset2), nextErrorOffsetAndEpoch))
+    assertEquals(nextOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch())
     assertEquals(TierPartitionStatus.ERROR, state.status)
     assertEquals(errorOffsetAndEpoch, state.lastFlushedErrorOffsetAndEpoch())
   }
@@ -1121,11 +1112,12 @@ class FileTierPartitionStateTest {
 
     val endOffsetBeforeFencing = 10
     val objectId2 = UUID.randomUUID
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId2, 0, endOffsetBeforeFencing, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    val stateOffsetUpload1 = currentStateOffset()
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId2, 0, endOffsetBeforeFencing, 100, 100, false, false, false, stateOffsetUpload1), TierTestUtils.nextTierTopicOffsetAndEpoch()))
     val nextOffsetAndEpochBeforeFencing = TierTestUtils.nextTierTopicOffsetAndEpoch()
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, 0, objectId2), nextOffsetAndEpochBeforeFencing))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, 0, objectId2, stateOffsetUpload1), nextOffsetAndEpochBeforeFencing))
     assertEquals(TierPartitionStatus.ONLINE, state.status())
-    assertEquals(nextOffsetAndEpochBeforeFencing, state.lastConsumedSrcOffsetAndEpoch())
+    assertEquals(nextOffsetAndEpochBeforeFencing, state.lastLocalMaterializedSrcOffsetAndEpoch())
     assertEquals(OffsetAndEpoch.EMPTY, state.lastFlushedErrorOffsetAndEpoch())
 
     state.flush
@@ -1142,11 +1134,12 @@ class FileTierPartitionStateTest {
     // Add few events after flush.
     val objectId3 = UUID.randomUUID
     nextOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId3, endOffsetBeforeFencing + 1, endOffsetBeforeFencing + 10, 100, 100, false, false, false), nextOffsetAndEpoch))
+    val stateOffsetUpload2 = currentStateOffset()
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId3, endOffsetBeforeFencing + 1, endOffsetBeforeFencing + 10, 100, 100, false, false, false, stateOffsetUpload2), nextOffsetAndEpoch))
     nextOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, 0, objectId3), nextOffsetAndEpoch))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, 0, objectId3, stateOffsetUpload2), nextOffsetAndEpoch))
     assertEquals(TierPartitionStatus.ONLINE, state.status())
-    assertEquals(nextOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch())
+    assertEquals(nextOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch())
     assertEquals(OffsetAndEpoch.EMPTY, state.lastFlushedErrorOffsetAndEpoch())
 
     // Useful for later assertions in this test
@@ -1161,18 +1154,20 @@ class FileTierPartitionStateTest {
     // 1. upon first illegal transition, the failure should be fenced
     val errorOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
     val objectId4 = UUID.randomUUID
-    assertEquals(AppendResult.FAILED, state.append(new TierSegmentUploadComplete(tpid, 0, objectId4), errorOffsetAndEpoch))
-    assertEquals(nextOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch())
+    val stateOffsetUpload3 = currentStateOffset()
+    assertEquals(AppendResult.FAILED, state.append(new TierSegmentUploadComplete(tpid, 0, objectId4, stateOffsetUpload3), errorOffsetAndEpoch))
+    assertEquals(nextOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch())
     assertEquals(TierPartitionStatus.ERROR, state.status)
     assertEquals(errorOffsetAndEpoch, state.lastFlushedErrorOffsetAndEpoch())
 
     // 2. fenced failure is not unblocked even if a legal transition is tried
-    assertEquals(AppendResult.FAILED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId4, endOffsetBeforeFencing + 11, endOffsetBeforeFencing + 20, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-    assertEquals(nextOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch())
+    val stateOffsetUpload4 = currentStateOffset()
+    assertEquals(AppendResult.FAILED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId4, endOffsetBeforeFencing + 11, endOffsetBeforeFencing + 20, 100, 100, false, false, false, stateOffsetUpload4), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(nextOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch())
     assertEquals(TierPartitionStatus.ERROR, state.status)
     assertEquals(errorOffsetAndEpoch, state.lastFlushedErrorOffsetAndEpoch())
 
-    state.flush
+    state.flush()
 
     // --- AFTER FENCING ---
 
@@ -1187,17 +1182,19 @@ class FileTierPartitionStateTest {
         state.version(),
         tierEpoch,
         TierPartitionStatus.ERROR,
+        0,
         10,
-        new OffsetAndEpoch(-1L, Optional.empty()),
+        OffsetAndEpoch.EMPTY,
         nextOffsetAndEpochBeforeFencing,
-        errorOffsetAndEpoch),
+        errorOffsetAndEpoch,
+        OffsetAndEpoch.EMPTY),
       headerFlushedAfterFencing.get)
 
     // Check that the serializedState of the mutable file before fencing matches byte-by-byte with the
     // serializedState of the flushed file after fencing.
     val serializedStateFlushedAfterFencing = ByteBuffer.allocate(10000);
     channelFlushedAfterFencing.read(serializedStateFlushedAfterFencing)
-    channelFlushedAfterFencing.close
+    channelFlushedAfterFencing.close()
 
     assertEquals(serializedStateFlushedBeforeFencing, serializedStateFlushedAfterFencing)
 
@@ -1221,11 +1218,12 @@ class FileTierPartitionStateTest {
 
     val endOffsetBeforeFencing = 10
     val objectId2 = UUID.randomUUID
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId2, 0, endOffsetBeforeFencing, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    val stateOffsetUpload1 = currentStateOffset()
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId2, 0, endOffsetBeforeFencing, 100, 100, false, false, false, stateOffsetUpload1), TierTestUtils.nextTierTopicOffsetAndEpoch()))
     val nextOffsetAndEpochBeforeFencing = TierTestUtils.nextTierTopicOffsetAndEpoch()
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, 0, objectId2), nextOffsetAndEpochBeforeFencing))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, 0, objectId2, stateOffsetUpload1), nextOffsetAndEpochBeforeFencing))
     assertEquals(TierPartitionStatus.ONLINE, state.status())
-    assertEquals(nextOffsetAndEpochBeforeFencing, state.lastConsumedSrcOffsetAndEpoch())
+    assertEquals(nextOffsetAndEpochBeforeFencing, state.lastLocalMaterializedSrcOffsetAndEpoch())
     assertEquals(OffsetAndEpoch.EMPTY, state.lastFlushedErrorOffsetAndEpoch())
 
     // Useful for later assertions in this test
@@ -1241,13 +1239,14 @@ class FileTierPartitionStateTest {
     val errorOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
     val objectId3 = UUID.randomUUID
     assertEquals(AppendResult.FAILED, state.append(new TierPartitionFence(tpid, objectId3), errorOffsetAndEpoch))
-    assertEquals(errorOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch())
+    assertEquals(errorOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch())
     assertEquals(TierPartitionStatus.ERROR, state.status)
     assertEquals(errorOffsetAndEpoch, state.lastFlushedErrorOffsetAndEpoch())
 
+    val stateOffsetUpload2 = currentStateOffset()
     // 2. fenced failure is not unblocked even if a legal transition is tried
-    assertEquals(AppendResult.FAILED, state.append(new TierSegmentUploadInitiate(tpid, 0, UUID.randomUUID, endOffsetBeforeFencing + 1, endOffsetBeforeFencing + 10, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-    assertEquals(errorOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch())
+    assertEquals(AppendResult.FAILED, state.append(new TierSegmentUploadInitiate(tpid, 0, UUID.randomUUID, endOffsetBeforeFencing + 1, endOffsetBeforeFencing + 10, 100, 100, false, false, false, stateOffsetUpload2), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(errorOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch())
     assertEquals(TierPartitionStatus.ERROR, state.status)
     assertEquals(errorOffsetAndEpoch, state.lastFlushedErrorOffsetAndEpoch())
 
@@ -1266,10 +1265,12 @@ class FileTierPartitionStateTest {
         state.version(),
         tierEpoch,
         TierPartitionStatus.ERROR,
+        0,
         10,
-        new OffsetAndEpoch(-1L, Optional.empty()),
+        OffsetAndEpoch.EMPTY,
         errorOffsetAndEpoch,
-        errorOffsetAndEpoch),
+        errorOffsetAndEpoch,
+        OffsetAndEpoch.EMPTY),
       headerFlushedAfterFencing.get)
 
     // Check that the serializedState of the flushed file before fencing matches byte-by-byte with the
@@ -1288,7 +1289,7 @@ class FileTierPartitionStateTest {
     val nextOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
     assertEquals(AppendResult.ACCEPTED, state.append(new TierTopicInitLeader(tpid, 0, objectId, 0), nextOffsetAndEpoch))
     assertEquals(TierPartitionStatus.ONLINE, state.status)
-    assertEquals(nextOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch)
+    assertEquals(nextOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch)
     assertEquals(OffsetAndEpoch.EMPTY, state.lastFlushedErrorOffsetAndEpoch)
 
     val channelMutableBeforeFencing = FileChannel.open(FileTierPartitionState.mutableFilePath(state.basePath), StandardOpenOption.READ)
@@ -1303,14 +1304,15 @@ class FileTierPartitionStateTest {
 
     // 1. upon first illegal transition, the failure should be fenced
     val errorOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
-    assertEquals(AppendResult.FAILED, state.append(new TierSegmentUploadComplete(tpid, 0, objectId), errorOffsetAndEpoch))
-    assertEquals(nextOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch)
+    val stateOffsetUpload1 = currentStateOffset()
+    assertEquals(AppendResult.FAILED, state.append(new TierSegmentUploadComplete(tpid, 0, objectId, stateOffsetUpload1), errorOffsetAndEpoch))
+    assertEquals(nextOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch)
     assertEquals(TierPartitionStatus.ERROR, state.status)
     assertEquals(errorOffsetAndEpoch, state.lastFlushedErrorOffsetAndEpoch)
 
     // 2. fenced failure is not unblocked even if a legal transition is tried
-    assertEquals(AppendResult.FAILED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId, 0, 10, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-    assertEquals(nextOffsetAndEpoch, state.lastConsumedSrcOffsetAndEpoch)
+    assertEquals(AppendResult.FAILED, state.append(new TierSegmentUploadInitiate(tpid, 0, objectId, 0, 10, 100, 100, false, false, false, stateOffsetUpload1), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(nextOffsetAndEpoch, state.lastLocalMaterializedSrcOffsetAndEpoch)
     assertEquals(TierPartitionStatus.ERROR, state.status)
     assertEquals(errorOffsetAndEpoch, state.lastFlushedErrorOffsetAndEpoch)
 
@@ -1332,6 +1334,8 @@ class FileTierPartitionStateTest {
         -1,
         TierPartitionStatus.ERROR,
         -1L,
+        -1L,
+        new OffsetAndEpoch(-1L, Optional.empty()),
         new OffsetAndEpoch(-1L, Optional.empty()),
         new OffsetAndEpoch(-1L, Optional.empty()),
         errorOffsetAndEpoch),
@@ -1342,15 +1346,15 @@ class FileTierPartitionStateTest {
   def testIdempotencyDeleteAfterComplete(): Unit = {
     val initLeader = new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0)
     val objectId1 = UUID.randomUUID
-    val uploadInitiate1 = new TierSegmentUploadInitiate(tpid, 0, objectId1, 0, 10, 100, 100, false, false, false)
-    val uploadComplete1 = new TierSegmentUploadComplete(tpid, 0, objectId1)
-    val deleteInitiate1 = new TierSegmentDeleteInitiate(tpid, 0, objectId1)
-    val deleteComplete1 = new TierSegmentDeleteComplete(tpid, 0, objectId1)
+    val uploadInitiate1 = new TierSegmentUploadInitiate(tpid, 0, objectId1, 0, 10, 100, 100, false, false, false, new OffsetAndEpoch(1, Optional.of(1)))
+    val uploadComplete1 = new TierSegmentUploadComplete(tpid, 0, objectId1, new OffsetAndEpoch(1L, Optional.of(1)))
+    val deleteInitiate1 = new TierSegmentDeleteInitiate(tpid, 0, objectId1, new OffsetAndEpoch(2L, Optional.of(1)))
+    val deleteComplete1 = new TierSegmentDeleteComplete(tpid, 0, objectId1, new OffsetAndEpoch(2L, Optional.of(1)))
     val objectId2 = UUID.randomUUID
-    val uploadInitiate2 = new TierSegmentUploadInitiate(tpid, 0, objectId2, 10, 20, 100, 100, false, false, false)
-    val uploadComplete2 = new TierSegmentUploadComplete(tpid, 0, objectId2)
-    val deleteInitiate2 = new TierSegmentDeleteInitiate(tpid, 0, objectId2)
-    val deleteComplete2 = new TierSegmentDeleteComplete(tpid, 0, objectId2)
+    val uploadInitiate2 = new TierSegmentUploadInitiate(tpid, 0, objectId2, 10, 20, 100, 100, false, false, false, new OffsetAndEpoch(5L, Optional.of(1)))
+    val uploadComplete2 = new TierSegmentUploadComplete(tpid, 0, objectId2, new OffsetAndEpoch(5L, Optional.of(1)))
+    val deleteInitiate2 = new TierSegmentDeleteInitiate(tpid, 0, objectId2, new OffsetAndEpoch(5L, Optional.of(1)))
+    val deleteComplete2 = new TierSegmentDeleteComplete(tpid, 0, objectId2, new OffsetAndEpoch(5L, Optional.of(1)))
 
     testDuplicateAppend(initLeader, Seq.empty, AppendResult.ACCEPTED)
 
@@ -1366,15 +1370,15 @@ class FileTierPartitionStateTest {
   def testIdempotencyDelayedDelete(): Unit = {
     val initLeader = new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0)
     val objectId1 = UUID.randomUUID
-    val uploadInitiate1 = new TierSegmentUploadInitiate(tpid, 0, objectId1, 0, 10, 100, 100, false, false, false)
-    val uploadComplete1 = new TierSegmentUploadComplete(tpid, 0, objectId1)
-    val deleteInitiate1 = new TierSegmentDeleteInitiate(tpid, 0, objectId1)
-    val deleteComplete1 = new TierSegmentDeleteComplete(tpid, 0, objectId1)
+    val uploadInitiate1 = new TierSegmentUploadInitiate(tpid, 0, objectId1, 0, 10, 100, 100, false, false, false, new OffsetAndEpoch(1L, Optional.of(3))) // 1
+    val uploadComplete1 = new TierSegmentUploadComplete(tpid, 0, objectId1, new OffsetAndEpoch(1L, Optional.of(3))) // 2
+    val deleteInitiate1 = new TierSegmentDeleteInitiate(tpid, 0, objectId1, new OffsetAndEpoch(3L, Optional.of(3))) // 3
+    val deleteComplete1 = new TierSegmentDeleteComplete(tpid, 0, objectId1, new OffsetAndEpoch(3L, Optional.of(3))) // 4
     val objectId2 = UUID.randomUUID
-    val uploadInitiate2 = new TierSegmentUploadInitiate(tpid, 0, objectId2, 10, 20, 100, 100, false, false, false)
-    val uploadComplete2 = new TierSegmentUploadComplete(tpid, 0, objectId2)
-    val deleteInitiate2 = new TierSegmentDeleteInitiate(tpid, 0, objectId2)
-    val deleteComplete2 = new TierSegmentDeleteComplete(tpid, 0, objectId2)
+    val uploadInitiate2 = new TierSegmentUploadInitiate(tpid, 0, objectId2, 10, 20, 100, 100, false, false, false, new OffsetAndEpoch(4L, Optional.of(3))) // 6
+    val uploadComplete2 = new TierSegmentUploadComplete(tpid, 0, objectId2, new OffsetAndEpoch(4L, Optional.of(3))) // 6
+    val deleteInitiate2 = new TierSegmentDeleteInitiate(tpid, 0, objectId2, new OffsetAndEpoch(6L, Optional.of(3)))
+    val deleteComplete2 = new TierSegmentDeleteComplete(tpid, 0, objectId2, new OffsetAndEpoch(6L, Optional.of(3)))
 
     testDuplicateAppend(initLeader, Seq.empty, AppendResult.ACCEPTED)
 
@@ -1386,19 +1390,407 @@ class FileTierPartitionStateTest {
     }
   }
 
+  // Tests basic state restoration functionality and the fencing of restore messages
   @Test
-  def testIdempotencySimultaneousDelete(): Unit = {
+  def testStateRestoreFunctionality(): Unit = {
     val initLeader = new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0)
     val objectId1 = UUID.randomUUID
-    val uploadInitiate1 = new TierSegmentUploadInitiate(tpid, 0, objectId1, 0, 10, 100, 100, false, false, false)
-    val uploadComplete1 = new TierSegmentUploadComplete(tpid, 0, objectId1)
-    val deleteInitiate1 = new TierSegmentDeleteInitiate(tpid, 0, objectId1)
-    val deleteComplete1 = new TierSegmentDeleteComplete(tpid, 0, objectId1)
+    val uploadInitiate1 = new TierSegmentUploadInitiate(tpid, 0, objectId1, 0, 10, 100, 100, false, false, false, new OffsetAndEpoch(1L, Optional.of(3))) // 1
+    val uploadComplete1 = new TierSegmentUploadComplete(tpid, 0, objectId1, new OffsetAndEpoch(1L, Optional.of(3))) // 2
+    val deleteInitiate1 = new TierSegmentDeleteInitiate(tpid, 0, objectId1, new OffsetAndEpoch(3L, Optional.of(3))) // 3
+    val deleteComplete1 = new TierSegmentDeleteComplete(tpid, 0, objectId1, new OffsetAndEpoch(3L, Optional.of(3))) // 4
     val objectId2 = UUID.randomUUID
-    val uploadInitiate2 = new TierSegmentUploadInitiate(tpid, 0, objectId2, 10, 20, 100, 100, false, false, false)
-    val uploadComplete2 = new TierSegmentUploadComplete(tpid, 0, objectId2)
-    val deleteInitiate2 = new TierSegmentDeleteInitiate(tpid, 0, objectId2)
-    val deleteComplete2 = new TierSegmentDeleteComplete(tpid, 0, objectId2)
+    val uploadInitiate2 = new TierSegmentUploadInitiate(tpid, 0, objectId2, 10, 20, 100, 100, false, false, false, new OffsetAndEpoch(4L, Optional.of(3))) // 5
+    val uploadComplete2 = new TierSegmentUploadComplete(tpid, 0, objectId2, new OffsetAndEpoch(5L, Optional.of(5))) // 6
+    val deleteInitiate2 = new TierSegmentDeleteInitiate(tpid, 0, objectId2, new OffsetAndEpoch(6L, Optional.of(5))) // 7
+    val deleteComplete2 = new TierSegmentDeleteComplete(tpid, 0, objectId2, new OffsetAndEpoch(6L, Optional.of(5))) // 8
+
+    testDuplicateAppend(initLeader, Seq.empty, AppendResult.ACCEPTED)
+    // try delayed delete order
+    val currentTransitions: ListBuffer[AbstractTierMetadata] = ListBuffer()
+    for (transition <- Seq(uploadInitiate1, uploadComplete1, uploadInitiate2, uploadComplete2, deleteInitiate1, deleteComplete1, deleteInitiate2, deleteComplete2)) {
+      testDuplicateAppend(transition, currentTransitions, AppendResult.ACCEPTED)
+      currentTransitions += transition
+    }
+    state.flush()
+    val restorableStart = state.startOffset()
+    val restorableEnd = state.endOffset()
+    val restorableValidity = state.lastLocalMaterializedSrcOffsetAndEpoch();
+    state.close()
+
+    val originalBytes = Files.readAllBytes(Paths.get(state.flushedPath()))
+
+    // create a new state and only apply partial metadata to it
+    val newDir = TestUtils.randomPartitionLogDir(TestUtils.tempDir())
+    val newState = factory.initState(newDir, tp, logConfig, logDirFailureChannel).asInstanceOf[FileTierPartitionState]
+    newState.setTopicId(tpid.topicId)
+    newState.beginCatchup()
+    newState.onCatchUpComplete()
+
+    testDuplicateAppend(newState, initLeader, Seq.empty, AppendResult.ACCEPTED)
+    val newTransitions: ListBuffer[AbstractTierMetadata] = ListBuffer()
+    // partially apply the same messages
+    for (transition <- Seq(uploadInitiate1, uploadComplete1, uploadInitiate2)) {
+      testDuplicateAppend(newState, transition, newTransitions, AppendResult.ACCEPTED)
+      newTransitions += transition
+    }
+    newState.flush()
+
+    val fenceMetadata = new TierPartitionFence(tpid, UUID.randomUUID())
+    val fenceOffset = TierTestUtils.nextTierTopicOffsetAndEpoch()
+    assertEquals(AppendResult.FAILED, newState.append(fenceMetadata, fenceOffset))
+
+    val recoveryMetadata = new TierPartitionForceRestore(tpid, UUID.randomUUID(), restorableStart.orElse(-1L), restorableEnd, restorableValidity, "hash")
+    // recover the state correctly
+    assertEquals(RestoreResult.SUCCEEDED, newState.restoreState(recoveryMetadata, ByteBuffer.wrap(originalBytes), TierPartitionStatus.ONLINE, TierTestUtils.nextTierTopicOffsetAndEpoch()))
+
+    // recovery for retried metadata should fail if the tier state topic offset is too old even if the validity offset is high enough
+    assertEquals(RestoreResult.FAILED, newState.restoreState(new TierPartitionForceRestore(tpid, UUID.randomUUID(), restorableStart.orElse(-1L), restorableEnd, TierTestUtils.nextTierTopicOffsetAndEpoch(), "hash"),
+      ByteBuffer.wrap(originalBytes), TierPartitionStatus.ONLINE,
+      // stale offset and epoch
+      new OffsetAndEpoch(0L, Optional.empty())))
+
+    // a further restoration with a state offset lower than the current restore offset should fail too
+    assertEquals(RestoreResult.FAILED, newState.restoreState(new TierPartitionForceRestore(tpid, UUID.randomUUID(), restorableStart.orElse(-1L), restorableEnd, fenceOffset, "hash"),
+      ByteBuffer.wrap(originalBytes), TierPartitionStatus.ONLINE, TierTestUtils.nextTierTopicOffsetAndEpoch()))
+
+    assertEquals(restorableEnd, newState.endOffset())
+
+    // try appending one more piece of metadata and make sure it was flushed out properly and reopens correctly
+    val objectId3 = UUID.randomUUID
+    val upload3stateOffset = newState.lastLocalMaterializedSrcOffsetAndEpoch()
+    val uploadInitiate3 = new TierSegmentUploadInitiate(tpid, 0, objectId3, 21, 50, 100, 100, false, false, false, upload3stateOffset)
+    assertEquals(AppendResult.ACCEPTED, newState.append(uploadInitiate3, TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    val uploadComplete3 = new TierSegmentUploadComplete(tpid, 0, objectId3, upload3stateOffset)
+    assertEquals(AppendResult.ACCEPTED, newState.append(uploadComplete3, TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(50, newState.endOffset())
+    newState.close()
+    val reopenedNewState = factory.initState(newDir, tp, logConfig, logDirFailureChannel).asInstanceOf[FileTierPartitionState]
+    assertEquals(50, reopenedNewState.endOffset())
+    reopenedNewState.close()
+  }
+
+  // Tests the case where a restore occurs and stale metadata for an old state must be fenced
+  @Test
+  def testStateRestoreFencingStaleMetadata(): Unit = {
+    val initLeader = new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0) // 0
+    val objectId1 = UUID.randomUUID
+    val uploadInitiate1 = new TierSegmentUploadInitiate(tpid, 0, objectId1, 0, 10, 100, 100, false, false, false, new OffsetAndEpoch(0, Optional.of(1))) // 1
+    val uploadComplete1 = new TierSegmentUploadComplete(tpid, 0, objectId1, new OffsetAndEpoch(0, Optional.of(1))) // 2
+
+    // objects for uploading with old state offset, this should be fenced
+    val objectId2 = UUID.randomUUID
+    val uploadInitiate2 = new TierSegmentUploadInitiate(tpid, 0, objectId2, 10, 20, 100, 100, false, false, false, new OffsetAndEpoch(2, Optional.of(1))) // 5
+    val uploadComplete2 = new TierSegmentUploadComplete(tpid, 0, objectId2, new OffsetAndEpoch(2, Optional.of(1))) // 6
+
+    for (transition <- Seq(initLeader, uploadInitiate1, uploadComplete1)) {
+      val nextEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
+      val result = state.append(transition, nextEpoch)
+      assertEquals(AppendResult.ACCEPTED, result)
+    }
+    state.flush()
+
+    assertEquals(0L, state.startOffset().get())
+    assertEquals(10, state.endOffset())
+
+    val restorableStart = state.startOffset().orElse(-1L)
+    val restorableEnd = state.endOffset()
+    val restorableBytes = Files.readAllBytes(Paths.get(state.flushedPath()))
+
+    // append uploads that will be rolled back
+    assertEquals(AppendResult.ACCEPTED, state.append(uploadInitiate2, TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.ACCEPTED, state.append(uploadComplete2, TierTestUtils.nextTierTopicOffsetAndEpoch()))
+
+    assertEquals(0L, state.startOffset().get())
+    assertEquals(20, state.endOffset())
+
+    assertEquals(AppendResult.FAILED, state.append(new TierPartitionFence(tpid, UUID.randomUUID()), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+
+    val fenceOffset = TierTestUtils.nextTierTopicOffsetAndEpoch()
+    val recoveryMetadata = new TierPartitionForceRestore(tpid, UUID.randomUUID(), restorableStart, restorableEnd, fenceOffset, "hash")
+
+    // recover the state,
+    state.restoreState(recoveryMetadata, ByteBuffer.wrap(restorableBytes), TierPartitionStatus.ONLINE, TierTestUtils.nextTierTopicOffsetAndEpoch())
+
+    // rolled back
+    assertEquals(0L, state.startOffset().get())
+    assertEquals(10, state.endOffset())
+
+    // append a buffered write that was appended to the tier state topic after the restore metadata
+    assertEquals(AppendResult.RESTORE_FENCED, state.append(uploadInitiate2, TierTestUtils.nextTierTopicOffsetAndEpoch()))
+
+    assertEquals(0L, state.startOffset().get())
+    assertEquals(10, state.endOffset())
+  }
+
+  // Tests the case where a restore occurs and an upload must occur without a leader election
+  @Test
+  def testErrorStateRestoreUploadSameSegmentSameEpoch(): Unit = {
+    val initLeader = new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0) // 0
+    val objectId1 = UUID.randomUUID
+    val uploadInitiate1 = new TierSegmentUploadInitiate(tpid, 0, objectId1, 0, 10, 100, 100, false, false, false, new OffsetAndEpoch(1L, Optional.of(1))) // 1
+    val uploadComplete1 = new TierSegmentUploadComplete(tpid, 0, objectId1, new OffsetAndEpoch(1L, Optional.of(1))) // 2
+    val objectId2 = UUID.randomUUID
+    val uploadInitiate2 = new TierSegmentUploadInitiate(tpid, 0, objectId2, 10, 20, 100, 100, false, false, false, new OffsetAndEpoch(4, Optional.of(1))) // 5
+
+    for (transition <- Seq(initLeader, uploadInitiate1, uploadComplete1, uploadInitiate2)) {
+      val result = state.append(transition, TierTestUtils.nextTierTopicOffsetAndEpoch())
+      assertEquals(AppendResult.ACCEPTED, result)
+    }
+    state.flush()
+
+    assertEquals(0L, state.startOffset().get())
+    assertEquals(10, state.endOffset())
+    assertEquals("upload 2 should not be fenced yet", 0, state.fencedSegments().size())
+
+    val restorableStart = state.startOffset().orElse(-1L)
+    val restorableEnd = state.endOffset()
+    val restorableBytes = Files.readAllBytes(Paths.get(state.flushedPath()))
+
+    state.close()
+
+    val newDir = TestUtils.randomPartitionLogDir(TestUtils.tempDir())
+    val newState = factory.initState(newDir, tp, logConfig, logDirFailureChannel).asInstanceOf[FileTierPartitionState]
+    newState.setTopicId(tpid.topicId)
+    newState.beginCatchup()
+    newState.onCatchUpComplete()
+
+    val fenceMetadata = new TierPartitionFence(tpid, UUID.randomUUID())
+    val fenceOffset = TierTestUtils.nextTierTopicOffsetAndEpoch()
+    assertEquals(AppendResult.FAILED, newState.append(fenceMetadata, fenceOffset))
+
+    val recoveryMetadata = new TierPartitionForceRestore(tpid, UUID.randomUUID(), restorableStart, restorableEnd, fenceOffset, "hash")
+    // recover the state, including unfinished upload
+    assertEquals(RestoreResult.SUCCEEDED, newState.restoreState(recoveryMetadata, ByteBuffer.wrap(restorableBytes), TierPartitionStatus.ONLINE, TierTestUtils.nextTierTopicOffsetAndEpoch())) // offset 7
+
+    assertEquals(0L, newState.startOffset().get())
+    assertEquals(10, newState.endOffset())
+    assertEquals(TierTestUtils.currentOffsetAndEpoch(), newState.restoreOffsetAndEpoch())
+
+    // upload the same segment as upload 3, but with new object ID signifying a recovery
+    val objectId3 = UUID.randomUUID
+    val uploadInitiate2v2 = new TierSegmentUploadInitiate(tpid, 0, objectId3, 10, 20, 100, 100, false, false, false, new OffsetAndEpoch(7, Optional.of(1))) // 5
+    val uploadComplete2v2 = new TierSegmentUploadComplete(tpid, 0, objectId3, new OffsetAndEpoch(7, Optional.of(1))) // 6
+
+    // newly written objects should be accepted due to higher source offset and epoch and higher stateOffsetAndEpoch
+    for (transition <- Seq(uploadInitiate2v2, uploadComplete2v2)) {
+      val result = newState.append(transition, TierTestUtils.nextTierTopicOffsetAndEpoch())
+      assertEquals(AppendResult.ACCEPTED, result)
+    }
+
+    assertEquals("object 2 should be fenced after recovery", 1, newState.fencedSegments().size())
+    assertEquals("aborted upload before recovery should have been fenced", objectId2, newState.fencedSegments().iterator().next().objectId())
+    assertEquals(0, newState.tierEpoch())
+
+    // back to being in sync
+    assertEquals(Optional.of(0: Long), newState.startOffset())
+    assertEquals(20, newState.endOffset())
+    newState.flush()
+    newState.close()
+  }
+
+  // Tests the case where a restore occurs and an upload completes for the prior state
+  @Test
+  def testFenceContinuedUploadAfterRestore(): Unit = {
+    val initLeader = new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0) // 0
+    val objectId1 = UUID.randomUUID
+    val uploadInitiate1 = new TierSegmentUploadInitiate(tpid, 0, objectId1, 0, 10, 100, 100, false, false, false, new OffsetAndEpoch(1L, Optional.of(1))) // 1
+    val uploadComplete1 = new TierSegmentUploadComplete(tpid, 0, objectId1, new OffsetAndEpoch(1L, Optional.of(1))) // 2
+    val objectId2 = UUID.randomUUID
+    val uploadInitiate2 = new TierSegmentUploadInitiate(tpid, 0, objectId2, 10, 20, 100, 100, false, false, false, new OffsetAndEpoch(4, Optional.of(1))) // 3
+
+    for (transition <- Seq(initLeader, uploadInitiate1, uploadComplete1, uploadInitiate2)) {
+      val result = state.append(transition, TierTestUtils.nextTierTopicOffsetAndEpoch())
+      assertEquals(AppendResult.ACCEPTED, result)
+    }
+    state.flush()
+
+    assertEquals(0L, state.startOffset().get())
+    assertEquals(10, state.endOffset())
+    assertEquals("upload 2 should not be fenced yet", 0, state.fencedSegments().size())
+    val restorableStart = state.startOffset().orElse(-1L)
+    val restorableEnd = state.endOffset()
+    val restorableBytes = Files.readAllBytes(Paths.get(state.flushedPath()))
+    state.close()
+
+    // create a new state and apply all metadata to it
+    val newDir = TestUtils.randomPartitionLogDir(TestUtils.tempDir())
+    val newState = factory.initState(newDir, tp, logConfig, logDirFailureChannel).asInstanceOf[FileTierPartitionState]
+    newState.setTopicId(tpid.topicId)
+    newState.beginCatchup()
+    newState.onCatchUpComplete()
+
+    val fenceMetadata = new TierPartitionFence(tpid, UUID.randomUUID())
+    val fenceOffset = TierTestUtils.nextTierTopicOffsetAndEpoch()
+    assertEquals(AppendResult.FAILED, newState.append(fenceMetadata, fenceOffset))
+
+    val recoveryMetadata = new TierPartitionForceRestore(tpid, UUID.randomUUID(), restorableStart, restorableEnd, fenceOffset, "hash")
+    // recover the state, including unfinished upload
+    newState.restoreState(recoveryMetadata, ByteBuffer.wrap(restorableBytes), TierPartitionStatus.ONLINE, TierTestUtils.nextTierTopicOffsetAndEpoch()) // offset 4
+    assertEquals(0L, newState.startOffset().get())
+    assertEquals(10, newState.endOffset())
+    assertEquals(TierTestUtils.currentOffsetAndEpoch(), newState.restoreOffsetAndEpoch())
+
+    val uploadComplete2 = new TierSegmentUploadComplete(tpid, 0, objectId2, new OffsetAndEpoch(3, Optional.of(1))) // 5
+
+    // should be fenced due to restore epoch and offset
+    for (transition <- Seq(uploadComplete2)) {
+      val result = newState.append(transition, TierTestUtils.nextTierTopicOffsetAndEpoch())
+      assertEquals(AppendResult.RESTORE_FENCED, result)
+    }
+
+    // upload the same segment as upload 3, but with new object ID signifying a recovery
+    val objectId3 = UUID.randomUUID
+    val uploadInitiate2v2 = new TierSegmentUploadInitiate(tpid, 0, objectId3, 10, 20, 100, 100, false, false, false, new OffsetAndEpoch(7, Optional.of(1))) // 5
+    val uploadComplete2v2 = new TierSegmentUploadComplete(tpid, 0, objectId3, new OffsetAndEpoch(7, Optional.of(1))) // 6
+
+    // newly written objects should be accepted due to higher source offset and epoch and higher stateOffsetAndEpoch
+    for (transition <- Seq(uploadInitiate2v2, uploadComplete2v2)) {
+      val result = newState.append(transition, TierTestUtils.nextTierTopicOffsetAndEpoch())
+      assertEquals(AppendResult.ACCEPTED, result)
+    }
+
+    assertEquals("object 2 should be fenced after new upload", 1, newState.fencedSegments().size())
+    assertEquals("aborted upload before recovery should have been fenced", objectId2, newState.fencedSegments().iterator().next().objectId())
+    assertEquals(0, newState.tierEpoch())
+
+    // back to being in sync
+    assertEquals(Optional.of(0: Long), newState.startOffset())
+    assertEquals(20, newState.endOffset())
+    newState.flush()
+    newState.close()
+  }
+
+  // Tests a tier state restore that causes truncation/rollback of some metadata.
+  // The test then reapplies the same metadata with higher source offset and epoch
+  @Test
+  def testStateRestoreCausingTruncateAndReapply(): Unit = {
+    val initLeader = new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0) // 0
+    val objectId1 = UUID.randomUUID
+    val uploadInitiate1 = new TierSegmentUploadInitiate(tpid, 0, objectId1, 0, 10, 100, 100, false, false, false, new OffsetAndEpoch(1L, Optional.of(1))) // 1
+    val uploadComplete1 = new TierSegmentUploadComplete(tpid, 0, objectId1, new OffsetAndEpoch(1L, Optional.of(1))) // 2
+    val deleteInitiate1 = new TierSegmentDeleteInitiate(tpid, 0, objectId1, new OffsetAndEpoch(3L, Optional.of(1))) // 3
+    val deleteComplete1 = new TierSegmentDeleteComplete(tpid, 0, objectId1, new OffsetAndEpoch(3L, Optional.of(1))) // 4
+    val objectId2 = UUID.randomUUID
+    val uploadInitiate2 = new TierSegmentUploadInitiate(tpid, 0, objectId2, 10, 20, 100, 100, false, false, false, new OffsetAndEpoch(4, Optional.of(1))) // 5
+    val uploadComplete2 = new TierSegmentUploadComplete(tpid, 0, objectId2, new OffsetAndEpoch(4, Optional.of(1))) // 6
+    val deleteInitiate2 = new TierSegmentDeleteInitiate(tpid, 0, objectId2, new OffsetAndEpoch(6, Optional.of(1))) // 7
+    val deleteComplete2 = new TierSegmentDeleteComplete(tpid, 0, objectId2, new OffsetAndEpoch(6, Optional.of(1))) // 8
+
+    for (transition <- Seq(initLeader, uploadInitiate1, uploadComplete1, uploadInitiate2)) {
+      val result = state.append(transition, TierTestUtils.nextTierTopicOffsetAndEpoch())
+      assertEquals(AppendResult.ACCEPTED, result)
+    }
+    state.flush()
+
+    assertEquals(0L, state.startOffset().get())
+    assertEquals(10, state.endOffset())
+
+    val restorableStart = state.startOffset().orElse(-1L)
+    val restorableEnd = state.endOffset()
+    val restorableBytes = Files.readAllBytes(Paths.get(state.flushedPath()))
+
+    state.close()
+
+    // create a new state and apply all metadata to it
+    val newDir = TestUtils.randomPartitionLogDir(TestUtils.tempDir())
+    val newState = factory.initState(newDir, tp, logConfig, logDirFailureChannel).asInstanceOf[FileTierPartitionState]
+    newState.setTopicId(tpid.topicId)
+    newState.beginCatchup()
+    newState.onCatchUpComplete()
+
+    for (transition <- Seq(initLeader, uploadInitiate1, uploadComplete1, uploadInitiate2, uploadComplete2, deleteInitiate1, deleteComplete1, deleteInitiate2, deleteComplete2)) {
+      val result = newState.append(transition, TierTestUtils.nextTierTopicOffsetAndEpoch())
+      assertEquals(AppendResult.ACCEPTED, result)
+    }
+    newState.flush()
+    assertFalse(newState.startOffset().isPresent)
+    assertEquals(20, newState.endOffset())
+
+    val fenceMetadata = new TierPartitionFence(tpid, UUID.randomUUID())
+    val fenceOffset = TierTestUtils.nextTierTopicOffsetAndEpoch()
+    assertEquals(AppendResult.FAILED, newState.append(fenceMetadata, fenceOffset))
+
+    val recoveryMetadata = new TierPartitionForceRestore(tpid, UUID.randomUUID(), restorableStart, restorableEnd, fenceOffset, "hash")
+    // recover the state
+    newState.restoreState(recoveryMetadata, ByteBuffer.wrap(restorableBytes), TierPartitionStatus.ONLINE, TierTestUtils.nextTierTopicOffsetAndEpoch())
+    assertEquals(0L, newState.startOffset().get())
+    assertEquals(10, newState.endOffset())
+    assertEquals(TierTestUtils.currentOffsetAndEpoch(), newState.restoreOffsetAndEpoch())
+
+    // should be fenced due to restore epoch and offset
+    for (transition <- Seq(uploadComplete2, deleteInitiate1, deleteComplete1, deleteInitiate2, deleteComplete2)) {
+      val result = newState.append(transition, TierTestUtils.nextTierTopicOffsetAndEpoch())
+      assertEquals(AppendResult.RESTORE_FENCED, result)
+    }
+
+    // newly staged uploads and deletes after recovery
+    val objectId3 = UUID.randomUUID
+    val afterRestoreStateOffset = newState.lastLocalMaterializedSrcOffsetAndEpoch()
+    val deleteInitiate1redo = new TierSegmentDeleteInitiate(tpid, 0, objectId1, afterRestoreStateOffset)
+    val deleteComplete1redo = new TierSegmentDeleteComplete(tpid, 0, objectId1, afterRestoreStateOffset)
+    val uploadInitiate3 = new TierSegmentUploadInitiate(tpid, 0, objectId3, 10, 20, 100, 100, false, false, false,
+      new OffsetAndEpoch(afterRestoreStateOffset.offset() + 2, afterRestoreStateOffset.epoch()))
+    val uploadComplete3 = new TierSegmentUploadComplete(tpid, 0, objectId3, new OffsetAndEpoch(afterRestoreStateOffset.offset() + 2, afterRestoreStateOffset.epoch()))
+    val deleteInitiate3 = new TierSegmentDeleteInitiate(tpid, 0, objectId3, new OffsetAndEpoch(afterRestoreStateOffset.offset() + 4, afterRestoreStateOffset.epoch()))
+    val deleteComplete3 = new TierSegmentDeleteComplete(tpid, 0, objectId3, new OffsetAndEpoch(afterRestoreStateOffset.offset() + 4, afterRestoreStateOffset.epoch()))
+
+    // should be accepted due to being created after recovery
+    for (transition <- Seq(deleteInitiate1redo, deleteComplete1redo, uploadInitiate3, uploadComplete3, deleteInitiate3, deleteComplete3)) {
+      val result = newState.append(transition, TierTestUtils.nextTierTopicOffsetAndEpoch())
+      assertEquals(AppendResult.ACCEPTED, result)
+    }
+
+    // back to being in sync
+    assertFalse(newState.startOffset().isPresent)
+    assertEquals(20, newState.endOffset())
+    newState.flush()
+    newState.close()
+  }
+
+  // tests migration of the header upon recovery of a tier state with an earlier version number
+  @Test
+  def testStateRestoreMigrateVersion(): Unit = {
+    val originalVersion = 5
+    // open with an older version number
+    val state1 = new FileTierPartitionState(dir, logDirFailureChannel, tp, true, originalVersion.byteValue)
+    state1.setTopicId(tpid.topicId)
+    state1.beginCatchup()
+    state1.onCatchUpComplete()
+    val initLeader = new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0) // 0
+    assertEquals(AppendResult.ACCEPTED, state1.append(initLeader, TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    val fenceMetadata = new TierPartitionFence(tpid, UUID.randomUUID())
+    val fenceOffset = TierTestUtils.nextTierTopicOffsetAndEpoch()
+    assertEquals(AppendResult.FAILED, state1.append(fenceMetadata, fenceOffset))
+    state1.flush()
+    val restorableStart = state.startOffset().orElse(-1L)
+    val restorableEnd = state.endOffset()
+    val restorableBytes = Files.readAllBytes(Paths.get(state.flushedPath()))
+    state1.close()
+    val recoveryMetadata = new TierPartitionForceRestore(tpid, UUID.randomUUID(), restorableStart, restorableEnd, fenceOffset, "hash")
+    // test that it gets migrated to the latest version number (no version number supplied)
+    val state2 = new FileTierPartitionState(dir, logDirFailureChannel, tp, true)
+    // should have migrated to the latest version on open
+    assertNotEquals(originalVersion, state2.version())
+    // should have retained the latest version after restore
+    assertEquals(RestoreResult.SUCCEEDED, state2.restoreState(recoveryMetadata, ByteBuffer.wrap(restorableBytes), TierPartitionStatus.ONLINE, TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertNotEquals(originalVersion, state2.version())
+    state2.close()
+  }
+
+  @Test
+  def testIdempotencySimultaneousDelete(): Unit = {
+    val initLeader = new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0) // 0
+    val objectId1 = UUID.randomUUID
+    val uploadInitiate1 = new TierSegmentUploadInitiate(tpid, 0, objectId1, 0, 10, 100, 100, false, false, false, new OffsetAndEpoch(0L, Optional.of(1))) // 1
+    val uploadComplete1 = new TierSegmentUploadComplete(tpid, 0, objectId1, new OffsetAndEpoch(0L, Optional.of(1))) // 2
+    val deleteInitiate1 = new TierSegmentDeleteInitiate(tpid, 0, objectId1, new OffsetAndEpoch(2L, Optional.of(1))) // 3
+    val deleteComplete1 = new TierSegmentDeleteComplete(tpid, 0, objectId1, new OffsetAndEpoch(2L, Optional.of(1))) // 4
+    val objectId2 = UUID.randomUUID
+    val uploadInitiate2 = new TierSegmentUploadInitiate(tpid, 0, objectId2, 10, 20, 100, 100, false, false, false, new OffsetAndEpoch(4L, Optional.of(1))) // 5
+    val uploadComplete2 = new TierSegmentUploadComplete(tpid, 0, objectId2, new OffsetAndEpoch(4L, Optional.of(1))) // 6
+    val deleteInitiate2 = new TierSegmentDeleteInitiate(tpid, 0, objectId2, new OffsetAndEpoch(6L, Optional.of(1))) // 7
+    val deleteComplete2 = new TierSegmentDeleteComplete(tpid, 0, objectId2, new OffsetAndEpoch(6L, Optional.of(1))) // 8
 
     testDuplicateAppend(initLeader, Seq.empty, AppendResult.ACCEPTED)
 
@@ -1412,20 +1804,20 @@ class FileTierPartitionStateTest {
 
   @Test
   def testIdempotentencyFencing(): Unit = {
-    val initLeader1 = new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0)
+    val initLeader1 = new TierTopicInitLeader(tpid, 0, java.util.UUID.randomUUID, 0) // 0
     val objectId1 = UUID.randomUUID
-    val uploadInitiate1 = new TierSegmentUploadInitiate(tpid, 0, objectId1, 0, 10, 100, 100, false, false, false)
-    val uploadComplete1 = new TierSegmentUploadComplete(tpid, 0, objectId1)
-    val deleteInitiate1 = new TierSegmentDeleteInitiate(tpid, 0, objectId1)
-    val deleteComplete1 = new TierSegmentDeleteComplete(tpid, 0, objectId1)
-    val initLeader2 = new TierTopicInitLeader(tpid, 1, java.util.UUID.randomUUID, 0)
+    val uploadInitiate1 = new TierSegmentUploadInitiate(tpid, 0, objectId1, 0, 10, 100, 100, false, false, false,  new OffsetAndEpoch(0L, Optional.of(1))) // 1
+    val uploadComplete1 = new TierSegmentUploadComplete(tpid, 0, objectId1,  new OffsetAndEpoch(0L, Optional.of(1))) // 2
+    val deleteInitiate1 = new TierSegmentDeleteInitiate(tpid, 0, objectId1,  new OffsetAndEpoch(2L, Optional.of(1))) // 3
+    val deleteComplete1 = new TierSegmentDeleteComplete(tpid, 0, objectId1,  new OffsetAndEpoch(2L, Optional.of(1))) // 4
+    val initLeader2 = new TierTopicInitLeader(tpid, 1, java.util.UUID.randomUUID, 0) // 5
     val fencedUploadId = UUID.randomUUID
-    val fencedUploadInitiate = new TierSegmentUploadInitiate(tpid, 0, fencedUploadId, 10, 20, 100, 100, false, false, false)
+    val fencedUploadInitiate = new TierSegmentUploadInitiate(tpid, 0, fencedUploadId, 10, 20, 100, 100, false, false, false, new OffsetAndEpoch(5L, Optional.of(1))) // 6
     val objectId2 = UUID.randomUUID
-    val uploadInitiate2 = new TierSegmentUploadInitiate(tpid, 1, objectId2, 10, 20, 100, 100, false, false, false)
-    val uploadComplete2 = new TierSegmentUploadComplete(tpid, 1, objectId2)
-    val deleteInitiate2 = new TierSegmentDeleteInitiate(tpid, 1, objectId2)
-    val deleteComplete2 = new TierSegmentDeleteComplete(tpid, 1, objectId2)
+    val uploadInitiate2 = new TierSegmentUploadInitiate(tpid, 1, objectId2, 10, 20, 100, 100, false, false, false, new OffsetAndEpoch(6L, Optional.of(1))) // 7
+    val uploadComplete2 = new TierSegmentUploadComplete(tpid, 1, objectId2, new OffsetAndEpoch(6L, Optional.of(1))) // 8
+    val deleteInitiate2 = new TierSegmentDeleteInitiate(tpid, 1, objectId2, new OffsetAndEpoch(8L, Optional.of(1))) // 9
+    val deleteComplete2 = new TierSegmentDeleteComplete(tpid, 1, objectId2, new OffsetAndEpoch(8L, Optional.of(1))) // 10
 
     testDuplicateAppend(initLeader1, Seq.empty, AppendResult.ACCEPTED)
 
@@ -1449,18 +1841,15 @@ class FileTierPartitionStateTest {
   @Test
   def testMaterializationListenerCompletion(): Unit = {
     val epoch = 3
-    val baseOffsets = new util.TreeSet[Long]()
+    val baseOffsets = new TreeSet[Long]()
     val numOffsetsInSegment = 49
     state.append(new TierTopicInitLeader(tpid, epoch, UUID.randomUUID, 0), TierTestUtils.nextTierTopicOffsetAndEpoch())
 
     // upload few segments: [0-49], [50-99], [100-149], [150-199]
     var baseOffset = 0
     for (_ <- 0 to 3) {
-      val objectId = UUID.randomUUID
       val endOffset = baseOffset + numOffsetsInSegment
-
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId, baseOffset, endOffset, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
-      assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+      uploadInitateAndComplete(epoch, UUID.randomUUID(), baseOffset, endOffset, 100)
 
       baseOffsets.add(baseOffset)
       baseOffset = endOffset + 1
@@ -1468,7 +1857,8 @@ class FileTierPartitionStateTest {
 
     // initiate upload for segment [200-249]
     val lastObjectId = UUID.randomUUID
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, lastObjectId, baseOffset, baseOffset + 49, 100, 100, false, false, false), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    val lastObjectStateOffset = currentStateOffset()
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, lastObjectId, baseOffset, baseOffset + 49, 100, 100, false, false, false, lastObjectStateOffset), TierTestUtils.nextTierTopicOffsetAndEpoch()))
     assertEquals(baseOffsets.last + numOffsetsInSegment, state.endOffset)
     assertEquals(-1, state.committedEndOffset)
 
@@ -1486,7 +1876,7 @@ class FileTierPartitionStateTest {
     assertFalse(promise.isDone)
 
     // complete upload for segment [200-249]; this should also complete the materialization listener
-    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, lastObjectId), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, lastObjectId, lastObjectStateOffset), TierTestUtils.nextTierTopicOffsetAndEpoch()))
 
     // materialization listener must now be completed and the state file should have been flushed
     assertTrue(promise.isDone)
@@ -1523,11 +1913,26 @@ class FileTierPartitionStateTest {
     }
   }
 
+  private def currentStateOffset(): OffsetAndEpoch = {
+    state.lastLocalMaterializedSrcOffsetAndEpoch()
+  }
+
+  private def uploadInitateAndComplete(epoch: Int, objectId: UUID, startOffset: Long, endOffset: Long, size: Int): Unit = {
+    val stateOffset = state.lastLocalMaterializedSrcOffsetAndEpoch()
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadInitiate(tpid, epoch, objectId, startOffset, endOffset, 100, size, false, false, false, stateOffset), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, objectId, stateOffset), TierTestUtils.nextTierTopicOffsetAndEpoch()))
+  }
+
   private def testDuplicateAppend(metadata: AbstractTierMetadata, previousTransitions: Seq[AbstractTierMetadata], expected: AppendResult): Unit = {
-    assertEquals(metadata.toString, expected, state.append(metadata, TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    testDuplicateAppend(state, metadata, previousTransitions, expected)
+  }
+
+  private def testDuplicateAppend(newState: TierPartitionState, metadata: AbstractTierMetadata, previousTransitions: Seq[AbstractTierMetadata], expected: AppendResult): Unit = {
+    val nextOffsetAndEpoch = TierTestUtils.nextTierTopicOffsetAndEpoch()
+    assertEquals(metadata.toString, expected, newState.append(metadata, nextOffsetAndEpoch))
 
     previousTransitions.foreach { metadata =>
-      val result = state.append(metadata, TierTestUtils.nextTierTopicOffsetAndEpoch())
+      val result = newState.append(metadata, TierTestUtils.nextTierTopicOffsetAndEpoch())
       assertTrue(Set(AppendResult.FENCED, AppendResult.ACCEPTED)(result))
     }
 
@@ -1536,7 +1941,7 @@ class FileTierPartitionStateTest {
     val size = state.totalSize
 
     // append duplicate
-    assertEquals(expected, state.append(metadata, TierTestUtils.nextTierTopicOffsetAndEpoch()))
+    assertEquals(expected, newState.append(metadata, TierTestUtils.nextTierTopicOffsetAndEpoch()))
 
     // assert the tier partition state does not change after a duplicate append
     assertEquals(segments.asScala.toList, state.segments.asScala.toList)

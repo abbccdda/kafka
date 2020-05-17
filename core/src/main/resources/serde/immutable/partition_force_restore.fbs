@@ -16,7 +16,7 @@ table PartitionForceRestore {
   startOffset: long (id: 2); // start offset of the state to restore
   endOffset: long (id: 3); // end offset of the state to restore
   contentHash: string (id: 4); // hash of the snapshot contained in object storage
-  stateValidityOffsetAndEpoch: OffsetAndEpoch (id: 5); // only restore this snapshot over a TierPartitionState with a lower restore offset
+  stateOffsetAndEpoch: OffsetAndEpoch (id: 5); // only restore this snapshot over a TierPartitionState with a lower restore offset
 }
 
 root_type PartitionForceRestore;

@@ -17,6 +17,7 @@ import kafka.tier.serdes.SegmentDeleteComplete;
 import kafka.tier.serdes.SegmentDeleteInitiate;
 import kafka.tier.serdes.SegmentUploadComplete;
 import kafka.tier.serdes.SegmentUploadInitiate;
+import kafka.tier.state.OffsetAndEpoch;
 import kafka.utils.CoreUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -166,12 +167,30 @@ public abstract class AbstractTierMetadata {
     public abstract UUID messageId();
 
     /**
+     * The lastMaterializedOffsetAndEpoch for the tier partition state at the time this metadata was generated.
+     * This is used to ensure that the metadata is intended to be applied to this state, and that
+     * it has not undergone a restore.
+     * This metadata may be successfully applied to a tier state with
+     * restoreOffsetAndEpoch <= stateOffsetAndEpoch.
+     * OffsetAndEpoch.EMPTY indicates that the metadata is an older version that does not contain
+     * this field, or that it may be applied without a check against restoreOffsetAndEpoch.
+     * @return OffsetAndEpoch
+     */
+    public abstract OffsetAndEpoch stateOffsetAndEpoch();
+
+    /**
      * Encode messageId with Base64
      * @return string representing messageId encoded in Base64
      */
     public String messageIdAsBase64() {
         return CoreUtils.uuidToBase64(messageId());
     }
+
+    /**
+     * Test method for validating initial buffer size allocation
+     * @return the expected size of a the buffer once fully written
+     */
+    public abstract int expectedSizeLatestVersion();
 
     @Override
     public boolean equals(Object o) {

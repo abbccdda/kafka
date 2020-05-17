@@ -120,6 +120,7 @@
       <allow class="joptsimple.OptionParser" />
       <allow class="joptsimple.OptionSet" />
       <allow class="joptsimple.OptionSpec" />
+      <allow pkg="kafka.tier.tools.common" />
       <allow pkg="net.sourceforge.argparse4j" />
       <allow pkg="net.sourceforge.argparse4j.impl" />
       <allow pkg="net.sourceforge.argparse4j.inf" />

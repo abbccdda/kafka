@@ -33,6 +33,7 @@ import org.apache.kafka.common.record.FileRecords;
 import org.apache.kafka.common.record.MemoryRecords;
 import org.apache.kafka.common.record.MemoryRecordsBuilder;
 import org.apache.kafka.common.record.TimestampType;
+import org.apache.kafka.common.utils.CloseableIterator;
 import org.apache.kafka.common.utils.Time;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
@@ -48,7 +49,6 @@ import org.openjdk.jmh.annotations.TearDown;
 import org.openjdk.jmh.annotations.Warmup;
 import scala.Function0;
 import scala.Option;
-import scala.collection.Iterator;
 import scala.collection.JavaConverters;
 import scala.runtime.AbstractFunction0;
 
@@ -223,20 +223,26 @@ public class MergedLogTierBenchmark {
     @Benchmark
     @OutputTimeUnit(TimeUnit.NANOSECONDS)
     public int tieredLogSegmentsFullIteration() {
-        return mergedLog.tieredLogSegments().size();
+        int size = 0;
+        try (CloseableIterator<TierLogSegment> iterator = mergedLog.tieredLogSegments()) {
+            while (iterator.hasNext())
+                size += iterator.next().size();
+        }
+        return size;
     }
 
     @Benchmark
     @OutputTimeUnit(TimeUnit.NANOSECONDS)
     public int tieredLogSegmentsPartialIteration() {
         int partialSize = 0;
-        Iterator<TierLogSegment> iterator = mergedLog.tieredLogSegments();
-        iterator.hasNext();
-        partialSize += iterator.next().size();
-        iterator.hasNext();
-        partialSize += iterator.next().size();
-        iterator.hasNext();
-        partialSize += iterator.next().size();
+        try (CloseableIterator<TierLogSegment> iterator = mergedLog.tieredLogSegments()) {
+            iterator.hasNext();
+            partialSize += iterator.next().size();
+            iterator.hasNext();
+            partialSize += iterator.next().size();
+            iterator.hasNext();
+            partialSize += iterator.next().size();
+        }
         return partialSize;
     }
 }

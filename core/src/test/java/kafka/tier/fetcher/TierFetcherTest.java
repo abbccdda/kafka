@@ -855,7 +855,7 @@ public class TierFetcherTest {
         }
 
         @Override
-        public TierObjectStoreResponse getObject(ObjectMetadata tierObjectMetadata,
+        public TierObjectStoreResponse getObject(ObjectStoreMetadata objectMetadata,
                                                  FileType fileType,
                                                  Integer byteOffset,
                                                  Integer byteOffsetEnd) throws IOException {
@@ -895,6 +895,13 @@ public class TierFetcherTest {
                                Optional<ByteBuffer> transactionIndexData,
                                Optional<File> epochState) {
             throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void putObject(ObjectStoreMetadata objectMetadata,
+                              File file,
+                              FileType fileType) throws IOException {
+            throw new IOException("");
         }
 
         @Override

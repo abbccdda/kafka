@@ -9,6 +9,7 @@ import java.nio.ByteBuffer
 import java.nio.file.NoSuchFileException
 import java.util.Collections
 import java.util.concurrent.{CompletableFuture, TimeUnit}
+import java.util.Optional
 import java.util.UUID
 
 import kafka.cluster.Partition
@@ -23,6 +24,7 @@ import kafka.tier.state.TierPartitionState
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.TierObjectStore
 import kafka.tier.TopicIdPartition
+import kafka.tier.state.OffsetAndEpoch
 import kafka.tier.tasks.CompletableFutureUtil
 import kafka.tier.tasks.archive.ArchiveTask.SegmentDeletedException
 import kafka.tier.topic.TierTopicManager
@@ -128,7 +130,8 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
       logSegment.size,
       true,
       true,
-      true)
+      true,
+      new OffsetAndEpoch(0L, Optional.empty()))
 
     val epochStateSize = 1000000000L
     val producerStateSize = 2000000000L
@@ -185,7 +188,8 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
       logSegment.size,
       true,
       true,
-      true)
+      true,
+      new OffsetAndEpoch(0L, Optional.empty()))
 
     val afterUpload = AfterUpload(0, uploadInitiate, testUploadSize)
 
@@ -247,6 +251,8 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
       .thenReturn(leaderEpoch)
       .getMock[TierPartitionState]()
 
+    when(tierPartitionState.lastLocalMaterializedSrcOffsetAndEpoch).thenReturn(new OffsetAndEpoch(0L, Optional.empty()))
+
     val emptyLog = mock(classOf[AbstractLog])
       when(emptyLog.tierableLogSegments)
         .thenReturn(Collections.emptyList().asScala)
@@ -281,6 +287,7 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
   def testTierSegmentWithoutLeaderEpochState(): Unit = {
     val leaderEpoch = 0
     val tierPartitionState = mockTierPartitionState(leaderEpoch)
+    when(tierPartitionState.lastLocalMaterializedSrcOffsetAndEpoch).thenReturn(new OffsetAndEpoch(0L, Optional.empty()))
 
     val logSegment = mockLogSegment(tmpFile)
 
@@ -315,6 +322,7 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
   def testTierSegmentWithLeaderEpochState(): Unit = {
     val leaderEpoch = 0
     val tierPartitionState = mockTierPartitionState(leaderEpoch)
+    when(tierPartitionState.lastLocalMaterializedSrcOffsetAndEpoch).thenReturn(new OffsetAndEpoch(0L, Optional.empty()))
 
     val logSegment = mockLogSegment(tmpFile)
 
@@ -440,6 +448,7 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
 
     when(log.tierPartitionState).thenReturn(tierPartitionState)
     when(tierPartitionState.tierEpoch).thenReturn(leaderEpoch)
+    when(tierPartitionState.lastLocalMaterializedSrcOffsetAndEpoch()).thenReturn(new OffsetAndEpoch(100L, Optional.of(0)))
     when(replicaManager.getLog(topicIdPartition.topicPartition)).thenReturn(Some(log))
     when(replicaManager.getPartitionOrError(topicIdPartition.topicPartition(), expectLeader = true)).thenReturn(Right(partition))
     when(partition.getIsUncleanLeader).thenReturn(uncleanLeader)
@@ -466,6 +475,7 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
   private def testExceptionHandlingDuringInitiateUpload(e: Exception): Future[ArchiveTaskState] = {
     val leaderEpoch = 0
     val tierPartitionState = mock(classOf[TierPartitionState])
+    when(tierPartitionState.lastLocalMaterializedSrcOffsetAndEpoch).thenReturn(new OffsetAndEpoch(Long.MaxValue, Optional.empty()))
     val logSegment = mockLogSegment(tmpFile)
     val partition = mock(classOf[Partition])
     val log = mockAbstractLog(logSegment)
@@ -514,7 +524,8 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
       logSegment.size,
       false,
       false,
-      false)
+      false,
+      new OffsetAndEpoch(0L, Optional.empty()))
 
     val uploadableSegment = UploadableSegment(log, logSegment, logSegment.readNextOffset, None, None, None)
     val upload = Upload(leaderEpoch, uploadInitiate, uploadableSegment)

@@ -3,12 +3,14 @@ package kafka.server
 import java.util.Properties
 
 import kafka.log.{LogSegment, TierLogSegment}
+import kafka.log.AbstractLog
 import kafka.server.epoch.EpochEntry
 import kafka.utils.TestUtils
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.{ConfluentTopicConfig, TopicConfig}
 import org.junit.Assert.assertEquals
 import org.junit.{Before, Test}
+import scala.jdk.CollectionConverters._
 
 import scala.collection.mutable
 
@@ -61,10 +63,10 @@ class TieredPartitionRecoveryTest extends BaseRequestTest {
     val log = replica1.replicaManager.getLog(topicPartition).get
     TestUtils.waitUntilTrue(() =>
       log.logEndOffset == numMessages &&
-      log.tieredLogSegments.size >= log.numberOfSegments - 1,
+        tierLogSegments(log).size >= log.numberOfSegments - 1,
       "Timeout waiting for all messages to be written", 120000)
     val expectedLogStartOffset = log.logStartOffset
-    val lastTieredOffset = log.tieredLogSegments.toList.last.endOffset
+    val lastTieredOffset = tierLogSegments(log).last.endOffset
     // shutdown leader, and then start the follower which will become an unclean leader.
     replica1.shutdown()
     replica2.startup()
@@ -94,10 +96,10 @@ class TieredPartitionRecoveryTest extends BaseRequestTest {
     val log = replica1.replicaManager.getLog(topicPartition).get
     TestUtils.waitUntilTrue(() =>
       (log.logEndOffset == 2 * numMessages) &&
-      log.tieredLogSegments.size >= log.numberOfSegments - 1,
+        tierLogSegments(log).size >= log.numberOfSegments - 1,
       "Timeout waiting for some segments to tier", 120000)
-    val firstTieredOffset = log.tieredLogSegments.toList.head.startOffset
-    val lastTieredOffset = log.tieredLogSegments.toList.last.endOffset
+    val firstTieredOffset = tierLogSegments(log).head.startOffset
+    val lastTieredOffset = tierLogSegments(log).last.endOffset
     // shutdown leader, and then start the follower which will become an unclean leader.
     replica1.shutdown()
     replica2.startup()
@@ -175,7 +177,7 @@ class TieredPartitionRecoveryTest extends BaseRequestTest {
     var sizeInBytes = 0
     val offsetAndSize = mutable.SortedSet[(Long, Int)]()
     log.localLogSegments.iterator.foreach((segment: LogSegment) => { offsetAndSize.add((segment.baseOffset, segment.size)) })
-    log.tieredLogSegments.toList.iterator.foreach((segment: TierLogSegment) => { offsetAndSize.add((segment.baseOffset, segment.size)) })
+    tierLogSegments(log).iterator.foreach((segment: TierLogSegment) => { offsetAndSize.add((segment.baseOffset, segment.size)) })
     var newStartOffset = log.logEndOffset
     val it = offsetAndSize.toList.reverseIterator
     while (sizeInBytes < 20480 && it.hasNext) {
@@ -185,11 +187,11 @@ class TieredPartitionRecoveryTest extends BaseRequestTest {
     }
     TestUtils.waitUntilTrue(() =>
       log.logStartOffset == newStartOffset &&
-      log.tieredLogSegments.toList.head.baseOffset == newStartOffset,
+      tierLogSegments(log).head.baseOffset == newStartOffset,
       s"Timed out waiting for retention to complete", 120000)
-    val firstTieredOffset = log.tieredLogSegments.toList.head.baseOffset
+    val firstTieredOffset = tierLogSegments(log).head.baseOffset
     val expectedLogEndOffset = log.logEndOffset
-    val lastTieredOffset = log.tieredLogSegments.toList.last.endOffset
+    val lastTieredOffset = tierLogSegments(log).last.endOffset
     // shutdown leader and then startup follower which will be elected as an unclean leader
     replica1.shutdown()
     replica2.startup()
@@ -229,7 +231,7 @@ class TieredPartitionRecoveryTest extends BaseRequestTest {
     editedEpochEntries.foreach(entry => followerLog.leaderEpochCache.get.assign(entry.epoch, entry.startOffset))
     val leaderLog = replica2.replicaManager.getLog(topicPartition).get
     val expectedLogStartOffset = leaderLog.logStartOffset
-    val lastTieredOffset = leaderLog.tieredLogSegments.toList.last.endOffset
+    val lastTieredOffset = tierLogSegments(leaderLog).last.endOffset
     // shutdown follower and wait for the ISR to shrink
     replica1.shutdown()
     waitForIsrToChangeTo(leader = replica2, Set(replica2Id))
@@ -300,6 +302,15 @@ class TieredPartitionRecoveryTest extends BaseRequestTest {
     assertEquals("Post recovery, LocalLogEndOffset does not match last tiered segment", expectedLogEndOffset, log_2.localLogEndOffset)
   }
 
+  private def tierLogSegments(log: AbstractLog): List[TierLogSegment] = {
+    val iterator = log.tieredLogSegments
+    try {
+      iterator.asScala.toList
+    } finally {
+      iterator.close()
+    }
+  }
+
   private def createTestTopic(props: Properties): (Int, KafkaServer, Int, KafkaServer) = {
     val partitionToLeaderMap = createTopic(topicName, 1, 2, props)
     val leaderId = partitionToLeaderMap(topicPartition.partition())
@@ -317,7 +328,7 @@ class TieredPartitionRecoveryTest extends BaseRequestTest {
     TestUtils.waitUntilTrue(() =>
       leaderLog.logEndOffset == currentEndOffset + numMessages &&
         leaderLog.logEndOffset == followerLog.logEndOffset &&
-        leaderLog.tieredLogSegments.size >= leaderLog.numberOfSegments - 1,
+        tierLogSegments(leaderLog).size >= leaderLog.numberOfSegments - 1,
       "Timeout waiting for all messages to be written, synced and tiered", 120000)
   }
 

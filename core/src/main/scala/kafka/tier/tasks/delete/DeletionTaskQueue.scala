@@ -9,7 +9,8 @@ import kafka.server.ReplicaManager
 import kafka.tier.TopicIdPartition
 import kafka.tier.fetcher.CancellationContext
 import kafka.tier.tasks._
-import kafka.tier.tasks.delete.DeletionTask.{CollectDeletableSegments, DeletedPartitionMetadata, DeleteAsLeaderMetadata}
+import kafka.tier.tasks.delete.DeletionTask.{CollectDeletableSegments, DeleteAsLeaderMetadata, DeletedPartitionMetadata}
+import kafka.tier.tasks.delete.DeletionTask.FailedState
 import org.apache.kafka.common.utils.Time
 
 private[delete] class DeletionTaskQueue(ctx: CancellationContext,
@@ -38,6 +39,8 @@ private[delete] class DeletionTaskQueue(ctx: CancellationContext,
     task.state match {
       case _: CollectDeletableSegments =>
         task.lastProcessedMs.getOrElse(0L)
+
+      case _: FailedState => -2L
 
       case _ => -1L
     }

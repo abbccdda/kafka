@@ -46,6 +46,7 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
 
     private final TierTopicManagerConfig config;
     private final Supplier<Producer<byte[], byte[]>> producerSupplier;
+    private final Supplier<AdminZkClient> adminZkClientSupplier;
     private final TierTopic tierTopic;
     private final TierTopicConsumer tierTopicConsumer;
     private final AtomicBoolean ready = new AtomicBoolean(false);
@@ -69,10 +70,11 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
         if (config.logDirs.size() > 1)
             throw new UnsupportedOperationException("Tiered storage does not support multiple log directories");
 
+        this.tierTopic = new TierTopic(config.tierNamespace);
         this.config = config;
         this.tierTopicConsumer = tierTopicConsumer;
-        this.tierTopic = new TierTopic(config.tierNamespace, adminZkClientSupplier);
         this.producerSupplier = producerSupplier;
+        this.adminZkClientSupplier = adminZkClientSupplier;
     }
 
     /**
@@ -183,7 +185,9 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
 
         // ensure tier topic is created; create one if not
         try {
-            tierTopic.ensureTopic(config.configuredNumPartitions, config.configuredReplicationFactor);
+            tierTopic.initialize(adminZkClientSupplier.get(),
+                    config.configuredNumPartitions,
+                    config.configuredReplicationFactor);
         } catch (Exception e) {
             log.info("Caught exception when ensuring tier topic is created. Will retry.", e);
             return false;

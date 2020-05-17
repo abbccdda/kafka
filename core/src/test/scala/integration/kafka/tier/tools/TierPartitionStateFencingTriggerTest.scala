@@ -5,11 +5,11 @@
 package kafka.tier.tools
 
 import java.io.{File, PrintWriter}
+import java.nio.ByteBuffer
 import java.util.Collections
 import java.util.HashMap
 import java.util.Optional
 import java.util.UUID
-import java.util.function.Supplier
 
 import kafka.api.IntegrationTestHarness
 import kafka.log.Log
@@ -22,6 +22,9 @@ import kafka.tier.domain.TierPartitionFence
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.state.{FileTierPartitionState, OffsetAndEpoch, TierPartitionStatus}
 import kafka.tier.TopicIdPartition
+import kafka.tier.domain.TierPartitionForceRestore
+import kafka.tier.fetcher.TierStateFetcher
+import kafka.tier.state.TierPartitionState.RestoreResult
 import kafka.tier.tools.common.FenceEventInfo
 import kafka.tier.topic.TierTopicManagerConfig
 import kafka.tier.topic.TierTopic
@@ -31,7 +34,7 @@ import kafka.tier.topic.TierTopicManager
 import kafka.utils.{CoreUtils, TestUtils}
 import kafka.zk.AdminZkClient
 import org.apache.kafka.clients.producer.ProducerConfig
-import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.errors.TopicExistsException
 import org.apache.kafka.common.utils.Utils
 import org.junit.{After, Before, Test}
@@ -42,7 +45,6 @@ import org.scalatest.Assertions.assertThrows
 import scala.jdk.CollectionConverters._
 import scala.collection.mutable.ListBuffer
 import scala.collection.mutable.Map
-
 import net.sourceforge.argparse4j.inf.ArgumentParserException
 
 class TierPartitionStateFencingTriggerTest extends IntegrationTestHarness {
@@ -70,6 +72,9 @@ class TierPartitionStateFencingTriggerTest extends IntegrationTestHarness {
 
     tierTopicConsumer.register(topicIdPartition, new TierTopicConsumer.ClientCtx {
       override def process(metadata: AbstractTierMetadata, offsetAndEpoch: OffsetAndEpoch): AppendResult = tierPartitionState.append(metadata, offsetAndEpoch)
+      override def restoreState(metadata: TierPartitionForceRestore, targetState: ByteBuffer, targetStatus: TierPartitionStatus, sourceOffsetAndEpoch: OffsetAndEpoch): RestoreResult = {
+        tierPartitionState.restoreState(metadata, targetState, targetStatus, sourceOffsetAndEpoch)
+      }
       override def status(): TierPartitionStatus = tierPartitionState.status
       override def beginCatchup(): Unit = tierPartitionState.beginCatchup()
       override def completeCatchup(): Unit = tierPartitionState.onCatchUpComplete()
@@ -114,18 +119,16 @@ class TierPartitionStateFencingTriggerTest extends IntegrationTestHarness {
       tierTopicReplicationFactor,
       TierTopicAdmin.topicConfig)
     val adminZkClient = mock(classOf[AdminZkClient])
-    val adminClientSupplier = new Supplier[AdminZkClient] {
-      override def get(): AdminZkClient = adminZkClient
-    }
-    val tierTopic = new TierTopic(tierTopicNamespace, adminClientSupplier)
-    when(adminZkClient.createTopic(tierTopic.topicName(),
+    val tierTopic = new TierTopic(tierTopicNamespace)
+    when(adminZkClient.createTopic(
+      tierTopic.topicName(),
         numTierTopicPartitions.asInstanceOf[Int],
         Defaults.TierMetadataReplicationFactor,
         TierTopicAdmin.topicConfig))
       .thenThrow(new TopicExistsException("topic exists"))
     when(adminZkClient.numPartitions(Set(tierTopic.topicName())))
       .thenReturn(Map(tierTopic.topicName() -> numTierTopicPartitions.asInstanceOf[Int]))
-    tierTopic.ensureTopic(numTierTopicPartitions, Defaults.TierMetadataReplicationFactor)
+    tierTopic.initialize(adminZkClient, numTierTopicPartitions, Defaults.TierMetadataReplicationFactor)
 
     // 3. Trigger fencing on user partitions, by injecting TierPartitionFence events into
     // the corresponding TierTopic partitions.
@@ -212,6 +215,7 @@ class TierPartitionStateFencingTriggerTest extends IntegrationTestHarness {
     assertTrue(allFencedTpids.isEmpty)
     verificationConsumer.close
 
+    val tierStateFetcher = mock(classOf[TierStateFetcher])
     // 5. Using a TierTopicConsumer, consume the injected TierPartitionFence and verify
     // that the materializer gets fenced.
     val tierTopicConsumer = new TierTopicConsumer(
@@ -219,6 +223,7 @@ class TierPartitionStateFencingTriggerTest extends IntegrationTestHarness {
       primaryConsumerSupplier,
       new TierTopicConsumerSupplier(config, "catchup"),
       new TierTopicManagerCommitter(config, logDirFailureChannel),
+      tierStateFetcher,
       Optional.empty())
     tpidsToBeFenced.foreach(tpid => addReplica(tpid, tierTopicConsumer))
     tierTopicConsumer.startConsume(true, tierTopic)

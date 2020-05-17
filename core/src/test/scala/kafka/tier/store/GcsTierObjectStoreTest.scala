@@ -9,6 +9,7 @@ import com.google.cloud.storage.{Blob, BlobId, BlobInfo, Bucket, Storage}
 import com.google.cloud.WriteChannel
 import kafka.tier.exceptions.TierObjectStoreRetriableException
 import kafka.tier.TopicIdPartition
+import kafka.tier.store.TierObjectStore.ObjectMetadata
 import kafka.utils.TestUtils
 import org.junit.Assert.fail
 import org.junit.Before
@@ -19,8 +20,8 @@ import org.mockito.Mockito.{atLeastOnce, mock, times, verify, when}
 class GcsTierObjectStoreTest {
   val storage = mock(classOf[Storage])
   val bucket = mock(classOf[Bucket])
-  val config = new GcsTierObjectStoreConfig("cluster", 3, "bucket", "prefix", "region", 10240, "path")
-  val metadata = new TierObjectStore.ObjectMetadata(new TopicIdPartition("foo", UUID.randomUUID, 0), UUID.randomUUID, 0, 0, false, false, false)
+  val config = new GcsTierObjectStoreConfig("cluster", 3, "bucket", "prefix", "region", 10240,  "path")
+  val metadata = new ObjectMetadata(new TopicIdPartition("foo", UUID.randomUUID, 0), UUID.randomUUID, 0, 0, false, false, false)
   val testFile : File = TestUtils.tempFile()
   val bb = ByteBuffer.allocate(0)
   var objectStore : GcsTierObjectStore = _

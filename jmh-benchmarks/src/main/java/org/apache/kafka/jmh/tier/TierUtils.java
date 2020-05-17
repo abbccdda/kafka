@@ -8,8 +8,10 @@ import kafka.tier.TierTestUtils;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.TierSegmentUploadComplete;
 import kafka.tier.domain.TierSegmentUploadInitiate;
+import kafka.tier.state.OffsetAndEpoch;
 import kafka.tier.state.TierPartitionState;
 
+import java.util.Optional;
 import java.util.UUID;
 
 public class TierUtils {
@@ -33,7 +35,8 @@ public class TierUtils {
                 size,
                 hasEpochState,
                 hasAbortedTxns,
-                hasProducerState);
+                hasProducerState,
+                new OffsetAndEpoch(0L, Optional.empty()));
 
         TierPartitionState.AppendResult result = tierPartitionState.append(uploadInitiate, TierTestUtils.nextTierTopicOffsetAndEpoch());
         if (result != TierPartitionState.AppendResult.ACCEPTED) {

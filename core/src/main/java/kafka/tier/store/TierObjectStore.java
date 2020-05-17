@@ -7,11 +7,14 @@ package kafka.tier.store;
 import kafka.log.Log;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.TierObjectMetadata;
+import kafka.tier.domain.TierPartitionForceRestore;
 import kafka.tier.exceptions.TierObjectStoreRetriableException;
 import kafka.utils.CoreUtils;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.nio.ByteBuffer;
 import java.util.Optional;
@@ -24,7 +27,8 @@ public interface TierObjectStore {
         TIMESTAMP_INDEX("timestamp-index"),
         TRANSACTION_INDEX("transaction-index"),
         PRODUCER_STATE("producer-state"),
-        EPOCH_STATE("epoch-state");
+        EPOCH_STATE("epoch-state"),
+        TIER_STATE_SNAPSHOT("tier-state-snapshot");
 
         private final String suffix;
 
@@ -34,6 +38,20 @@ public interface TierObjectStore {
 
         FileType(String suffix) {
             this.suffix = suffix;
+        }
+    }
+
+    enum DataTypePathPrefix {
+        // where topic data such as segments and associated indices, epoch state
+        // checkpoints and producer state snapshot data are stored.
+        TOPIC("0"),
+        // where TierPartitionState restoration snapshots are stored
+        TIER_STATE_RESTORE_SNAPSHOTS("1");
+
+        private final String prefix;
+
+        DataTypePathPrefix(String prefix) {
+            this.prefix = prefix;
         }
     }
 
@@ -54,20 +72,22 @@ public interface TierObjectStore {
         }
     }
 
-    TierObjectStoreResponse getObject(ObjectMetadata objectMetadata,
+    TierObjectStoreResponse getObject(ObjectStoreMetadata objectMetadata,
                                       FileType fileType,
                                       Integer byteOffsetStart,
                                       Integer byteOffsetEnd) throws IOException;
 
-    default TierObjectStoreResponse getObject(ObjectMetadata objectMetadata,
+    default TierObjectStoreResponse getObject(ObjectStoreMetadata objectMetadata,
                                               FileType fileType,
                                               Integer byteOffsetStart) throws IOException {
         return getObject(objectMetadata, fileType, byteOffsetStart, null);
     }
 
-    default TierObjectStoreResponse getObject(ObjectMetadata objectMetadata, FileType fileType) throws IOException {
+    default TierObjectStoreResponse getObject(ObjectStoreMetadata objectMetadata, FileType fileType) throws IOException {
         return getObject(objectMetadata, fileType, null);
     }
+
+    void putObject(ObjectStoreMetadata objectMetadata, File file, FileType type) throws TierObjectStoreRetriableException, IOException;
 
     void putSegment(ObjectMetadata objectMetadata,
                     File segmentData,
@@ -81,7 +101,34 @@ public interface TierObjectStore {
 
     void close();
 
-    class ObjectMetadata {
+    interface ObjectStoreMetadata {
+
+        /**
+         * Converts the ObjectStoreMetadata to an object store key path, taking into account a
+         * given key prefix and file type
+         * @param keyPrefix object key prefix
+         * @param fileType object file type
+         * @return String key path in object storage
+         */
+        String toPath(String keyPrefix, TierObjectStore.FileType fileType);
+
+        /**
+         * Converts an ObjectStoreMetadata to a map of metadata that may be useful to place on
+         * objects in object storage, if this functionality is present in the object store
+         * implementation of choice
+         * @param clusterId kafka cluster id
+         * @param brokerId kafka broker id
+         * @return map of KV pairs to place in object storage
+         */
+        Map<String, String> objectMetadata(String clusterId, int brokerId);
+    }
+
+    class ObjectMetadata implements ObjectStoreMetadata {
+        // The current key path version number, used to map segment metadata to its location in object storage.
+        // IMPORTANT: do not bump this version without adding a new key_version field to
+        // TierSegmentUploadInitiate and supplying it to ObjectMetadata
+        private static final int CURRENT_KEY_PATH_VERSION = 0;
+
         private final TopicIdPartition topicIdPartition;
         private final UUID objectId;
         private final int tierEpoch;
@@ -89,6 +136,7 @@ public interface TierObjectStore {
         private final boolean hasAbortedTxns;
         private final boolean hasProducerState;
         private final boolean hasEpochState;
+        private final int version = CURRENT_KEY_PATH_VERSION;
 
         public ObjectMetadata(TopicIdPartition topicIdPartition,
                               UUID objectId,
@@ -148,8 +196,28 @@ public interface TierObjectStore {
             return hasEpochState;
         }
 
-        public ObjectKeyMetadata toKeyMetadata() {
-            return new ObjectKeyMetadata(topicIdPartition, objectId, tierEpoch, baseOffset);
+        @Override
+        public Map<String, String> objectMetadata(String clusterId, int brokerId) {
+            Map<String, String> metadata = new HashMap<>();
+            metadata.put("metadata_version", Integer.toString(version));
+            metadata.put("topic", topicIdPartition().topic());
+            metadata.put("cluster_id", clusterId);
+            metadata.put("broker_id", Integer.toString(brokerId));
+            return metadata;
+        }
+
+        @Override
+        public String toPath(String keyPrefix,
+                             TierObjectStore.FileType fileType) {
+            return keyPrefix +
+                    DataTypePathPrefix.TOPIC.prefix +
+                    "/" + objectIdAsBase64() +
+                    "/" + topicIdPartition().topicIdAsBase64() +
+                    "/" + topicIdPartition().partition() +
+                    "/" + Log.filenamePrefixFromOffset(baseOffset()) +
+                    "_" + tierEpoch() +
+                    "_v" + version +
+                    "." + fileType.suffix();
         }
 
         @Override
@@ -167,7 +235,8 @@ public interface TierObjectStore {
                     Objects.equals(objectId, that.objectId) &&
                     hasAbortedTxns == that.hasAbortedTxns &&
                     hasProducerState == that.hasProducerState &&
-                    hasEpochState == that.hasEpochState;
+                    hasEpochState == that.hasEpochState &&
+                    version == that.version;
         }
 
         @Override
@@ -189,28 +258,34 @@ public interface TierObjectStore {
         }
     }
 
+    class TierStateRestoreSnapshotMetadata implements ObjectStoreMetadata {
+        // The current key path version number, used to map restore metadata to its location in
+        // object storage.
+        // IMPORTANT: do not bump this version without adding a new key_version field to
+        // TierPartitionForceRestore and supplying it to RestoreSnapshotMetadata.toPath
+        private static final int CURRENT_KEY_PATH_VERSION = 0;
 
-    class ObjectKeyMetadata {
-        private static final int CURRENT_VERSION = 0;
-        // LOG_DATA_PREFIX is where segment, offset index, time index, transaction index, leader
-        // epoch state checkpoint, and producer state snapshot data are stored.
-        private static final String LOG_DATA_PREFIX = "0";
-
-        private final int version;
         private final TopicIdPartition topicIdPartition;
-        private final UUID objectId;
-        private final int tierEpoch;
-        private final long baseOffset;
+        private final long startOffset;
+        private final long endOffset;
+        private final String contentHash;
+        private final int version = CURRENT_KEY_PATH_VERSION;
 
-        public ObjectKeyMetadata(TopicIdPartition topicIdPartition,
-                                 UUID objectId,
-                                 int tierEpoch,
-                                 long baseOffset) {
-            this.version = CURRENT_VERSION;
+        public TierStateRestoreSnapshotMetadata(TopicIdPartition topicIdPartition,
+                                                long startOffset,
+                                                long endOffset,
+                                                String contentHash) {
             this.topicIdPartition = topicIdPartition;
-            this.objectId = objectId;
-            this.tierEpoch = tierEpoch;
-            this.baseOffset = baseOffset;
+            this.startOffset = startOffset;
+            this.endOffset = endOffset;
+            this.contentHash = contentHash;
+        }
+
+        public TierStateRestoreSnapshotMetadata(TierPartitionForceRestore metadata) {
+            this(metadata.topicIdPartition(),
+                    metadata.startOffset(),
+                    metadata.endOffset(),
+                    metadata.contentHash());
         }
 
         public int version() {
@@ -221,32 +296,28 @@ public interface TierObjectStore {
             return topicIdPartition;
         }
 
-        public UUID objectId() {
-            return objectId;
+
+        @Override
+        public Map<String, String> objectMetadata(String clusterId, int brokerId) {
+            Map<String, String> metadata = new HashMap<>();
+            metadata.put("metadata_version", Integer.toString(version));
+            metadata.put("topic", topicIdPartition().topic());
+            metadata.put("cluster_id", clusterId);
+            metadata.put("broker_id", Integer.toString(brokerId));
+            return metadata;
         }
 
-        public String objectIdAsBase64() {
-            return CoreUtils.uuidToBase64(objectId());
-        }
-
-        public int tierEpoch() {
-            return tierEpoch;
-        }
-
-        public long baseOffset() {
-            return baseOffset;
-        }
-
+        @Override
         public String toPath(String keyPrefix,
                              TierObjectStore.FileType fileType) {
             return keyPrefix +
-                    LOG_DATA_PREFIX +
-                    "/" + objectIdAsBase64() +
+                    DataTypePathPrefix.TIER_STATE_RESTORE_SNAPSHOTS.prefix +
                     "/" + topicIdPartition().topicIdAsBase64() +
                     "/" + topicIdPartition().partition() +
-                    "/" + Log.filenamePrefixFromOffset(baseOffset()) +
-                    "_" + tierEpoch() +
-                    "_v" + version() +
+                    "/" + Log.filenamePrefixFromOffset(startOffset) +
+                    "-" + Log.filenamePrefixFromOffset(endOffset) +
+                    "_" + contentHash +
+                    "_v" + version +
                     "." + fileType.suffix();
         }
 
@@ -258,27 +329,27 @@ public interface TierObjectStore {
             if (o == null || getClass() != o.getClass())
                 return false;
 
-            ObjectKeyMetadata that = (ObjectKeyMetadata) o;
-            return version == that.version &&
-                    tierEpoch == that.tierEpoch &&
-                    baseOffset == that.baseOffset &&
-                    Objects.equals(topicIdPartition, that.topicIdPartition) &&
-                    Objects.equals(objectId, that.objectId);
+            TierStateRestoreSnapshotMetadata that = (TierStateRestoreSnapshotMetadata) o;
+            return topicIdPartition.equals(that.topicIdPartition) &&
+                    startOffset == that.startOffset &&
+                    endOffset == that.endOffset &&
+                    contentHash.equals(that.contentHash) &&
+                    version == that.version;
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(version, topicIdPartition, objectId, tierEpoch, baseOffset);
+            return Objects.hash(topicIdPartition, startOffset, endOffset, contentHash, version);
         }
 
         @Override
         public String toString() {
-            return "ObjectMetadata(" +
+            return "TierStateRestoreSnapshotMetadata(" +
                     "version=" + version +
                     ", topic=" + topicIdPartition +
-                    ", objectIdAsBase64=" + objectIdAsBase64() +
-                    ", tierEpoch=" + tierEpoch +
-                    ", startOffset=" + baseOffset +
+                    ", startOffset=" + startOffset +
+                    ", endOffset=" + endOffset +
+                    ", contentHash=" + contentHash +
                     ')';
         }
     }

@@ -5,6 +5,6 @@
 namespace kafka.tier.serdes;
 
 struct OffsetAndEpoch {
-  offset: long (id: 0);  // Initialized to offset -1 meaning unknown or uninitialized offset
-  epoch: int (id: 1); // Initialized to offset -1 meaning unknown or uninitialized epoch
+  offset: long (id: 0);
+  epoch: int (id: 1);
 }

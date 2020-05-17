@@ -403,7 +403,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
           }
           tierFetcherOpt = Some(new TierFetcher(time, new TierFetcherConfig(config), tierObjectStoreOpt.get, kafkaScheduler, metrics, logContext))
           tierStateFetcherOpt = Some(new TierStateFetcher(config.tierObjectFetcherThreads, tierObjectStoreOpt.get))
-          tierTopicConsumerOpt = Some(new TierTopicConsumer(tierTopicManagerConfig, logDirFailureChannel, metrics))
+          tierTopicConsumerOpt = Some(new TierTopicConsumer(tierTopicManagerConfig, logDirFailureChannel, tierStateFetcherOpt.get, metrics))
         }
 
         tierReplicaManagerOpt = Some(new TierReplicaManager())

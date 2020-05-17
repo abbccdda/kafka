@@ -7,12 +7,14 @@ package kafka.tier.state;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.AbstractTierMetadata;
 import kafka.tier.domain.TierObjectMetadata;
+import kafka.tier.domain.TierPartitionForceRestore;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.utils.CloseableIterator;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.Collection;
-import java.util.Iterator;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -30,6 +32,18 @@ public interface TierPartitionState {
         // the entry was materialized
         ACCEPTED,
         // the entry could not be materialized
+        FAILED,
+        // the entry was fenced due to a later restore offset and epoch
+        RESTORE_FENCED
+    }
+
+    /**
+     * The result of an attempt to restore a TierPartitionState via a PartitionForceRestore event
+     */
+    enum RestoreResult {
+        // the restore attempt succeeded and the state is now the new state
+        SUCCEEDED,
+        // the restore attempted failed
         FAILED
     }
 
@@ -85,6 +99,12 @@ public interface TierPartitionState {
     long endOffset() throws IOException;
 
     /**
+     * Return the last materialized source offset and epoch
+     * @throws IOException
+     */
+    OffsetAndEpoch lastLocalMaterializedSrcOffsetAndEpoch();
+
+    /**
      * Scan the ObjectMetadata (segment) entries in this tier partition, and return the count.
      * @return number of tiered segments
      */
@@ -99,19 +119,20 @@ public interface TierPartitionState {
     int numSegments(long from, long to);
 
     /**
-     * Get an iterator for all readable tiered segments. The returned list is in order of base
-     * offset
-     * @return list of tiered seggments
+     * Get an iterator for all readable tiered segments. The returned list is in order of base offset.
+     * The iterator returned must be closed after usage ends to ensure that a read lock is released
+     * @return an iterator of tiered segments. NOTE: the iterator *must* be closed by the caller after usage.
      */
-    Iterator<TierObjectMetadata> segments();
+    CloseableIterator<TierObjectMetadata> segments();
 
     /**
      * Get an iterator for all readable tiered segments in a given range. The iterator is sorted by base offset.
+     * The iterator returned must be closed after usage ends to ensure that a read lock is released
      * @param from Start of the range, include segment which contains "from" (inclusive)
      * @param to End of the range, upper bound exclusive offset to include or the end of the log if "to" is past the end
-     * @return list of tiered segments
+     * @return an iterator of tiered segments. NOTE: the iterator *must* be closed by the caller after usage.
      */
-    Iterator<TierObjectMetadata> segments(long from, long to);
+    CloseableIterator<TierObjectMetadata> segments(long from, long to);
 
     /**
      * Lookup the TierObjectMetadata which will contain data for a target offset.
@@ -134,6 +155,27 @@ public interface TierPartitionState {
      * @return Returns an AppendResult denoting the result of the append action.
      */
     AppendResult append(AbstractTierMetadata tierMetadata, OffsetAndEpoch sourceOffsetAndEpoch);
+
+
+    /**
+     * Performs a TierPartitionState restore, swapping the current state file
+     * from buffer and replacing any internal state with the contents of the new TierPartitionState,
+     * setting the TierPartitionStatus of the state to status.
+     * @param metadata the TierPartitionForceRestore metadata including the coordinates and
+     *                 metadata about the state to be restored.
+     * @param targetState ByteBuffer containing the contents of the TierPartitionState to restore
+     * @param targetStatus the status that the TierPartitionState will be transitioned to upon
+     *                     successful restoration
+     * @param sourceOffsetAndEpoch Offset and epoch corresponding to this metadata entry
+     * @return Returns a RestoreResult:
+     *           - When SUCCEEDED, it means the restore was successful, and the `TierPartitionState` status has been set to the `targetState`.
+     *           - When FAILED, it means the restore failed, and the `TierPartitionState` status has been set to the `ERROR` status.
+     *             Apart from the status change, it is expected that the underlying state has not undergone other significant modifications during this failure.
+     */
+    RestoreResult restoreState(TierPartitionForceRestore metadata,
+                               ByteBuffer targetState,
+                               TierPartitionStatus targetStatus,
+                               OffsetAndEpoch sourceOffsetAndEpoch);
 
     /**
      * Sum the size of all segment spanned by this TierPartitionState.

@@ -8,44 +8,11 @@ import kafka.server.Defaults;
 import kafka.server.KafkaConfig;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Properties;
 import java.util.stream.Collectors;
 
 public class TierObjectStoreUtils {
-
-    /**
-     * Returns a String of the key path for the given object metadata and file type.
-     *
-     * @param prefix user supplied prefix for object store keys
-     * @param objectMetadata The metadata from which to construct the key path
-     * @param fileType The file type for the suffix of the path
-     * @return
-     */
-    public static String keyPath(String prefix, TierObjectStore.ObjectMetadata objectMetadata, TierObjectStore.FileType fileType) {
-        return objectMetadata.toKeyMetadata().toPath(prefix, fileType);
-    }
-
-    /**
-     * Returns a Map containing the metadata of a segment. This metadata is uploaded to storage with the segment.
-     *
-     * @param objectMetadata The metadata of the segment
-     * @param clusterId The name of the cluster
-     * @param brokerId The ID of the broker
-     * @return
-     */
-    public static Map<String, String> createSegmentMetadata(TierObjectStore.ObjectMetadata objectMetadata, String clusterId, int brokerId) {
-        Map<String, String> metadata = new HashMap<>();
-        // metadata_version refers to the version of the data format in the object
-        metadata.put("metadata_version", Integer.toString(objectMetadata.toKeyMetadata().version()));
-        metadata.put("topic", objectMetadata.toKeyMetadata().topicIdPartition().topic());
-        metadata.put("cluster_id", clusterId);
-        metadata.put("broker_id", Integer.toString(brokerId));
-        return metadata;
-    }
-
     /**
      * This method generates the TierStoreConfig for the various backends. This is useful for all the tools
      * that would like the generated config in order to connect to the necessary backend.
@@ -68,7 +35,7 @@ public class TierObjectStoreUtils {
                 }};
                 verifyMandatoryProps(backend, props, mandatoryProps);
                 String clusterId = props.getProperty("cluster-id");
-                int brokerId = (int) props.get(KafkaConfig.BrokerIdProp());
+                int brokerId = Integer.parseInt(props.get(KafkaConfig.BrokerIdProp()).toString());
                 String s3Bucket = props.getProperty(KafkaConfig.TierS3BucketProp());
                 String s3Region = props.getProperty(KafkaConfig.TierS3RegionProp());
                 // The remaining configs will be loaded from the environment or the defaults provided in KafkaConfig
@@ -87,7 +54,7 @@ public class TierObjectStoreUtils {
                 }};
                 verifyMandatoryProps(backend, props, mandatoryProps);
                 clusterId = props.getProperty("cluster-id");
-                brokerId = (int) props.get(KafkaConfig.BrokerIdProp());
+                brokerId = Integer.parseInt(props.get(KafkaConfig.BrokerIdProp()).toString());
                 return new TierObjectStoreConfig(clusterId, brokerId);
             default:
                 throw new UnsupportedOperationException("Unsupported backend for config generation: " + backend);

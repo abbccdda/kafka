@@ -850,7 +850,8 @@ class PartitionTest {
         leaderEpoch,
         UUID.randomUUID(),
         uploadStartOffset,
-        uploadEndOffset))
+        uploadEndOffset,
+        validity = TierTestUtils.currentOffsetAndEpoch()))
     assertTrue(log.tierPartitionState.startOffset().isPresent)
     assertEquals(uploadStartOffset, log.tierPartitionState.startOffset().get())
 
@@ -2577,7 +2578,7 @@ class PartitionTest {
     assertFalse(partition.uncleanLeaderRecoveryFutureOpt.get.isCompletedExceptionally)
     assertTrue(partition.getIsUncleanLeader)
     verify(tierPartitionState, times(1)).materializeUptoEpoch(leaderEpoch)
-    verify(tierStateFetcher, times(0)).fetchLeaderEpochState(ArgumentMatchers.any())
+    verify(tierStateFetcher, times(0)).fetchLeaderEpochStateAsync(ArgumentMatchers.any())
     verify(log, times(0)).recoverLocalLogAfterUncleanLeaderElection(ArgumentMatchers.any())
 
     // Elect an unclean leader at higher epoch. This simulates the positive case where recovery succeeds.
@@ -2601,7 +2602,7 @@ class PartitionTest {
     verify(tierPartitionState, times(1)).materializeUptoEpoch(leaderEpoch + 1)
     // since we are returning empty TierObjectMetadata, tier state will not be fetched and code will not go to
     // recoverLocalLogAfterUncleanLeaderElection. This is expected behavior
-    verify(tierStateFetcher, times(0)).fetchLeaderEpochState(ArgumentMatchers.any())
+    verify(tierStateFetcher, times(0)).fetchLeaderEpochStateAsync(ArgumentMatchers.any())
     verify(log, times(0)).recoverLocalLogAfterUncleanLeaderElection(ArgumentMatchers.any())
   }
 

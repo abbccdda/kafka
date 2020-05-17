@@ -18,27 +18,34 @@ class FetchRequestTestUtils {
     static TierObjectStore ioExceptionThrowingTierObjectStore() {
         return new TierObjectStore() {
             @Override
-            public TierObjectStoreResponse getObject(TierObjectStore.ObjectMetadata objectMetadata, FileType objectFileType, Integer byteOffsetStart, Integer byteOffsetEnd) throws IOException {
+            public TierObjectStoreResponse getObject(ObjectStoreMetadata objectMetadata, FileType objectFileType, Integer byteOffsetStart, Integer byteOffsetEnd) throws IOException {
                 throw new IOException("");
             }
 
             @Override
-            public TierObjectStoreResponse getObject(ObjectMetadata objectMetadata, FileType fileType, Integer byteOffsetStart) throws IOException {
+            public TierObjectStoreResponse getObject(ObjectStoreMetadata objectMetadata, FileType fileType, Integer byteOffsetStart) throws IOException {
                 throw new IOException("");
             }
 
             @Override
-            public TierObjectStoreResponse getObject(ObjectMetadata objectMetadata, FileType fileType) throws IOException {
+            public TierObjectStoreResponse getObject(ObjectStoreMetadata objectMetadata, FileType fileType) throws IOException {
                 throw new IOException("");
             }
 
             @Override
-            public void putSegment(TierObjectStore.ObjectMetadata objectMetadata,
+            public void putSegment(ObjectMetadata objectMetadata,
                                    File segmentData, File offsetIndexData,
                                    File timestampIndexData,
                                    Optional<File> producerStateSnapshotData,
                                    Optional<ByteBuffer> transactionIndexData,
                                    Optional<File> epochState) throws IOException {
+                throw new IOException("");
+            }
+
+            @Override
+            public void putObject(ObjectStoreMetadata objectMetadata,
+                                  File file,
+                                  FileType fileType) throws IOException {
                 throw new IOException("");
             }
 
@@ -56,7 +63,7 @@ class FetchRequestTestUtils {
     static TierObjectStore fileReturningTierObjectStore(File offsetIndexFile, File timestampIndexFile) {
         return new TierObjectStore() {
             @Override
-            public TierObjectStoreResponse getObject(ObjectMetadata objectMetadata,
+            public TierObjectStoreResponse getObject(ObjectStoreMetadata objectMetadata,
                                                      FileType objectFileType,
                                                      Integer byteOffsetStart,
                                                      Integer byteOffsetEnd) throws IOException {
@@ -87,6 +94,13 @@ class FetchRequestTestUtils {
                         }
                     }
                 };
+            }
+
+            @Override
+            public void putObject(ObjectStoreMetadata objectMetadata,
+                                  File file,
+                                  FileType fileType) throws IOException {
+                throw new IOException("");
             }
 
             @Override

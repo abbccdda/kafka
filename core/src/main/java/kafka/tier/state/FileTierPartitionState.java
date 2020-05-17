@@ -12,6 +12,7 @@ import kafka.tier.domain.AbstractTierMetadata;
 import kafka.tier.domain.AbstractTierSegmentMetadata;
 import kafka.tier.domain.TierPartitionFence;
 import kafka.tier.domain.TierObjectMetadata;
+import kafka.tier.domain.TierPartitionForceRestore;
 import kafka.tier.domain.TierSegmentDeleteComplete;
 import kafka.tier.domain.TierSegmentDeleteInitiate;
 import kafka.tier.domain.TierSegmentUploadComplete;
@@ -23,6 +24,7 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.KafkaStorageException;
 import org.apache.kafka.common.errors.RetriableException;
 import org.apache.kafka.common.utils.AbstractIterator;
+import org.apache.kafka.common.utils.CloseableIterator;
 import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,6 +55,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.Future;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -87,7 +90,17 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         /**
          * Error file used to backup state that experienced a materialization error.
          */
-        ERROR(".error");
+        ERROR(".error"),
+
+        /**
+         * Overwritten tier partition state after a tier restore
+         */
+        DISCARDED(".discarded"),
+
+        /**
+         * Staged tier partition state for a tier restore
+         */
+        RECOVER(".recover");
 
         private String suffix;
 
@@ -106,7 +119,9 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     // Version 3: introduced new header status: `TierPartitionStatus.ERROR` as a part of the fencing mechanism
     // Version 4: `globalMaterializedEpoch` and `localMaterializedEpoch` added to tier partition state header
     // Version 5: `errorOffsetAndEpoch` added to tier partition state header
-    public static final byte CURRENT_VERSION = 5;
+    // Version 6: `restoreOffsetAndEpoch` and start offset added to tier partition state header,
+    //             and `stateOffsetAndEpoch` added to segment metadata
+    static final byte CURRENT_VERSION = 6;
     private static final int ENTRY_LENGTH_SIZE = 2;
     private static final long FILE_OFFSET = 0;
     private static final Logger log = LoggerFactory.getLogger(FileTierPartitionState.class);
@@ -114,11 +129,31 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
 
     private final TopicPartition topicPartition;
     private final byte version;
-    private final Object lock = new Object();
+    //
+    // 1. stateResourceReadWriteLock: This protects readers of the inner state from any internal resources from being closed while used
+    //                                concurrently without the stateLock.
+    // 2. stateLock: This protects the mutable state in general. Among other things, the mutable state also includes the `State` object
+    //                   held in the `FileTierPartitionState.state` handle.
+    //                a. Outer point R/W: If the read or write pattern involves doing a point read or write (ex: read or write any 1 volatile attribute)
+    //                  outside the `FileTierPartitionState.state` handle, then, this lock can be skipped.
+    //                b. Outer multi R/W: If the read or write pattern involves reading or modifying more than 1 volatile attribute at once
+    //                  outside the `FileTierPartitionState.state` handle, then, it is advised to take this lock to ensure a consistent
+    //                  read behavior from all attributes being modified in a specific context.
+    //                c. Inner point R: For point reads within the object held in the `FileTierPartitionState.state` handle, this lock can be skipped
+    //                   (but stateHandleReadWriteLock must be held to protect the handle from concurrent modification).
+    //                d. Inner W: For mutations within the `FileTierPartitionState.state` handle, this lock should be always taken, and
+    //                   `stateHandleReadWriteLock` should be held prior to taking this lock.
+    //
+    // If the thread safety requirement involves chaining both the locks (like in 2(d) above), then the lock acquisition ordering
+    // requirement always should be the following:
+    //  - Lock #1: Take stateResourceReadWriteLock (either the read lock or the write lock as needed)
+    //  - Lock #2: Take stateLock
 
-    private File dir;
-    private final LogDirFailureChannel logDirFailureChannel;
-    private String basePath;
+
+    private final ReentrantReadWriteLock stateResourceReadWriteLock = new ReentrantReadWriteLock(); // re-entrancy is not expected
+    private final Object stateLock = new Object();
+
+    private final Consumer<IOException> ioExceptionHandler;
 
     // The current tiering state, including segment metadata and the backing file. All writers must synchronize before
     // mutating any of the components of state. The only operations permitted on the backing file are in-place updates
@@ -132,6 +167,8 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     private volatile State state;
     private volatile TopicIdPartition topicIdPartition;
     private volatile boolean tieringEnabled;
+    private volatile String basePath;
+    private volatile File dir;
 
     public FileTierPartitionState(File dir, LogDirFailureChannel logDirFailureChannel, TopicPartition topicPartition, boolean tieringEnabled) throws IOException {
         this(dir, logDirFailureChannel, topicPartition, tieringEnabled, CURRENT_VERSION);
@@ -145,7 +182,8 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                            byte version) throws IOException {
         this.topicPartition = topicPartition;
         this.dir = dir;
-        this.logDirFailureChannel = logDirFailureChannel;
+        this.ioExceptionHandler = e -> logDirFailureChannel.maybeAddOfflineLogDir(dir().getParent(),
+                        func(() -> "IOException encountered in TierPartitionState at " + dir().getParent()), e);
         this.basePath = Log.tierStateFile(dir, FILE_OFFSET, "").getAbsolutePath();
         this.tieringEnabled = tieringEnabled;
         this.state = State.EMPTY;
@@ -172,53 +210,78 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
 
         topicIdPartition = new TopicIdPartition(topicPartition.topic(), topicId, topicPartition.partition());
         log.info("Setting topicIdPartition {}", topicIdPartition);
-        synchronized (lock) {
-            maybeOpenChannel();
-        }
+        maybeOpenChannel();
+
         return true;
     }
 
     @Override
     public boolean isTieringEnabled() {
-        return tieringEnabled && topicIdPartition != null;
-    }
-
-    @Override
-    public void enableTierConfig() throws IOException {
-        synchronized (lock) {
-            this.tieringEnabled = true;
-            maybeOpenChannel();
+        synchronized (stateLock) {
+            return tieringEnabled && topicIdPartition != null;
         }
     }
 
     @Override
+    public void enableTierConfig() throws IOException {
+        this.tieringEnabled = true;
+        maybeOpenChannel();
+    }
+
+    @Override
     public Optional<Long> startOffset() {
-        // safe to read without a lock, uses a concurrent collection consistently
-        return state.startOffset();
+        stateResourceReadWriteLock.readLock().lock();
+        try {
+            // safe to read without the state handle lock as it uses
+            // a concurrent collection in a consistent way
+            return state.startOffset();
+        } finally {
+            stateResourceReadWriteLock.readLock().unlock();
+        }
     }
 
     @Override
     public long endOffset() {
-        // safe to read without a lock, accesses a member volatile
-        return state.endOffset();
+        stateResourceReadWriteLock.readLock().lock();
+        try {
+            // safe to read without the state handle lock as it accesses a member volatile
+            return state.endOffset();
+        } finally {
+            stateResourceReadWriteLock.readLock().unlock();
+        }
     }
 
     @Override
     public long committedEndOffset() {
-        // safe to read without a lock, accesses a member volatile
-        return state.committedEndOffset();
+        stateResourceReadWriteLock.readLock().lock();
+        try {
+            // safe to read without the state handle lock as it accesses a member volatile
+            return state.committedEndOffset();
+        } finally {
+            stateResourceReadWriteLock.readLock().unlock();
+        }
     }
 
     @Override
     public long totalSize() {
-        // safe to read without a lock, accesses a member volatile
-        return state.totalSize();
+        stateResourceReadWriteLock.readLock().lock();
+        try {
+            // safe to read without the state handle lock as it accesses a member volatile
+            return state.totalSize();
+        } finally {
+            stateResourceReadWriteLock.readLock().unlock();
+        }
     }
 
     @Override
     public void flush() throws IOException {
-        synchronized (lock) {
-            state.flush();
+        stateResourceReadWriteLock.readLock().lock();
+        try {
+            synchronized (stateLock) {
+                state.flush();
+            }
+        } finally {
+            stateResourceReadWriteLock.readLock().unlock();
         }
     }
 
@@ -237,8 +300,13 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
 
     @Override
     public int tierEpoch() {
-        // safe to read without a lock, accesses a member volatile
-        return state.currentEpoch();
+        stateResourceReadWriteLock.readLock().lock();
+        try {
+            // safe to read without the state handle lock as it accesses a member volatile
+            return state.currentEpoch();
+        } finally {
+            stateResourceReadWriteLock.readLock().unlock();
+        }
     }
 
     @Override
@@ -248,134 +316,234 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
 
     @Override
     public void delete() throws IOException {
-        synchronized (lock) {
-            closeHandlers();
-            for (StateFileType type : StateFileType.values())
-                Files.deleteIfExists(type.filePath(basePath));
+        stateResourceReadWriteLock.readLock().lock();
+        try {
+            synchronized (stateLock) {
+                closeHandlersImpl();
+                for (StateFileType type : StateFileType.values())
+                    Files.deleteIfExists(type.filePath(basePath));
+            }
+        } finally {
+            stateResourceReadWriteLock.readLock().unlock();
         }
     }
 
     @Override
     public void updateDir(File dir) {
-        synchronized (lock) {
-            this.basePath = Log.tierStateFile(dir, FILE_OFFSET, "").getAbsolutePath();
-            this.dir = dir;
-            state.updateBasePath(basePath);
+        stateResourceReadWriteLock.readLock().lock();
+        try {
+            synchronized (stateLock) {
+                this.basePath = Log.tierStateFile(dir, FILE_OFFSET, "").getAbsolutePath();
+                this.dir = dir;
+                state.updateBasePath(basePath);
+            }
+        } finally {
+            stateResourceReadWriteLock.readLock().unlock();
         }
     }
+
+    @Override
+    public RestoreResult restoreState(TierPartitionForceRestore metadata,
+                                      ByteBuffer targetState,
+                                      TierPartitionStatus targetStatus,
+                                      OffsetAndEpoch offsetAndEpoch) {
+        // take the state handle write lock to prevent any readers from
+        // accessing the state while undergoing restore
+        stateResourceReadWriteLock.writeLock().lock();
+        try {
+            // take the global lock second
+            synchronized (stateLock) {
+                return restoreStateImpl(metadata, targetState, targetStatus, offsetAndEpoch);
+            }
+        } finally {
+            stateResourceReadWriteLock.writeLock().unlock();
+        }
+    }
+
 
     @Override
     public void closeHandlers() throws IOException {
-        synchronized (lock) {
-            if (state.status != TierPartitionStatus.UNINITIALIZED) {
-                try {
-                    state.close();
-                } finally {
-                    state = State.EMPTY;
-                }
+        stateResourceReadWriteLock.writeLock().lock();
+        try {
+            synchronized (stateLock) {
+                closeHandlersImpl();
             }
+        } finally {
+            stateResourceReadWriteLock.writeLock().unlock();
         }
     }
 
+
     @Override
     public TierPartitionStatus status() {
-        // safe to access without a lock
-        return state.status();
+        stateResourceReadWriteLock.readLock().lock();
+        try {
+            return state.status();
+        } finally {
+            stateResourceReadWriteLock.readLock().unlock();
+        }
     }
 
     @Override
     public void beginCatchup() {
-        synchronized (lock) {
-            if (!tieringEnabled)
-                throw new IllegalStateException("Illegal state for tier partition. " +
-                        "tieringEnabled: " + tieringEnabled + " basePath: " + basePath);
-            state.beginCatchup();
+        stateResourceReadWriteLock.readLock().lock();
+        try {
+            synchronized (stateLock) {
+                if (!tieringEnabled)
+                    throw new IllegalStateException("Illegal state for tier partition. " +
+                            "tieringEnabled: " + tieringEnabled + " basePath: " + basePath);
+                state.beginCatchup();
+            }
+        } finally {
+            stateResourceReadWriteLock.readLock().unlock();
         }
     }
 
     @Override
     public void onCatchUpComplete() {
-        synchronized (lock) {
-            if (!tieringEnabled)
-                throw new IllegalStateException("Illegal state for tier partition. " +
-                        "tieringEnabled: " + tieringEnabled + " basePath: " + basePath);
-            state.onCatchUpComplete();
+        stateResourceReadWriteLock.readLock().lock();
+        try {
+            synchronized (stateLock) {
+                if (!tieringEnabled)
+                    throw new IllegalStateException("Illegal state for tier partition. " +
+                            "tieringEnabled: " + tieringEnabled + " basePath: " + basePath);
+                state.onCatchUpComplete();
+            }
+        } finally {
+            stateResourceReadWriteLock.readLock().unlock();
         }
     }
 
     @Override
     public int numSegments(long from, long to) {
-        synchronized (lock) {
-            return state.segmentOffsets(from, to).size();
+        stateResourceReadWriteLock.readLock().lock();
+        try {
+            synchronized (stateLock) {
+                return state.segmentOffsets(from, to).size();
+            }
+        } finally {
+            stateResourceReadWriteLock.readLock().unlock();
         }
     }
 
     @Override
     public int numSegments() {
-        synchronized (lock) {
-            return state.segmentOffsets().size();
+        stateResourceReadWriteLock.readLock().lock();
+        try {
+            synchronized (stateLock) {
+                return state.segmentOffsets().size();
+            }
+        } finally {
+            stateResourceReadWriteLock.readLock().unlock();
         }
     }
 
     @Override
     public Future<TierObjectMetadata> materializeUpto(long targetOffset) throws IOException {
-        synchronized (lock) {
-            return state.materializationListener(targetOffset);
+        stateResourceReadWriteLock.readLock().lock();
+        try {
+            synchronized (stateLock) {
+                return state.materializationListener(targetOffset);
+            }
+        } finally {
+            stateResourceReadWriteLock.readLock().unlock();
         }
     }
 
     @Override
     public CompletableFuture<Optional<TierObjectMetadata>> materializeUptoEpoch(int targetEpoch) throws IOException {
-        synchronized (lock) {
-            return state.materializeUpto(targetEpoch);
+        stateResourceReadWriteLock.readLock().lock();
+        try {
+            synchronized (stateLock) {
+                return state.materializeUpto(targetEpoch);
+            }
+        } finally {
+            stateResourceReadWriteLock.readLock().unlock();
         }
     }
 
     @Override
     public void close() throws IOException {
-        synchronized (lock) {
-            try {
-                flush();
-            } finally {
-                closeHandlers();
-                log.info("Tier partition state for {} closed.",
-                        topicIdPartition().map(TopicIdPartition::toString).orElse(topicPartition.toString()));
+        stateResourceReadWriteLock.readLock().lock();
+        try {
+            synchronized (stateLock) {
+                try {
+                    state.flush();
+                } finally {
+                    closeHandlersImpl();
+                    log.info("Tier partition state for {} closed.",
+                            topicIdPartition().map(TopicIdPartition::toString).orElse(topicPartition.toString()));
+                }
             }
+        } finally {
+            stateResourceReadWriteLock.readLock().unlock();
         }
     }
 
     @Override
     public AppendResult append(AbstractTierMetadata metadata, OffsetAndEpoch offsetAndEpoch) {
-        synchronized (lock) {
-            return state.appendMetadata(metadata, offsetAndEpoch);
+        stateResourceReadWriteLock.readLock().lock();
+        try {
+            synchronized (stateLock) {
+                return state.appendMetadata(metadata, offsetAndEpoch);
+            }
+        } finally {
+            stateResourceReadWriteLock.readLock().unlock();
         }
     }
 
-    public Iterator<TierObjectMetadata> segments() {
-        synchronized (lock) {
-            return state.segments();
+    public CloseableIterator<TierObjectMetadata> segments() {
+        stateResourceReadWriteLock.readLock().lock();
+        synchronized (stateLock) {
+            return tierObjectMetadataCloseableIterator(state.segments(), stateResourceReadWriteLock);
         }
     }
 
-    public Iterator<TierObjectMetadata> segments(long from, long to) {
-        synchronized (lock) {
-            return state.segments(from, to);
+    public CloseableIterator<TierObjectMetadata> segments(long from, long to) {
+        stateResourceReadWriteLock.readLock().lock();
+        synchronized (stateLock) {
+            return tierObjectMetadataCloseableIterator(state.segments(from, to), stateResourceReadWriteLock);
         }
     }
 
     @Override
     public Optional<TierObjectMetadata> metadata(long targetOffset) throws IOException {
-        return state.metadata(targetOffset);
+        stateResourceReadWriteLock.readLock().lock();
+        try {
+            return state.metadata(targetOffset);
+        } finally {
+            stateResourceReadWriteLock.readLock().unlock();
+        }
     }
 
     // visible for testing.
-    OffsetAndEpoch lastConsumedSrcOffsetAndEpoch() {
-        return state.localMaterializedOffsetAndEpoch;
+    public OffsetAndEpoch lastLocalMaterializedSrcOffsetAndEpoch() {
+        stateResourceReadWriteLock.readLock().lock();
+        try {
+            return state.localMaterializedOffsetAndEpoch;
+        } finally {
+            stateResourceReadWriteLock.readLock().unlock();
+        }
     }
 
     // visible for testing.
     OffsetAndEpoch lastFlushedSrcOffsetAndEpoch() {
-        return state.globalMaterializedOffsetAndEpoch;
+        stateResourceReadWriteLock.readLock().lock();
+        try {
+            return state.globalMaterializedOffsetAndEpoch;
+        } finally {
+            stateResourceReadWriteLock.readLock().unlock();
+        }
+    }
+
+    // visible for testing.
+    OffsetAndEpoch restoreOffsetAndEpoch() {
+        stateResourceReadWriteLock.readLock().lock();
+        try {
+            return state.restoreOffsetAndEpoch;
+        } finally {
+            stateResourceReadWriteLock.readLock().unlock();
+        }
     }
 
     // visible for testing.
@@ -384,25 +552,37 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     }
 
     // visible for testing
-    String flushedPath() {
+    public String flushedPath() {
         return flushedFilePath(basePath).toFile().getAbsolutePath();
     }
 
     public Collection<TierObjectMetadata> fencedSegments() {
-        return state.metadataForStates(FENCED_STATES);
+        stateResourceReadWriteLock.readLock().lock();
+        try {
+            return state.metadataForStates(FENCED_STATES);
+        } finally {
+            stateResourceReadWriteLock.readLock().unlock();
+        }
     }
 
     public String toString() {
-        if (tieringEnabled)
-            return "FileTierPartitionState("
-                    + "topicIdPartition=" + topicIdPartition
-                    + "state=" + state
-                    + ")";
-        else
-            return "FileTierPartitionState("
-                    + "topicIdPartition=" + topicIdPartition
-                    + ", tieringEnabled=" + tieringEnabled
-                    + ")";
+        stateResourceReadWriteLock.readLock().lock();
+        try {
+            synchronized (stateLock) {
+                if (tieringEnabled)
+                    return "FileTierPartitionState("
+                            + "topicIdPartition=" + topicIdPartition
+                            + "state=" + state
+                            + ")";
+                else
+                    return "FileTierPartitionState("
+                            + "topicIdPartition=" + topicIdPartition
+                            + ", tieringEnabled=" + tieringEnabled
+                            + ")";
+            }
+        } finally {
+            stateResourceReadWriteLock.readLock().unlock();
+        }
     }
 
     public static Optional<Header> readHeader(FileChannel channel) throws IOException {
@@ -448,48 +628,163 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         return new FileTierPartitionIterator(topicIdPartition, channel, position);
     }
 
-    // callers must take FileTierPartitionState.lock
+    private RestoreResult restoreStateImpl(TierPartitionForceRestore metadata,
+                                           ByteBuffer targetState,
+                                           TierPartitionStatus targetStatus,
+                                           OffsetAndEpoch offsetAndEpoch) {
+        if (allowedSourceOffset(offsetAndEpoch, state.localMaterializedOffsetAndEpoch)
+                && allowedStateOffset(metadata.stateOffsetAndEpoch(), state.restoreOffsetAndEpoch)) {
+            try {
+                if (state.status() != TierPartitionStatus.ERROR)
+                    throw new IllegalStateException(String.format("TierPartitionState %s "
+                                    + "was expected to be in ERROR state when restoring state via "
+                                    + "metadata %s with target status %s at offsetEpoch %s", state,
+                            metadata, targetStatus, offsetAndEpoch));
+
+                log.debug("Restoring TierPartitionState for {} from object storage due to "
+                        + "event {}", topicIdPartition, metadata);
+                final Path restorePath = recoverPath(basePath);
+                FileChannel channel = FileChannel.open(restorePath,
+                        StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING,
+                        StandardOpenOption.READ, StandardOpenOption.WRITE);
+                channel.write(targetState);
+                channel.force(true);
+
+                Optional<Header> initialHeaderOpt = readHeader(channel);
+                if (!initialHeaderOpt.isPresent())
+                    throw new IllegalStateException(String.format("TierPartitionState being restored "
+                            + "does not contain a valid header, aborting restore. Metadata %s "
+                                    + "with target status %s at offsetEpoch %s",
+                            metadata, targetState, offsetAndEpoch));
+
+                channel = maybeMigrateHeader(topicPartition, basePath, version, restorePath,
+                        channel, initialHeaderOpt.get());
+
+                // The new state will initially be opened at restorePath and then swapped in two phases,
+                // first moving the mutable file path to the discarded file path and then moving the restore
+                // path to the mutable file path. This is safe because the FileChannel still uses a valid
+                // FD for the correct files even though their location has moved.
+                final State newState = State.createRestoredState(topicPartition, basePath, version,
+                        channel, ioExceptionHandler, offsetAndEpoch, OffsetAndEpoch.EMPTY, targetStatus);
+
+                final State oldState = state;
+                safeSwapForRestoredState(offsetAndEpoch, restorePath, newState);
+                log.info("Restored TierPartitionState for {} from object storage due to "
+                                + "event {}, old state: {} new state: {}", topicIdPartition,
+                        metadata, oldState, newState);
+                oldState.close();
+                return RestoreResult.SUCCEEDED;
+            } catch (IOException ioe) {
+                TierPartitionStatus previousStatus = state.status();
+                // Handle IOException specially by marking the dir offline, as it indicates a
+                // serious enough error that we can't ignore. This may halt the broker eventually.
+                state.setErrorStatus(offsetAndEpoch, false);
+                ioExceptionHandler.accept(ioe);
+                throw new KafkaStorageException(
+                        "Failed to restore state " + metadata + ", currentEpoch=" + state.currentEpoch +
+                                ", tierTopicPartitionOffsetAndEpoch=" + offsetAndEpoch +
+                                ", previousTierPartitionStatus=" + previousStatus +
+                                ", newTierPartitionStatus=" + TierPartitionStatus.ERROR, ioe);
+            } catch (Exception e) {
+                // re-fence state if recovery fails
+                TierPartitionStatus previousStatus = state.status();
+                state.setErrorStatus(offsetAndEpoch, false);
+                String logMsg = String.format(
+                        "Failed to restore state %s, currentEpoch=%d, "
+                                + "tierTopicPartitionOffsetAndEpoch=%s" +
+                                ", previousTierPartitionStatus=%s, newTierPartitionStatus=%s",
+                        metadata, state.currentEpoch, offsetAndEpoch, previousStatus,
+                        TierPartitionStatus.ERROR);
+                log.error(logMsg, e);
+                return RestoreResult.FAILED;
+            }
+        } else {
+            log.info("Ignoring state recovery {} at offset {} as last materialized offset is {} for {}",
+                    metadata, offsetAndEpoch, state.localMaterializedOffsetAndEpoch, topicIdPartition);
+            return RestoreResult.FAILED;
+        }
+    }
+
+    private void safeSwapForRestoredState(OffsetAndEpoch offsetAndEpoch, Path restorePath, State newState) throws IOException {
+        boolean movedMutableFile = false;
+        boolean movedRestoreFile = false;
+        try {
+            Utils.atomicMoveWithFallback(mutableFilePath(basePath), discardedFilePath(basePath, offsetAndEpoch));
+            movedMutableFile = true;
+            Utils.atomicMoveWithFallback(restorePath, mutableFilePath(basePath));
+            movedRestoreFile = true;
+            newState.flush();
+        } catch (Exception e) {
+            if (movedRestoreFile)
+                Utils.atomicMoveWithFallback(mutableFilePath(basePath), restorePath);
+            if (movedMutableFile)
+                Utils.atomicMoveWithFallback(discardedFilePath(basePath, offsetAndEpoch), mutableFilePath(basePath));
+            newState.close();
+            throw e;
+        }
+
+        state = newState;
+    }
+
     @SuppressWarnings("deprecation")
     private void maybeOpenChannel() throws IOException {
-        if (tieringEnabled && !state.status.isOpen()) {
-            Path flushedFilePath = flushedFilePath(basePath);
-            Path mutableFilePath = mutableFilePath(basePath);
+        stateResourceReadWriteLock.writeLock().lock();
+        try {
+            synchronized (stateLock) {
+                if (tieringEnabled && !state.status.isOpen()) {
+                    Path flushedFilePath = flushedFilePath(basePath);
+                    Path mutableFilePath = mutableFilePath(basePath);
 
-            if (!Files.exists(flushedFilePath))
-                Files.createFile(flushedFilePath);
-            Files.copy(flushedFilePath, mutableFilePath, StandardCopyOption.REPLACE_EXISTING);
+                    if (!Files.exists(flushedFilePath))
+                        Files.createFile(flushedFilePath);
+                    Files.copy(flushedFilePath, mutableFilePath, StandardCopyOption.REPLACE_EXISTING);
 
-            FileChannel channel = getChannelMaybeReinitialize(topicPartition, topicIdPartition, basePath, version);
-            if (channel == null) {
-                state = State.EMPTY;
-                return;
-            }
+                    FileChannel channel = getChannelMaybeReinitialize(topicPartition, topicIdPartition, basePath, version);
+                    if (channel == null) {
+                        state = State.EMPTY;
+                        return;
+                    }
 
-            try {
-                Consumer<IOException> ioExceptionHandler =
-                        e -> logDirFailureChannel.maybeAddOfflineLogDir(dir().getParent(),
-                            func(() -> "Failed to apply event to TierPartitionState for " + dir().getParent()), e);
-                state = new State(topicPartition, basePath, version, channel, ioExceptionHandler);
-                topicIdPartition = state.topicIdPartition;
-            } catch (Exception e) {
-                // Found exception while initializing the TierMetadataStates from flushed file. Till we
-                // have solution for gracefully recovery from exception/corruption from state file, we will crash the
-                // broker and expect manual recovery. Not doing so can potentially lead to ignoring
-                // all or part of the tier data during loading of log and causing data loss. By crashing the broker we
-                // are forcing leader election to another replica.
-                try {
-                    backupState(topicIdPartition, basePath, errorFilePath(basePath));
-                    closeHandlers();
-                } catch (Exception exceptionToIgnore) {
-                    log.warn("Failed to backup / close tier partition state for {}", topicIdPartition, exceptionToIgnore);
+                    try {
+                        state = new State(topicPartition, basePath, version, channel, ioExceptionHandler);
+                        topicIdPartition = state.topicIdPartition;
+                    } catch (Exception e) {
+                        // Found exception while initializing the TierMetadataStates from flushed file. Till we
+                        // have solution for gracefully recovery from exception/corruption from state file, we will crash the
+                        // broker and expect manual recovery. Not doing so can potentially lead to ignoring
+                        // all or part of the tier data during loading of log and causing data loss. By crashing the broker we
+                        // are forcing leader election to another replica.
+                        try {
+                            backupState(topicIdPartition, basePath, errorFilePath(basePath));
+                            closeHandlersImpl();
+                        } catch (Exception exceptionToIgnore) {
+                            log.warn("Failed to backup / close tier partition state for {}", topicIdPartition, exceptionToIgnore);
+                        }
+
+                        // Send IOException to logDirFailureChannel, which will cause the disk to go offline.
+                        IOException ioexp = new IOException("Exception in initializing TierMetadataState for " + topicIdPartition, e);
+                        ioExceptionHandler.accept(ioexp);
+                        throw new KafkaStorageException(ioexp);
+                    }
                 }
+            }
+        } finally {
+            stateResourceReadWriteLock.writeLock().unlock();
+        }
+    }
 
-                // Send IOException to logDirFailureChannel, which will cause the disk to go offline.
-                IOException ioexp = new IOException("Exception in initializing TierMetadataState for " + topicIdPartition, e);
-                logDirFailureChannel.maybeAddOfflineLogDir(dir().getParent(),
-                        func(() -> "Failed to initialize TierPartitionState for " + dir().getParent()), ioexp);
-                throw new KafkaStorageException(ioexp);
-           }
+    /**
+     * closeHandlers implementation without locking for internal FileTierPartitionState use
+     * Both the stateHandleReadWriteLock and the stateLock should be taken by the caller
+     * @throws IOException if State#close throws an IOException
+     */
+    private void closeHandlersImpl() throws IOException {
+        if (state.status != TierPartitionStatus.UNINITIALIZED) {
+            try {
+                state.close();
+            } finally {
+                state = State.EMPTY;
+            }
         }
     }
 
@@ -521,6 +816,26 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             position += src.transferTo(position, srcSize - position, dest);
     }
 
+    private static CloseableIterator<TierObjectMetadata> tierObjectMetadataCloseableIterator(
+            Iterator<TierObjectMetadata> iterator, ReentrantReadWriteLock stateHandleReadWriteLock) {
+        return new CloseableIterator<TierObjectMetadata>() {
+            @Override
+            public boolean hasNext() {
+                return iterator.hasNext();
+            }
+
+            @Override
+            public TierObjectMetadata next() {
+                return iterator.next();
+            }
+
+            @Override
+            public void close() {
+                stateHandleReadWriteLock.readLock().unlock();
+            }
+        };
+    }
+
     private static FileChannel getChannelMaybeReinitialize(TopicPartition topicPartition,
                                                            TopicIdPartition topicIdPartition,
                                                            String basePath,
@@ -534,47 +849,21 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                     log.info("Writing new header to tier partition state for {}", topicIdPartition);
                     channel.truncate(0);
                     writeHeader(channel, new Header(topicIdPartition.topicId(),
-                        version, -1,
-                        TierPartitionStatus.INIT,
-                        -1L,
-                        OffsetAndEpoch.EMPTY,
-                        OffsetAndEpoch.EMPTY,
-                        OffsetAndEpoch.EMPTY));
+                            version,
+                            -1,
+                            TierPartitionStatus.INIT,
+                            -1L,
+                            -1L,
+                            OffsetAndEpoch.EMPTY,
+                            OffsetAndEpoch.EMPTY,
+                            OffsetAndEpoch.EMPTY,
+                            OffsetAndEpoch.EMPTY));
                 } else {
                     channel.close();
                     return null;
                 }
-            } else if (initialHeaderOpt.get().version() != version) {
-                Header initialHeader = initialHeaderOpt.get();
-                Path tmpFilePath = tmpFilePath(basePath);
-
-                topicIdPartition = new TopicIdPartition(topicPartition.topic(),
-                        initialHeader.topicId(),
-                        topicPartition.partition());
-
-                try (FileChannel tmpChannel = FileChannel.open(tmpFilePath, StandardOpenOption.CREATE,
-                        StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.READ,
-                        StandardOpenOption.WRITE)) {
-                    log.info("Rewriting tier partition state with version {} to {} for {}",
-                            initialHeader.version(), version, topicIdPartition);
-
-                    Header newHeader = new Header(topicIdPartition.topicId(),
-                            version,
-                            initialHeader.tierEpoch(),
-                            initialHeader.status(),
-                            initialHeader.endOffset(),
-                            initialHeader.globalMaterializedOffsetAndEpoch(),
-                            initialHeader.localMaterializedOffsetAndEpoch(),
-                            initialHeader.errorOffsetAndEpoch());
-                    writeHeader(tmpChannel, newHeader);
-                    tmpChannel.position(newHeader.size());
-                    channel.position(initialHeader.size());
-                    copy(channel, tmpChannel);
-                }
-                channel.close();
-
-                Utils.atomicMoveWithFallback(tmpFilePath, mutableFilePath);
-                channel = FileChannel.open(mutableFilePath, StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE);
+            } else {
+                channel = maybeMigrateHeader(topicPartition, basePath, version, mutableFilePath, channel, initialHeaderOpt.get());
             }
         } catch (IOException e) {
             channel.close();
@@ -583,10 +872,134 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         return channel;
     }
 
+    /**
+     * Migrates a file state referenced by a file channel to a version with the latest header
+     * @param topicPartition topic partition for this channel
+     * @param basePath the base path where this partition is stored
+     * @param requiredVersion the state version number required. States with a different version
+     *                        number will be migrated.
+     * @param destination the destination path to migrate to
+     * @param channel an open FileChannel to migrate from
+     * @param existingHeader the header for the state at the file channel being passed
+     * @return an open FileChannel with the newly migrated state
+     * @throws IOException
+     */
+    private static FileChannel maybeMigrateHeader(TopicPartition topicPartition, String basePath,
+                                                  byte requiredVersion, Path destination,
+                                                  FileChannel channel,
+                                                  Header existingHeader) throws IOException {
+        if (existingHeader.version() != requiredVersion) {
+            TopicIdPartition topicIdPartition;
+            Path tmpFilePath = tmpFilePath(basePath);
+            topicIdPartition = new TopicIdPartition(topicPartition.topic(),
+                    existingHeader.topicId(),
+                    topicPartition.partition());
+
+            try (FileChannel tmpChannel = FileChannel.open(tmpFilePath, StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.READ,
+                    StandardOpenOption.WRITE)) {
+                log.info("Rewriting tier partition state with version {} to {} for {}",
+                        existingHeader.version(), requiredVersion, topicIdPartition);
+                Header newHeader = new Header(topicIdPartition.topicId(),
+                        requiredVersion,
+                        existingHeader.tierEpoch(),
+                        existingHeader.status(),
+                        existingHeader.startOffset(),
+                        existingHeader.endOffset(),
+                        existingHeader.globalMaterializedOffsetAndEpoch(),
+                        existingHeader.localMaterializedOffsetAndEpoch(),
+                        existingHeader.errorOffsetAndEpoch(),
+                        existingHeader.restoreOffsetAndEpoch());
+                writeHeader(tmpChannel, newHeader);
+                tmpChannel.position(newHeader.size());
+                channel.position(existingHeader.size());
+                copy(channel, tmpChannel);
+            }
+            Utils.atomicMoveWithFallback(tmpFilePath, destination);
+            channel.close();
+            return FileChannel.open(destination, StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE);
+        } else {
+            return channel;
+        }
+    }
+
     // visible for testing
     boolean dirty() {
-        synchronized (lock) {
-            return state.dirty;
+        stateResourceReadWriteLock.readLock().lock();
+        try {
+            synchronized (stateLock) {
+                return state.dirty;
+            }
+        } finally {
+            stateResourceReadWriteLock.readLock().unlock();
+        }
+    }
+
+    /**
+     * When a message has an offset > last processed offset, it must have an epoch >= last
+     * processed epoch. If it does not, this indicates log divergence or another similar lineage
+     * problem. Validate that the epoch of the message being processed is greater than or equal to
+     * the current epoch, allowing messages if the current epoch is not known
+     * @param current the current epoch
+     * @param checked the epoch for the message being processed
+     * @throws IllegalStateException if a lineage issue is detected
+     */
+    private static void validateEpoch(Optional<Integer> current, Optional<Integer> checked) {
+        if (current.isPresent() && checked.isPresent() && checked.get() < current.get())
+            throw new IllegalStateException("New epoch " + checked + " must dominate old "
+                    + "epoch " + current);
+    }
+
+    /**
+     * Returns true if the state offset of a AbstractTierMetadata is greater than or equal to
+     * the latest TierPartitionState restore, or if the state offset is EMPTY, indicating
+     * an older format message or a message type that does not require this validation.
+     * @param stateOffsetAndEpoch metadata state offset and epoch
+     * @param current the restore offset and epoch for the state
+     * @return true if the message with stateOffsetAndEpoch should be applied
+     */
+    private static boolean allowedStateOffset(OffsetAndEpoch stateOffsetAndEpoch,
+                                              OffsetAndEpoch current) {
+        if (stateOffsetAndEpoch.equals(OffsetAndEpoch.EMPTY))
+            return true;
+
+        if (stateOffsetAndEpoch.offset() >= current.offset()) {
+            validateEpoch(current.epoch(), stateOffsetAndEpoch.epoch());
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    /**
+     * Check whether a metadata's source offset and epoch is greater than the current
+     * materialization point for a state.
+     * @param toProcess the OffsetAndEpoch for the metadata being processed
+     * @param current the current OffsetAndEpoch point materialized for the state
+     * @return true if the message with offset toProcess should be applied
+     */
+    private static boolean allowedSourceOffset(OffsetAndEpoch toProcess, OffsetAndEpoch current) {
+        if (toProcess.offset() > current.offset()) {
+            validateEpoch(current.epoch(), toProcess.epoch());
+            return true;
+        } else {
+            // This is a duplicate message with an offset that has already been materialized into
+            // the tier state.
+            // This can happen for a couple reasons:
+            // 1. We may have transitioned from CATCHUP status to ONLINE status and metadata
+            //    may have been replayed using the new consumer.
+            // 2. During recovery, the TierTopicConsumer may re-consume offsets that have already
+            //    been materialized as the tier.offsets may not be consistent with the flushed
+            //    TierPartitionState.
+            //
+            // We perform one final check to ensure that the epoch isn't greater than the current
+            // epoch indicating divergence
+            if (toProcess.epoch().isPresent() && current.epoch().isPresent()
+                    && toProcess.epoch().get() > current.epoch().get()) {
+                throw new IllegalStateException("Incorrect epoch in " + toProcess + " with current epoch " + current);
+            } else {
+                return false;
+            }
         }
     }
 
@@ -598,6 +1011,20 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     // visible for testing
     static Path mutableFilePath(String basePath) {
         return StateFileType.MUTABLE.filePath(basePath);
+    }
+
+    // visible for testing
+    static Path recoverPath(String basePath) {
+        return StateFileType.RECOVER.filePath(basePath);
+    }
+
+    // visible for testing
+    static Path discardedFilePath(String basePath, OffsetAndEpoch restoreAt) {
+        return Paths.get(String.format("%s.%s_epoch_%s_offset_%s",
+                basePath,
+                StateFileType.DISCARDED,
+                restoreAt.epoch().orElse(-1),
+                restoreAt.offset()));
     }
 
     // visible for testing
@@ -649,6 +1076,8 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         // offset and epoch for the tier state topic partition of the earliest known message
         // that caused an error and triggered fencing (this includes a PartitionFence event)
         private volatile OffsetAndEpoch errorOffsetAndEpoch = OffsetAndEpoch.EMPTY;
+        // offset and epoch denoting the offset where TierForceRestore occurred, if any
+        private volatile OffsetAndEpoch restoreOffsetAndEpoch = OffsetAndEpoch.EMPTY;
         // true if error status was reached via PartitionFence event, false otherwise
         private volatile boolean errorStatusReachedViaFenceEvent = false;
 
@@ -673,6 +1102,24 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             scanAndInitialize(topicPartition);
             if (status == TierPartitionStatus.UNINITIALIZED)
                 throw new IllegalStateException("Illegal TierPartitionStatus: " + status);
+        }
+
+        private static State createRestoredState(TopicPartition topicPartition,
+                                                 String basePath,
+                                                 byte version,
+                                                 FileChannel channel,
+                                                 Consumer<IOException> ioExceptionHandler,
+                                                 OffsetAndEpoch localMaterializedOffsetAndEpoch,
+                                                 OffsetAndEpoch globalMaterializedOffsetAndEpoch,
+                                                 TierPartitionStatus status) throws IOException {
+            State imported = new State(topicPartition, basePath, version, channel,
+                    ioExceptionHandler);
+            imported.localMaterializedOffsetAndEpoch = localMaterializedOffsetAndEpoch;
+            imported.globalMaterializedOffsetAndEpoch = globalMaterializedOffsetAndEpoch;
+            imported.restoreOffsetAndEpoch = localMaterializedOffsetAndEpoch;
+            imported.setStatus(status);
+            imported.dirty = true;
+            return imported;
         }
 
         private void scanAndInitialize(TopicPartition topicPartition) throws IOException, StateCorruptedException {
@@ -820,16 +1267,10 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         }
 
         public Iterator<TierObjectMetadata> segments() {
-            // first compute a safe view of validSegments base offsets under a lock
-            // and provide it to the iterator. This achieves consistent iteration across
-            // a given State even if one State is swapped for another
             return new TierObjectMetadataIterator(segmentOffsets().iterator());
         }
 
         public Iterator<TierObjectMetadata> segments(long from, long to) {
-            // first compute a safe view of validSegments base offsets under a lock
-            // and provide it to the iterator. This achieves consistent iteration across
-            // a given State even if one State is swapped for another
             return new TierObjectMetadataIterator(segmentOffsets(from, to).iterator());
         }
 
@@ -917,10 +1358,17 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             }
 
             try {
-                if (!mayAppend(offsetAndEpoch)) {
+                if (!allowedSourceOffset(offsetAndEpoch, localMaterializedOffsetAndEpoch)) {
                     log.debug("Ignoring message at offset {} as last materialized offset is {} for {}",
                             offsetAndEpoch, localMaterializedOffsetAndEpoch, topicIdPartition);
                     return AppendResult.FENCED;
+                }
+
+                if (!allowedStateOffset(entry.stateOffsetAndEpoch(), restoreOffsetAndEpoch)) {
+                    log.debug("Ignoring message {} at offset {} as the restore offset is {} for "
+                                    + "{}", entry,  offsetAndEpoch, entry.stateOffsetAndEpoch(),
+                            topicIdPartition);
+                    return AppendResult.RESTORE_FENCED;
                 }
 
                 AppendResult result = appendMetadataImpl(entry, offsetAndEpoch);
@@ -957,36 +1405,6 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                 }
 
                 return AppendResult.FAILED;
-            }
-        }
-
-        private boolean mayAppend(OffsetAndEpoch toAppend) {
-            OffsetAndEpoch current = localMaterializedOffsetAndEpoch;
-
-            if (toAppend.offset() > current.offset()) {
-                if (toAppend.epoch().isPresent() && current.epoch().isPresent()) {
-                    if (toAppend.epoch().get() >= current.epoch().get())
-                        return true;
-                    else
-                        throw new IllegalStateException("Incorrect epoch in " + toAppend + " with current epoch " + current);
-                } else {
-                    return true;
-                }
-            } else {
-                // This is a duplicate message with previous offset as the local state
-                // has advanced to a future offset, some reasons why a duplicate event can occur are:
-                // 1. Transitioning from Catchup mode to Online mode, when catchup consumer surpasses before transition.
-                // 2. During recovery, the TierTopicConsumer may start from offset already processed.
-                // However, we are returning Fenced result because we don't want to allow replay
-                // from previous offsets without resetting the existing current_offset
-                if (toAppend.epoch().isPresent() && current.epoch().isPresent()) {
-                    if (toAppend.epoch().get() <= current.epoch().get())
-                        return false;
-                    else
-                        throw new IllegalStateException("Incorrect epoch in " + toAppend + " with current epoch " + current);
-                } else {
-                    return false;
-                }
             }
         }
 
@@ -1035,6 +1453,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                     + ", numSegments=" + numSegments()
                     + ", tierEpoch=" + currentEpoch
                     + ", lastMaterializedOffset=" + localMaterializedOffsetAndEpoch
+                    + ", restoreOffsetAndEpoch=" + restoreOffsetAndEpoch
                     + ")";
         }
 
@@ -1366,10 +1785,12 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                     version,
                     currentEpoch,
                     status,
+                    startOffset().orElse(-1L),
                     endOffset,
                     globalMaterializedOffsetAndEpoch,
                     localMaterializedOffsetAndEpoch,
-                    errorOffsetAndEpoch));
+                    errorOffsetAndEpoch,
+                    restoreOffsetAndEpoch));
             channel.force(true);
 
             // move file contents to the flushed file
@@ -1416,10 +1837,12 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                             (byte) existingHeader.version(),
                             existingHeader.tierEpoch(),
                             TierPartitionStatus.ERROR,
+                            existingHeader.startOffset(),
                             existingHeader.endOffset(),
                             existingHeader.globalMaterializedOffsetAndEpoch(),
                             existingHeader.localMaterializedOffsetAndEpoch(),
-                            errorOffsetAndEpoch);
+                            errorOffsetAndEpoch,
+                            existingHeader.restoreOffsetAndEpoch());
                     log.warn("Writing new header to tier partition state for {}: {}", topicIdPartition, newHeader);
                 } else {
                     newHeader = new Header(
@@ -1428,6 +1851,8 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
                             -1,
                             TierPartitionStatus.ERROR,
                             -1L,
+                            -1L,
+                            OffsetAndEpoch.EMPTY,
                             OffsetAndEpoch.EMPTY,
                             OffsetAndEpoch.EMPTY,
                             errorOffsetAndEpoch);

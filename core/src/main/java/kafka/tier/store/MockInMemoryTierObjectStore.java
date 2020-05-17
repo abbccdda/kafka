@@ -42,14 +42,13 @@ public class MockInMemoryTierObjectStore implements TierObjectStore, AutoCloseab
     }
 
     @Override
-    public TierObjectStoreResponse getObject(ObjectMetadata objectMetadata,
+    public TierObjectStoreResponse getObject(ObjectStoreMetadata objectMetadata,
                                              FileType objectFileType,
                                              Integer byteOffset,
                                              Integer byteOffsetEnd) throws IOException {
         if (shouldThrow(objectFileType)) {
             throw new IOException("");
         }
-
         String key = keyPath(objectMetadata, objectFileType);
         byte[] blob = KEY_TO_BLOB.get(key);
         if (blob == null)
@@ -80,7 +79,6 @@ public class MockInMemoryTierObjectStore implements TierObjectStore, AutoCloseab
                            Optional<File> producerStateSnapshotData,
                            Optional<ByteBuffer> transactionIndexData,
                            Optional<File> epochState) {
-
         writeFileToArray(keyPath(objectMetadata, FileType.SEGMENT), segmentData);
         incrementObjectCount(FileType.SEGMENT);
 
@@ -107,13 +105,18 @@ public class MockInMemoryTierObjectStore implements TierObjectStore, AutoCloseab
     }
 
     @Override
+    public void putObject(ObjectStoreMetadata objectMetadata, File file, FileType fileType) {
+        writeFileToArray(keyPath(objectMetadata, fileType), file);
+    }
+
+    @Override
     public void deleteSegment(ObjectMetadata objectMetadata) {
         for (FileType type : FileType.values())
             KEY_TO_BLOB.remove(keyPath(objectMetadata, type));
     }
 
-    public String keyPath(ObjectMetadata objectMetadata, FileType fileType) {
-        return TierObjectStoreUtils.keyPath("", objectMetadata, fileType);
+    public String keyPath(ObjectStoreMetadata objectMetadata, FileType fileType) {
+        return objectMetadata.toPath("", fileType);
     }
 
     private void writeFileToArray(String filePath, File file) {

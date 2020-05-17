@@ -826,9 +826,9 @@ class Partition(val topicPartition: TopicPartition,
 
   def fetchTierState(tierObjectMetadata: TierObjectMetadata): CompletableFuture[TierState] = {
     val metadata = new TierObjectStore.ObjectMetadata(tierObjectMetadata)
-    val epochStateFut = tierStateFetcherOpt.get.fetchLeaderEpochState(metadata)
+    val epochStateFut = tierStateFetcherOpt.get.fetchLeaderEpochStateAsync(metadata)
     val producerStateFut = if (tierObjectMetadata.hasProducerState)
-      tierStateFetcherOpt.get.fetchProducerStateSnapshot(metadata).thenApply[Option[ByteBuffer]](buf => Some(buf))
+      tierStateFetcherOpt.get.fetchProducerStateSnapshotAsync(metadata).thenApply[Option[ByteBuffer]](buf => Some(buf))
     else
       CompletableFuture.completedFuture(None)
 

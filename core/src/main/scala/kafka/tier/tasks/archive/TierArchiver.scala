@@ -163,6 +163,7 @@ final class TierArchiver(config: TierTasksConfig,
           .map { log => sizeOfTierableSegments(log) }
       case _: Upload => Some(-2)
       case _: AfterUpload => Some(-3)
+      case _: FailedState => Some(-4)
     }
   }
 }

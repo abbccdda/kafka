@@ -10,7 +10,6 @@ import kafka.tier.serdes.PartitionForceRestore;
 import kafka.tier.state.OffsetAndEpoch;
 
 import java.nio.ByteBuffer;
-import java.util.Optional;
 import java.util.UUID;
 
 import static kafka.tier.serdes.OffsetAndEpoch.createOffsetAndEpoch;
@@ -18,6 +17,7 @@ import static kafka.tier.serdes.OffsetAndEpoch.createOffsetAndEpoch;
 public class TierPartitionForceRestore extends AbstractTierMetadata {
     private final static byte VERSION_V0 = 0;
     private final static byte CURRENT_VERSION = VERSION_V0;
+    private final static int INITIAL_BUFFER_SIZE = 136;
 
     private final TopicIdPartition topicIdPartition;
     private final PartitionForceRestore metadata;
@@ -26,9 +26,9 @@ public class TierPartitionForceRestore extends AbstractTierMetadata {
                                      UUID messageId,
                                      long startOffset,
                                      long endOffset,
-                                     OffsetAndEpoch stateValidityOffsetAndEpoch,
+                                     OffsetAndEpoch stateOffsetAndEpoch,
                                      String contentHash) {
-        FlatBufferBuilder builder = new FlatBufferBuilder().forceDefaults(true);
+        FlatBufferBuilder builder = new FlatBufferBuilder(INITIAL_BUFFER_SIZE).forceDefaults(true);
         int contentHashId = builder.createString(contentHash);
         PartitionForceRestore.startPartitionForceRestore(builder);
         PartitionForceRestore.addVersion(builder, CURRENT_VERSION);
@@ -37,9 +37,9 @@ public class TierPartitionForceRestore extends AbstractTierMetadata {
         int messageIdOffset = kafka.tier.serdes.UUID.createUUID(
                 builder, messageId.getMostSignificantBits(), messageId.getLeastSignificantBits());
         PartitionForceRestore.addMessageId(builder, messageIdOffset);
-        int offsetAndEpochId = createOffsetAndEpoch(builder, stateValidityOffsetAndEpoch.offset(),
-                stateValidityOffsetAndEpoch.epoch().orElse(-1));
-        PartitionForceRestore.addStateValidityOffsetAndEpoch(builder, offsetAndEpochId);
+        int offsetAndEpochId = createOffsetAndEpoch(builder, stateOffsetAndEpoch.offset(),
+                stateOffsetAndEpoch.epoch().orElse(-1));
+        PartitionForceRestore.addStateOffsetAndEpoch(builder, offsetAndEpochId);
         PartitionForceRestore.addContentHash(builder, contentHashId);
         int entryId = PartitionForceRestore.endPartitionForceRestore(builder);
         builder.finish(entryId);
@@ -49,6 +49,10 @@ public class TierPartitionForceRestore extends AbstractTierMetadata {
     }
 
     public TierPartitionForceRestore(TopicIdPartition topicIdPartition, PartitionForceRestore metadata) {
+        if (metadata.stateOffsetAndEpoch() == null)
+            throw new IllegalArgumentException("TierPartitionForceRestore must contain a "
+                    + "stateOffsetAndEpoch.");
+
         this.topicIdPartition = topicIdPartition;
         this.metadata = metadata;
     }
@@ -89,14 +93,20 @@ public class TierPartitionForceRestore extends AbstractTierMetadata {
         return -1;
     }
 
-    public Optional<OffsetAndEpoch> stateValidityOffsetAndEpoch() {
-        return Optional.of(new OffsetAndEpoch(metadata.stateValidityOffsetAndEpoch()));
+    @Override
+    public OffsetAndEpoch stateOffsetAndEpoch() {
+        return new OffsetAndEpoch(metadata.stateOffsetAndEpoch());
     }
 
     @Override
     public UUID messageId() {
         return new UUID(metadata.messageId().mostSignificantBits(), metadata.messageId().leastSignificantBits());
    }
+
+    @Override
+    public int expectedSizeLatestVersion() {
+        return INITIAL_BUFFER_SIZE;
+    }
 
     @Override
     public String toString() {
@@ -106,7 +116,7 @@ public class TierPartitionForceRestore extends AbstractTierMetadata {
                 "messageIdAsBase64=" + messageIdAsBase64() + ", " +
                 "startOffset=" + startOffset() + ", " +
                 "endOffset=" + endOffset() + ", " +
-                "stateValidityOffsetAndEpoch=" + stateValidityOffsetAndEpoch() + ", " +
+                "stateOffsetAndEpoch=" + stateOffsetAndEpoch() + ", " +
                 "contentHash=" + contentHash() + ")";
     }
 }

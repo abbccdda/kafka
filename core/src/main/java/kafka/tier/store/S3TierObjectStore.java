@@ -36,11 +36,11 @@ public class S3TierObjectStore implements TierObjectStore {
     private final static Logger log = LoggerFactory.getLogger(S3TierObjectStore.class);
     private final String clusterId;
     private final int brokerId;
+    private final AmazonS3 client;
     private final String bucket;
     private final String prefix;
     private final String sseAlgorithm;
     private final int autoAbortThresholdBytes;
-    private AmazonS3 client;
 
     public S3TierObjectStore(S3TierObjectStoreConfig config) {
         this(client(config), config);
@@ -59,7 +59,7 @@ public class S3TierObjectStore implements TierObjectStore {
     }
 
     @Override
-    public TierObjectStoreResponse getObject(ObjectMetadata objectMetadata,
+    public TierObjectStoreResponse getObject(ObjectStoreMetadata objectMetadata,
                                              FileType fileType,
                                              Integer byteOffsetStart,
                                              Integer byteOffsetEnd) {
@@ -78,13 +78,33 @@ public class S3TierObjectStore implements TierObjectStore {
         try {
             object = client.getObject(request);
         } catch (AmazonClientException e) {
-            throw new TierObjectStoreRetriableException("Failed to fetch segment " + objectMetadata, e);
+            throw new TierObjectStoreRetriableException(
+                    String.format("Failed to fetch object, metadata: %s type: %s range %s-%s",
+                            objectMetadata, fileType, byteOffsetStart, byteOffsetEnd), e);
         } catch (Exception e) {
-            throw new TierObjectStoreFatalException("Unknown exception when fetching segment " + objectMetadata, e);
+            throw new TierObjectStoreFatalException(
+                    String.format("Unknown exception when fetching object, metadata: %s type: %s range %s-%s",
+                            objectMetadata, fileType, byteOffsetStart, byteOffsetEnd), e);
         }
 
         final S3ObjectInputStream inputStream = object.getObjectContent();
         return new S3TierObjectStoreResponse(inputStream, autoAbortThresholdBytes, object.getObjectMetadata().getContentLength());
+    }
+
+    @Override
+    public void putObject(ObjectStoreMetadata objectMetadata, File file, FileType fileType) {
+        Map<String, String> metadata = objectMetadata.objectMetadata(clusterId, brokerId);
+        try {
+            putFile(keyPath(objectMetadata, fileType), metadata, file);
+        } catch (AmazonClientException e) {
+            throw new TierObjectStoreRetriableException(
+                    String.format("Failed to upload object %s, file %s, type %s",
+                            objectMetadata, file, fileType), e);
+        } catch (Exception e) {
+            throw new TierObjectStoreFatalException(
+                    String.format("Failed to upload object %s, file %s, type %s",
+                            objectMetadata, file, fileType), e);
+        }
     }
 
     @Override
@@ -93,7 +113,7 @@ public class S3TierObjectStore implements TierObjectStore {
                            Optional<File> producerStateSnapshotData,
                            Optional<ByteBuffer> transactionIndexData,
                            Optional<File> epochState) {
-        Map<String, String> metadata = TierObjectStoreUtils.createSegmentMetadata(objectMetadata, clusterId, brokerId);
+        Map<String, String> metadata = objectMetadata.objectMetadata(clusterId, brokerId);
 
         try {
             putFile(keyPath(objectMetadata, FileType.SEGMENT), metadata, segmentData);
@@ -104,26 +124,28 @@ public class S3TierObjectStore implements TierObjectStore {
                     FileType.TRANSACTION_INDEX), metadata, abortedTxnsBuf));
             epochState.ifPresent(file -> putFile(keyPath(objectMetadata, FileType.EPOCH_STATE), metadata, file));
         } catch (AmazonClientException e) {
-            throw new TierObjectStoreRetriableException("Failed to upload segment " + objectMetadata, e);
+            throw new TierObjectStoreRetriableException("Failed to upload segment: " + objectMetadata, e);
         } catch (Exception e) {
-            throw new TierObjectStoreFatalException("Unknown exception when uploading segment " + objectMetadata, e);
+            throw new TierObjectStoreFatalException("Unknown exception when uploading segment: " + objectMetadata, e);
         }
     }
 
     @Override
     public void deleteSegment(ObjectMetadata objectMetadata) {
         List<DeleteObjectsRequest.KeyVersion> keys = new ArrayList<>();
-        for (FileType type : FileType.values())
-            keys.add(new DeleteObjectsRequest.KeyVersion(keyPath(objectMetadata, type)));
+        for (FileType type : FileType.values()) {
+            final String keyPath = keyPath(objectMetadata, type);
+            log.debug("Deleting object s3://{}/{}", bucket, keyPath);
+            keys.add(new DeleteObjectsRequest.KeyVersion(keyPath));
+        }
 
         DeleteObjectsRequest request = new DeleteObjectsRequest(bucket).withKeys(keys);
-        log.debug("Deleting " + keys);
         try {
             client.deleteObjects(request);
         } catch (AmazonClientException e) {
-            throw new TierObjectStoreRetriableException("Failed to delete segment " + objectMetadata, e);
+            throw new TierObjectStoreRetriableException("Failed to delete segment: " + objectMetadata, e);
         } catch (Exception e) {
-            throw new TierObjectStoreFatalException("Unknown exception when deleting segment " + objectMetadata, e);
+            throw new TierObjectStoreFatalException("Unknown exception when deleting segment: " + objectMetadata, e);
         }
     }
 
@@ -132,8 +154,8 @@ public class S3TierObjectStore implements TierObjectStore {
         this.client.shutdown();
     }
 
-    private String keyPath(TierObjectStore.ObjectMetadata objectMetadata, TierObjectStore.FileType fileType) {
-        return TierObjectStoreUtils.keyPath(prefix, objectMetadata, fileType);
+    private String keyPath(ObjectStoreMetadata objectMetadata, TierObjectStore.FileType fileType) {
+        return objectMetadata.toPath(prefix, fileType);
     }
 
     private com.amazonaws.services.s3.model.ObjectMetadata putObjectMetadata(Map<String, String> userMetadata) {

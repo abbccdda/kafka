@@ -85,7 +85,8 @@ class TierTopicManagerIntegrationTest extends KafkaServerTestHarness {
       size = 100,
       hasAbortedTxnIndex = false,
       hasEpochState = true,
-      hasProducerState = false)
+      hasProducerState = false,
+      validity = tierPartitionState1.lastLocalMaterializedSrcOffsetAndEpoch())
     assertEquals(AppendResult.ACCEPTED, result1.get)
 
     tierPartitionState1.flush()
@@ -101,7 +102,8 @@ class TierTopicManagerIntegrationTest extends KafkaServerTestHarness {
       size = 200,
       hasAbortedTxnIndex = false,
       hasEpochState = true,
-      hasProducerState = false)
+      hasProducerState = false,
+      validity = tierPartitionState1.lastLocalMaterializedSrcOffsetAndEpoch())
     assertEquals(AppendResult.FENCED, result2.get())
 
     tierPartitionState1.flush()

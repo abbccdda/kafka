@@ -3,6 +3,7 @@ package kafka.tier.topic;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.TierSegmentDeleteInitiate;
 import kafka.tier.domain.TierSegmentUploadComplete;
+import kafka.tier.state.OffsetAndEpoch;
 import kafka.tier.state.TierPartitionState;
 import org.junit.Test;
 
@@ -25,7 +26,8 @@ public class TierTopicListenersTest {
         TopicIdPartition topicIdPartition = new TopicIdPartition("mytopic", UUID.randomUUID(), 0);
         UUID objectId = UUID.randomUUID();
         CompletableFuture<TierPartitionState.AppendResult> result = new CompletableFuture<>();
-        TierSegmentDeleteInitiate metadata = new TierSegmentDeleteInitiate(topicIdPartition, 0,  objectId);
+        TierSegmentDeleteInitiate metadata = new TierSegmentDeleteInitiate(topicIdPartition, 0,
+                objectId, new OffsetAndEpoch(30, Optional.of(1)));
         listeners.addTracked(metadata, result);
         assertEquals(1, listeners.numListeners());
         LockSupport.parkNanos(1_000_000);
@@ -50,11 +52,13 @@ public class TierTopicListenersTest {
         TopicIdPartition topicIdPartition = new TopicIdPartition("mytopic", UUID.randomUUID(), 0);
         UUID objectId = UUID.randomUUID();
         CompletableFuture<TierPartitionState.AppendResult> result = new CompletableFuture<>();
-        TierSegmentDeleteInitiate metadata = new TierSegmentDeleteInitiate(topicIdPartition, 0,  objectId);
+        TierSegmentDeleteInitiate metadata = new TierSegmentDeleteInitiate(topicIdPartition, 0,
+                objectId, new OffsetAndEpoch(30, Optional.of(1)));
         listeners.addTracked(metadata, result);
         assertEquals(1, listeners.numListeners());
 
-        TierSegmentDeleteInitiate replace = new TierSegmentDeleteInitiate(topicIdPartition, 0, objectId);
+        TierSegmentDeleteInitiate replace = new TierSegmentDeleteInitiate(topicIdPartition, 0,
+                objectId, new OffsetAndEpoch(30, Optional.of(1)));
         CompletableFuture<TierPartitionState.AppendResult> result2 = new CompletableFuture<>();
         listeners.addTracked(replace, result2);
         assertEquals(1, listeners.numListeners());
@@ -68,7 +72,8 @@ public class TierTopicListenersTest {
         TopicIdPartition topicIdPartition = new TopicIdPartition("mytopic", UUID.randomUUID(), 0);
         UUID objectId = UUID.randomUUID();
         CompletableFuture<TierPartitionState.AppendResult> result = new CompletableFuture<>();
-        TierSegmentDeleteInitiate metadata = new TierSegmentDeleteInitiate(topicIdPartition, 0,  objectId);
+        TierSegmentDeleteInitiate metadata = new TierSegmentDeleteInitiate(topicIdPartition, 0,
+                objectId, new OffsetAndEpoch(30, Optional.of(1)));
         listeners.addTracked(metadata, result);
         assertEquals(1, listeners.numListeners());
         assertTrue(listeners.maxListenerTimeNanos().get() > 0);
@@ -83,11 +88,13 @@ public class TierTopicListenersTest {
         TierTopicListeners listeners = new TierTopicListeners();
         TopicIdPartition topicIdPartition = new TopicIdPartition("mytopic", UUID.randomUUID(), 0);
         CompletableFuture<TierPartitionState.AppendResult> result1 = new CompletableFuture<>();
-        TierSegmentDeleteInitiate deleteInitiate = new TierSegmentDeleteInitiate(topicIdPartition, 0, UUID.randomUUID());
+        TierSegmentDeleteInitiate deleteInitiate = new TierSegmentDeleteInitiate(topicIdPartition, 0,
+                UUID.randomUUID(), new OffsetAndEpoch(30, Optional.of(1)));
         listeners.addTracked(deleteInitiate, result1);
 
         CompletableFuture<TierPartitionState.AppendResult> result2 = new CompletableFuture<>();
-        TierSegmentUploadComplete uploadComplete = new TierSegmentUploadComplete(topicIdPartition, 0, UUID.randomUUID());
+        TierSegmentUploadComplete uploadComplete = new TierSegmentUploadComplete(topicIdPartition, 0, UUID.randomUUID(),
+                new OffsetAndEpoch(30, Optional.of(1)));
         listeners.addTracked(uploadComplete, result2);
 
         assertEquals(2, listeners.numListeners());

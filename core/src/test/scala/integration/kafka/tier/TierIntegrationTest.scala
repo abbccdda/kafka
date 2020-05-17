@@ -20,6 +20,7 @@ import kafka.metrics.KafkaYammerMetrics
 import kafka.server.{BrokerTopicStats, LogDirFailureChannel, ReplicaManager}
 import kafka.tier.tasks.archive._
 import kafka.tier.client.{MockConsumerSupplier, MockProducerSupplier}
+import kafka.tier.fetcher.TierStateFetcher
 import kafka.tier.state.{TierPartitionState, TierPartitionStateFactory, TierPartitionStatus}
 import kafka.tier.store.TierObjectStore.FileType
 import kafka.tier.store.{MockInMemoryTierObjectStore, TierObjectStore, TierObjectStoreConfig}
@@ -65,6 +66,7 @@ class TierIntegrationTest {
   var replicaManager: ReplicaManager = _
   var tierObjectStore: MockInMemoryTierObjectStore = _
   var tierDeletedPartitionsCoordinator = mock(classOf[TierDeletedPartitionsCoordinator])
+  var tierStateFetcher = mock(classOf[TierStateFetcher])
   var logs: Seq[MergedLog] = _
   var tierTopicManager: TierTopicManager = _
   var consumerSupplier: MockConsumerSupplier[Array[Byte], Array[Byte]] = _
@@ -262,7 +264,14 @@ class TierIntegrationTest {
 
     // eventually, we would have tiered all segments
     archiveAndMaterializeUntilTrue(() => {
-      logs.forall(_.tierableLogSegments.isEmpty) && logs.forall(_.tieredLogSegments.nonEmpty)
+      logs.forall(_.tierableLogSegments.isEmpty) && logs.forall { log =>
+        val iterator = log.tieredLogSegments
+        try {
+          iterator.hasNext
+        } finally {
+          iterator.close()
+        }
+      }
     }, s"Expected all logs to eventually become tiered", tierTopicManager, consumerSupplier)
   }
 
@@ -392,6 +401,7 @@ class TierIntegrationTest {
       consumerSupplier,
       consumerSupplier,
       new TierTopicManagerCommitter(tierTopicManagerConfig, EasyMock.mock(classOf[LogDirFailureChannel])),
+      tierStateFetcher,
       Optional.empty())
 
     tierTopicManager = new TierTopicManager(tierTopicManagerConfig,

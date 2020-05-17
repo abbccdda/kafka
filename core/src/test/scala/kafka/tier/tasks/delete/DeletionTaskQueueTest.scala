@@ -7,6 +7,7 @@ package kafka.tier.tasks.delete
 import java.time.Instant
 import java.util.concurrent.CompletableFuture
 import java.util.{Properties, UUID}
+import java.util.Optional
 
 import kafka.cluster.Partition
 import kafka.log.{LogConfig, MergedLog, TierLogSegment}
@@ -20,12 +21,17 @@ import kafka.tier.tasks.StartLeadership
 import kafka.tier.tasks.delete.DeletionTask._
 import kafka.tier.topic.TierTopicAppender
 import kafka.tier.TopicIdPartition
+import kafka.tier.state.OffsetAndEpoch
+import kafka.tier.store.TierObjectStore.ObjectMetadata
 import kafka.utils.MockTime
+import org.apache.kafka.common.utils.CloseableIterator
 import org.apache.kafka.common.utils.Time
 import org.junit.Assert._
 import org.junit.Test
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.{mock, when}
+import org.mockito.invocation.InvocationOnMock
+import org.mockito.stubbing.Answer
 
 import scala.jdk.CollectionConverters._
 import scala.collection.mutable
@@ -71,9 +77,9 @@ class DeletionTaskQueueTest {
 
     val task_1 = new DeletionTask(ctx.subContext(), partition_1, logCleanupIntervalMs = 5, CollectDeletableSegments(retentionMetadata(leaderEpoch = 0)))
     val task_2 = new DeletionTask(ctx.subContext(), partition_2, logCleanupIntervalMs = 5, CollectDeletableSegments(retentionMetadata(leaderEpoch = 1)))
-    val task_3 = new DeletionTask(ctx.subContext(), partition_3, logCleanupIntervalMs = 5, Delete(retentionMetadata(leaderEpoch = 0), mock(classOf[mutable.Queue[DeleteObjectMetadata]])))
-    val task_4 = new DeletionTask(ctx.subContext(), partition_4, logCleanupIntervalMs = 5, CompleteDelete(retentionMetadata(leaderEpoch = 0), mock(classOf[mutable.Queue[DeleteObjectMetadata]])))
-    val task_5 = new DeletionTask(ctx.subContext(), partition_5, logCleanupIntervalMs = 5, InitiateDelete(retentionMetadata(leaderEpoch = 0), mock(classOf[mutable.Queue[DeleteObjectMetadata]])))
+    val task_3 = new DeletionTask(ctx.subContext(), partition_3, logCleanupIntervalMs = 5, Delete(retentionMetadata(leaderEpoch = 0), Optional.of(new OffsetAndEpoch(1, Optional.of(1))), mock(classOf[mutable.Queue[DeleteObjectMetadata]])))
+    val task_4 = new DeletionTask(ctx.subContext(), partition_4, logCleanupIntervalMs = 5, CompleteDelete(retentionMetadata(leaderEpoch = 0), Optional.of(new OffsetAndEpoch(1, Optional.of(1))), mock(classOf[mutable.Queue[DeleteObjectMetadata]])))
+    val task_5 = new DeletionTask(ctx.subContext(), partition_5, logCleanupIntervalMs = 5, InitiateDelete(retentionMetadata(leaderEpoch = 0), Optional.of(new OffsetAndEpoch(3, Optional.of(1))), mock(classOf[mutable.Queue[DeleteObjectMetadata]])))
 
     task_1.lastProcessedMs = Some(time.hiResClockMs() - 100)
     task_2.lastProcessedMs = Some(time.hiResClockMs() - 300)
@@ -99,7 +105,7 @@ class DeletionTaskQueueTest {
     // return tasks until `fileDeleteDelayMs` time is elapsed before deleting the object from tiered storage.
     val tierTopicAppender = mock(classOf[TierTopicAppender])
     val tierObjectStore = mock(classOf[TierObjectStore])
-    val tierObjectMetadata = mock(classOf[TierObjectStore.ObjectMetadata])
+    val tierObjectMetadata = mock(classOf[ObjectMetadata])
 
     val topicIdPartition = new TopicIdPartition("foo-1", UUID.randomUUID, 0)
     val tierPartitionState = mock(classOf[TierPartitionState])
@@ -126,10 +132,15 @@ class DeletionTaskQueueTest {
     when(partition.log).thenReturn(Some(log))
 
     // mock Log
-    when(log.tieredLogSegments).thenReturn(Seq(tieredLogSegment).iterator)
+    when(log.tieredLogSegments).thenAnswer(new Answer[CloseableIterator[TierLogSegment]] {
+        override def answer(invocation: InvocationOnMock): CloseableIterator[TierLogSegment] = {
+          CloseableIterator.wrap[TierLogSegment](List(tieredLogSegment).asJava.iterator)
+        }
+      })
     when(log.config).thenReturn(logConfig)
     when(log.logStartOffset).thenReturn(100)
     when(log.tierPartitionState).thenReturn(tierPartitionState)
+    when(tierPartitionState.lastLocalMaterializedSrcOffsetAndEpoch()).thenReturn(new OffsetAndEpoch(100, Optional.of(3)))
 
     // mock segment
     when(tieredLogSegment.maxTimestamp).thenReturn(time.hiResClockMs())

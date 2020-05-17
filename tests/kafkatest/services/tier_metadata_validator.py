@@ -90,7 +90,8 @@ class TierMetadataValidator(KafkaPathResolverMixin, JmxMixin, BackgroundThreadSe
               "--snapshot-states-files=false " \
               "--working-dir=%(working_dir)s " % args
 
-        tier_config = dict(self.kafka.server_prop_overides)
+        tier_config = self.kafka.nodes[0].config.copy()
+        tier_config.update(dict(self.kafka.server_prop_overides))
         if tier_config[config_property.CONFLUENT_TIER_BACKEND] \
                 and not tier_config[config_property.CONFLUENT_TIER_BACKEND] == "S3":
             raise ValueError("Unsupported backend: %s" % tier_config[config_property.CONFLUENT_TIER_BACKEND])

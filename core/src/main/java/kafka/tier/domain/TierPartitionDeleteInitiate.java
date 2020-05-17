@@ -7,14 +7,19 @@ package kafka.tier.domain;
 import com.google.flatbuffers.FlatBufferBuilder;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.serdes.PartitionDeleteInitiate;
+import kafka.tier.state.OffsetAndEpoch;
 
 import java.nio.ByteBuffer;
 import java.util.UUID;
 
+/**
+ * Partition delete initiate metadata. The schema for this file is defined in
+ * <a href="file:core/src/main/resources/serde/immutable/partition_delete_initiate.fbs">partition_delete_initiate.fbs</a>
+ */
 public class TierPartitionDeleteInitiate extends AbstractTierMetadata {
     private final static byte VERSION_V0 = 0;
     private final static byte CURRENT_VERSION = VERSION_V0;
-    private final static int INITIAL_BUFFER_SIZE = 60;
+    private final static int INITIAL_BUFFER_SIZE = 48;
 
     private final TopicIdPartition topicIdPartition;
     private final PartitionDeleteInitiate metadata;
@@ -63,9 +68,20 @@ public class TierPartitionDeleteInitiate extends AbstractTierMetadata {
         return metadata.controllerEpoch();
     }
 
+
+    @Override
+    public OffsetAndEpoch stateOffsetAndEpoch() {
+        return OffsetAndEpoch.EMPTY;
+    }
+
     @Override
     public UUID messageId() {
         return new UUID(metadata.messageId().mostSignificantBits(), metadata.messageId().leastSignificantBits());
+    }
+
+    @Override
+    public int expectedSizeLatestVersion() {
+        return INITIAL_BUFFER_SIZE;
     }
 
     @Override

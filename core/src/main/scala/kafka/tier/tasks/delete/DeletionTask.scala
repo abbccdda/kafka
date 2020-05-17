@@ -4,6 +4,7 @@
 
 package kafka.tier.tasks.delete
 
+import java.util.Optional
 import java.util.UUID
 
 import com.yammer.metrics.core.Meter
@@ -17,6 +18,10 @@ import kafka.tier.store.TierObjectStore
 import kafka.tier.tasks.TierTask
 import kafka.tier.tasks.delete.DeletionTask.State
 import kafka.tier.TopicIdPartition
+import kafka.tier.exceptions.TierArchiverFatalException
+import kafka.tier.exceptions.TierArchiverRestoreFencedException
+import kafka.tier.state.OffsetAndEpoch
+import kafka.tier.state.TierPartitionStatus
 import kafka.tier.topic.TierTopicAppender
 import kafka.utils.Logging
 import org.apache.kafka.common.utils.Time
@@ -25,6 +30,11 @@ import scala.collection.mutable
 import scala.compat.java8.FutureConverters._
 import scala.concurrent.{ExecutionContext, Future, blocking}
 import scala.jdk.CollectionConverters._
+
+object Defaults {
+  val FENCED_STATE_EXCEPTION_RETRY_MS = 60000
+  val METADATA_EXCEPTION_RETRY_MS = 5000
+}
 
 final class DeletionTask(override val ctx: CancellationContext,
                          override val topicIdPartition: TopicIdPartition,
@@ -78,7 +88,7 @@ final class DeletionTask(override val ctx: CancellationContext,
       this
     }.recover {
       case e @ (_: TierMetadataRetriableException | _: TierObjectStoreRetriableException) =>
-        retryTaskLater(maxRetryBackoffMs.getOrElse(5000), nowMs, e)
+        retryTaskLater(maxRetryBackoffMs.getOrElse(Defaults.METADATA_EXCEPTION_RETRY_MS), nowMs, e)
         this
       case e: TierDeletionTaskFencedException =>
         info(s"$topicIdPartition was fenced, stopping deletion process", e)
@@ -88,9 +98,17 @@ final class DeletionTask(override val ctx: CancellationContext,
         info(s"$topicIdPartition was fenced, stopping deletion process", e)
         ctx.cancel()
         this
+
+      case _: TierArchiverRestoreFencedException =>
+        debug(s"$topicIdPartition encountered metadata fencing due to state restoration")
+        // the TierPartitionState has been restored. We can retry immediately but we must
+        // transition to a FailedState so we can re-establish leadership if required
+        state = FailedState(state.metadata)
+        this
       case e: TierArchiverFailedException =>
         warn(s"$topicIdPartition failed, stopping deletion process and marking $topicIdPartition to be in error", e)
-        cancelAndSetErrorState(this, e)
+        retryTaskLater(maxRetryBackoffMs.getOrElse(Defaults.FENCED_STATE_EXCEPTION_RETRY_MS), nowMs, e)
+        state = FailedState(state.metadata)
         this
       case _: TaskCompletedException =>
         info(s"Stopping deletion process for $topicIdPartition after task completion")
@@ -138,29 +156,29 @@ object DeletionTask extends Logging {
     * transition states is fenced or when all segments were successfully deleted.
     *
     * +--------------------------+
-    * |                          |
-    * | CollectDeletableSegments <----+
-    * |                          |    |
-    * +------------+-------------+    |
-    *              |                  |
-    *              |                  |
-    * +------------v----+             |
-    * |                 |             |
-    * |  InitiateDelete <----+        |
-    * |                 |    |        |
-    * +-------+---------+    |        |
-    *         |              |        |
-    *         |              |        |
-    * +-------v---------+    |        |
-    * |                 |    |        |
-    * |     Delete      |    |        |
-    * |                 |    |        |
-    * +-------+---------+    |        |
-    *         |              |        |
-    *         |              |        |
-    * +-------v---------+    |        |
-    * |                 |    |        |
-    * | CompleteDelete  +----+--------+
+    * |                          >----------------------+
+    * | CollectDeletableSegments <----+-------------    |
+    * |                          |    |            |    |
+    * +------------+-------------+    |            |    |
+    *              |                  |            |    |
+    *              |                  |            |    |
+    * +------------v----+             |            |    |
+    * |                 >-------------|---------   |    |
+    * |  InitiateDelete <----+        |        |   |    |
+    * |                 |    |        |        |   |    |
+    * +-------+---------+    |        |        |   |    |
+    *         |              |        |        |   |    |
+    *         |              |        |        |   |    |
+    * +-------v---------+    |        |      +-v---^----v-----+
+    * |                 |    |        |      |                |
+    * |     Delete      |    |        |      |    Failed      |
+    - |                 |    |        |      |                |
+    * +-------+---------+    |        |      +------^---------+
+    *         |              |        |            |
+    *         |              |        |            |
+    * +-------v---------+    |        |            |
+    * |                 |    |        |            |
+    * | CompleteDelete  +----+--------+------------+
     * |                 |
     * +-------+---------+
     *         | Deleted Partition
@@ -216,12 +234,10 @@ object DeletionTask extends Logging {
                   if (log.tierPartitionState.tierEpoch != leaderEpoch)
                     throw new TierMetadataRetriableException(s"Leadership not established for $topicIdPartition. Backing off.")
 
-                  if (partition.getIsUncleanLeader)
-                    throw new TierMetadataRetriableException(s"$topicIdPartition undergoing unclean leader recovery. Backing off.")
-
-                  val deletableSegments = mutable.Queue.empty ++ collectDeletableSegments(time, log, log.tieredLogSegments.toList)
+                  val currentStateOffset = log.tierPartitionState.lastLocalMaterializedSrcOffsetAndEpoch()
+                  val deletableSegments = mutable.Queue.empty ++ collectDeletableSegments(time, log)
                   if (deletableSegments.nonEmpty)
-                    InitiateDelete(metadata, deletableSegments)
+                    InitiateDelete(metadata, Optional.of(currentStateOffset), deletableSegments)
                   else
                     this
                 }.getOrElse(this)
@@ -229,61 +245,59 @@ object DeletionTask extends Logging {
 
           case deletedPartitionMetadata: DeletedPartitionMetadata =>
             val deletableSegments = deletedPartitionMetadata.tieredObjects.map(DeleteObjectMetadata(_, None))
-            if (deletableSegments.nonEmpty)
-              InitiateDelete(metadata, mutable.Queue.empty ++= deletableSegments)
-            else
+            if (deletableSegments.nonEmpty) {
+              // deletion resulting from delete partitions does not have a valid stateOffset and thus empty is passed
+              val stateOffset = Optional.empty[OffsetAndEpoch]()
+              InitiateDelete(metadata, stateOffset, mutable.Queue.empty ++= deletableSegments)
+            } else {
               PartitionDeleteComplete(deletedPartitionMetadata)
+            }
         }
       }
     }
 
     // Collect all deletable segments (retention based and fenced tiered segments) for this log
     private def collectDeletableSegments(time: Time,
-                                         log: AbstractLog,
-                                         segments: Iterable[TierLogSegment]): List[DeleteObjectMetadata] = {
+                                         log: AbstractLog): List[DeleteObjectMetadata] = {
       // Queue the retention-based segments that can be processed immediately first followed by the fenced segments
-      collectRetentionBasedDeletableSegments(time, log, segments) ++ collectFencedSegments(time, log)
+      collectRetentionBasedDeletableSegments(time, log) ++ collectFencedSegments(time, log)
     }
 
-    private def collectRetentionBasedDeletableSegments(time: Time,
-                                                       log: AbstractLog,
-                                                       segments: Iterable[TierLogSegment]): List[DeleteObjectMetadata] = {
-      if (segments.isEmpty) {
-        List.empty
-      } else {
-        maybeUpdateLogStartOffsetRetentionMsBreachedSegments(time, log, segments)
-        maybeUpdateLogStartOffsetRetentionSizeBreachedSegments(log, segments)
-        collectLogStartOffsetBreachedSegments(log, segments).map(DeleteObjectMetadata(_, None))
-      }
+    private def collectRetentionBasedDeletableSegments(time: Time, log: AbstractLog): List[DeleteObjectMetadata] = {
+      maybeUpdateLogStartOffsetRetentionMsBreachedSegments(time, log)
+      maybeUpdateLogStartOffsetRetentionSizeBreachedSegments(log)
+      collectLogStartOffsetBreachedSegments(log).map(DeleteObjectMetadata(_, None))
     }
 
     // Find deletable segments based on the predicate `shouldDelete`. Increments the log start offset and returns the
     // list of deletable segments.
     private def maybeUpdateLogStartOffsetOnDeletePredicate(log: AbstractLog,
-                                                           segments: Iterable[TierLogSegment],
                                                            shouldDelete: TierLogSegment => Boolean,
                                                            reason: String): List[TierObjectStore.ObjectMetadata] = {
       val toDelete = mutable.ListBuffer[TierObjectStore.ObjectMetadata]()
-      val segmentIterator = segments.iterator
-      var continue = true
-
-      while (segmentIterator.hasNext && continue) {
-        val segment = segmentIterator.next()
-        if (shouldDelete(segment)) {
-          log.maybeIncrementLogStartOffset(segment.endOffset + 1)
-          toDelete += segment.metadata
-        } else {
-          continue = false
+      val segmentIterator = log.tieredLogSegments
+      try {
+        var continue = true
+        while (segmentIterator.hasNext && continue) {
+          val segment = segmentIterator.next()
+          if (shouldDelete(segment)) {
+            log.maybeIncrementLogStartOffset(segment.endOffset + 1)
+            toDelete += segment.metadata
+          } else {
+            continue = false
+          }
         }
+        if (toDelete.nonEmpty)
+          info(s"Found deletable tiered segments for ${log.topicPartition} with base offsets " +
+            s"[${toDelete.map(_.baseOffset).mkString(",")}] due to $reason")
+        toDelete.toList
+      } finally {
+        segmentIterator.close()
       }
-      if (toDelete.nonEmpty)
-        info(s"Found deletable tiered segments for ${log.topicPartition} with base offsets " +
-          s"[${toDelete.map(_.baseOffset).mkString(",")}] due to $reason")
-      toDelete.toList
     }
 
     // Delete segments which are eligible for deletion based on time-based retention and schedule them for deletion
-    private def maybeUpdateLogStartOffsetRetentionMsBreachedSegments(time: Time, log: AbstractLog, segments: Iterable[TierLogSegment]): Unit = {
+    private def maybeUpdateLogStartOffsetRetentionMsBreachedSegments(time: Time, log: AbstractLog): Unit = {
       val startTime = time.milliseconds
       val retentionMs = log.config.retentionMs
 
@@ -292,11 +306,11 @@ object DeletionTask extends Logging {
 
       def shouldDelete(segment: TierLogSegment): Boolean = startTime - segment.maxTimestamp > retentionMs
 
-      maybeUpdateLogStartOffsetOnDeletePredicate(log, segments, shouldDelete, reason = s"retention time ${retentionMs}ms breach")
+      maybeUpdateLogStartOffsetOnDeletePredicate(log, shouldDelete, reason = s"retention time ${retentionMs}ms breach")
     }
 
     // Delete segments which are eligible for deletion based on size-based retention and schedule them for deletion
-    private def maybeUpdateLogStartOffsetRetentionSizeBreachedSegments(log: AbstractLog, segments: Iterable[TierLogSegment]): Unit = {
+    private def maybeUpdateLogStartOffsetRetentionSizeBreachedSegments(log: AbstractLog): Unit = {
       val size = log.size
       val retentionSize = log.config.retentionSize
 
@@ -313,15 +327,14 @@ object DeletionTask extends Logging {
         }
       }
 
-      maybeUpdateLogStartOffsetOnDeletePredicate(log, segments, shouldDelete, reason = s"retention size in bytes $retentionSize breach")
+      maybeUpdateLogStartOffsetOnDeletePredicate(log, shouldDelete, reason = s"retention size in bytes $retentionSize breach")
     }
 
     // Collect and delete segments which are below the current log start offset and schedule them for deletion
-    private def collectLogStartOffsetBreachedSegments(log: AbstractLog,
-                                                      segments: Iterable[TierLogSegment]): List[TierObjectStore.ObjectMetadata] = {
+    private def collectLogStartOffsetBreachedSegments(log: AbstractLog): List[TierObjectStore.ObjectMetadata] = {
       def shouldDelete(segment: TierLogSegment): Boolean = segment.endOffset < log.logStartOffset
 
-      maybeUpdateLogStartOffsetOnDeletePredicate(log, segments, shouldDelete, reason = s"log start offset ${log.logStartOffset} breach")
+      maybeUpdateLogStartOffsetOnDeletePredicate(log, shouldDelete, reason = s"log start offset ${log.logStartOffset} breach")
     }
 
     /**
@@ -344,15 +357,17 @@ object DeletionTask extends Logging {
   // This class allows delayed Delete operation on a deletable segment by providing `DeleteObjectMetadata.deleteAfterTimeMs`
   private[delete] case class DeleteObjectMetadata(objectMetadata: TierObjectStore.ObjectMetadata, deleteAfterTimeMs: Option[Long])
 
-  private[delete] case class InitiateDelete(metadata: StateMetadata, toDelete: mutable.Queue[DeleteObjectMetadata]) extends State {
+  private[delete] case class InitiateDelete(metadata: StateMetadata,
+                                            stateOffsetAndEpoch: Optional[OffsetAndEpoch],
+                                            toDelete: mutable.Queue[DeleteObjectMetadata]) extends State {
     override def transition(topicIdPartition: TopicIdPartition,
                             replicaManager: ReplicaManager,
                             tierTopicAppender: TierTopicAppender,
                             tierObjectStore: TierObjectStore,
                             time: Time)(implicit ec: ExecutionContext): Future[State] = {
       val segment = toDelete.head
-      writeDeletionInitiatedMarker(tierTopicAppender, leaderEpoch, segment.objectMetadata).map { _ =>
-        Delete(metadata, toDelete)
+      writeDeletionInitiatedMarker(tierTopicAppender, leaderEpoch, stateOffsetAndEpoch, segment.objectMetadata).map { _ =>
+        Delete(metadata, stateOffsetAndEpoch, toDelete)
       }
     }
 
@@ -365,7 +380,9 @@ object DeletionTask extends Logging {
     }
   }
 
-  private[delete] case class Delete(metadata: StateMetadata, toDelete: mutable.Queue[DeleteObjectMetadata]) extends State {
+  private[delete] case class Delete(metadata: StateMetadata,
+                                    stateOffsetAndEpoch: Optional[OffsetAndEpoch],
+                                    toDelete: mutable.Queue[DeleteObjectMetadata]) extends State {
     override def transition(topicIdPartition: TopicIdPartition,
                             replicaManager: ReplicaManager,
                             tierTopicAppender: TierTopicAppender,
@@ -375,23 +392,25 @@ object DeletionTask extends Logging {
         blocking {
           val segment = toDelete.head.objectMetadata
           tierObjectStore.deleteSegment(segment)
-          CompleteDelete(metadata, toDelete)
+          CompleteDelete(metadata, stateOffsetAndEpoch, toDelete)
         }
       }
     }
   }
 
-  private[delete] case class CompleteDelete(metadata: StateMetadata, toDelete: mutable.Queue[DeleteObjectMetadata]) extends State {
+  private[delete] case class CompleteDelete(metadata: StateMetadata,
+                                            stateOffset: Optional[OffsetAndEpoch],
+                                            toDelete: mutable.Queue[DeleteObjectMetadata]) extends State {
     override def transition(topicIdPartition: TopicIdPartition,
                             replicaManager: ReplicaManager,
                             tierTopicAppender: TierTopicAppender,
                             tierObjectStore: TierObjectStore,
                             time: Time)(implicit ec: ExecutionContext): Future[State] = {
       val segment = toDelete.head.objectMetadata
-      writeDeletionCompletedMarker(tierTopicAppender, leaderEpoch, segment).map { _ =>
+      writeDeletionCompletedMarker(tierTopicAppender, leaderEpoch, stateOffset, segment).map { _ =>
         toDelete.dequeue()
         if (toDelete.nonEmpty) {
-          InitiateDelete(metadata, toDelete)
+          InitiateDelete(metadata, stateOffset, toDelete)
         } else {
           info(s"Completed segment deletions for $topicIdPartition")
           metadata match {
@@ -402,6 +421,35 @@ object DeletionTask extends Logging {
               PartitionDeleteComplete(deletedPartitionMetadata)
           }
         }
+      }
+    }
+  }
+
+  private[delete] case class FailedState(metadata: StateMetadata) extends State {
+    override def transition(topicIdPartition: TopicIdPartition,
+                            replicaManager: ReplicaManager,
+                            tierTopicAppender: TierTopicAppender,
+                            tierObjectStore: TierObjectStore,
+                            time: Time)(implicit ec: ExecutionContext): Future[State] = {
+      Future {
+        replicaManager.getLog(topicIdPartition.topicPartition)
+          .map { log =>
+            val tierEpoch = log.tierPartitionState.tierEpoch
+            val leaderEpoch = metadata.leaderEpoch
+            // if we're still in ERROR status, let's throw a fenced exception again and backoff
+            if (log.tierPartitionState.status() == TierPartitionStatus.ERROR)
+              throw new TierArchiverFailedException(topicIdPartition)
+            else if (tierEpoch == leaderEpoch)
+              CollectDeletableSegments(DeleteAsLeaderMetadata(replicaManager, leaderEpoch))
+            // if the state epoch is higher than us we fence ourselves and cancel
+            else if (tierEpoch > leaderEpoch)
+              throw new TierArchiverFencedException(topicIdPartition)
+            // if the state epoch is higher than us we backoff and let the archiver re-establish leadership
+            else if (tierEpoch < leaderEpoch)
+              throw new TierArchiverFailedException(topicIdPartition)
+            else
+              throw new TierArchiverFatalException(s"attempted to transition from Failed for $topicIdPartition while in untransitionable state")
+          }.getOrElse(FailedState(metadata))
       }
     }
   }
@@ -425,27 +473,28 @@ object DeletionTask extends Logging {
 
   def writeDeletionInitiatedMarker(tierTopicAppender: TierTopicAppender,
                                    leaderEpoch: Int,
+                                   stateOffset: Optional[OffsetAndEpoch],
                                    segment: TierObjectStore.ObjectMetadata)(implicit ec: ExecutionContext): Future[Unit] = {
-    val marker = new TierSegmentDeleteInitiate(segment.topicIdPartition, leaderEpoch, segment.objectId)
-    writeMarker(tierTopicAppender, leaderEpoch, marker)
+    val marker = new TierSegmentDeleteInitiate(segment.topicIdPartition, leaderEpoch, segment.objectId, stateOffset)
+    writeMarker(tierTopicAppender, marker)
   }
 
   def writeDeletionCompletedMarker(tierTopicAppender: TierTopicAppender,
                                    leaderEpoch: Int,
+                                   stateOffset: Optional[OffsetAndEpoch],
                                    objectMetadata: TierObjectStore.ObjectMetadata)(implicit ec: ExecutionContext): Future[Unit] = {
-    val marker = new TierSegmentDeleteComplete(objectMetadata.topicIdPartition(), leaderEpoch, objectMetadata.objectId)
-    writeMarker(tierTopicAppender, leaderEpoch, marker)
+    val marker = new TierSegmentDeleteComplete(objectMetadata.topicIdPartition(), leaderEpoch, objectMetadata.objectId, stateOffset)
+    writeMarker(tierTopicAppender, marker)
   }
 
   def writePartitionDeletionCompletedMarker(tierTopicAppender: TierTopicAppender,
                                             leaderEpoch: Int,
                                             topicIdPartition: TopicIdPartition)(implicit ec: ExecutionContext): Future[Unit] = {
     val marker = new TierPartitionDeleteComplete(topicIdPartition, UUID.randomUUID)
-    writeMarker(tierTopicAppender, leaderEpoch, marker)
+    writeMarker(tierTopicAppender, marker)
   }
 
   def writeMarker(tierTopicAppender: TierTopicAppender,
-                  leaderEpoch: Int,
                   marker: AbstractTierMetadata)(implicit ec: ExecutionContext): Future[Unit] = {
     tierTopicAppender.addMetadata(marker)
       .toScala
@@ -460,6 +509,8 @@ object DeletionTask extends Logging {
             case AppendResult.FAILED =>
               warn(s"Stopping state machine for ${marker.topicIdPartition()} as attempt to transition failed")
               throw new TierArchiverFailedException(marker.topicIdPartition)
+            case AppendResult.RESTORE_FENCED =>
+              throw new TierArchiverRestoreFencedException(marker.topicIdPartition)
             case _ =>
               throw new IllegalStateException(s"Unexpected append result for ${marker.topicIdPartition()}: $appendResult")
           }

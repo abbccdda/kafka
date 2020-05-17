@@ -24,17 +24,25 @@ import org.junit.Assert.assertTrue
 import scala.jdk.CollectionConverters._
 
 object TierTestUtils {
-  private var tierTopicOffsetAndEpoch = new OffsetAndEpoch(-1, Optional.empty())
+  private var _tierTopicOffsetAndEpoch = new OffsetAndEpoch(-1, Optional.empty())
+
+  def currentOffsetAndEpoch(): OffsetAndEpoch = synchronized {
+    _tierTopicOffsetAndEpoch
+  }
+
+  def setTierTopicOffsetAndEpoch(offsetAndEpoch: OffsetAndEpoch): Unit = synchronized {
+    _tierTopicOffsetAndEpoch = offsetAndEpoch
+  }
 
   def nextTierTopicOffsetAndEpoch(): OffsetAndEpoch = synchronized {
-    val nextOffsetAndEpoch = new OffsetAndEpoch(tierTopicOffsetAndEpoch.offset + 1, tierTopicOffsetAndEpoch.epoch)
-    tierTopicOffsetAndEpoch = nextOffsetAndEpoch
-    tierTopicOffsetAndEpoch
+    val nextOffsetAndEpoch = new OffsetAndEpoch(_tierTopicOffsetAndEpoch.offset + 1, _tierTopicOffsetAndEpoch.epoch)
+    _tierTopicOffsetAndEpoch = nextOffsetAndEpoch
+    _tierTopicOffsetAndEpoch
   }
 
   def initTierTopicOffset(): Unit = synchronized {
-    tierTopicOffsetAndEpoch = new OffsetAndEpoch(-1, Optional.empty())
-  }
+    _tierTopicOffsetAndEpoch = new OffsetAndEpoch(-1, Optional.empty())
+ }
 
   def ensureTierable(log: AbstractLog, tierEndOffset: Long, topicPartition: TopicPartition, leaderEpoch: Int = 0): Unit = {
     val activeSegment = log.activeSegment
@@ -92,9 +100,10 @@ object TierTestUtils {
                          size: Int,
                          hasAbortedTxnIndex: Boolean,
                          hasEpochState: Boolean,
-                         hasProducerState: Boolean): CompletableFuture[AppendResult] = {
+                         hasProducerState: Boolean,
+                         validity: OffsetAndEpoch): CompletableFuture[AppendResult] = {
     val uploadInitiate = new TierSegmentUploadInitiate(topicIdPartition, tierEpoch, objectId, startOffset, endOffset,
-      maxTimestamp, size, hasEpochState, hasAbortedTxnIndex, hasProducerState)
+      maxTimestamp, size, hasEpochState, hasAbortedTxnIndex, hasProducerState, validity)
 
     val result = tierTopicManager.addMetadata(uploadInitiate).get
     if (result != AppendResult.ACCEPTED) {
@@ -116,9 +125,10 @@ object TierTestUtils {
                          size: Int = 100,
                          hasAbortedTxnIndex: Boolean = false,
                          hasEpochState: Boolean = false,
-                         hasProducerState: Boolean = false): AppendResult = {
+                         hasProducerState: Boolean = false,
+                         validity: OffsetAndEpoch = OffsetAndEpoch.EMPTY): AppendResult = {
     val uploadInitiate = new TierSegmentUploadInitiate(topicIdPartition, tierEpoch, objectId, startOffset, endOffset,
-      maxTimestamp, size, hasEpochState, hasAbortedTxnIndex, hasProducerState)
+      maxTimestamp, size, hasEpochState, hasAbortedTxnIndex, hasProducerState, validity)
 
     val result = tierPartitionState.append(uploadInitiate, nextTierTopicOffsetAndEpoch())
     if (result != AppendResult.ACCEPTED) {

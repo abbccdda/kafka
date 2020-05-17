@@ -9,8 +9,10 @@ import com.yammer.metrics.core.Gauge
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.{FetchDataInfo, FetchHighWatermark, ReplicaManager}
 import kafka.tier.domain.{AbstractTierMetadata, TierPartitionDeleteComplete, TierPartitionDeleteInitiate, TierSegmentDeleteComplete, TierSegmentUploadInitiate}
+import kafka.tier.domain.TierPartitionForceRestore
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.state.{OffsetAndEpoch, TierPartitionState, TierPartitionStatus}
+import kafka.tier.state.TierPartitionState.RestoreResult
 import kafka.tier.store.TierObjectStore
 import kafka.tier.topic.TierTopicConsumer.ClientCtx
 import kafka.tier.topic.{TierTopic, TierTopicConsumer}
@@ -365,6 +367,11 @@ private class InProgressDeletion(val tierTopicPartitionId: Int,
       case _ =>
     }
     AppendResult.ACCEPTED
+  }
+
+  override def restoreState(metadata: TierPartitionForceRestore, targetState: ByteBuffer, targetStatus: TierPartitionStatus, sourceOffsetAndEpoch: OffsetAndEpoch): RestoreResult = {
+    debug(s"Ignoring restore operation $metadata with targetStatus $targetStatus and sourceOffsetAndEpoch $sourceOffsetAndEpoch")
+    RestoreResult.SUCCEEDED
   }
 
   override def beginCatchup(): Unit = {

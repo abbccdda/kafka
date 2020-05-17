@@ -8,7 +8,6 @@ import java.io.File
 import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.file.Files
-import java.util
 import java.util.concurrent.{ConcurrentNavigableMap, ConcurrentSkipListMap, ScheduledFuture, TimeUnit}
 import java.util.{Optional, UUID}
 
@@ -32,6 +31,7 @@ import org.apache.kafka.common.record.ControlRecordType
 import org.apache.kafka.common.record.EndTransactionMarker
 import org.apache.kafka.common.record.FileRecords.FileTimestampAndOffset
 import org.apache.kafka.common.utils.{Time, Utils}
+import org.apache.kafka.common.utils.CloseableIterator
 import org.junit.Assert.{assertEquals, assertTrue, fail}
 import org.junit.{After, Before, Test}
 import org.mockito.ArgumentMatchers
@@ -83,7 +83,7 @@ class MergedLogTest {
     log = createMergedLog(logConfig)
 
     assertEquals(log.localLog.size, metricValue("Size"))
-    assertEquals(log.tieredLogSegments.map(_.size).sum, metricValue("TierSize"))
+    assertEquals(tieredLogSegmentsList(log).map(_.size).sum, metricValue("TierSize"))
     assertEquals(log.size, metricValue("TotalSize"))
 
     assertEquals((numLocal + numOverlap - 1) * segmentBytes + log.activeSegment.size, metricValue("Size"))
@@ -548,7 +548,7 @@ class MergedLogTest {
 
     assertEquals("Only 1 local segment expected after recovery", 1, recoveredLog.localLogSegments.size)
     assertTrue("First untiered offset is expected to be greater than merged log start offset ",
-      recoveredLog.tieredLogSegments.toList.last.endOffset + 1 > recoveredLog.logStartOffset)
+      tieredLogSegmentsList(recoveredLog).last.endOffset + 1 > recoveredLog.logStartOffset)
     assertEquals("baseOffset for first local segment after recovery must be mergedLogStartOffset",
       20, recoveredLog.localLogSegments.head.baseOffset)
     assertEquals("endOffset for the mergedLog after deletion and recovery must be equal to the baseOffset of first local segment ",
@@ -591,7 +591,7 @@ class MergedLogTest {
     val recoveredLog = logRecovery.get
 
     assertTrue("First untiered offset is expected to be greater than merged log start offset ",
-      recoveredLog.tieredLogSegments.toList.last.endOffset + 1 > recoveredLog.logStartOffset)
+      tieredLogSegmentsList(recoveredLog).last.endOffset + 1 > recoveredLog.logStartOffset)
     assertEquals("mergedLogStartOffset should be 0", 0L, recoveredLog.logStartOffset)
     assertEquals("baseOffset for first local segment after recovery should be log start offset", predictedBaseOffset, recoveredLog.activeSegment.baseOffset)
     assertEquals("endOffset for the mergedLog after deletion and recovery must be equal to the baseOffset " +
@@ -636,7 +636,7 @@ class MergedLogTest {
 
     assertEquals("Only 1 local segment expected", 1, recoveredLog.localLogSegments.size)
     assertTrue("First untiered offset is expected to be less than merged log start offset ",
-      recoveredLog.tieredLogSegments.toList.last.endOffset + 1 < recoveredLog.logStartOffset)
+      tieredLogSegmentsList(recoveredLog).last.endOffset + 1 < recoveredLog.logStartOffset)
     assertEquals("localLogSegment.head.baseOffset after recovery must be max(firstUntieredOffset, mergedLogStartOffset)",
       recoveredLog.logStartOffset, recoveredLog.localLogSegments.head.baseOffset)
     assertEquals("endOffset for the mergedLog after deletion and recovery must be equal to the baseOffset of first local segment ",
@@ -765,7 +765,7 @@ class MergedLogTest {
     }
 
     mergedLog.updateHighWatermark(lastOffset)
-    assertEquals(mergedLog.tieredLogSegments.size, 0)
+    assertEquals(tieredLogSegmentsList(mergedLog).size, 0)
     assertEquals("expected 5 log segments", 5, mergedLog.localLogSegments.size)
     assertEquals("expected producer state manager to contain some state", false, mergedLog.producerStateManager.isEmpty)
     val snapshotFiles = mergedLog.producerStateManager.listSnapshotFiles
@@ -1141,9 +1141,9 @@ class MergedLogTest {
         Optional.ofNullable(offsetToMetadata.get(offset))
       }
     })
-    when(tierPartitionState.segments(0L, Long.MaxValue)).thenAnswer(new Answer[util.Iterator[TierObjectMetadata]]{
-      override def answer(invocation: InvocationOnMock): util.Iterator[TierObjectMetadata] = {
-        offsetToMetadata.values().iterator()
+    when(tierPartitionState.segments(0L, Long.MaxValue)).thenAnswer(new Answer[CloseableIterator[TierObjectMetadata]]{
+      override def answer(invocation: InvocationOnMock): CloseableIterator[TierObjectMetadata] = {
+        CloseableIterator.wrap[TierObjectMetadata](offsetToMetadata.values().iterator())
       }
     })
     // delete local segments up to one segment after the last tiered segment
@@ -1419,7 +1419,7 @@ class MergedLogTest {
 
     log.uniqueLogSegments(log.logStartOffset, Long.MaxValue) match {
       case (tieredSegments, localSegments) =>
-        assertEquals(0, tieredSegments.size)
+        assertEquals(0, tieredSegments.asScala.size)
         assertEquals(1, localSegments.size)
         assertEquals(0, localSegments.head.baseOffset)
     }
@@ -1503,6 +1503,15 @@ class MergedLogTest {
 
   private def metricValue(name: String): Long = {
     KafkaYammerMetrics.defaultRegistry.allMetrics.asScala.filter(_._1.getName == name).values.headOption.get.asInstanceOf[Gauge[Long]].value()
+  }
+
+  private def tieredLogSegmentsList(log: AbstractLog): List[TierLogSegment] = {
+    val iterator = log.tieredLogSegments
+    try {
+      iterator.asScala.toList
+    } finally {
+      iterator.close()
+    }
   }
 }
 
@@ -1601,7 +1610,7 @@ object MergedLogTest {
 
     log.uniqueLogSegments match {
       case (tierLogSegments, localLogSegments) =>
-        assertEquals(numTieredSegments, tierLogSegments.size)
+        assertEquals(numTieredSegments, tierLogSegments.asScala.size)
         assertEquals(numLocalSegments + numOverlap, localLogSegments.size)
     }
     log

@@ -8,6 +8,7 @@ import java.io.File
 import java.time.Instant
 import java.util.concurrent.CompletableFuture
 import java.util.{Properties, UUID}
+import java.util.Optional
 
 import kafka.cluster.Partition
 import kafka.log._
@@ -20,9 +21,13 @@ import kafka.tier.store.TierObjectStore
 import kafka.tier.tasks.delete.DeletionTask._
 import kafka.tier.topic.TierTopicManager
 import kafka.tier.TopicIdPartition
+import kafka.tier.state.OffsetAndEpoch
+import kafka.tier.state.TierPartitionStatus
+import kafka.tier.store.TierObjectStore.ObjectMetadata
 import kafka.tier.exceptions.{TierMetadataRetriableException, TierObjectStoreRetriableException}
 import kafka.utils.TestUtils
 import org.apache.kafka.common.record.FileRecords
+import org.apache.kafka.common.utils.CloseableIterator
 import org.apache.kafka.common.utils.MockTime
 import org.junit.Assert._
 import org.junit.{After, Before, Test}
@@ -115,11 +120,27 @@ class DeletionTaskTest {
       }
     }).when(logWithTieredSegments).maybeIncrementLogStartOffset(any())
 
+    when(logWithTieredSegments.tieredLogSegments).thenAnswer(new Answer[CloseableIterator[TierLogSegment]] {
+      override def answer(invocation: InvocationOnMock): CloseableIterator[TierLogSegment] = {
+        CloseableIterator.wrap[TierLogSegment](tieredSegments.iterator.asJava)
+      }
+    })
+
     emptyLog = mockAbstractLog(List.empty, List.empty)
     when(emptyLog.config).thenReturn(logConfig)
+    when(emptyLog.tieredLogSegments).thenAnswer(new Answer[CloseableIterator[TierLogSegment]] {
+      override def answer(invocation: InvocationOnMock): CloseableIterator[TierLogSegment] = {
+        CloseableIterator.wrap[TierLogSegment](List.empty[TierLogSegment].iterator.asJava)
+      }
+    })
 
     emptyLogWithTierFencedSegments = mockAbstractLog(List.empty, List.empty)
     when(emptyLogWithTierFencedSegments.config).thenReturn(logConfig)
+    when(emptyLogWithTierFencedSegments.tieredLogSegments).thenAnswer(new Answer[CloseableIterator[TierLogSegment]] {
+      override def answer(invocation: InvocationOnMock): CloseableIterator[TierLogSegment] = {
+        CloseableIterator.wrap[TierLogSegment](List.empty[TierLogSegment].iterator.asJava)
+      }
+    })
 
     when(replicaManager.getLog(topicIdPartition_1.topicPartition)).thenReturn(Some(logWithTieredSegments))
     when(replicaManager.getLog(topicIdPartition_2.topicPartition)).thenReturn(Some(emptyLog))
@@ -159,11 +180,11 @@ class DeletionTaskTest {
 
   @Test
   def testCollectDeletableSegments(): Unit = {
+    when(tierPartitionState_1.lastLocalMaterializedSrcOffsetAndEpoch).thenReturn(new OffsetAndEpoch(99L, Optional.empty()))
     val state = CollectDeletableSegments(DeleteAsLeaderMetadata(replicaManager, leaderEpoch = 0))
     val future = state.transition(topicIdPartition_1, replicaManager, tierTopicManager, tierObjectStore, time)
     val result = Await.ready(future, 1 second)
     val nextState = result.value.get.get
-
     assertEquals(classOf[InitiateDelete], nextState.getClass)
 
     val initiateDelete = nextState.asInstanceOf[InitiateDelete]
@@ -201,6 +222,7 @@ class DeletionTaskTest {
 
   @Test
   def testCollectFencedDeletableSegments(): Unit = {
+    when(tierPartitionState_3.lastLocalMaterializedSrcOffsetAndEpoch).thenReturn(new OffsetAndEpoch(99L, Optional.empty()))
     val state = CollectDeletableSegments(DeleteAsLeaderMetadata(replicaManager, leaderEpoch = 0))
     val future = state.transition(topicIdPartition_3, replicaManager, tierTopicManager, tierObjectStore, time)
     val result = Await.ready(future, 1 second)
@@ -227,8 +249,8 @@ class DeletionTaskTest {
 
   @Test
   def testInitiateDelete(): Unit = {
-    val toDelete = logWithTieredSegments.tieredLogSegments.take(3).map(_.metadata).map(DeleteObjectMetadata(_, None)).toList
-    val initiateDelete = InitiateDelete(DeleteAsLeaderMetadata(replicaManager, leaderEpoch = 0), mutable.Queue.empty ++ toDelete)
+    val toDelete = tieredLogSegmentsList(logWithTieredSegments).take(3).map(_.metadata).map(DeleteObjectMetadata(_, None))
+    val initiateDelete = InitiateDelete(DeleteAsLeaderMetadata(replicaManager, leaderEpoch = 0), Optional.of(new OffsetAndEpoch(99, Optional.of(1))), mutable.Queue.empty ++ toDelete)
     assertEquals(0, initiateDelete.getNextSegmentDelay(time.hiResClockMs()))
 
     val future = initiateDelete.transition(topicIdPartition_1, replicaManager, tierTopicManager, tierObjectStore, time)
@@ -239,9 +261,11 @@ class DeletionTaskTest {
 
     val delete = nextState.asInstanceOf[Delete]
     assertEquals(toDelete.size, delete.toDelete.size)
+    assertEquals(99L, delete.stateOffsetAndEpoch.get().offset())
 
     val firstSegment = toDelete.head
-    val expected = new TierSegmentDeleteInitiate(topicIdPartition_1, 0, firstSegment.objectMetadata.objectId)
+    val expected = new TierSegmentDeleteInitiate(topicIdPartition_1, 0, firstSegment.objectMetadata.objectId,
+      new OffsetAndEpoch(99L, Optional.of(1)))
     verify(tierTopicManager, times(1)).addMetadata(expected)
   }
 
@@ -251,7 +275,7 @@ class DeletionTaskTest {
     val anyFenceDelayMs = 10
     val timeToDelete = Math.addExact(nowMs, anyFenceDelayMs)
     val toDelete = fencedSegments.map(new TierObjectStore.ObjectMetadata(_)).map(DeleteObjectMetadata(_, Some(timeToDelete)))
-    val initiateDelete = InitiateDelete(DeleteAsLeaderMetadata(replicaManager, leaderEpoch = 0),
+    val initiateDelete = InitiateDelete(DeleteAsLeaderMetadata(replicaManager, leaderEpoch = 0), Optional.of(new OffsetAndEpoch(1, Optional.of(0))),
       mutable.Queue.empty ++= toDelete)
 
     time.sleep(4)
@@ -270,25 +294,29 @@ class DeletionTaskTest {
     val task = new DeletionTask(ctx.subContext(), topicIdPartition_3, logCleanupIntervalMs = 5,
       CollectDeletableSegments(DeleteAsLeaderMetadata(replicaManager, leaderEpoch = 0)))
 
+    when(tierPartitionState_3.lastLocalMaterializedSrcOffsetAndEpoch).thenReturn(new OffsetAndEpoch(33L, Optional.empty()))
+
     val timeBeforeTransitionMs = time.hiResClockMs()
     val futureTask = task.transition(time, tierTopicManager, tierObjectStore, replicaManager)
     val result = Await.ready(futureTask, 1 second)
     val nextTask = result.value.get.get
 
     assertEquals(classOf[InitiateDelete], nextTask.state.getClass)
+    assertEquals(33L, nextTask.state.asInstanceOf[InitiateDelete].stateOffsetAndEpoch.get().offset())
     assertTrue(task.pausedUntil.isDefined)
     assertEquals(Instant.ofEpochMilli(timeBeforeTransitionMs).plusMillis(DeletionTask.FencedSegmentDeleteDelayMs), task.pausedUntil.get)
   }
 
   @Test
   def testDelete(): Unit = {
-    val toDelete = logWithTieredSegments.tieredLogSegments.take(3).map(_.metadata).map(DeleteObjectMetadata(_, Some(time.milliseconds()))).toList
-    val delete = Delete(DeleteAsLeaderMetadata(replicaManager, leaderEpoch = 0), mutable.Queue.empty ++ toDelete)
+    val toDelete = tieredLogSegmentsList(logWithTieredSegments).take(3).map(_.metadata).map(DeleteObjectMetadata(_, Some(time.milliseconds())))
+    val delete = Delete(DeleteAsLeaderMetadata(replicaManager, leaderEpoch = 0), Optional.of(new OffsetAndEpoch(1, Optional.of(0))), mutable.Queue.empty ++ toDelete)
     val future = delete.transition(topicIdPartition_1, replicaManager, tierTopicManager, tierObjectStore, time)
     val result = Await.ready(future, 1 second)
     val nextState = result.value.get.get
 
     assertEquals(classOf[CompleteDelete], nextState.getClass)
+    assertEquals(1L, nextState.asInstanceOf[CompleteDelete].stateOffset.get().offset())
 
     val completeDelete = nextState.asInstanceOf[CompleteDelete]
     assertEquals(toDelete.size, completeDelete.toDelete.size)
@@ -298,6 +326,7 @@ class DeletionTaskTest {
 
   @Test
   def testDeleteSegmentTierObjectStoreThrows(): Unit = {
+    when(tierPartitionState_1.lastLocalMaterializedSrcOffsetAndEpoch).thenReturn(new OffsetAndEpoch(99L, Optional.empty()))
     val task = new DeletionTask(ctx.subContext(), topicIdPartition_1, logCleanupIntervalMs = 5,
       CollectDeletableSegments(DeleteAsLeaderMetadata(replicaManager, leaderEpoch = 0)))
 
@@ -322,10 +351,13 @@ class DeletionTaskTest {
     result = Await.ready(futureTask, 1 second)
     nextTask = result.value.get.get
     assertEquals(classOf[CompleteDelete], nextTask.state.getClass)
+    assertEquals(99L, nextTask.state.asInstanceOf[CompleteDelete].stateOffset.get().offset())
   }
 
   @Test
   def testFencedDeleteSegmentTierObjectStoreThrows(): Unit = {
+    when(tierPartitionState_3.lastLocalMaterializedSrcOffsetAndEpoch).thenReturn(new OffsetAndEpoch(99L, Optional.empty()))
+
     val task = new DeletionTask(ctx.subContext(), topicIdPartition_3, logCleanupIntervalMs = 5,
       CollectDeletableSegments(DeleteAsLeaderMetadata(replicaManager, leaderEpoch = 0)))
 
@@ -354,8 +386,8 @@ class DeletionTaskTest {
 
   @Test
   def testCompleteDelete(): Unit = {
-    val toDelete = logWithTieredSegments.tieredLogSegments.take(3).map(_.metadata).map(DeleteObjectMetadata(_, None)).toList
-    val completeDelete = CompleteDelete(DeleteAsLeaderMetadata(replicaManager, leaderEpoch = 0), mutable.Queue.empty ++ toDelete)
+    val toDelete = tieredLogSegmentsList(logWithTieredSegments).take(3).map(_.metadata).map(DeleteObjectMetadata(_, None))
+    val completeDelete = CompleteDelete(DeleteAsLeaderMetadata(replicaManager, leaderEpoch = 0), Optional.of(new OffsetAndEpoch(99L, Optional.empty())), mutable.Queue.empty ++ toDelete)
     val future = completeDelete.transition(topicIdPartition_1, replicaManager, tierTopicManager, tierObjectStore, time)
     val result = Await.ready(future, 1 second)
     val nextState = result.value.get.get
@@ -365,15 +397,17 @@ class DeletionTaskTest {
     val initiateDelete = nextState.asInstanceOf[InitiateDelete]
     assertEquals(toDelete.tail, initiateDelete.toDelete)
 
+    assertEquals(99L, nextState.asInstanceOf[InitiateDelete].stateOffsetAndEpoch.get().offset())
+
     val firstSegment = toDelete.head
-    val expected = new TierSegmentDeleteComplete(topicIdPartition_1, 0, firstSegment.objectMetadata.objectId)
+    val expected = new TierSegmentDeleteComplete(topicIdPartition_1, 0, firstSegment.objectMetadata.objectId, new OffsetAndEpoch(99L, Optional.empty()))
     verify(tierTopicManager, times(1)).addMetadata(expected)
   }
 
   @Test
   def testCompleteAllDeletes(): Unit = {
-    val toDelete = logWithTieredSegments.tieredLogSegments.take(1).map(_.metadata).map(DeleteObjectMetadata(_, None))
-    val completeDelete = CompleteDelete(DeleteAsLeaderMetadata(replicaManager, leaderEpoch = 0),
+    val toDelete = tieredLogSegmentsList(logWithTieredSegments).take(1).map(_.metadata).map(DeleteObjectMetadata(_, None))
+    val completeDelete = CompleteDelete(DeleteAsLeaderMetadata(replicaManager, leaderEpoch = 0), Optional.of(new OffsetAndEpoch(1, Optional.of(0))),
       mutable.Queue.empty ++= toDelete)
     val future = completeDelete.transition(topicIdPartition_1, replicaManager, tierTopicManager, tierObjectStore, time)
     val result = Await.ready(future, 1 second)
@@ -408,6 +442,83 @@ class DeletionTaskTest {
     assertTrue(nextTask.ctx.isCancelled)
   }
 
+  @Test
+  def testDeleteTaskHandleFailedAwaitCorrectEpoch(): Unit = {
+    val toDelete = tieredLogSegmentsList(logWithTieredSegments).take(3).map(_.metadata).map(DeleteObjectMetadata(_, None))
+    val initiateDelete = InitiateDelete(DeleteAsLeaderMetadata(replicaManager, leaderEpoch = 1), Optional.of(new OffsetAndEpoch(99, Optional.of(1))), mutable.Queue.empty ++ toDelete)
+    assertEquals(0, initiateDelete.getNextSegmentDelay(time.hiResClockMs()))
+    val task = new DeletionTask(ctx.subContext(), topicIdPartition_3, logCleanupIntervalMs = 5, initiateDelete)
+
+    when(tierTopicManager.addMetadata(any())).thenReturn(CompletableFuture.completedFuture(AppendResult.FAILED))
+
+    val future = task.transition(time, tierTopicManager, tierObjectStore, replicaManager)
+    val result = Await.result(future, 1 second)
+    assertTrue(result.state.isInstanceOf[FailedState])
+
+    when(tierPartitionState_3.status).thenReturn(TierPartitionStatus.ONLINE)
+    // stale epoch, we will need to wait for updated epoch
+    when(tierPartitionState_3.tierEpoch).thenReturn(0)
+
+    val futureTask2 = result.transition(time, tierTopicManager, tierObjectStore, replicaManager)
+    val result2 = Await.result(futureTask2, 1 second)
+    assertFalse(result2.isErrorState)
+    assertFalse(result2.ctx.isCancelled)
+    assertTrue(result2.state.isInstanceOf[FailedState])
+  }
+
+  @Test
+  def testDeleteTaskHandleFailedNewLeader(): Unit = {
+    val toDelete = tieredLogSegmentsList(logWithTieredSegments).take(3).map(_.metadata).map(DeleteObjectMetadata(_, None))
+    val initiateDelete = InitiateDelete(DeleteAsLeaderMetadata(replicaManager, leaderEpoch = 1), Optional.of(new OffsetAndEpoch(99, Optional.of(1))), mutable.Queue.empty ++ toDelete)
+    assertEquals(0, initiateDelete.getNextSegmentDelay(time.hiResClockMs()))
+    val task = new DeletionTask(ctx.subContext(), topicIdPartition_3, logCleanupIntervalMs = 5, initiateDelete)
+
+    when(tierTopicManager.addMetadata(any())).thenReturn(CompletableFuture.completedFuture(AppendResult.FAILED))
+
+    val future = task.transition(time, tierTopicManager, tierObjectStore, replicaManager)
+    val result = Await.result(future, 1 second)
+    assertTrue(result.state.isInstanceOf[FailedState])
+
+    when(tierPartitionState_3.status).thenReturn(TierPartitionStatus.ONLINE)
+    // later epoch, task should be cancelled
+    when(tierPartitionState_3.tierEpoch).thenReturn(2)
+
+    val futureTask2 = result.transition(time, tierTopicManager, tierObjectStore, replicaManager)
+    val result2 = Await.result(futureTask2, 1 second)
+    assertFalse(result2.isErrorState)
+    assertTrue(result2.state.isInstanceOf[FailedState])
+    assertTrue("task should now be cancelled", result2.ctx.isCancelled)
+  }
+
+  @Test
+  def testDeleteTaskHandleFailedExceptionAndRecovery(): Unit = {
+    val toDelete = tieredLogSegmentsList(logWithTieredSegments).take(3).map(_.metadata).map(DeleteObjectMetadata(_, None))
+    val initiateDelete = InitiateDelete(DeleteAsLeaderMetadata(replicaManager, leaderEpoch = 0), Optional.of(new OffsetAndEpoch(99, Optional.of(1))), mutable.Queue.empty ++ toDelete)
+    assertEquals(0, initiateDelete.getNextSegmentDelay(time.hiResClockMs()))
+    val task = new DeletionTask(ctx.subContext(), topicIdPartition_3, logCleanupIntervalMs = 5, initiateDelete)
+
+    when(tierTopicManager.addMetadata(any())).thenReturn(CompletableFuture.completedFuture(AppendResult.FAILED))
+
+    val future = task.transition(time, tierTopicManager, tierObjectStore, replicaManager)
+    val result = Await.result(future, 1 second)
+    assertTrue(result.state.isInstanceOf[FailedState])
+
+    when(tierPartitionState_3.status).thenReturn(TierPartitionStatus.ONLINE)
+    when(tierPartitionState_3.tierEpoch).thenReturn(0)
+    when(tierPartitionState_3.lastLocalMaterializedSrcOffsetAndEpoch).thenReturn(new OffsetAndEpoch(99L, Optional.empty()))
+
+    val futureTask2 = result.transition(time, tierTopicManager, tierObjectStore, replicaManager)
+    val result2 = Await.result(futureTask2, 1 second)
+    assertFalse(result2.isErrorState)
+    assertFalse(result2.ctx.isCancelled)
+    assertTrue(result2.state.isInstanceOf[CollectDeletableSegments])
+
+    val futureTask3 = result2.transition(time, tierTopicManager, tierObjectStore, replicaManager)
+    val result3 = Await.result(futureTask3, 1 second)
+    assertFalse(result3.isErrorState)
+    assertFalse(result3.ctx.isCancelled)
+    assertTrue(result3.state.isInstanceOf[InitiateDelete])
+  }
 
   private def tieredLogSegment(topicIdPartition: TopicIdPartition, baseOffset: Long, endOffset: Long): TierLogSegment = {
     val segment = mock(classOf[TierLogSegment])
@@ -419,7 +530,7 @@ class DeletionTaskTest {
     when(segment.startOffset).thenReturn(baseOffset)
     when(segment.endOffset).thenReturn(endOffset)
     when(segment.nextOffset).thenReturn(endOffset + 1)
-    when(segment.metadata).thenReturn(new TierObjectStore.ObjectMetadata(metadata))
+    when(segment.metadata).thenReturn(new ObjectMetadata(metadata))
     when(segment.maxTimestamp).thenReturn(time.milliseconds())
 
     segment
@@ -453,10 +564,17 @@ class DeletionTaskTest {
     when(tierPartitionState.fencedSegments()).thenReturn(fencedSegments.asJava)
     tierPartitionState
   }
+  private def tieredLogSegmentsList(log: AbstractLog): List[TierLogSegment] = {
+    val iterator = log.tieredLogSegments
+    try {
+      iterator.asScala.toList
+    } finally {
+      iterator.close()
+    }
+  }
 
   private def mockAbstractLog(tieredSegments: List[TierLogSegment], localSegments: List[LogSegment]): AbstractLog = {
     val log = mock(classOf[AbstractLog])
-    when(log.tieredLogSegments).thenReturn(tieredSegments.iterator)
     when(log.tierableLogSegments).thenReturn(localSegments)
     log
   }

@@ -3,6 +3,7 @@
  */
 
 include "uuid.fbs";
+include "offset_epoch.fbs";
 namespace kafka.tier.serdes;
 
 // DO NOT REUSE FIELD IDS AS THIS WILL BREAK FORWARD AND BACKWARD COMPAT
@@ -13,6 +14,7 @@ table SegmentDeleteComplete {
   version: byte (id: 0);
   tierEpoch: int (id: 1);
   objectId: UUID (id: 2);
+  stateOffsetAndEpoch: OffsetAndEpoch (id: 3); // added in v1
 }
 
 root_type SegmentDeleteComplete;

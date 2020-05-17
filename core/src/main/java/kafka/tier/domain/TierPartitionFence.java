@@ -8,6 +8,7 @@ import com.google.flatbuffers.FlatBufferBuilder;
 import java.nio.ByteBuffer;
 import java.util.UUID;
 import kafka.tier.TopicIdPartition;
+import kafka.tier.state.OffsetAndEpoch;
 import kafka.tier.serdes.PartitionFence;
 
 public class TierPartitionFence extends AbstractTierMetadata {
@@ -59,12 +60,22 @@ public class TierPartitionFence extends AbstractTierMetadata {
     }
 
     @Override
+    public OffsetAndEpoch stateOffsetAndEpoch() {
+        return OffsetAndEpoch.EMPTY;
+    }
+
+    @Override
     public int tierEpoch() {
         return -1;
     }
 
     private byte version() {
         return metadata.version();
+    }
+
+    @Override
+    public int expectedSizeLatestVersion() {
+        return INITIAL_BUFFER_SIZE;
     }
 
     @Override

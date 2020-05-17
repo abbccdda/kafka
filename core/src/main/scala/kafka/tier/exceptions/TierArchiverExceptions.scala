@@ -22,3 +22,6 @@ class NotTierablePartitionException(val topicIdPartition: TopicIdPartition)
 
 class TierArchiverFailedException(val topicIdPartition: TopicIdPartition)
   extends RuntimeException(s"Partition $topicIdPartition has failed, stopping actions")
+
+class TierArchiverRestoreFencedException(val topicIdPartition: TopicIdPartition)
+  extends RuntimeException(s"Partition $topicIdPartition has been restored and all stale metadata has been fenced.")

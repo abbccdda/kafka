@@ -29,7 +29,7 @@ class TierCatchupConsumerTest {
       mock(classOf[AdminZkClient])
     }
   }
-  private val tierTopic = new TierTopic("namespace", adminZkClientSupplier)
+  private val tierTopic = new TierTopic("namespace")
 
   private val producerSupplier = new MockProducerSupplier[Array[Byte], Array[Byte]]()
   private val consumerSupplier = new MockConsumerSupplier[Array[Byte], Array[Byte]]("catchup",
@@ -40,7 +40,7 @@ class TierCatchupConsumerTest {
 
   @Before
   def setup(): Unit = {
-    tierTopic.ensureTopic(numPartitions, 1)
+    tierTopic.initialize(adminZkClientSupplier.get(), numPartitions, 1)
   }
 
   @Test

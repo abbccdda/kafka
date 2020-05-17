@@ -7,14 +7,19 @@ package kafka.tier.domain;
 import com.google.flatbuffers.FlatBufferBuilder;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.serdes.InitLeader;
+import kafka.tier.state.OffsetAndEpoch;
 
 import java.nio.ByteBuffer;
 import java.util.UUID;
 
+/**
+ * Init leader metadata. The schema for this file is defined in
+ * <a href="file:core/src/main/resources/serde/immutable/tier_init_leader.fbs">tier_init_leader.fbs</a>
+ */
 public class TierTopicInitLeader extends AbstractTierMetadata {
     private final static byte VERSION_V0 = 0;
     private final static byte CURRENT_VERSION = VERSION_V0;
-    private final static int INITIAL_BUFFER_SIZE = 60;
+    private final static int INITIAL_BUFFER_SIZE = 48;
     private final TopicIdPartition topicIdPartition;
     private final InitLeader metadata;
 
@@ -68,12 +73,22 @@ public class TierTopicInitLeader extends AbstractTierMetadata {
         return metadata.tierEpoch();
     }
 
+    @Override
+    public OffsetAndEpoch stateOffsetAndEpoch() {
+        return OffsetAndEpoch.EMPTY;
+    }
+
     private byte version() {
         return metadata.version();
     }
 
     public int brokerId() {
         return metadata.brokerId();
+    }
+
+    @Override
+    public int expectedSizeLatestVersion() {
+        return INITIAL_BUFFER_SIZE;
     }
 
     @Override

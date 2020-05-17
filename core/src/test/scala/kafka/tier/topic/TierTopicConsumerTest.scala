@@ -8,6 +8,7 @@ import kafka.tier.{TierTopicManagerCommitter, TopicIdPartition}
 import kafka.tier.client.{MockConsumerSupplier, MockProducerSupplier}
 import kafka.tier.domain.AbstractTierMetadata
 import kafka.tier.exceptions.TierMetadataDeserializationException
+import kafka.tier.fetcher.TierStateFetcher
 import kafka.tier.state.{OffsetAndEpoch, TierPartitionStatus}
 import kafka.tier.topic.TierTopicConsumer.ClientCtx
 import kafka.utils.TestUtils
@@ -49,6 +50,7 @@ class TierTopicConsumerTest {
   private val tierTopicName = TierTopic.topicName("")
   private val tierTopicPartitions = TierTopicManager.partitions(tierTopicName, tierTopicNumPartitions)
   private val tierTopic = mock(classOf[InitializedTierTopic])
+  private val tierStateFetcher = mock(classOf[TierStateFetcher])
 
   private val producerSupplier = new ProducerSupplier()
   private val primaryConsumerSupplier = new ConsumerSupplier("primary",
@@ -62,6 +64,7 @@ class TierTopicConsumerTest {
     primaryConsumerSupplier,
     catchupConsumerSupplier,
     tierTopicManagerCommitter,
+    tierStateFetcher,
     Optional.empty())
 
   @Before

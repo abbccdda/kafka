@@ -201,11 +201,14 @@ class TierDeletedPartitionsCoordinatorTest {
     assertEquals(List(MaterializingState, MaterializingState), inProgressPartitions.values.map(_.currentState))
     assertTrue(deletedPartitionsCoordinator.immigratedPartitions(tierTopicPartition).pendingDeletions.isEmpty)
 
+    var offset = 0L
     // simulate reading upload initiated messages for partition 1
     val inProgress_1 = inProgressPartitions(deletedPartition_1)
     tieredSegments_1.foreach { segment =>
+      val stateOffsetAndEpoch = new OffsetAndEpoch(offset, Optional.of(0))
+      offset += 1
       inProgress_1.process(new TierSegmentUploadInitiate(segment.topicIdPartition, segment.tierEpoch, segment.objectId,
-        segment.baseOffset, segment.baseOffset + 1, 0, 100, false, false, false), new OffsetAndEpoch(0, Optional.of(0)))
+        segment.baseOffset, segment.baseOffset + 1, 0, 100, false, false, false, stateOffsetAndEpoch), stateOffsetAndEpoch)
     }
 
     // simulate reading of deleteInitiated message for partition 1 ==> signals completion of materialization
@@ -250,8 +253,9 @@ class TierDeletedPartitionsCoordinatorTest {
     val inProgress = inProgressPartitions(partition)
     var offset = 0L
     tieredSegments.foreach { segment =>
+      val stateOffsetAndEpoch = new OffsetAndEpoch(offset, Optional.of(0))
       inProgress.process(new TierSegmentUploadInitiate(segment.topicIdPartition, segment.tierEpoch, segment.objectId,
-        segment.baseOffset, segment.baseOffset + 1, 0, 100, false, false, false), new OffsetAndEpoch(offset, Optional.of(0)))
+        segment.baseOffset, segment.baseOffset + 1, 0, 100, false, false, false, stateOffsetAndEpoch), stateOffsetAndEpoch)
       offset += 1
     }
 
@@ -327,7 +331,8 @@ class TierDeletedPartitionsCoordinatorTest {
       500,
       true,
       true,
-      true)
+      true,
+      new OffsetAndEpoch(0L, Optional.of(0)))
     memoryRecords(uploadInitiate)
   }
 

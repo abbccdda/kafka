@@ -15,10 +15,10 @@ import org.junit.Test
 class HeaderTest {
   @Test
   def testReadHeaderVersions(): Unit = {
-    val MAX_TESTED_VERSION = 5
+    val MAX_TESTED_VERSION = 6
     if (MAX_TESTED_VERSION != FileTierPartitionState.CURRENT_VERSION)
       throw new Exception("FileTierPartitionState version has been bumped." +
-        "Please ensure that we sufficiently the readability of all versions below and then bump testedVersion.")
+        "Please ensure the readability of all versions, including any new fields, and then bump testedVersion.")
 
     (0 to FileTierPartitionState.CURRENT_VERSION).foreach { version =>
       val topicId = UUID.randomUUID
@@ -28,6 +28,7 @@ class HeaderTest {
       val localMaterializedOffsetAndEpoch = new OffsetAndEpoch(50, Optional.of(5))
       val globalMaterializedOffset = new OffsetAndEpoch(20, Optional.of(2))
       val errorOffsetAndEpoch = new OffsetAndEpoch(30, Optional.of(2))
+      val restoreOffsetAndEpoch = new OffsetAndEpoch(35, Optional.of(3))
 
       val builder = new FlatBufferBuilder(100).forceDefaults(true)
       val materializedInfo = MaterializationTrackingInfo.createMaterializationTrackingInfo(builder,
@@ -56,6 +57,11 @@ class HeaderTest {
         TierPartitionStateHeader.addErrorOffsetAndEpoch(builder, errorOffsetAndEpochId)
       }
 
+      if (version >= 6) {
+        val restoreOffsetAndEpochId = createOffsetAndEpoch(builder, restoreOffsetAndEpoch.offset(), restoreOffsetAndEpoch.epoch().orElse(-1))
+        TierPartitionStateHeader.addRestoreOffsetAndEpoch(builder, restoreOffsetAndEpochId)
+      }
+
       val entryId = kafka.tier.serdes.TierPartitionStateHeader.endTierPartitionStateHeader(builder)
       builder.finish(entryId)
       val header = new Header(TierPartitionStateHeader.getRootAsTierPartitionStateHeader(builder.dataBuffer))
@@ -77,6 +83,11 @@ class HeaderTest {
         assertEquals(errorOffsetAndEpoch, header.errorOffsetAndEpoch)
       else
         assertEquals(OffsetAndEpoch.EMPTY, header.errorOffsetAndEpoch)
+
+      if (version >= 6)
+        assertEquals(restoreOffsetAndEpoch, header.restoreOffsetAndEpoch)
+      else
+        assertEquals(OffsetAndEpoch.EMPTY, header.restoreOffsetAndEpoch)
     }
   }
 }

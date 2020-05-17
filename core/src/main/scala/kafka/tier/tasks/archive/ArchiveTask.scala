@@ -13,9 +13,13 @@ import kafka.server.ReplicaManager
 import kafka.tier.TopicIdPartition
 import kafka.tier.domain.{TierSegmentUploadComplete, TierSegmentUploadInitiate}
 import kafka.tier.exceptions.{NotTierablePartitionException, TierArchiverFailedException, TierArchiverFatalException, TierArchiverFencedException, TierMetadataRetriableException, TierObjectStoreRetriableException}
+import kafka.tier.exceptions.TierArchiverRestoreFencedException
 import kafka.tier.fetcher.CancellationContext
+import kafka.tier.state.OffsetAndEpoch
 import kafka.tier.state.TierPartitionState.AppendResult
+import kafka.tier.state.TierPartitionStatus
 import kafka.tier.store.TierObjectStore
+import kafka.tier.store.TierObjectStore.ObjectMetadata
 import kafka.tier.topic.TierTopicAppender
 import kafka.tier.tasks.TierTask
 import kafka.tier.tasks.archive.ArchiveTask.SegmentDeletedException
@@ -25,7 +29,7 @@ import org.apache.kafka.common.utils.Time
 
 import scala.compat.java8.FutureConverters._
 import scala.compat.java8.OptionConverters._
-import scala.concurrent.{ExecutionContext, Future, blocking}
+import scala.concurrent.{blocking, ExecutionContext, Future}
 import scala.util.Try
 
 /*
@@ -36,34 +40,36 @@ which causes a retry of the BeforeUpload state if the segment we were trying to 
 
         +----------------+
         |                |
-        |  BeforeLeader  |
-        |                |
-        +------+---------+
-               |
-               |
-        +------v--------+
-        |               |
-        | BeforeUpload  <-----+
-        |               |     |
-        +------+--------+     |
-               |              |
-               |              |
-        +------v---------+    |
-        |                |    |
-        |     Upload     +--->+
-        |                |    |
-        +------+---------+    |
+        |  BeforeLeader  <------------------------
+        |                |                  |    |
+        +------+---------+                  |    |
+               |                            |    |
+               |                            |    |
+        +------v--------+                   |    |
+        |               >-------------------+----+
+        | BeforeUpload  <-----+-------------+    |
+        |               |     |             |    |
+        +------+--------+     |             |    |
+               |              |             |    |
+               |              |             |    |
+        +------v---------+    |      +------^----v-+
+        |                |    |      |             |
+        |     Upload     +----+------>    Failed   |
+        |                |    |      |             |
+        +------+---------+    |      +-------------+
                |              |
                |              |
         +------v-------+      |
         |              |      |
-        | AfterUpload  +------+
+        | AfterUpload  >------+
         |              |
         +--------------+
+
  */
 
 object Defaults {
   val OBJECT_STORE_EXCEPTION_RETRY_MS = 15000
+  val FENCED_STATE_EXCEPTION_RETRY_MS = 60000
   val METADATA_EXCEPTION_RETRY_MS = 5000
   val SEGMENT_DELETED_RETRY_MS = 5000
 }
@@ -108,6 +114,8 @@ case class Upload(leaderEpoch: Int, uploadInitiate: TierSegmentUploadInitiate, u
   */
 case class AfterUpload(leaderEpoch: Int, uploadInitiate: TierSegmentUploadInitiate, uploadedSize: Long) extends ArchiveTaskState
 
+case class FailedState(leaderEpoch: Int) extends ArchiveTaskState
+
 
 /**
   * Asynchronous state machine for archiving a topic partition.
@@ -136,6 +144,7 @@ final class ArchiveTask(override val ctx: CancellationContext,
           case s: BeforeUpload => ArchiveTask.maybeInitiateUpload(s, topicIdPartition, time, tierTopicAppender, tierObjectStore, replicaManager)
           case s: Upload => ArchiveTask.upload(s, topicIdPartition, time, tierObjectStore)
           case s: AfterUpload => ArchiveTask.finalizeUpload(s, topicIdPartition, time, tierTopicAppender, archiverMetrics.byteRateOpt)
+          case s: FailedState => ArchiveTask.checkFailedState(s, topicIdPartition, replicaManager)
         }
       }
     }
@@ -152,8 +161,15 @@ final class ArchiveTask(override val ctx: CancellationContext,
         retryTaskLater(maxRetryBackoffMs.getOrElse(Defaults.OBJECT_STORE_EXCEPTION_RETRY_MS), time.hiResClockMs(), e)
         this
       case e: TierArchiverFailedException =>
-        warn(s"$topicIdPartition failed, stopping archival process and marking $topicIdPartition to be in error", e)
-        cancelAndSetErrorState(this, e)
+        warn(s"$topicIdPartition failed, pausing archival process and marking $topicIdPartition to be in error", e)
+        retryTaskLater(maxRetryBackoffMs.getOrElse(Defaults.FENCED_STATE_EXCEPTION_RETRY_MS), time.hiResClockMs(), e)
+        state = FailedState(this.state.leaderEpoch)
+        this
+      case _: TierArchiverRestoreFencedException =>
+        debug(s"$topicIdPartition encountered metadata fencing due to state restoration")
+        // The TierPartitionState has been restored. We can retry immediately but we must
+        // transition to a FailedState so we can re-establish leadership if required.
+        state = FailedState(state.leaderEpoch)
         this
       case e: TierArchiverFencedException =>
         info(s"$topicIdPartition was fenced, stopping archival process", e)
@@ -184,6 +200,33 @@ object ArchiveTask extends Logging {
     new ArchiveTask(ctx, topicIdPartition, BeforeLeader(leaderEpoch), archiverMetrics)
   }
 
+  private[archive] def checkFailedState(state: FailedState,
+                                        topicIdPartition: TopicIdPartition,
+                                        replicaManager: ReplicaManager): Future[ArchiveTaskState] = {
+    Future.fromTry(
+      Try {
+        replicaManager.getLog(topicIdPartition.topicPartition)
+          .map { log =>
+            val tierEpoch = log.tierPartitionState.tierEpoch
+            val leaderEpoch = state.leaderEpoch
+            // if we're still in ERROR status, let's throw a fenced exception again and backoff
+            if (log.tierPartitionState.status == TierPartitionStatus.ERROR)
+              throw new TierArchiverFailedException(topicIdPartition)
+            // if greater then, lets fence ourselves and cancel
+            else if (tierEpoch > leaderEpoch)
+              throw new TierArchiverFencedException(topicIdPartition)
+            // if equal and status is not ERROR, let's restart
+            else if (tierEpoch == leaderEpoch)
+              BeforeUpload(leaderEpoch)
+            // if less than and not error, then we can transition back to init leader
+            else if (tierEpoch < leaderEpoch)
+              BeforeLeader(leaderEpoch)
+            else
+              throw new TierArchiverFatalException(s"attempted to transition from a FailedState for $topicIdPartition while in non-transitionable state")
+          }.getOrElse(state)
+      })
+  }
+
   private[archive] def establishLeadership(state: BeforeLeader,
                                             topicIdPartition: TopicIdPartition,
                                             tierTopicAppender: TierTopicAppender)
@@ -202,6 +245,8 @@ object ArchiveTask extends Logging {
             throw new NotTierablePartitionException(topicIdPartition)
           case AppendResult.FENCED =>
             throw new TierArchiverFencedException(topicIdPartition)
+          case AppendResult.RESTORE_FENCED =>
+            throw new TierArchiverRestoreFencedException(topicIdPartition)
           case appendResult =>
             throw new TierArchiverFatalException(s"Unknown AppendResult $appendResult")
         }
@@ -228,15 +273,19 @@ object ArchiveTask extends Logging {
             if (log.tierPartitionState.tierEpoch != state.leaderEpoch)
               throw new TierArchiverFencedException(topicIdPartition)
 
+            // capture the last materialized offset before generating an upload proposal
+            // this ensures that the upload is fenced if a restore happens prior to it being accepted
+            val stateOffset = log.tierPartitionState.lastLocalMaterializedSrcOffsetAndEpoch()
+
             log.tierableLogSegments
-              .collectFirst { case logSegment: LogSegment => (log, logSegment) }
+              .collectFirst { case logSegment: LogSegment => (log, stateOffset, logSegment) }
           } match {
             case None =>
               // Log has been moved or there is no eligible segment. Retry BeforeUpload state.
               debug(s"Retrying BeforeUpload for $topicIdPartition as log has moved or no tierable segments were found")
               Future(state)
 
-            case Some((log: AbstractLog, logSegment: LogSegment)) =>
+            case Some((log: AbstractLog, stateOffset: OffsetAndEpoch, logSegment: LogSegment)) =>
               val segment = uploadableSegment(log, logSegment, topicIdPartition)
 
               // abort early if the log has been deleted
@@ -252,7 +301,8 @@ object ArchiveTask extends Logging {
                 logSegment.size,
                 segment.leaderEpochStateOpt.isDefined,
                 segment.abortedTxnIndexOpt.isDefined,
-                segment.producerStateOpt.isDefined)
+                segment.producerStateOpt.isDefined,
+                stateOffset)
 
               val startTime = time.milliseconds
               Future.fromTry(Try(tierTopicAppender.addMetadata(uploadInitiate).toScala))
@@ -268,6 +318,8 @@ object ArchiveTask extends Logging {
                     throw new NotTierablePartitionException(topicIdPartition)
                   case AppendResult.FENCED =>
                     throw new TierArchiverFencedException(topicIdPartition)
+                  case AppendResult.RESTORE_FENCED =>
+                    throw new TierArchiverRestoreFencedException(topicIdPartition)
                 }
           }
       }
@@ -283,7 +335,7 @@ object ArchiveTask extends Logging {
       val uploadableSegment = state.uploadableSegment
       val uploadInitiate = state.uploadInitiate
 
-      val metadata = new TierObjectStore.ObjectMetadata(uploadInitiate.topicIdPartition,
+      val metadata = new ObjectMetadata(uploadInitiate.topicIdPartition,
         uploadInitiate.objectId,
         uploadInitiate.tierEpoch,
         uploadInitiate.baseOffset,
@@ -336,6 +388,8 @@ object ArchiveTask extends Logging {
           throw new NotTierablePartitionException(topicIdPartition)
         case AppendResult.FENCED =>
           throw new TierArchiverFencedException(topicIdPartition)
+        case AppendResult.RESTORE_FENCED =>
+          throw new TierArchiverRestoreFencedException(topicIdPartition)
       }
   }
 

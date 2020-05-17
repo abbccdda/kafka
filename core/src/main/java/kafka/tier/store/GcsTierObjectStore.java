@@ -64,7 +64,7 @@ public class GcsTierObjectStore implements TierObjectStore {
     }
 
     @Override
-    public TierObjectStoreResponse getObject(ObjectMetadata objectMetadata,
+    public TierObjectStoreResponse getObject(ObjectStoreMetadata objectMetadata,
                                              FileType fileType,
                                              Integer byteOffsetStart,
                                              Integer byteOffsetEnd) {
@@ -83,9 +83,15 @@ public class GcsTierObjectStore implements TierObjectStore {
                     OptionalInt.of(byteOffsetEnd - byteOffsetStart);
             return new GcsTierObjectStoreResponse(reader, byteOffsetStartLong, chunkSize);
         } catch (StorageException e) {
-            throw new TierObjectStoreRetriableException("Failed to fetch segment " + objectMetadata, e);
+            throw new TierObjectStoreRetriableException(
+                    String.format("Failed to fetch object, blobId: %s metadata: %s type: %s "
+                                    + "range %s-%s", blobId, objectMetadata, fileType,
+                            byteOffsetStart, byteOffsetEnd), e);
         } catch (Exception e) {
-            throw new TierObjectStoreFatalException("Unknown exception when fetching segment " + objectMetadata, e);
+            throw new TierObjectStoreFatalException(
+                    String.format("Unknown exception when fetching object, blobId: %s metadata: "
+                                    + "%s type: %s range %s-%s", blobId, objectMetadata, fileType,
+                            byteOffsetStart, byteOffsetEnd), e);
         }
     }
 
@@ -95,7 +101,7 @@ public class GcsTierObjectStore implements TierObjectStore {
                            Optional<File> producerStateSnapshotData,
                            Optional<ByteBuffer> transactionIndexData,
                            Optional<File> epochState) {
-        Map<String, String> metadata = TierObjectStoreUtils.createSegmentMetadata(objectMetadata, clusterId, brokerId);
+        Map<String, String> metadata = objectMetadata.objectMetadata(clusterId, brokerId);
         try {
             putFile(keyPath(objectMetadata, FileType.SEGMENT), metadata, segmentData);
             putFile(keyPath(objectMetadata, FileType.OFFSET_INDEX), metadata, offsetIndexData);
@@ -103,13 +109,30 @@ public class GcsTierObjectStore implements TierObjectStore {
             if (producerStateSnapshotData.isPresent())
                 putFile(keyPath(objectMetadata, FileType.PRODUCER_STATE), metadata, producerStateSnapshotData.get());
             if (transactionIndexData.isPresent())
-                putBuf(keyPath(objectMetadata, FileType.TRANSACTION_INDEX), metadata, transactionIndexData.get());
+                putBuf(keyPath(objectMetadata, FileType.TRANSACTION_INDEX), metadata,
+                        transactionIndexData.get());
             if (epochState.isPresent())
                 putFile(keyPath(objectMetadata, FileType.EPOCH_STATE), metadata, epochState.get());
         } catch (StorageException e) {
-            throw new TierObjectStoreRetriableException("Failed to upload segment " + objectMetadata, e);
+            throw new TierObjectStoreRetriableException("Failed to upload segment: " + objectMetadata, e);
         } catch (Exception e) {
-            throw new TierObjectStoreFatalException("Unknown exception when uploading segment " + objectMetadata, e);
+            throw new TierObjectStoreFatalException("Unknown exception when uploading segment: " + objectMetadata, e);
+        }
+    }
+
+    @Override
+    public void putObject(ObjectStoreMetadata objectMetadata, File file, FileType fileType) {
+        Map<String, String> metadata = objectMetadata.objectMetadata(clusterId, brokerId);
+        try {
+            putFile(keyPath(objectMetadata, fileType), metadata, file);
+        } catch (StorageException e) {
+            throw new TierObjectStoreRetriableException(
+                    String.format("Failed to upload object %s, file %s, type %s",
+                            objectMetadata, file, fileType), e);
+        } catch (Exception e) {
+            throw new TierObjectStoreFatalException(
+                    String.format("Failed to upload object %s, file %s, type %s",
+                            objectMetadata, file, fileType), e);
         }
     }
 
@@ -157,13 +180,14 @@ public class GcsTierObjectStore implements TierObjectStore {
                 }
             }
         } catch (StorageException e) {
-            throw new TierObjectStoreRetriableException("Failed to delete segment " + objectMetadata, e);
+            throw new TierObjectStoreRetriableException("Failed to delete segment: " + objectMetadata, e);
         } catch (Exception e) {
-            throw new TierObjectStoreFatalException("Unknown exception when deleting segment " + objectMetadata, e);
+            throw new TierObjectStoreFatalException("Unknown exception when deleting segment: " + objectMetadata, e);
         }
 
         if (!foundBlobIds.isEmpty()) {
-            throw new TierObjectStoreRetriableException("Deletion failed and blobs still exist in object storage for blob ids: " + foundBlobIds);
+            throw new TierObjectStoreRetriableException("Deletion failed for " + objectMetadata
+                    + ". Blobs still exist in object storage with blob ids: " + foundBlobIds);
         }
     }
 
@@ -229,8 +253,8 @@ public class GcsTierObjectStore implements TierObjectStore {
         }
     }
 
-    private String keyPath(TierObjectStore.ObjectMetadata objectMetadata, TierObjectStore.FileType fileType) {
-        return TierObjectStoreUtils.keyPath(prefix, objectMetadata, fileType);
+    private String keyPath(ObjectStoreMetadata objectMetadata, TierObjectStore.FileType fileType) {
+        return objectMetadata.toPath(prefix, fileType);
     }
 
     private static class GcsTierObjectStoreResponse implements TierObjectStoreResponse {

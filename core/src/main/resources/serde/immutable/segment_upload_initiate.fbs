@@ -3,6 +3,7 @@
  */
 
 include "uuid.fbs";
+include "offset_epoch.fbs";
 namespace kafka.tier.serdes;
 
 // DO NOT REUSE FIELD IDS AS THIS WILL BREAK FORWARD AND BACKWARD COMPAT
@@ -20,6 +21,7 @@ table SegmentUploadInitiate {
   hasEpochState: bool (id: 7);
   hasAbortedTxns: bool (id: 8);
   hasProducerState: bool (id: 9);
+  stateOffsetAndEpoch: OffsetAndEpoch (id: 10); // added in v1
 }
 
 root_type SegmentUploadInitiate;
