@@ -210,12 +210,6 @@ public class ConfluentConfigs {
     public static final boolean BALANCER_ENABLE_DEFAULT = false;
     public static final String BALANCER_ENABLE_DOC = "This config controls whether the balancer is enabled";
 
-    public static final String BALANCER_RACK_AWARE_BASE_CONFIG = "rack.aware";
-    public static final String BALANCER_RACK_AWARE_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_RACK_AWARE_BASE_CONFIG;
-    public static final boolean BALANCER_RACK_AWARE_DEFAULT = true;
-    public static final String BALANCER_RACK_AWARE_DOC = "This config controls whether the balancer takes broker racks " +
-            "into account for replica placement decision (no more than one replica per rack).";
-
     public static final String BALANCER_THROTTLE_BASE_CONFIG = "throttle.bytes.per.second";
     public static final String BALANCER_THROTTLE_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_THROTTLE_BASE_CONFIG;
     public static final Long BALANCER_THROTTLE_NO_THROTTLE = -1L;
@@ -248,6 +242,14 @@ public class ConfluentConfigs {
     public static final Long BALANCER_NETWORK_OUT_CAPACITY_DEFAULT = 0L;
     public static final String BALANCER_NETWORK_OUT_CAPACITY_DOC = "This config specifies the upper bound for network " +
             "outgoing bytes per second per broker. 0 means that no bound is enforced.";
+
+    public static final String BALANCER_BROKER_FAILURE_THRESHOLD_BASE_CONFIG = "heal.broker.failure.threshold.ms";
+    public static final String BALANCER_BROKER_FAILURE_THRESHOLD_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_BROKER_FAILURE_THRESHOLD_BASE_CONFIG;
+    public static final Long BALANCER_BROKER_FAILURE_THRESHOLD_DEFAULT = 900000L;
+    public static final Long BALANCER_BROKER_FAILURE_THRESHOLD_DISABLED = -1L;
+    public static final String BALANCER_BROKER_FAILURE_THRESHOLD_DOC = "This config specifies how long the balancer will " +
+            "wait after detecting a broker failure before triggering a balancing action. -1 means that broker failures " +
+            "will not trigger balancing actions";
 
     public static final String BALANCER_EXCLUDE_TOPIC_NAMES_BASE_CONFIG = "exclude.topic.names";
     public static final String BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_EXCLUDE_TOPIC_NAMES_BASE_CONFIG;

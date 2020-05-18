@@ -859,12 +859,12 @@ class KafkaConfigTest {
         case ConfluentConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG =>
         case ConfluentConfigs.BALANCER_CLASS_CONFIG =>
         case ConfluentConfigs.BALANCER_ENABLE_CONFIG =>
-        case ConfluentConfigs.BALANCER_RACK_AWARE_CONFIG =>
         case ConfluentConfigs.BALANCER_THROTTLE_CONFIG =>
         case ConfluentConfigs.BALANCER_REPLICA_CAPACITY_CONFIG =>
         case ConfluentConfigs.BALANCER_DISK_CAPACITY_THRESHOLD_CONFIG =>
         case ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_CONFIG =>
         case ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_CONFIG =>
+        case ConfluentConfigs.BALANCER_BROKER_FAILURE_THRESHOLD_CONFIG =>
         case ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG =>
         case ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG =>
         case ConfluentConfigs.CLUSTER_LINK_ENABLE_CONFIG =>

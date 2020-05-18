@@ -1605,33 +1605,33 @@ object KafkaConfig {
       .defineInternal(ConfluentConfigs.BALANCER_CLASS_CONFIG, STRING,
                       ConfluentConfigs.BALANCER_CLASS_DEFAULT, LOW,
                       ConfluentConfigs.BALANCER_CLASS_DOC)
-      .defineInternal(ConfluentConfigs.BALANCER_ENABLE_CONFIG, BOOLEAN,
-                      ConfluentConfigs.BALANCER_ENABLE_DEFAULT,
-                      HIGH, ConfluentConfigs.BALANCER_ENABLE_DOC)
-      .defineInternal(ConfluentConfigs.BALANCER_RACK_AWARE_CONFIG, BOOLEAN,
-                      ConfluentConfigs.BALANCER_RACK_AWARE_DEFAULT, MEDIUM,
-                      ConfluentConfigs.BALANCER_RACK_AWARE_DOC)
-      .defineInternal(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, LONG,
-                      ConfluentConfigs.BALANCER_THROTTLE_DEFAULT, atLeast(ConfluentConfigs.BALANCER_THROTTLE_MIN), HIGH,
-                      ConfluentConfigs.BALANCER_THROTTLE_DOC)
-      .defineInternal(ConfluentConfigs.BALANCER_REPLICA_CAPACITY_CONFIG, LONG,
-                      ConfluentConfigs.BALANCER_REPLICA_CAPACITY_DEFAULT, atLeast(0), HIGH,
-                      ConfluentConfigs.BALANCER_REPLICA_CAPACITY_DOC)
-      .defineInternal(ConfluentConfigs.BALANCER_DISK_CAPACITY_THRESHOLD_CONFIG, DOUBLE,
-                      ConfluentConfigs.BALANCER_DISK_CAPACITY_THRESHOLD_DEFAULT, between(0.0, 1.0), HIGH,
-                      ConfluentConfigs.BALANCER_DISK_CAPACITY_THRESHOLD_DOC)
-      .defineInternal(ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_CONFIG, LONG,
-                      ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_DEFAULT, atLeast(0), HIGH,
-                      ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_DOC)
-      .defineInternal(ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_CONFIG, LONG,
-                      ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_DEFAULT, atLeast(0), HIGH,
-                      ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_DOC)
-      .defineInternal(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG, LIST,
-                      ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_DEFAULT, MEDIUM,
-                      ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_DOC)
-      .defineInternal(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG, LIST,
-                      ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_DEFAULT, MEDIUM,
-                      ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_DOC)
+      .define(ConfluentConfigs.BALANCER_ENABLE_CONFIG, BOOLEAN,
+              ConfluentConfigs.BALANCER_ENABLE_DEFAULT,
+              HIGH, ConfluentConfigs.BALANCER_ENABLE_DOC)
+      .define(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, LONG,
+              ConfluentConfigs.BALANCER_THROTTLE_DEFAULT, atLeast(ConfluentConfigs.BALANCER_THROTTLE_MIN), HIGH,
+              ConfluentConfigs.BALANCER_THROTTLE_DOC)
+      .define(ConfluentConfigs.BALANCER_REPLICA_CAPACITY_CONFIG, LONG,
+              ConfluentConfigs.BALANCER_REPLICA_CAPACITY_DEFAULT, atLeast(0), HIGH,
+              ConfluentConfigs.BALANCER_REPLICA_CAPACITY_DOC)
+      .define(ConfluentConfigs.BALANCER_DISK_CAPACITY_THRESHOLD_CONFIG, DOUBLE,
+              ConfluentConfigs.BALANCER_DISK_CAPACITY_THRESHOLD_DEFAULT, between(0.0, 1.0), HIGH,
+              ConfluentConfigs.BALANCER_DISK_CAPACITY_THRESHOLD_DOC)
+      .define(ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_CONFIG, LONG,
+              ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_DEFAULT, atLeast(0), HIGH,
+              ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_DOC)
+      .define(ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_CONFIG, LONG,
+              ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_DEFAULT, atLeast(0), HIGH,
+              ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_DOC)
+      .define(ConfluentConfigs.BALANCER_BROKER_FAILURE_THRESHOLD_CONFIG, LONG,
+              ConfluentConfigs.BALANCER_BROKER_FAILURE_THRESHOLD_DEFAULT, atLeast(-1), HIGH,
+              ConfluentConfigs.BALANCER_BROKER_FAILURE_THRESHOLD_DOC)
+      .define(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG, LIST,
+              ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_DEFAULT, MEDIUM,
+              ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_DOC)
+      .define(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG, LIST,
+              ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_DEFAULT, MEDIUM,
+              ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_DOC)
 
       .defineInternal(ConfluentConfigs.APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS, BOOLEAN,
                       ConfluentConfigs.APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS_DEFAULT, HIGH,

@@ -4,6 +4,7 @@
 
 package com.linkedin.kafka.cruisecontrol.detector.notifier;
 
+import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.detector.BrokerFailures;
 import com.linkedin.kafka.cruisecontrol.detector.DiskFailures;
 import com.linkedin.kafka.cruisecontrol.detector.GoalViolations;
@@ -36,26 +37,8 @@ import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.toDateStr
  *   </ol>
  * </li>
  * </ul>
- *
- * <ul>
- * <li>{@link #SELF_HEALING_ENABLED_CONFIG}: Enable self healing for all anomaly detectors, unless the particular
- * anomaly detector is explicitly disabled.</li>
- * <li>{@link #SELF_HEALING_BROKER_FAILURE_ENABLED_CONFIG}: Enable self healing for broker failure detector.</li>
- * <li>{@link #SELF_HEALING_GOAL_VIOLATION_ENABLED_CONFIG}: Enable self healing for goal violation detector.</li>
- * <li>{@link #SELF_HEALING_METRIC_ANOMALY_ENABLED_CONFIG}: Enable self healing for metric anomaly detector.</li>
- * <li>{@link #SELF_HEALING_DISK_FAILURE_ENABLED_CONFIG}: Enable self healing for disk failure detector.</li>
- * </ul>
  */
 public class SelfHealingNotifier implements AnomalyNotifier {
-  public static final String BROKER_FAILURE_ALERT_THRESHOLD_MS_CONFIG = "broker.failure.alert.threshold.ms";
-  public static final String SELF_HEALING_ENABLED_CONFIG = "self.healing.enabled";
-  public static final String SELF_HEALING_BROKER_FAILURE_ENABLED_CONFIG = "self.healing.broker.failure.enabled";
-  public static final String SELF_HEALING_GOAL_VIOLATION_ENABLED_CONFIG = "self.healing.goal.violation.enabled";
-  public static final String SELF_HEALING_METRIC_ANOMALY_ENABLED_CONFIG = "self.healing.metric.anomaly.enabled";
-  public static final String SELF_HEALING_DISK_FAILURE_ENABLED_CONFIG = "self.healing.disk.failure.enabled";
-  public static final String BROKER_FAILURE_SELF_HEALING_THRESHOLD_MS_CONFIG = "broker.failure.self.healing.threshold.ms";
-  static final long DEFAULT_ALERT_THRESHOLD_MS = 900000;
-  static final long DEFAULT_AUTO_FIX_THRESHOLD_MS = 1800000;
 
   private static final Logger LOG = LoggerFactory.getLogger(SelfHealingNotifier.class);
   protected final Time _time;
@@ -224,35 +207,18 @@ public class SelfHealingNotifier implements AnomalyNotifier {
 
   @Override
   public void configure(Map<String, ?> config) {
-    String alertThreshold = (String) config.get(BROKER_FAILURE_ALERT_THRESHOLD_MS_CONFIG);
-    _brokerFailureAlertThresholdMs = alertThreshold == null ? DEFAULT_ALERT_THRESHOLD_MS : Long.parseLong(alertThreshold);
-    String fixThreshold = (String) config.get(BROKER_FAILURE_SELF_HEALING_THRESHOLD_MS_CONFIG);
-    _selfHealingThresholdMs = fixThreshold == null ? DEFAULT_AUTO_FIX_THRESHOLD_MS : Long.parseLong(fixThreshold);
+    _brokerFailureAlertThresholdMs = (Long) config.get(KafkaCruiseControlConfig.BROKER_FAILURE_ALERT_THRESHOLD_MS_CONFIG);
+    _selfHealingThresholdMs = (Long) config.get(KafkaCruiseControlConfig.BROKER_FAILURE_SELF_HEALING_THRESHOLD_MS_CONFIG);
     if (_brokerFailureAlertThresholdMs > _selfHealingThresholdMs) {
       throw new IllegalArgumentException(String.format("The failure detection threshold %d cannot be larger than "
                                                        + "the auto fix threshold. %d",
                                                        _brokerFailureAlertThresholdMs, _selfHealingThresholdMs));
     }
-    // Global config for self healing.
-    String selfHealingEnabledString = (String) config.get(SELF_HEALING_ENABLED_CONFIG);
-    boolean selfHealingAllEnabled = Boolean.parseBoolean(selfHealingEnabledString);
     // Per anomaly detector configs for self healing.
-    String selfHealingBrokerFailureEnabledString = (String) config.get(SELF_HEALING_BROKER_FAILURE_ENABLED_CONFIG);
-    _selfHealingEnabled.put(AnomalyType.BROKER_FAILURE, selfHealingBrokerFailureEnabledString == null
-                                                        ? selfHealingAllEnabled
-                                                        : Boolean.parseBoolean(selfHealingBrokerFailureEnabledString));
-    String selfHealingGoalViolationEnabledString = (String) config.get(SELF_HEALING_GOAL_VIOLATION_ENABLED_CONFIG);
-    _selfHealingEnabled.put(AnomalyType.GOAL_VIOLATION, selfHealingGoalViolationEnabledString == null
-                                                        ? selfHealingAllEnabled
-                                                        : Boolean.parseBoolean(selfHealingGoalViolationEnabledString));
-    String selfHealingMetricAnomalyEnabledString = (String) config.get(SELF_HEALING_METRIC_ANOMALY_ENABLED_CONFIG);
-    _selfHealingEnabled.put(AnomalyType.METRIC_ANOMALY, selfHealingMetricAnomalyEnabledString == null
-                                                        ? selfHealingAllEnabled
-                                                        : Boolean.parseBoolean(selfHealingMetricAnomalyEnabledString));
-    String selfHealingDiskFailuresEnabledString = (String) config.get(SELF_HEALING_DISK_FAILURE_ENABLED_CONFIG);
-    _selfHealingEnabled.put(AnomalyType.DISK_FAILURE, selfHealingDiskFailuresEnabledString == null
-                                                      ? selfHealingAllEnabled
-                                                      : Boolean.parseBoolean(selfHealingDiskFailuresEnabledString));
+    _selfHealingEnabled.put(AnomalyType.BROKER_FAILURE, (Boolean) config.get(KafkaCruiseControlConfig.SELF_HEALING_BROKER_FAILURE_ENABLED_CONFIG));
+    _selfHealingEnabled.put(AnomalyType.GOAL_VIOLATION, (Boolean) config.get(KafkaCruiseControlConfig.SELF_HEALING_GOAL_VIOLATION_ENABLED_CONFIG));
+    _selfHealingEnabled.put(AnomalyType.METRIC_ANOMALY, (Boolean) config.get(KafkaCruiseControlConfig.SELF_HEALING_METRIC_ANOMALY_ENABLED_CONFIG));
+    _selfHealingEnabled.put(AnomalyType.DISK_FAILURE, (Boolean) config.get(KafkaCruiseControlConfig.SELF_HEALING_DISK_FAILURE_ENABLED_CONFIG));
     // Set self-healing current state start time.
     _selfHealingEnabled.forEach((key, value) -> _selfHealingStateChangeTimeMs.get(value).put(key, _notifierStartTimeMs));
   }

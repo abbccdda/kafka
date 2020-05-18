@@ -484,6 +484,25 @@ public class ConfluentDataBalanceEngineTest  {
     }
 
     @Test
+    public void testCruiseControlSelfHealingConfig() {
+        KafkaConfig brokerFailureHealingEnabled = initConfig;
+        KafkaCruiseControlConfig ccConfigBrokerFailureHealingEnabled = ConfluentDataBalanceEngine.generateCruiseControlConfig(brokerFailureHealingEnabled);
+        assertTrue("expected self healing for broker failure to be enabled",
+                ccConfigBrokerFailureHealingEnabled.getBoolean(KafkaCruiseControlConfig.SELF_HEALING_BROKER_FAILURE_ENABLED_CONFIG));
+        assertEquals("expected broker failure threshold to be passed through", ConfluentConfigs.BALANCER_BROKER_FAILURE_THRESHOLD_DEFAULT,
+                ccConfigBrokerFailureHealingEnabled.getLong(KafkaCruiseControlConfig.BROKER_FAILURE_SELF_HEALING_THRESHOLD_MS_CONFIG));
+
+        brokerProps.put(ConfluentConfigs.BALANCER_BROKER_FAILURE_THRESHOLD_CONFIG, ConfluentConfigs.BALANCER_BROKER_FAILURE_THRESHOLD_DISABLED);
+        KafkaConfig brokerFailureHealingDisabled = new KafkaConfig(brokerProps);
+        KafkaCruiseControlConfig ccConfigBrokerFailureHealingDisabled = ConfluentDataBalanceEngine.generateCruiseControlConfig(brokerFailureHealingDisabled);
+        assertFalse("expected self healing for broker failure to be disabled",
+                ccConfigBrokerFailureHealingDisabled.getBoolean(KafkaCruiseControlConfig.SELF_HEALING_BROKER_FAILURE_ENABLED_CONFIG));
+        assertEquals("cannot pass through negative self healing threshold to SelfHealingNotifier",
+                KafkaCruiseControlConfig.DEFAULT_BROKER_FAILURE_SELF_HEALING_THRESHOLD_MS,
+                ccConfigBrokerFailureHealingDisabled.getLong(KafkaCruiseControlConfig.BROKER_FAILURE_SELF_HEALING_THRESHOLD_MS_CONFIG));
+    }
+
+    @Test
     public void testStartupComponentsReadySuccessful() throws Exception {
         List<BiConsumer<KafkaCruiseControlConfig, Semaphore>> startupComponents = ConfluentDataBalanceEngine.STARTUP_COMPONENTS;
         try {

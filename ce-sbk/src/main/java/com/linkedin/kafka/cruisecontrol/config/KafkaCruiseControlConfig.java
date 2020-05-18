@@ -759,6 +759,47 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
        + " on the relative balancedness score. For example, 1.5 means that a hard goal will have the 1.5x balancedness "
        + "weight of a soft goal (assuming goal.balancedness.priority.weight is 1).";
 
+  // Self Healing Notifier configurations
+  /**
+   * <code>self.healing.broker.failure.enabled</code>
+   */
+  public static final String SELF_HEALING_BROKER_FAILURE_ENABLED_CONFIG = "self.healing.broker.failure.enabled";
+  public static final String SELF_HEALING_BROKER_FAILURE_ENABLED_DOC = "Enable self healing for broker failure detector.";
+
+  /**
+   * <code>self.healing.goal.violation.enabled</code>
+   */
+  public static final String SELF_HEALING_GOAL_VIOLATION_ENABLED_CONFIG = "self.healing.goal.violation.enabled";
+  public static final String SELF_HEALING_GOAL_VIOLATION_ENABLED_DOC = "Enable self healing for goal violation detector.";
+
+  /**
+   * <code>self.healing.metric.anomaly.enabled</code>
+   */
+  public static final String SELF_HEALING_METRIC_ANOMALY_ENABLED_CONFIG = "self.healing.metric.anomaly.enabled";
+  public static final String SELF_HEALING_METRIC_ANOMALY_ENABLED_DOC = "Enable self healing for metric anomaly detector.";
+
+  /**
+   * <code>self.healing.disk.failure.enabled</code>
+   */
+  public static final String SELF_HEALING_DISK_FAILURE_ENABLED_CONFIG = "self.healing.disk.failure.enabled";
+  public static final String SELF_HEALING_DISK_FAILURE_ENABLED_DOC = "Enable self healing for disk failure detector.";
+
+  /**
+   * <code>broker.failure.alert.threshold.ms</code>
+   */
+  public static final String BROKER_FAILURE_ALERT_THRESHOLD_MS_CONFIG = "broker.failure.alert.threshold.ms";
+  public static final String BROKER_FAILURE_ALERT_THRESHOLD_MS_DOC = "Grace period in milliseconds for a failed broker to "
+          + "rejoin the cluster before firing an alert";
+  public static final Long DEFAULT_BROKER_FAILURE_ALERT_THRESHOLD_MS = 0L;
+
+  /**
+   * <code>broker.failure.self.healing.threshold.ms</code>
+   */
+  public static final String BROKER_FAILURE_SELF_HEALING_THRESHOLD_MS_CONFIG = "broker.failure.self.healing.threshold.ms";
+  public static final String BROKER_FAILURE_SELF_HEALING_THRESHOLD_MS_DOC = "Grace period in milliseconds for a failed broker to "
+          + "rejoin the cluster before triggering a self-healing action. Must not be less than 'broker.failure.alert.threshold.ms'";
+  public static final Long DEFAULT_BROKER_FAILURE_SELF_HEALING_THRESHOLD_MS = 1800000L;
+
   /**
    * <code>logdir.response.timeout.ms</code>
    */
@@ -1331,6 +1372,36 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 0.2,
                 ConfigDef.Importance.MEDIUM,
                 DISK_READ_RATIO_DOC)
+        .define(SELF_HEALING_BROKER_FAILURE_ENABLED_CONFIG,
+                ConfigDef.Type.BOOLEAN,
+                false,
+                ConfigDef.Importance.HIGH,
+                SELF_HEALING_BROKER_FAILURE_ENABLED_DOC)
+        .define(SELF_HEALING_GOAL_VIOLATION_ENABLED_CONFIG,
+                ConfigDef.Type.BOOLEAN,
+                false,
+                ConfigDef.Importance.HIGH,
+                SELF_HEALING_GOAL_VIOLATION_ENABLED_DOC)
+        .define(SELF_HEALING_METRIC_ANOMALY_ENABLED_CONFIG,
+                ConfigDef.Type.BOOLEAN,
+                false,
+                ConfigDef.Importance.MEDIUM,
+                SELF_HEALING_METRIC_ANOMALY_ENABLED_DOC)
+        .define(SELF_HEALING_DISK_FAILURE_ENABLED_CONFIG,
+                ConfigDef.Type.BOOLEAN,
+                false,
+                ConfigDef.Importance.MEDIUM,
+                SELF_HEALING_DISK_FAILURE_ENABLED_DOC)
+        .define(BROKER_FAILURE_ALERT_THRESHOLD_MS_CONFIG,
+                ConfigDef.Type.LONG,
+                DEFAULT_BROKER_FAILURE_ALERT_THRESHOLD_MS,
+                ConfigDef.Importance.LOW,
+                BROKER_FAILURE_ALERT_THRESHOLD_MS_DOC)
+        .define(BROKER_FAILURE_SELF_HEALING_THRESHOLD_MS_CONFIG,
+                ConfigDef.Type.LONG,
+                DEFAULT_BROKER_FAILURE_SELF_HEALING_THRESHOLD_MS,
+                ConfigDef.Importance.HIGH,
+                BROKER_FAILURE_SELF_HEALING_THRESHOLD_MS_DOC)
         .withClientSslSupport()
         .withClientSaslSupport();
   }

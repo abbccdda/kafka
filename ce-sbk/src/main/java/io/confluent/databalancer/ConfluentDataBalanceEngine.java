@@ -9,7 +9,6 @@ import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkOutboundCapacityGo
 import com.linkedin.kafka.cruisecontrol.common.KafkaCruiseControlThreadFactory;
 import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityResolver;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
-import com.linkedin.kafka.cruisecontrol.detector.notifier.SelfHealingNotifier;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore;
 import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSampler;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
@@ -299,10 +298,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         ccConfigProps.putIfAbsent(KafkaCruiseControlConfig.GOALS_CONFIG, String.join(",", goals));
         ccConfigProps.putIfAbsent(KafkaCruiseControlConfig.HARD_GOALS_CONFIG, String.join(",", hardGoals));
         ccConfigProps.putIfAbsent(KafkaCruiseControlConfig.ANOMALY_DETECTION_GOALS_CONFIG, String.join(",", anomalyDetectionGoals));
-        // The defaults for the various self-healing properties are annoyingly difficult to set in the SelfHealingNotifier
-        ccConfigProps.putIfAbsent(SelfHealingNotifier.SELF_HEALING_ENABLED_CONFIG, String.valueOf(false));
-        ccConfigProps.putIfAbsent(SelfHealingNotifier.SELF_HEALING_GOAL_VIOLATION_ENABLED_CONFIG, String.valueOf(true));
-
+        configureCruiseControlSelfHealing(config, ccConfigProps);
         // Derive bootstrap.servers from the provided KafkaConfig, instead of requiring
         // users to specify it.
         if (ccConfigProps.get(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG) == null) {
@@ -344,6 +340,19 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
                 generateCcTopicExclusionRegex(config));
 
         return new KafkaCruiseControlConfig(ccConfigProps);
+    }
+
+    private static void configureCruiseControlSelfHealing(KafkaConfig config, Map<String, Object> cruiseControlProps) {
+        // The defaults for the various self-healing properties are annoyingly difficult to set in the SelfHealingNotifier
+        cruiseControlProps.putIfAbsent(KafkaCruiseControlConfig.SELF_HEALING_GOAL_VIOLATION_ENABLED_CONFIG, true);
+
+        Long brokerFailureSelfHealingThreshold = config.getLong(ConfluentConfigs.BALANCER_BROKER_FAILURE_THRESHOLD_CONFIG);
+        boolean brokerFailureSelfHealingEnabled = brokerFailureSelfHealingThreshold != ConfluentConfigs.BALANCER_BROKER_FAILURE_THRESHOLD_DISABLED;
+        cruiseControlProps.putIfAbsent(KafkaCruiseControlConfig.SELF_HEALING_BROKER_FAILURE_ENABLED_CONFIG, brokerFailureSelfHealingEnabled);
+        if (brokerFailureSelfHealingEnabled) {
+            cruiseControlProps.putIfAbsent(KafkaCruiseControlConfig.BROKER_FAILURE_SELF_HEALING_THRESHOLD_MS_CONFIG,
+                    brokerFailureSelfHealingThreshold);
+        }
     }
 
     @SafeVarargs
