@@ -32,7 +32,7 @@ public class RoleBinding {
     if (role == null || role.isEmpty())
       throw new IllegalArgumentException("Role must be non-empty for role binding");
     this.role = role;
-    if (scope == null || scope.clusters().isEmpty())
+    if (scope == null)
       throw new IllegalArgumentException("Scope must be non-empty for role binding");
     this.scope = scope;
     this.resources = resources == null ? Collections.emptySet() :

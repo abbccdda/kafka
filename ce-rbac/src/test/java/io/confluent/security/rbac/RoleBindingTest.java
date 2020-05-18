@@ -5,11 +5,13 @@ package io.confluent.security.rbac;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.utils.JsonMapper;
 import io.confluent.security.authorizer.utils.JsonTestUtils;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.junit.Test;
 
+import static io.confluent.security.authorizer.Scope.ROOT_SCOPE;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
@@ -28,6 +30,59 @@ public class RoleBindingTest {
 
     RoleBinding bob = roleBinding(
         "{ \"principal\": \"User:Bob\", \"role\": \"Developer\", \"scope\": {\"clusters\": {\"kafka-cluster\" : \"ClusterB\" }}, " +
+            "\"resources\" : [ {\"resourceType\": \"Topic\", \"patternType\": \"PREFIXED\", \"name\": \"Finance\"}," +
+            "{\"resourceType\": \"Group\", \"patternType\": \"LITERAL\", \"name\": \"*\"}," +
+            "{\"resourceType\": \"App\", \"patternType\": \"LITERAL\", \"name\": \"FinanceAppA\"} ] }");
+    assertEquals(new KafkaPrincipal("User", "Bob"), bob.principal());
+    assertEquals("Developer", bob.role());
+    assertEquals(Collections.singletonMap("kafka-cluster", "ClusterB"), bob.scope().clusters());
+    Collection<ResourcePattern> resources = bob.resources();
+    assertEquals(3, resources.size());
+    verifyEquals(bob, roleBinding(JsonMapper.objectMapper().writeValueAsString(bob)));
+  }
+
+  @Test
+  public void testRootScope() throws Exception {
+    RoleBinding alice = roleBinding(
+        "{ \"principal\": \"User:Alice\", \"role\": \"ClusterAdmin\", \"scope\": {}} }");
+    assertEquals(new KafkaPrincipal("User", "Alice"), alice.principal());
+    assertEquals("ClusterAdmin", alice.role());
+    assertEquals(ROOT_SCOPE, alice.scope());
+    assertTrue(alice.resources().isEmpty());
+    verifyEquals(alice, roleBinding(JsonMapper.objectMapper().writeValueAsString(alice)));
+
+    RoleBinding bob = roleBinding(
+        "{ \"principal\": \"User:Bob\", \"role\": \"Developer\", \"scope\": {}, " +
+            "\"resources\" : [ {\"resourceType\": \"Topic\", \"patternType\": \"PREFIXED\", \"name\": \"Finance\"}," +
+            "{\"resourceType\": \"Group\", \"patternType\": \"LITERAL\", \"name\": \"*\"}," +
+            "{\"resourceType\": \"App\", \"patternType\": \"LITERAL\", \"name\": \"FinanceAppA\"} ] }");
+    assertEquals(new KafkaPrincipal("User", "Bob"), bob.principal());
+    assertEquals("Developer", bob.role());
+    assertEquals(ROOT_SCOPE, bob.scope());
+    Collection<ResourcePattern> resources = bob.resources();
+    assertEquals(3, resources.size());
+    verifyEquals(bob, roleBinding(JsonMapper.objectMapper().writeValueAsString(bob)));
+  }
+
+  @Test
+  public void testPathedScope() throws Exception {
+    RoleBinding alice = roleBinding(
+        "{ \"principal\": \"User:Alice\", "
+            + "\"role\": \"ClusterAdmin\", " +
+            "\"scope\": {\"clusters\": {\"kafka-cluster\" : \"ClusterB\" }, " +
+            "\"path\": [\"region\", \"business-unit\"]} " +
+           "}");
+    assertEquals(new KafkaPrincipal("User", "Alice"), alice.principal());
+    assertEquals("ClusterAdmin", alice.role());
+    assertEquals(Arrays.asList("region", "business-unit"), alice.scope().path());
+    assertEquals(Collections.singletonMap("kafka-cluster", "ClusterB"), alice.scope().clusters());
+    assertTrue(alice.resources().isEmpty());
+    verifyEquals(alice, roleBinding(JsonMapper.objectMapper().writeValueAsString(alice)));
+
+    RoleBinding bob = roleBinding(
+        "{ \"principal\": \"User:Bob\", \"role\": \"Developer\", " +
+            "\"scope\": {\"clusters\": {\"kafka-cluster\" : \"ClusterB\" }, " +
+            "\"path\": [\"region\", \"business-unit\"]}, " +
             "\"resources\" : [ {\"resourceType\": \"Topic\", \"patternType\": \"PREFIXED\", \"name\": \"Finance\"}," +
             "{\"resourceType\": \"Group\", \"patternType\": \"LITERAL\", \"name\": \"*\"}," +
             "{\"resourceType\": \"App\", \"patternType\": \"LITERAL\", \"name\": \"FinanceAppA\"} ] }");

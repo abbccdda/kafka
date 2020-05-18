@@ -580,7 +580,7 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
   }
 
   private void validateScope(final Scope scope) {
-    scope.validate(true);
+    scope.validate();
     if (!authCache.rootScope().containsScope(scope)) {
       throw new InvalidScopeException("This writer does not contain binding scope " + scope);
     }

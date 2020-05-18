@@ -67,11 +67,7 @@ public class Scope {
     return parent;
   }
 
-  public void validate(boolean concreteScope) {
-    if (concreteScope) {
-      if (clusters.isEmpty())
-        throw new InvalidScopeException("Expected concrete scope with clusters, but not clusters provided");
-    }
+  public void validate() {
     clusters.forEach((k, v) -> {
       if (k == null || k.isEmpty())
         throw new InvalidScopeException("Empty cluster type for cluster id " + v);

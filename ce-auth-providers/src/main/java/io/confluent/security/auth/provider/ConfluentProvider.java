@@ -103,7 +103,7 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
   public void onUpdate(ClusterResource clusterResource) {
     this.clusterId = clusterResource.clusterId();
     this.authScope = Scope.kafkaClusterScope(clusterId);
-    this.authScope.validate(false);
+    this.authScope.validate();
   }
 
   @Override
