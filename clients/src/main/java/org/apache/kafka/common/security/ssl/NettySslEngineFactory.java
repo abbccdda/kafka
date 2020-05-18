@@ -67,14 +67,14 @@ public class NettySslEngineFactory extends DefaultSslEngineFactory implements Ss
         if (!OpenSsl.isAvailable()) {
             this.nettySslContext = null;
         } else {
-            this.nettySslContext = createNettySslServerContext(this);
+            this.nettySslContext = createNettySslServerContext();
         }
         this.configured = true;
     }
 
     static boolean isConfigurable(Map<String, ?> configs, Mode mode) {
         if (mode != Mode.SERVER) {
-            log.warn("Cannot configure Netty because the SSL mode is " + mode + " instead of " + Mode.SERVER);
+            log.warn("Cannot configure Netty because the SSL mode is {} instead of {}", mode, Mode.SERVER);
             return false;
         } else if (!configs.containsKey(SslConfigs.SSL_KEYSTORE_TYPE_CONFIG) ||
             !configs.containsKey(SslConfigs.SSL_KEYSTORE_LOCATION_CONFIG) ||
@@ -175,29 +175,28 @@ public class NettySslEngineFactory extends DefaultSslEngineFactory implements Ss
         return all.toArray(new X509Certificate[0]);
     }
 
-    private static SslContext createNettySslServerContext(NettySslEngineFactory factory) {
+    private SslContext createNettySslServerContext() {
         try {
-            if (factory.keystore() == null) {
-                throw new KafkaException("Whe using netty in server mode, a keystore must be configured.");
+            if (keystore() == null) {
+                throw new KafkaException("When using Netty in server mode, a keystore must be configured.");
             }
             // The keystore should contain the private key as well as the
             // certificate chain for the server.
-            DefaultSslEngineFactory.PrivateKeyData keystorePrivateKeyData = factory.loadPrivateKeyData();
-            X509Certificate[] truststoreCerts = factory.truststore() == null ?
-                    null : factory.loadAllCertificates();
+            DefaultSslEngineFactory.PrivateKeyData keystorePrivateKeyData = loadPrivateKeyData();
+            X509Certificate[] truststoreCerts = truststore() == null ? null : loadAllCertificates();
 
             SslContextBuilder builder = SslContextBuilder.
                     forServer(keystorePrivateKeyData.key(), keystorePrivateKeyData.certificateChain()).
                     applicationProtocolConfig(ApplicationProtocolConfig.DISABLED).
                     sslProvider(SslProvider.OPENSSL_REFCNT).
                     trustManager(truststoreCerts);
-            if (factory.enabledProtocols() != null) {
-                builder.protocols(factory.enabledProtocols());
+            if (enabledProtocols() != null) {
+                builder.protocols(enabledProtocols());
             }
-            if (factory.cipherSuites() != null) {
-                builder.ciphers(Arrays.asList(factory.cipherSuites()));
+            if (cipherSuites() != null) {
+                builder.ciphers(Arrays.asList(cipherSuites()));
             }
-            switch (factory.sslClientAuth()) {
+            switch (sslClientAuth()) {
                 case NONE:
                     builder.clientAuth(ClientAuth.NONE);
                     break;
@@ -210,8 +209,7 @@ public class NettySslEngineFactory extends DefaultSslEngineFactory implements Ss
             }
             // Note: we ignore endpointIdentificationAlgorithm here.
             // It is only relevant for client mode, and we are in server mode.
-            log.info("netty is enabled for SSL context with keystore {}, truststore {}.",
-                    factory.keystore(), factory.truststore());
+            log.info("Netty is enabled for SSL context with keystore {}, truststore {}.", keystore(), truststore());
             return builder.build();
         } catch (Exception e) {
             throw new KafkaException(e);
