@@ -244,7 +244,6 @@ class ClusterLinkFetcherManager(linkName: String,
     debug(s"addLinkedFetcherForPartitions $partitions")
     lock synchronized {
       partitions.foreach { partition =>
-        partition.linkedLeaderOffsetsPending(true)
         linkedPartitions.put(partition.topicPartition, new PartitionAndState(partition))
         unassignedPartitions += partition.topicPartition
       }
@@ -257,13 +256,10 @@ class ClusterLinkFetcherManager(linkName: String,
     debug(s"removeLinkedFetcherForPartitions $partitions retainMetadata=$retainMetadata")
     lock synchronized {
       removeFetcherForPartitions(partitions)
-      partitions.foreach { tp =>
-        val partitionAndState = linkedPartitions.get(tp)
-        if (!retainMetadata || partitionAndState == null || !partitionAndState.partition.isActiveLinkDestination) {
+      if (!retainMetadata) {
+        partitions.foreach { tp =>
           unassignedPartitions.remove(tp)
           linkedPartitions.remove(tp)
-          if (partitionAndState != null)
-            partitionAndState.partition.linkedLeaderOffsetsPending(false)
         }
       }
       updateMetadataTopics()
@@ -289,7 +285,7 @@ class ClusterLinkFetcherManager(linkName: String,
   private[link] def onPartitionLinkFailure(topicPartition: TopicPartition, retriable: Boolean, reason: String): Unit = {
     debug(s"onPartitionLinkFailure $topicPartition retriable=$retriable reason=$reason")
     val partitionAndState = linkedPartitions.get(topicPartition)
-    if (partitionAndState != null && partitionAndState.partition.isActiveLinkDestination) {
+    if (partitionAndState != null && partitionAndState.partition.isActiveLinkDestinationLeader) {
       val retryTimeoutMs = if (retriable) clusterLinkConfig.retryTimeoutMs else 0
       val retryRemainingMs = partitionAndState.onLinkFailure(time.milliseconds, retryTimeoutMs)
       if (retryRemainingMs <= 0) {

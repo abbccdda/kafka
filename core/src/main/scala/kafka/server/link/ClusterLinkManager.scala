@@ -193,7 +193,7 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
       debug(s"addPartitions $partitions")
       val unknownClusterLinks = mutable.Map[String, Iterable[TopicPartition]]()
       managersLock synchronized {
-        partitions.filter(_.isActiveLinkDestination).groupBy(_.getClusterLink.getOrElse(""))
+        partitions.filter(_.isActiveLinkDestinationLeader).groupBy(_.getClusterLink.getOrElse(""))
           .foreach { case (linkName, linkPartitions) =>
             if (!linkName.isEmpty) {
               managers.get(linkName) match {

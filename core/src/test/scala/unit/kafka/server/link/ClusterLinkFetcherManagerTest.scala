@@ -114,31 +114,6 @@ class ClusterLinkFetcherManagerTest {
   }
 
   @Test
-  def testOffsetsPendingState(): Unit = {
-    val topic = "testTopic"
-    val tp = new TopicPartition(topic, 0)
-    val partition: Partition = mock(classOf[Partition])
-
-    def resetMock(offsetsPending: Boolean): Unit = {
-      reset(partition)
-      expect(partition.topicPartition).andReturn(tp).anyTimes()
-      expect(partition.isActiveLinkDestination).andReturn(true).anyTimes()
-      expect(partition.linkedLeaderOffsetsPending(offsetsPending)).once()
-      replay(partition)
-    }
-
-    resetMock(offsetsPending = true)
-    fetcherManager.addLinkedFetcherForPartitions(Set(partition))
-
-    resetMock(offsetsPending = false)
-    fetcherManager.removeLinkedFetcherForPartitions(Set(tp), retainMetadata = true)
-
-    resetMock(offsetsPending = true)
-    fetcherManager.addLinkedFetcherForPartitions(Set(partition))
-  }
-
-
-  @Test
   def testFetcherThreads(): Unit = {
     val topic = "testTopic"
     val tp = new TopicPartition(topic, 0)
@@ -153,24 +128,29 @@ class ClusterLinkFetcherManagerTest {
     setupMock(partition, tp, linkedLeaderEpoch=1, numEpochUpdates = 1)
     updateMetadata(topics, linkedLeaderEpoch = 5)
     assertEquals(1, fetcherManager.fetcherThreadMap.size)
+    verify(partition)
 
     setupMock(partition, tp, linkedLeaderEpoch=5, numEpochUpdates = 0)
     updateMetadata(topics, linkedLeaderEpoch = 5)
     assertEquals(1, fetcherManager.fetcherThreadMap.size)
+    verify(partition)
 
     setupMock(partition, tp, linkedLeaderEpoch=5, numEpochUpdates = 1)
     updateMetadata(topics, linkedLeaderEpoch = 6)
     assertEquals(1, fetcherManager.fetcherThreadMap.size)
+    verify(partition)
 
     fetcherManager.removeLinkedFetcherForPartitions(Set(tp), retainMetadata = true)
     assertEquals(Collections.singletonList(topic), fetcherManager.currentMetadata.newMetadataRequestBuilder().topics())
     fetcherManager.shutdownIdleFetcherThreads()
     assertEquals(0, fetcherManager.fetcherThreadMap.size)
+    verify(partition)
 
     fetcherManager.addLinkedFetcherForPartitions(Set(partition))
     setupMock(partition, tp, linkedLeaderEpoch=6, numEpochUpdates = 0)
     updateMetadata(topics, linkedLeaderEpoch = 6)
     assertTrue(fetcherManager.getFetcher(tp).nonEmpty)
+    verify(partition)
 
     fetcherManager.shutdown()
     assertEquals(0, fetcherManager.fetcherThreadMap.size)
@@ -244,7 +224,6 @@ class ClusterLinkFetcherManagerTest {
     setupFetcherThreadMock(fetcherThread1, Set(new TopicPartition(topic, 0)))
     val fetcherClient1 = fetcherThread1.clusterLinkClient
     expect(fetcherClient1.reconfigure(anyObject())).times(1)
-    expect(fetcherClient1.validateReconfiguration(anyObject())).times(1)
     replay(fetcherClient1)
 
     val newDynamicProps = new util.HashMap[String, String]
@@ -254,6 +233,7 @@ class ClusterLinkFetcherManagerTest {
     assertEquals(1, fetcherManager.fetcherThreadMap.size)
     assertSame(fetcherThread1, fetcherManager.fetcherThreadMap.values.head)
     assertSame(metadata1, fetcherManager.currentMetadata)
+    verify(fetcherClient1)
 
     val newNonDynamicProps = new util.HashMap[String, String]
     newNonDynamicProps.putAll(fetcherManager.currentConfig.originalsStrings())
@@ -273,6 +253,7 @@ class ClusterLinkFetcherManagerTest {
     assertNotSame(metadataThread1, metadataThread2)
     assertNotSame(metadataClient1, metadataThread2.clusterLinkClient)
     assertTrue("Metadata client not active", metadataThread2.clusterLinkClient.networkClient.active)
+    verify(fetcherClient1)
   }
 
   private def updateMetadata(topics: Map[String, Integer],
@@ -289,13 +270,14 @@ class ClusterLinkFetcherManagerTest {
                         numEpochUpdates: Int = 0): Unit = {
     reset(partition)
     expect(partition.topicPartition).andReturn(tp).anyTimes()
-    expect(partition.isActiveLinkDestination).andReturn(true).anyTimes()
+    expect(partition.isActiveLinkDestinationLeader).andReturn(true).anyTimes()
     expect(partition.getLinkedLeaderEpoch).andReturn(Some(linkedLeaderEpoch)).anyTimes()
     expect(partition.getLeaderEpoch).andReturn(10).anyTimes()
-    expect(partition.linkedLeaderOffsetsPending(anyBoolean())).anyTimes()
     expect(partition.localLogOrException).andReturn(log).anyTimes()
-    if (numEpochUpdates > 0)
+    if (numEpochUpdates > 0) {
       expect(partition.updateLinkedLeaderEpoch(anyInt())).andReturn(true).times(numEpochUpdates)
+      expect(partition.linkedLeaderOffsetsPending(true)).times(numEpochUpdates)
+    }
     replay(partition)
   }
 
@@ -309,6 +291,7 @@ class ClusterLinkFetcherManagerTest {
     expect(fetcherThread.fetchState(anyObject())).andReturn(Some(fetchState)).anyTimes()
     val fetcherClient: ClusterLinkNetworkClient = createNiceMock(classOf[ClusterLinkNetworkClient])
     expect(fetcherThread.clusterLinkClient).andReturn(fetcherClient).anyTimes()
+    expect(fetcherThread.shutdown()).andAnswer(() => fetcherClient.close()).anyTimes()
     replay(fetcherThread)
   }
 

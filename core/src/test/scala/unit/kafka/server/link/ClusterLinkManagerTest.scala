@@ -192,7 +192,7 @@ class ClusterLinkManagerTest {
     reset(partition)
     expect(partition.topicPartition).andReturn(tp).anyTimes()
     expect(partition.getClusterLink).andReturn(linkName).anyTimes()
-    expect(partition.isActiveLinkDestination).andReturn(linkName.nonEmpty).anyTimes()
+    expect(partition.isActiveLinkDestinationLeader).andReturn(linkName.nonEmpty).anyTimes()
     expect(partition.getLinkedLeaderEpoch).andReturn(Some(1)).anyTimes()
     replay(partition)
   }

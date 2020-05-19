@@ -1780,7 +1780,7 @@ class ReplicaManager(val config: KafkaConfig,
               s"partition as leader with correlation id $correlationId from controller $controllerId epoch $controllerEpoch for " +
               s"partition ${partition.topicPartition} (last update controller epoch ${partitionState.controllerEpoch}) " +
               s"since it is already the leader for the partition.")
-          if (partition.isActiveLinkDestination)
+          if (partition.isActiveLinkDestinationLeader)
             linkedPartitionsToMakeLeaders += partition
         } catch {
           case e: KafkaStorageException =>
@@ -1793,6 +1793,8 @@ class ReplicaManager(val config: KafkaConfig,
             responseMap.put(partition.topicPartition, Errors.KAFKA_STORAGE_ERROR)
         }
       }
+
+      clusterLinkManager.foreach(_.addPartitions(linkedPartitionsToMakeLeaders))
 
     } catch {
       case e: Throwable =>
@@ -1809,8 +1811,6 @@ class ReplicaManager(val config: KafkaConfig,
         stateChangeLogger.trace(s"Completed LeaderAndIsr request correlationId $correlationId from controller $controllerId " +
           s"epoch $controllerEpoch for the become-leader transition for partition ${partition.topicPartition}")
       }
-
-    clusterLinkManager.foreach(_.addPartitions(linkedPartitionsToMakeLeaders))
 
     partitionsToMakeLeaders
   }

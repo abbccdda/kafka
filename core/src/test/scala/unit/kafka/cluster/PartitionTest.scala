@@ -29,6 +29,7 @@ import kafka.log.{Defaults => _, _}
 import kafka.metrics.KafkaYammerMetrics
 import kafka.server._
 import kafka.server.checkpoints.OffsetCheckpoints
+import kafka.server.link._
 import kafka.tier.{TierReplicaManager, TierTestUtils, TopicIdPartition}
 import kafka.tier.domain.{TierObjectMetadata, TierTopicInitLeader}
 import kafka.tier.fetcher.TierStateFetcher
@@ -425,36 +426,125 @@ class PartitionTest {
   }
 
   @Test
-  def testLastOffsetForLeaderEpochForLinkedLeader(): Unit = {
+  def testLastOffsetForLeaderEpochForMirrorLeader(): Unit = {
+    verifyOffsetForLeaderEpochForLinkedLeader(Some("clusterLink"), Some(TopicLinkMirror))
+  }
+
+  @Test
+  def testLastOffsetForLeaderEpochForFailedMirrorLeader(): Unit = {
+    verifyOffsetForLeaderEpochForNonLinkedLeader(Some("clusterLink"), Some(TopicLinkFailedMirror))
+  }
+
+  @Test
+  def testLastOffsetForLeaderEpochForStoppedMirrorLeader(): Unit = {
+    verifyOffsetForLeaderEpochForNonLinkedLeader(Some("clusterLink"), Some(TopicLinkStoppedMirror))
+  }
+
+  @Test
+  def testLastOffsetForLeaderEpochForNonLinkedLeader(): Unit = {
+    verifyOffsetForLeaderEpochForNonLinkedLeader(None, None)
+  }
+
+  @Test
+  def testLastOffsetForLeaderEpochForMirrorFollower(): Unit = {
+    verifyOffsetForLeaderEpochForFollower(Some("clusterLink"), Some(TopicLinkMirror))
+  }
+
+  @Test
+  def testLastOffsetForLeaderEpochForFailedMirrorFollower(): Unit = {
+    verifyOffsetForLeaderEpochForFollower(Some("clusterLink"), Some(TopicLinkFailedMirror))
+  }
+
+  @Test
+  def testLastOffsetForLeaderEpochForStoppedMirrorFollower(): Unit = {
+    verifyOffsetForLeaderEpochForFollower(Some("clusterLink"), Some(TopicLinkStoppedMirror))
+  }
+
+  @Test
+  def testLastOffsetForLeaderEpochForNonLinkedFollower(): Unit = {
+    verifyOffsetForLeaderEpochForFollower(None, None)
+  }
+
+  private def assertLastOffsetForLeaderEpoch(currentLeaderEpochOpt: Optional[Integer],
+                                             requestedEpoch: Int,
+                                             expectedValue: EpochEndOffset,
+                                             fetchOnlyFromLeader: Boolean = true): Unit = {
+    val endOffset = partition.lastOffsetForLeaderEpoch(currentLeaderEpochOpt, requestedEpoch,
+      fetchOnlyFromLeader)
+    assertEquals(expectedValue, endOffset)
+  }
+
+  private def verifyOffsetForLeaderEpochForLinkedLeader(clusterLink: Option[String],
+                                                        clusterLinkState: Option[TopicLinkState]): Unit = {
     val leaderEpoch = 5
-    val partition = setupPartitionWithMocks(leaderEpoch, isLeader = true, clusterLink = Some("clusterLink"))
+    partition = setupPartitionWithMocks(leaderEpoch, isLeader = true,
+      clusterLink = clusterLink, clusterLinkState = clusterLinkState)
 
-    def assertLastOffsetForLeader(currentLeaderEpochOpt: Optional[Integer],
-                                  requestedEpoch: Int,
-                                  expectedValue: EpochEndOffset): Unit = {
-      val endOffset = partition.lastOffsetForLeaderEpoch(currentLeaderEpochOpt, requestedEpoch,
-        fetchOnlyFromLeader = true)
-      assertEquals(expectedValue, endOffset)
-    }
+    assertTrue(partition.getLinkedLeaderOffsetsPending)
+    assertLastOffsetForLeaderEpoch(Optional.of(leaderEpoch), 0, new EpochEndOffset(Errors.NOT_LEADER_FOR_PARTITION, -1, -1))
+    partition.linkedLeaderOffsetsPending(false)
 
-    assertLastOffsetForLeader(Optional.empty(), 0, new EpochEndOffset(Errors.NONE, 0, 0))
-    assertLastOffsetForLeader(Optional.of(leaderEpoch), 0, new EpochEndOffset(Errors.NONE, 0, 0))
-    assertLastOffsetForLeader(Optional.of(leaderEpoch - 1), 0, new EpochEndOffset(Errors.FENCED_LEADER_EPOCH, -1, -1))
-    assertLastOffsetForLeader(Optional.of(leaderEpoch + 1), 0, new EpochEndOffset(Errors.UNKNOWN_LEADER_EPOCH, -1, -1))
+    assertLastOffsetForLeaderEpoch(Optional.empty(), 0, new EpochEndOffset(Errors.NONE, 0, 0))
+    assertLastOffsetForLeaderEpoch(Optional.of(leaderEpoch), 0, new EpochEndOffset(Errors.NONE, 0, 0))
+    assertLastOffsetForLeaderEpoch(Optional.of(leaderEpoch - 1), 0, new EpochEndOffset(Errors.FENCED_LEADER_EPOCH, -1, -1))
+    assertLastOffsetForLeaderEpoch(Optional.of(leaderEpoch + 1), 0, new EpochEndOffset(Errors.UNKNOWN_LEADER_EPOCH, -1, -1))
 
     // Don't return offsets for linked partitions when source offsets are pending
     partition.linkedLeaderOffsetsPending(true)
-    assertLastOffsetForLeader(Optional.of(leaderEpoch), 0, new EpochEndOffset(Errors.NOT_LEADER_FOR_PARTITION, -1, -1))
+    assertLastOffsetForLeaderEpoch(Optional.of(leaderEpoch), 0, new EpochEndOffset(Errors.NOT_LEADER_FOR_PARTITION, -1, -1))
     partition.linkedLeaderOffsetsPending(false)
-    assertLastOffsetForLeader(Optional.of(leaderEpoch), 0, new EpochEndOffset(Errors.NONE, 0, 0))
+    assertLastOffsetForLeaderEpoch(Optional.of(leaderEpoch), 0, new EpochEndOffset(Errors.NONE, 0, 0))
 
     // Return log offset if requested epoch is higher than any in the cache but within current leader epoch
-    assertLastOffsetForLeader(Optional.of(leaderEpoch), leaderEpoch - 1, new EpochEndOffset(Errors.NONE, 0, 0))
-    assertLastOffsetForLeader(Optional.empty(), leaderEpoch - 1, new EpochEndOffset(Errors.NONE, 0, 0))
-    assertLastOffsetForLeader(Optional.of(leaderEpoch), leaderEpoch, new EpochEndOffset(Errors.NONE, 0, 0))
-    assertLastOffsetForLeader(Optional.empty(), leaderEpoch, new EpochEndOffset(Errors.NONE, 0, 0))
-    assertLastOffsetForLeader(Optional.of(leaderEpoch), leaderEpoch + 1, new EpochEndOffset(Errors.NONE, -1, -1))
-    assertLastOffsetForLeader(Optional.empty(), leaderEpoch + 1, new EpochEndOffset(Errors.NONE, -1, -1))
+    assertLastOffsetForLeaderEpoch(Optional.of(leaderEpoch), leaderEpoch - 1, new EpochEndOffset(Errors.NONE, 0, 0))
+    assertLastOffsetForLeaderEpoch(Optional.empty(), leaderEpoch - 1, new EpochEndOffset(Errors.NONE, 0, 0))
+    assertLastOffsetForLeaderEpoch(Optional.of(leaderEpoch), leaderEpoch, new EpochEndOffset(Errors.NONE, 0, 0))
+    assertLastOffsetForLeaderEpoch(Optional.empty(), leaderEpoch, new EpochEndOffset(Errors.NONE, 0, 0))
+    assertLastOffsetForLeaderEpoch(Optional.of(leaderEpoch), leaderEpoch + 1, new EpochEndOffset(Errors.NONE, -1, -1))
+    assertLastOffsetForLeaderEpoch(Optional.empty(), leaderEpoch + 1, new EpochEndOffset(Errors.NONE, -1, -1))
+  }
+
+  private def verifyOffsetForLeaderEpochForNonLinkedLeader(clusterLink: Option[String],
+                                                           clusterLinkState: Option[TopicLinkState]): Unit = {
+    val leaderEpoch = 5
+    partition = setupPartitionWithMocks(leaderEpoch, isLeader = true,
+      clusterLink = clusterLink, clusterLinkState = clusterLinkState)
+
+    assertFalse(partition.getLinkedLeaderOffsetsPending)
+    assertLastOffsetForLeaderEpoch(Optional.empty(), 0, new EpochEndOffset(Errors.NONE, 0, 0))
+    assertLastOffsetForLeaderEpoch(Optional.of(leaderEpoch), 0, new EpochEndOffset(Errors.NONE, 0, 0))
+    assertLastOffsetForLeaderEpoch(Optional.of(leaderEpoch - 1), 0, new EpochEndOffset(Errors.FENCED_LEADER_EPOCH, -1, -1))
+    assertLastOffsetForLeaderEpoch(Optional.of(leaderEpoch + 1), 0, new EpochEndOffset(Errors.UNKNOWN_LEADER_EPOCH, -1, -1))
+
+    assertLastOffsetForLeaderEpoch(Optional.of(leaderEpoch), leaderEpoch - 1, new EpochEndOffset(Errors.NONE, leaderEpoch - 1, 0))
+    assertLastOffsetForLeaderEpoch(Optional.empty(), leaderEpoch - 1, new EpochEndOffset(Errors.NONE, leaderEpoch - 1, 0))
+    assertLastOffsetForLeaderEpoch(Optional.of(leaderEpoch), leaderEpoch, new EpochEndOffset(Errors.NONE, leaderEpoch, 0))
+    assertLastOffsetForLeaderEpoch(Optional.empty(), leaderEpoch, new EpochEndOffset(Errors.NONE, leaderEpoch, 0))
+    assertLastOffsetForLeaderEpoch(Optional.of(leaderEpoch), leaderEpoch + 1, new EpochEndOffset(Errors.NONE, -1, -1))
+    assertLastOffsetForLeaderEpoch(Optional.empty(), leaderEpoch + 1, new EpochEndOffset(Errors.NONE, -1, -1))
+  }
+
+  private def verifyOffsetForLeaderEpochForFollower(clusterLink: Option[String],
+                                                    clusterLinkState: Option[TopicLinkState]): Unit = {
+    val leaderEpoch = 5
+    partition = setupPartitionWithMocks(leaderEpoch, isLeader = false,
+      clusterLink = clusterLink, clusterLinkState = clusterLinkState)
+
+    assertFalse(partition.getLinkedLeaderOffsetsPending)
+    assertLastOffsetForLeaderEpoch(Optional.empty(), 0, new EpochEndOffset(Errors.NOT_LEADER_FOR_PARTITION, -1, -1))
+    assertLastOffsetForLeaderEpoch(Optional.of(leaderEpoch), 0, new EpochEndOffset(Errors.NOT_LEADER_FOR_PARTITION, -1, -1))
+    assertLastOffsetForLeaderEpoch(Optional.of(leaderEpoch - 1), 0, new EpochEndOffset(Errors.FENCED_LEADER_EPOCH, -1, -1))
+    assertLastOffsetForLeaderEpoch(Optional.of(leaderEpoch + 1), 0, new EpochEndOffset(Errors.UNKNOWN_LEADER_EPOCH, -1, -1))
+
+    assertLastOffsetForLeaderEpoch(Optional.empty(), 0,
+      new EpochEndOffset(Errors.NONE, -1, -1), fetchOnlyFromLeader = false)
+    assertLastOffsetForLeaderEpoch(Optional.of(leaderEpoch), 0,
+      new EpochEndOffset(Errors.NONE, -1, -1), fetchOnlyFromLeader = false)
+    assertLastOffsetForLeaderEpoch(Optional.of(leaderEpoch - 1), 0,
+      new EpochEndOffset(Errors.FENCED_LEADER_EPOCH, -1, -1), fetchOnlyFromLeader = false)
+    assertLastOffsetForLeaderEpoch(Optional.of(leaderEpoch + 1), 0,
+      new EpochEndOffset(Errors.UNKNOWN_LEADER_EPOCH, -1, -1), fetchOnlyFromLeader = false)
+
   }
 
   @Test
@@ -779,7 +869,8 @@ class PartitionTest {
                                       isLeader: Boolean,
                                       log: AbstractLog = logManager.getOrCreateLog(topicPartition, () => logConfig),
                                       topicIdOpt: Option[UUID] = None,
-                                      clusterLink: Option[String] = None): Partition = {
+                                      clusterLink: Option[String] = None,
+                                      clusterLinkState: Option[TopicLinkState] = None): Partition = {
     partition.createLogIfNotExists(isNew = false, isFutureReplica = false, offsetCheckpoints)
 
     val controllerEpoch = 0
@@ -796,7 +887,7 @@ class PartitionTest {
           .setReplicas(replicas)
           .setIsNew(true)
           .setClusterLink(clusterLink.orNull)
-          .setClusterLinkTopicState(clusterLink.map(_ => "Mirror").orNull)
+          .setClusterLinkTopicState(clusterLinkState.map(_.name)orNull)
       topicIdOpt.foreach { topicId => partitionState.setTopicId(topicId) }
 
       assertTrue("Expected become leader transition to succeed",
@@ -811,6 +902,8 @@ class PartitionTest {
         .setZkVersion(1)
         .setReplicas(replicas)
         .setIsNew(true)
+        .setClusterLink(clusterLink.orNull)
+        .setClusterLinkTopicState(clusterLinkState.map(_.name)orNull)
       topicIdOpt.foreach { topicId => partitionState.setTopicId(topicId) }
 
       assertTrue("Expected become follower transition to succeed",
