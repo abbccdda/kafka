@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Copyright 2020 Confluent Inc.
+
+exec "$0.sh" "$@"
