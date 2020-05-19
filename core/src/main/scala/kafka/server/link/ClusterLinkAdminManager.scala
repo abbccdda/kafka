@@ -22,7 +22,8 @@ import scala.collection.Seq
 class ClusterLinkAdminManager(val config: KafkaConfig,
                               val clusterId: String,
                               val zkClient: KafkaZkClient,
-                              val clusterLinkManager: ClusterLinkManager) extends Logging {
+                              val clusterLinkManager: ClusterLinkManager)
+  extends ClusterLinkFactory.AdminManager with Logging {
 
   this.logIdent = "[Cluster Link Admin Manager on Broker " + config.brokerId + "]: "
 
@@ -39,7 +40,6 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
                         validateLink: Boolean,
                         timeoutMs: Int): CompletableFuture[Void] = {
 
-    clusterLinkManager.ensureClusterLinkEnabled()
     val linkName = newClusterLink.linkName
     ClusterLinkUtils.validateLinkName(linkName)
 
@@ -73,14 +73,12 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
   }
 
   def listClusterLinks(): Seq[ClusterLinkListing] = {
-    clusterLinkManager.ensureClusterLinkEnabled()
     adminZkClient.getAllClusterLinks().map { info =>
       new ClusterLinkListing(info.linkName, info.linkId, info.clusterId.orNull)
     }
   }
 
   def deleteClusterLink(linkName: String, validateOnly: Boolean, force: Boolean): Unit = {
-    clusterLinkManager.ensureClusterLinkEnabled()
     ClusterLinkUtils.validateLinkName(linkName)
 
     if (clusterLinkManager.clientManager(linkName).isEmpty)

@@ -13,7 +13,7 @@ import kafka.utils.TestUtils
 import kafka.zk.{ClusterLinkData, ClusterLinkProps, KafkaZkClient}
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.{Endpoint, TopicPartition}
-import org.apache.kafka.common.errors.{ClusterAuthorizationException, ClusterLinkInUseException, ClusterLinkNotFoundException}
+import org.apache.kafka.common.errors.{ClusterLinkInUseException, ClusterLinkNotFoundException}
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.security.auth.SecurityProtocol
@@ -25,7 +25,7 @@ import org.scalatest.Assertions.intercept
 
 class ClusterLinkManagerTest {
 
-  private val brokerConfig = createBrokerConfig(enableClusterLink = true)
+  private val brokerConfig = createBrokerConfig()
   private val metrics = new Metrics
   private val time = new MockTime
   private val replicaManager: ReplicaManager = mock(classOf[ReplicaManager])
@@ -151,34 +151,9 @@ class ClusterLinkManagerTest {
     assertEquals(Collections.singletonList("localhost:5678"), fetcherManager.currentConfig.bootstrapServers)
   }
 
-  @Test
-  def testClusterLinkDisabled(): Unit = {
-    val linkName = "testLink"
-
-    clusterLinkManager.shutdown()
-    val brokerConfig = createBrokerConfig(enableClusterLink = false)
-    clusterLinkManager = createClusterLinkManager(brokerConfig)
-    assertThrows(classOf[ClusterAuthorizationException], () => clusterLinkManager.fetcherManager(linkName))
-    assertThrows(classOf[ClusterAuthorizationException], () => clusterLinkManager.clientManager(linkName))
-    assertThrows(classOf[ClusterAuthorizationException], () => clusterLinkManager.addClusterLink(linkName, ClusterLinkProps(new Properties, None)))
-    assertThrows(classOf[ClusterAuthorizationException], () => clusterLinkManager.removeClusterLink(linkName))
-
-    // Verify that cluster links in ZK created when cluster links were enabled don't
-    // throw exceptions and don't create link managers.
-    clusterLinkManager.processClusterLinkChanges(linkName, new Properties)
-    assertFalse("Unexpected cluster link", clusterLinkManager.hasLink(linkName))
-
-    // Verify that partitions with cluster links don't throw exceptions when cluster links are disabled
-    val tp0 = new TopicPartition("topic", 0)
-    val partition0: Partition = createNiceMock(classOf[Partition])
-    setupMock(partition0, tp0, Some(linkName))
-    clusterLinkManager.addPartitions(Set(partition0))
-    assertFalse("Unexpected cluster link", clusterLinkManager.hasLink(linkName))
-  }
-
-  private def createBrokerConfig(enableClusterLink: Boolean): KafkaConfig = {
+  private def createBrokerConfig(): KafkaConfig = {
     val props = TestUtils.createBrokerConfig(1, "localhost:1234")
-    props.put(KafkaConfig.ClusterLinkEnableProp, enableClusterLink.toString)
+    props.put(KafkaConfig.ClusterLinkEnableProp, "true")
     KafkaConfig.fromProps(props)
   }
 
@@ -198,7 +173,7 @@ class ClusterLinkManagerTest {
   }
 
   private def createClusterLinkManager(brokerConfig: KafkaConfig): ClusterLinkManager = {
-    val manager = new ClusterLinkManager(
+    val manager = ClusterLinkFactory.createLinkManager(
       brokerConfig,
       "clusterId",
       UnboundedQuota,
@@ -208,6 +183,6 @@ class ClusterLinkManagerTest {
       tierStateFetcher = None)
     val brokerEndpoint = new Endpoint("PLAINTEXT", SecurityProtocol.PLAINTEXT, "localhost", 1234)
     manager.startup(brokerEndpoint, null, null, null, None)
-    manager
+    manager.asInstanceOf[ClusterLinkManager]
   }
 }

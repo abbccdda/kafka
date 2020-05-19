@@ -39,7 +39,7 @@ import kafka.network.SocketServer
 import io.confluent.http.server.{KafkaHttpServer, KafkaHttpServerBinder, KafkaHttpServerLoader}
 import io.confluent.rest.{BeginShutdownBrokerHandle, InternalRestServer}
 import kafka.security.CredentialProvider
-import kafka.server.link.ClusterLinkManager
+import kafka.server.link.ClusterLinkFactory
 import kafka.tier.fetcher.{TierFetcher, TierFetcherConfig}
 import kafka.tier.state.TierPartitionStateFactory
 import kafka.tier.store.{GcsTierObjectStore, GcsTierObjectStoreConfig, MockInMemoryTierObjectStore, S3TierObjectStore, S3TierObjectStoreConfig, TierObjectStore, TierObjectStoreConfig}
@@ -256,7 +256,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
   var replicaManager: ReplicaManager = null
   var adminManager: AdminManager = null
-  var clusterLinkManager: ClusterLinkManager = null
+  var clusterLinkManager: ClusterLinkFactory.LinkManager = null
   var tokenManager: DelegationTokenManager = null
 
   var dynamicConfigHandlers: Map[String, ConfigHandler] = null
@@ -434,7 +434,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         socketServer = new SocketServer(config, metrics, time, credentialProvider)
         socketServer.startup(startProcessingRequests = false)
 
-        clusterLinkManager = new ClusterLinkManager(config, clusterId, quotaManagers.clusterLink,
+        clusterLinkManager = ClusterLinkFactory.createLinkManager(config, clusterId, quotaManagers.clusterLink,
           zkClient, metrics, time, threadNamePrefix = None, tierStateFetcherOpt)
         adminManager = new AdminManager(config, metrics, metadataCache, zkClient, clusterLinkManager)
 

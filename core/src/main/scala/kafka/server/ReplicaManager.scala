@@ -34,7 +34,7 @@ import kafka.server.{FetchMetadata => SFetchMetadata}
 import kafka.server.HostedPartition.Online
 import kafka.server.QuotaFactory.QuotaManagers
 import kafka.server.checkpoints.{LazyOffsetCheckpoints, OffsetCheckpointFile, OffsetCheckpoints}
-import kafka.server.link.ClusterLinkManager
+import kafka.server.link.ClusterLinkFactory
 import kafka.tier.{TierReplicaManager, TierTimestampAndOffset}
 import kafka.tier.fetcher.{TierFetchResult, TierFetcher, TierStateFetcher}
 import kafka.utils._
@@ -248,7 +248,7 @@ class ReplicaManager(val config: KafkaConfig,
                      val delayedElectLeaderPurgatory: DelayedOperationPurgatory[DelayedElectLeader],
                      val delayedListOffsetsPurgatory: DelayedOperationPurgatory[DelayedListOffsets],
                      val tierReplicaComponents: TierReplicaComponents,
-                     clusterLinkManager: Option[ClusterLinkManager],
+                     clusterLinkManager: Option[ClusterLinkFactory.LinkManager],
                      threadNamePrefix: Option[String]) extends Logging with KafkaMetricsGroup {
 
   def this(config: KafkaConfig,
@@ -263,7 +263,7 @@ class ReplicaManager(val config: KafkaConfig,
            metadataCache: MetadataCache,
            logDirFailureChannel: LogDirFailureChannel,
            tierReplicaComponents: TierReplicaComponents,
-           clusterLinkManager: Option[ClusterLinkManager],
+           clusterLinkManager: Option[ClusterLinkFactory.LinkManager],
            threadNamePrefix: Option[String] = None) = {
     this(config, metrics, time, zkClient, scheduler, logManager, isShuttingDown,
       quotaManagers, brokerTopicStats, metadataCache, logDirFailureChannel,

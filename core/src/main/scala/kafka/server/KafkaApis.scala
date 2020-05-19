@@ -38,7 +38,7 @@ import kafka.message.ZStdCompressionCodec
 import kafka.network.RequestChannel
 import kafka.security.authorizer.{AclEntry, AuthorizerUtils}
 import kafka.server.QuotaFactory.{QuotaManagers, UnboundedQuota}
-import kafka.server.link.ClusterLinkAdminManager
+import kafka.server.link.ClusterLinkFactory
 import kafka.tier.TierDeletedPartitionsCoordinator
 import kafka.tier.client.TierTopicClient
 import kafka.tier.fetcher.ReclaimableMemoryRecords
@@ -100,7 +100,7 @@ import scala.util.{Failure, Success, Try}
 class KafkaApis(val requestChannel: RequestChannel,
                 val replicaManager: ReplicaManager,
                 val adminManager: AdminManager,
-                val clusterLinkAdminManager: ClusterLinkAdminManager,
+                val clusterLinkAdminManager: ClusterLinkFactory.AdminManager,
                 val groupCoordinator: GroupCoordinator,
                 val txnCoordinator: TransactionCoordinator,
                 val controller: KafkaController,
@@ -3189,11 +3189,6 @@ class KafkaApis(val requestChannel: RequestChannel,
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         createClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.CLUSTER_AUTHORIZATION_FAILED.exception))
 
-    } else if (!config.clusterLinkEnable) {
-      sendResponseMaybeThrottle(request, requestThrottleMs =>
-        createClusterLinksRequest.getErrorResponse(requestThrottleMs,
-          new ClusterAuthorizationException("Cluster linking is not enabled in this cluster.")))
-
     } else {
       val timeoutMs = createClusterLinksRequest.timeoutMs
       val newClusterLinks = createClusterLinksRequest.newClusterLinks.asScala
@@ -3242,11 +3237,6 @@ class KafkaApis(val requestChannel: RequestChannel,
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         listClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.CLUSTER_AUTHORIZATION_FAILED.exception))
 
-    }  else if (!config.clusterLinkEnable) {
-      sendResponseMaybeThrottle(request, requestThrottleMs =>
-        listClusterLinksRequest.getErrorResponse(requestThrottleMs,
-          new ClusterAuthorizationException("Cluster linking is not enabled in this cluster.")))
-
     } else try {
       val result = clusterLinkAdminManager.listClusterLinks().asJava
       sendResponseMaybeThrottle(request, requestThrottleMs =>
@@ -3269,11 +3259,6 @@ class KafkaApis(val requestChannel: RequestChannel,
     } else if (!authorize(request.context, ALTER, CLUSTER, CLUSTER_NAME)) {
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         deleteClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.CLUSTER_AUTHORIZATION_FAILED.exception))
-
-    } else if (!config.clusterLinkEnable) {
-      sendResponseMaybeThrottle(request, requestThrottleMs =>
-        deleteClusterLinksRequest.getErrorResponse(requestThrottleMs,
-          new ClusterAuthorizationException("Cluster linking is not enabled in this cluster.")))
 
     } else {
       val linkNames = deleteClusterLinksRequest.linkNames.asScala

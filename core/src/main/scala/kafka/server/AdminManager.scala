@@ -27,7 +27,7 @@ import kafka.controller.ReplicaAssignment
 import kafka.log.LogConfig
 import kafka.utils.Log4jController
 import kafka.metrics.KafkaMetricsGroup
-import kafka.server.link.{ClusterLinkConfig, ClusterLinkManager, ClusterLinkUtils}
+import kafka.server.link.{ClusterLinkConfig, ClusterLinkFactory, ClusterLinkUtils}
 import kafka.server.link.ClusterLinkClientManager.{TopicInfo => MirrorTopicInfo}
 import kafka.utils._
 import kafka.zk.{AdminZkClient, ClusterLinkProps, KafkaZkClient}
@@ -63,7 +63,7 @@ class AdminManager(val config: KafkaConfig,
                    val metrics: Metrics,
                    val metadataCache: MetadataCache,
                    val zkClient: KafkaZkClient,
-                   val clusterLinkManager: ClusterLinkManager) extends Logging with KafkaMetricsGroup {
+                   val clusterLinkManager: ClusterLinkFactory.LinkManager) extends Logging with KafkaMetricsGroup {
 
   this.logIdent = "[Admin Manager on Broker " + config.brokerId + "]: "
 
