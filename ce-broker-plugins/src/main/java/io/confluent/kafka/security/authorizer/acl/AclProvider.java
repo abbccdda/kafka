@@ -100,6 +100,11 @@ public class AclProvider extends AclAuthorizer implements AccessRuleProvider {
         : sessionPrincipal;
   }
 
+  /**
+   * Return `true` if a matching `DENY` rule has been found and `false` otherwise. We do not
+   * return `true` when a matching `ALLOW` is found as a `DENY` rule may take precedence (this
+   * could be improved if we used separate data structures for `ALLOW` and `DENY`).
+   */
   private boolean updateMatchingAcl(AclEntry aclEntry,
                                     Set<KafkaPrincipal> matchingPrincipals,
                                     String host,
