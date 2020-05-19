@@ -49,6 +49,12 @@ abstract class ClusterLinkTopicState {
   def state: TopicLinkState
 
   /**
+    * Returns true if this topic mirror is established
+    * Returns false if this topic's mirror is stopped
+    */
+  def mirrorIsEstablished: Boolean
+
+  /**
     * Returns a JSON-like map of the state's data.
     */
   def toMap: Map[String, _]
@@ -81,6 +87,8 @@ object ClusterLinkTopicState {
 
     override def state: TopicLinkState = TopicLinkMirror
 
+    override def mirrorIsEstablished: Boolean = true
+
     override def toMap: Map[String, _] = {
       Map(
         "version" -> 1,
@@ -103,6 +111,8 @@ object ClusterLinkTopicState {
 
     override def state: TopicLinkState = TopicLinkFailedMirror
 
+    override def mirrorIsEstablished: Boolean = true
+
     override def toMap: Map[String, _] = {
       Map(
         "version" -> 1,
@@ -117,11 +127,12 @@ object ClusterLinkTopicState {
     * a normal topic.
     *
     * Note this state is recorded for re-synchronization purposes. For example, assume that the
-    * local topic was the destination but a fail-over event occurs, and records are produced to
-    * the local topics. The topics will have diverged, as there may be unreplicated records on the
-    * remote topic, and newly appended records on the local topic. The log end offsets for every
-    * partition are recorded so that, if the remote topic is set to mirror this one, then it's
-    * known to which offset the logs were in-sync.
+    * local topic was the destination mirror for a remote source but a fail-over event occurred,
+    * and records are produced to the local topic. The local and remote topic data will have
+    * diverged, as there may be unreplicated records on the remote topic, and newly appended
+    * records on the local topic. Therefore, when topic mirroring is stopped, the local log-end
+    * offsets for every partition are recorded so that if mirroring is ever restarted, then it's
+    * known at which point the local and remote topics are synchronized.
     *
     * @param linkName the name of the cluster link that the topic mirrors from
     * @param logEndOffsets the log end offsets of every partition, in ascending partition order
@@ -133,6 +144,8 @@ object ClusterLinkTopicState {
       extends ClusterLinkTopicState {
 
     override def state: TopicLinkState = TopicLinkStoppedMirror
+
+    override def mirrorIsEstablished: Boolean = false
 
     override def toMap: Map[String, _] = {
       Map(

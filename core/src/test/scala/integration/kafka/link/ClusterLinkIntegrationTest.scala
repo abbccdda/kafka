@@ -12,26 +12,28 @@ import java.util.concurrent.{ExecutionException, TimeUnit}
 
 import kafka.api.{IntegrationTestHarness, KafkaSasl, SaslSetup}
 import kafka.controller.ReplicaAssignment
+import kafka.log.LogConfig
 import kafka.server.{KafkaConfig, KafkaServer}
 import kafka.server.link.{ClusterLinkConfig, ClusterLinkTopicState}
 import kafka.utils.Implicits._
 import kafka.utils.{JaasTestUtils, Logging, TestUtils}
 import kafka.zk.{ClusterLinkProps, ConfigEntityChangeNotificationZNode}
 import org.apache.kafka.clients.CommonClientConfigs
-import org.apache.kafka.clients.admin.NewPartitions
+import org.apache.kafka.clients.admin.{AlterConfigOp, Config, ConfigEntry, ConfluentAdmin, NewPartitions}
 import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer}
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, ProducerRecord}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.{ConfigDef, ConfigResource, SaslConfigs, SslConfigs, TopicConfig}
-import org.apache.kafka.common.errors.InvalidRequestException
+import org.apache.kafka.common.errors.{InvalidConfigurationException, InvalidPartitionsException, InvalidRequestException}
 import org.apache.kafka.common.requests.NewClusterLink
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.security.scram.ScramCredential
-import org.junit.Assert.{assertEquals, assertNotEquals, assertTrue}
+import org.junit.Assert.{assertEquals, assertFalse, assertNotEquals, assertTrue, fail}
 import org.junit.{After, Before, Test}
 
-import scala.jdk.CollectionConverters._
+import scala.annotation.nowarn
 import scala.collection.{Map, Seq, mutable}
+import scala.jdk.CollectionConverters._
 
 class ClusterLinkIntegrationTest extends Logging {
 
@@ -312,6 +314,7 @@ class ClusterLinkIntegrationTest extends Logging {
     verifyMirror(topic)
   }
 
+  @nowarn("cat=deprecation")
   @Test
   def testDestReadOnly(): Unit = {
     sourceCluster.createTopic(topic, numPartitions, replicationFactor = 2)
@@ -332,6 +335,50 @@ class ClusterLinkIntegrationTest extends Logging {
     } finally {
       producer.close()
     }
+
+    destCluster.withAdmin((admin: ConfluentAdmin) => {
+      try {
+        // Attempt to increase the partitions of the mirror, which should fail as an invalid request.
+        admin.createPartitions(Collections.singletonMap(topic, NewPartitions.increaseTo(8))).all().get(20, TimeUnit.SECONDS)
+        fail("Modifying mirror topic partitions should not succeed")
+      } catch {
+        case e: ExecutionException => assertTrue(e.getCause.isInstanceOf[InvalidPartitionsException])
+      }
+
+      val resource = new ConfigResource(ConfigResource.Type.TOPIC, topic)
+
+      try {
+        // Attempt to alter the topic's configuration via alterTopics(), which is disallowed.
+        admin.alterConfigs(Map(resource -> new Config(List.empty.asJavaCollection)).asJava).all().get(20, TimeUnit.SECONDS)
+        fail("alterConfigs() on a mirror topic should fail")
+      } catch {
+        case e: ExecutionException => assertTrue(e.getCause.isInstanceOf[InvalidRequestException])
+      }
+
+      // Attempt to alter the topic's configuration, verifying only the mutable parameters can be modified.
+      val alterations = Seq(
+        LogConfig.UncleanLeaderElectionEnableProp -> Some("true"),
+        LogConfig.UncleanLeaderElectionEnableProp -> None,
+        LogConfig.CleanupPolicyProp -> Some("compact"),
+        LogConfig.CleanupPolicyProp -> None,
+      )
+      alterations.foreach { case (name, value) =>
+        val expectSuccess = (name == LogConfig.UncleanLeaderElectionEnableProp)
+        val op = value match {
+          case Some(v) => new AlterConfigOp(new ConfigEntry(name, v), AlterConfigOp.OpType.SET)
+          case None => new AlterConfigOp(new ConfigEntry(name, null), AlterConfigOp.OpType.DELETE)
+        }
+        try {
+          val ops = Collections.singleton(op).asInstanceOf[java.util.Collection[AlterConfigOp]]
+          admin.incrementalAlterConfigs(Map(resource -> ops).asJava).all.get
+          assertTrue(expectSuccess)
+        } catch {
+          case e: ExecutionException =>
+            assertTrue(e.getCause.isInstanceOf[InvalidConfigurationException])
+            assertFalse(expectSuccess)
+        }
+      }
+    })
 
     // Produce more records to the source and verify we see no additional records.
     produceToSourceCluster(4)
@@ -607,4 +654,14 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
     servers(brokerId).startup()
     updateBootstrapServers()
   }
+
+  def withAdmin(callable: ConfluentAdmin => Unit): Unit = {
+    val admin = createAdminClient().asInstanceOf[ConfluentAdmin]
+    try {
+      callable(admin)
+    } finally {
+      admin.close()
+    }
+  }
+
 }

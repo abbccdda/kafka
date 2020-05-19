@@ -9,7 +9,7 @@ import java.util.concurrent.CompletableFuture
 import kafka.log.LogConfig
 import org.apache.kafka.clients.admin.{Config, ConfigEntry, TopicDescription}
 import org.apache.kafka.common.{Node, TopicPartitionInfo}
-import org.apache.kafka.common.errors.{InvalidClusterLinkException, InvalidConfigurationException, InvalidRequestException, TimeoutException, UnsupportedVersionException}
+import org.apache.kafka.common.errors.{InvalidClusterLinkException, InvalidConfigurationException, InvalidPartitionsException, InvalidRequestException, TimeoutException, UnsupportedVersionException}
 import org.apache.kafka.common.message.CreateTopicsRequestData
 import org.apache.kafka.common.requests.CreateTopicsRequest.NO_NUM_PARTITIONS
 import org.junit.Test
@@ -245,6 +245,37 @@ class ClusterLinkUtilsTest {
       ClusterLinkUtils.resolveCreateTopic(
         makeCreatableTopic("test-topic", NO_NUM_PARTITIONS, Some("link-name"), Some("test-topic")),
         validConfigs, validateOnly = false, Some(future))
+    }
+  }
+
+  @Test
+  def testValidateCreatePartitions(): Unit = {
+    ClusterLinkUtils.validateCreatePartitions("test-topic", numPartitions = 3, validateOnly = true, None)
+    intercept[IllegalStateException] {
+      ClusterLinkUtils.validateCreatePartitions("test-topic", numPartitions = 3, validateOnly = false, None)
+    }
+
+    val node = new Node(0, "localhost", 9092)
+    val nodeList = List(node).asJava
+    val partitionInfos = List(
+      new TopicPartitionInfo(0, node, nodeList, nodeList),
+      new TopicPartitionInfo(1, node, nodeList, nodeList),
+      new TopicPartitionInfo(2, node, nodeList, nodeList)
+    )
+
+    val description = new TopicDescription("test-topic", false, partitionInfos.asJava)
+    val future = new CompletableFuture[ClusterLinkClientManager.TopicInfo]
+
+    intercept[IllegalStateException] {
+      ClusterLinkUtils.validateCreatePartitions("test-topic", numPartitions = 2, validateOnly = false, Some(future))
+    }
+
+    future.complete(ClusterLinkClientManager.TopicInfo(description, makeConfig(Seq.empty)))
+
+    ClusterLinkUtils.validateCreatePartitions("test-topic", numPartitions = 2, validateOnly = false, Some(future))
+    ClusterLinkUtils.validateCreatePartitions("test-topic", numPartitions = 3, validateOnly = false, Some(future))
+    intercept[InvalidPartitionsException] {
+      ClusterLinkUtils.validateCreatePartitions("test-topic", numPartitions = 4, validateOnly = false, Some(future))
     }
   }
 

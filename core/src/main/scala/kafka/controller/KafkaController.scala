@@ -1616,8 +1616,8 @@ class KafkaController(val config: KafkaConfig,
         }
         onNewPartitionCreation(partitionsToBeAdded.keySet)
       }
-      val oldLink = controllerContext.linkedTopics.get(topic).map(_.linkName)
-      val newLink = topicInfo.headOption.flatMap(_.clusterLink).map(_.linkName)
+      val oldLink = controllerContext.linkedTopics.get(topic).filter(_.mirrorIsEstablished).map(_.linkName)
+      val newLink = topicInfo.headOption.flatMap(_.clusterLink).filter(_.mirrorIsEstablished).map(_.linkName)
       if (oldLink != newLink) {
         newLink match {
           case Some(linkName) =>

@@ -50,6 +50,7 @@ class ClusterLinkTopicStateTest {
     assertEquals(linkName, data.linkName)
     assertEquals(timeMs, data.timeMs)
     assertTrue(data.state.shouldSync)
+    assertTrue(data.mirrorIsEstablished)
   }
 
   @Test
@@ -63,6 +64,7 @@ class ClusterLinkTopicStateTest {
     assertEquals(linkName, data.linkName)
     assertEquals(timeMs, data.timeMs)
     assertFalse(data.state.shouldSync)
+    assertTrue(data.mirrorIsEstablished)
   }
 
   @Test
@@ -78,6 +80,7 @@ class ClusterLinkTopicStateTest {
     assertEquals(logEndOffsets, data.logEndOffsets)
     assertEquals(timeMs, data.timeMs)
     assertFalse(data.state.shouldSync)
+    assertFalse(data.mirrorIsEstablished)
   }
 
   @Test(expected = classOf[IllegalStateException])

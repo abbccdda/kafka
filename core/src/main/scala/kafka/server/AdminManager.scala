@@ -27,9 +27,11 @@ import kafka.controller.ReplicaAssignment
 import kafka.log.LogConfig
 import kafka.utils.Log4jController
 import kafka.metrics.KafkaMetricsGroup
-import kafka.server.link.{ClusterLinkClientManager, ClusterLinkConfig, ClusterLinkManager, ClusterLinkUtils}
+import kafka.server.link.{ClusterLinkConfig, ClusterLinkManager, ClusterLinkUtils}
+import kafka.server.link.ClusterLinkClientManager.{TopicInfo => MirrorTopicInfo}
 import kafka.utils._
 import kafka.zk.{AdminZkClient, ClusterLinkProps, KafkaZkClient}
+import kafka.zk.TopicZNode.TopicIdReplicaAssignment
 import org.apache.kafka.clients.admin.AlterConfigOp
 import org.apache.kafka.clients.admin.AlterConfigOp.OpType
 import org.apache.kafka.common.TopicPartition
@@ -107,37 +109,22 @@ class AdminManager(val config: KafkaConfig,
       doCreateTopics(timeout, validateOnly, toCreate, includeConfigsAndMetadata, responseCallback, createTopicId, Some(Map.empty))
 
     } else {
-      // The topic creation request contains at least one mirrored topic. Since mirror topics must fetch information over the cluster
-      // link about the topics that they're mirroring, the creation may be long-running and should therefore be completed asynchronously.
-      // This proceeds in three steps:
-      //   1. The request to create the mirror topics is validated without using any remote topic information. If an error is encountered,
-      //      then no attempt is made to fetch the topic's information over the cluster link.
+      // The topic creation request contains at least one mirrored topic. Since mirror topics must fetch information
+      // over the cluster link about the topics that they're mirroring, the creation may be long-running and should
+      // therefore be completed asynchronously. This proceeds in three steps:
+      //   1. The request to create the mirror topics is validated without using any remote topic information. If an
+      //      error is encountered, then no attempt is made to fetch the topic's information over the cluster link.
       //   2. The information of the mirrors' remote topics is fetched asynchronously.
       //   3. The remote topic information is used to perform the actual topic creation of all requested topics.
 
       val mirrorTopics = toCreate.filter(_._2.mirrorTopic != null)
       def mirrorValidateCallback(results: Map[String, ApiError]): Unit = {
-        val mirrorInfo = mirrorTopics.values.map { topic =>
-          val future = try {
-            val error = results(topic.name)
-            if (error != ApiError.NONE)
-              throw error.exception()
+        val topicLinks = mirrorTopics.values.map(topic => topic.name -> topic.linkName).toMap
 
-            // 2. Fetch the remote topic's information.
-            val linkName = topic.linkName
-            val clientManager = clusterLinkManager.clientManager(linkName).getOrElse(
-              throw new ClusterLinkNotFoundException(s"Cluster link '$linkName' doesn't exist."))
-            clientManager.fetchTopicInfo(topic.name, timeout)
-          } catch {
-            case e: Throwable =>
-              val result = new CompletableFuture[ClusterLinkClientManager.TopicInfo]
-              result.completeExceptionally(e)
-              result
-          }
-          topic.name -> future
-        }.toMap
+        // 2. Fetch the remote topics' information.
+        val mirrorInfo = fetchMirrorTopicInfo(topicLinks, results, timeout)
 
-        // 3. When fetching all remote topics has completed, perform the topic creation with the remote topic information.
+        // 3. Perform the topic creation with the remote topic information.
         clusterLinkManager.admin.purgatory.tryCompleteElseWatch(timeout, mirrorInfo.values.toSeq, () => {
           doCreateTopics(timeout, validateOnly, toCreate, includeConfigsAndMetadata, responseCallback, createTopicId, Some(mirrorInfo))
         })
@@ -155,7 +142,7 @@ class AdminManager(val config: KafkaConfig,
                              includeConfigsAndMetadata: Map[String, CreatableTopicResult],
                              responseCallback: Map[String, ApiError] => Unit,
                              createTopicId: Boolean,
-                             mirrorInfo: Option[Map[String, CompletableFuture[ClusterLinkClientManager.TopicInfo]]]): Unit = {
+                             mirrorInfo: Option[Map[String, CompletableFuture[MirrorTopicInfo]]]): Unit = {
 
     // 1. map over topics creating assignment and calling zookeeper
     val brokers = metadataCache.getAliveBrokers.map { b => kafka.admin.BrokerMetadata(b.id, b.rack) }
@@ -359,6 +346,53 @@ class AdminManager(val config: KafkaConfig,
                        listenerName: ListenerName,
                        callback: Map[String, ApiError] => Unit): Unit = {
 
+    def getTopicInfos() = zkClient.getReplicaAssignmentAndTopicIdForTopics(newPartitions.map(_.name).toSet).map { assignment =>
+      assignment.topic -> assignment
+    }.toMap
+
+    val topicInfos = getTopicInfos()
+
+    val topicLinks = topicInfos.values.map { assignment =>
+      assignment.clusterLink.filter(_.mirrorIsEstablished).map(assignment.topic -> _.linkName)
+    }.flatten.toMap
+
+    if (topicLinks.isEmpty) {
+      // Standard case where no mirror topics area being created. Perform the creation immediately.
+      doCreatePartitions(timeout, newPartitions, validateOnly, listenerName, topicInfos, Some(Map.empty), callback)
+
+    } else {
+      // The partition creation request contains at least one mirrored topic. Since mirror topics must match the
+      // number of partitions for the topic they're mirroring, they must fetch the partitions for the topic over the
+      // cluster link, which means the partition creation may be long-running and should therefore be completed
+      // asynchronously. This proceeds in three steps:
+      //   1. The request to create the partitions is validated without using any remote topic information. If an
+      //      error is encountered, then no attempt is made to fetch the topic's information over the cluster link.
+      //   2. The number of partitions the mirrors' remote topics is fetched asynchronously.
+      //   3. The fetched number of partitions is validated to match the number of partitions in the request.
+
+      def mirrorValidateCallback(results: Map[String, ApiError]): Unit = {
+        // 2. Fetch the remote topics' information.
+        val mirrorInfo = fetchMirrorTopicInfo(topicLinks, results, timeout)
+
+        // 3. Perform the partition creation with the remote topic information.
+        clusterLinkManager.admin.purgatory.tryCompleteElseWatch(timeout, mirrorInfo.values.toSeq, () => {
+          doCreatePartitions(timeout, newPartitions, validateOnly, listenerName, getTopicInfos(), Some(mirrorInfo), callback)
+        })
+      }
+
+      // 1. Ensure the partition creation for the mirror topics is valid without using remote topic information.
+      doCreatePartitions(timeout, newPartitions, validateOnly = true, listenerName, topicInfos, mirrorInfo = None, mirrorValidateCallback)
+    }
+  }
+
+  def doCreatePartitions(timeout: Int,
+                         newPartitions: Seq[CreatePartitionsTopic],
+                         validateOnly: Boolean,
+                         listenerName: ListenerName,
+                         topicInfos: Map[String, TopicIdReplicaAssignment],
+                         mirrorInfo: Option[Map[String, CompletableFuture[MirrorTopicInfo]]],
+                         callback: Map[String, ApiError] => Unit): Unit = {
+
     val allBrokers = adminZkClient.getBrokerMetadatas()
     val allBrokerIds = allBrokers.map(_.id)
     val allBrokerProperties = allBrokers.map { broker =>
@@ -369,7 +403,7 @@ class AdminManager(val config: KafkaConfig,
     val metadata = newPartitions.map { newPartition =>
       val topic = newPartition.name
       try {
-        val topicInfo = zkClient.getReplicaAssignmentAndTopicIdForTopics(immutable.Set(topic)).head
+        val topicInfo = topicInfos(topic)
         val existingAssignment = topicInfo.assignment.map {
           case (topicPartition, assignment) =>
             if (assignment.isBeingReassigned) {
@@ -381,6 +415,8 @@ class AdminManager(val config: KafkaConfig,
         }
         if (existingAssignment.isEmpty)
           throw new UnknownTopicOrPartitionException(s"The topic '$topic' does not exist.")
+        if (topicInfo.clusterLink.exists(_.mirrorIsEstablished))
+          ClusterLinkUtils.validateCreatePartitions(topic, newPartition.count, validateOnly, mirrorInfo.flatMap(_.get(topic)))
 
         val oldNumPartitions = existingAssignment.size
         val newNumPartitions = newPartition.count
@@ -559,7 +595,7 @@ class AdminManager(val config: KafkaConfig,
         }
 
         resource.`type` match {
-          case ConfigResource.Type.TOPIC => alterTopicConfigs(resource, validateOnly, configProps, configEntriesMap, principal)
+          case ConfigResource.Type.TOPIC => alterTopicConfigs(resource, validateOnly, configProps, configEntriesMap, principal, isIncremental = false)
           case ConfigResource.Type.BROKER => alterBrokerConfigs(resource, validateOnly, configProps, configEntriesMap, principal)
           case resourceType =>
             throw new InvalidRequestException(s"AlterConfigs is only supported for topics and brokers, but resource type is $resourceType")
@@ -594,7 +630,7 @@ class AdminManager(val config: KafkaConfig,
 
   private def alterTopicConfigs(resource: ConfigResource, validateOnly: Boolean,
                                 configProps: Properties, configEntriesMap: Map[String, String],
-                                principal: KafkaPrincipal): (ConfigResource, ApiError) = {
+                                principal: KafkaPrincipal, isIncremental: Boolean): (ConfigResource, ApiError) = {
     val topic = resource.name
 
     val currentDefault = config.originals
@@ -602,6 +638,12 @@ class AdminManager(val config: KafkaConfig,
     val proposedConfigs = LogConfig.fromProps(currentDefault, configProps)
 
     LogConfig.validateChange(currentConfigs, proposedConfigs, config.interBrokerProtocolVersion)
+
+    if (zkClient.getClusterLinkForTopics(immutable.Set(topic)).get(topic).exists(_.mirrorIsEstablished)) {
+      if (!isIncremental)
+        throw new InvalidRequestException(s"Non-incremental configuration updates for mirror topic '$topic' are disallowed")
+      ClusterLinkUtils.validateMirrorChange(topic, configEntriesMap.keys.toSet)
+    }
 
     adminZkClient.validateTopicConfig(topic, configProps)
     validateConfigPolicy(resource, configEntriesMap, principal)
@@ -701,7 +743,7 @@ class AdminManager(val config: KafkaConfig,
           case ConfigResource.Type.TOPIC =>
             val configProps = adminZkClient.fetchEntityConfig(ConfigType.Topic, resource.name)
             prepareIncrementalConfigs(alterConfigOps, configProps, LogConfig.configKeys)
-            alterTopicConfigs(resource, validateOnly, configProps, configEntriesMap, principal)
+            alterTopicConfigs(resource, validateOnly, configProps, configEntriesMap, principal, isIncremental = true)
 
           case ConfigResource.Type.BROKER =>
             val brokerId = getBrokerId(resource)
@@ -1104,6 +1146,35 @@ class AdminManager(val config: KafkaConfig,
           ApiError.fromThrowable(e)
       }
       (entry.entity -> apiError)
+    }.toMap
+  }
+
+  /**
+    * Helper for fetching remote topic information over cluster links.
+    *
+    * @param topicLinks a map from topic name to link name
+    * @param validateResult result from request validation
+    * @param timeoutMs the timeout in milliseconds
+    * @return a map from topic name to a future containing its information
+    */
+  private def fetchMirrorTopicInfo(topicLinks: Map[String, String],
+                                   validateResult: Map[String, ApiError],
+                                   timeoutMs: Int): Map[String, CompletableFuture[MirrorTopicInfo]] = {
+    topicLinks.map { case (topic, linkName) =>
+      val future = try {
+        val error = validateResult(topic)
+        if (error != ApiError.NONE)
+          throw error.exception()
+        val clientManager = clusterLinkManager.clientManager(linkName).getOrElse(
+          throw new ClusterLinkNotFoundException(s"Cluster link '$linkName' doesn't exist."))
+        clientManager.fetchTopicInfo(topic, timeoutMs)
+      } catch {
+        case e: Throwable =>
+          val result = new CompletableFuture[MirrorTopicInfo]
+          result.completeExceptionally(e)
+          result
+      }
+      topic -> future
     }.toMap
   }
 }

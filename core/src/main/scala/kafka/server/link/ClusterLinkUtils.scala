@@ -10,7 +10,7 @@ import kafka.log.LogConfig
 import kafka.server.KafkaConfig
 import kafka.utils.Logging
 import org.apache.kafka.clients.admin.Config
-import org.apache.kafka.common.errors.{InvalidClusterLinkException, InvalidConfigurationException, InvalidRequestException, TimeoutException, UnsupportedVersionException}
+import org.apache.kafka.common.errors.{InvalidClusterLinkException, InvalidConfigurationException, InvalidPartitionsException, InvalidRequestException, TimeoutException, UnsupportedVersionException}
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopic
 import org.apache.kafka.common.requests.CreateTopicsRequest.NO_NUM_PARTITIONS
 
@@ -209,6 +209,23 @@ object ClusterLinkUtils extends Logging {
     newLocalProps
   }
 
+  /**
+    * Validates a config change for a mirror topic, throwing an exception if an invalid change is detected.
+    *
+    * @param topic the topic's name
+    * @param keys the keys that are being changed
+    * @throws InvalidConfigurationException if the config change is invalid
+    */
+  def validateMirrorChange(topic: String, keys: Set[String]): Unit = {
+    keys.foreach { key =>
+      getConfigAction(key) match {
+        case LogConfigAction.Independent => // OK
+        case LogConfigAction.NonDefault | LogConfigAction.Always =>
+          throw new InvalidConfigurationException(s"Cannot modify mirror topic '$topic's configuration for '$key'")
+      }
+    }
+  }
+
   /*
    * Result from mirror topic creation resolution.
    *
@@ -225,8 +242,9 @@ object ClusterLinkUtils extends Logging {
    * @param topic the creatable topic
    * @param configs the creatable topic's configs
    * @param validateOnly whether the creation should only be validated
-   * @param topicInfo the remote topic's information if this is a mirror topic, otherwise none if not. This *must* be completed.
-   *                  If 'validateOnly' and this is none, then the remote topic information won't be validated.
+   * @param topicInfo the remote topic's information if this is a mirror topic, otherwise none if not. The future
+   *                  *must* be completed, if provided. If 'validateOnly' and this is none, then the remote topic
+   *                  information won't be validated.
    */
   def resolveCreateTopic(topic: CreatableTopic,
                          configs: Properties,
@@ -279,6 +297,44 @@ object ClusterLinkUtils extends Logging {
         if (mirrorTopic.nonEmpty)
           throw new InvalidRequestException("Cannot create mirror topic, cluster link name not specified.")
         ResolveCreateTopic(configs, None, NO_NUM_PARTITIONS)
+    }
+  }
+
+  /*
+   * Validates mirror topic partition creation for the provided topic, ensuring that the new number of topics does
+   * not exceed the remote topic's partitions.
+   *
+   * @param topic the topic to create partitions for
+   * @param numPartitions the number of partitions to create for the topic
+   * @param validateOnly whether the partition creation should only be validated
+   * @param topicInfo the remote topic's information. The future *must* be completed, if provided. If
+   *                  'validateOnly' and this is none, then the remote topic information won't be validated.
+   */
+  def validateCreatePartitions(topic: String,
+                               numPartitions: Int,
+                               validateOnly: Boolean,
+                               topicInfo: Option[CompletableFuture[ClusterLinkClientManager.TopicInfo]]): Unit = {
+    topicInfo match {
+      case Some(ti) =>
+        val info = try {
+          if (!ti.isDone)
+            throw new IllegalStateException("Mirror information must have been resolved.")
+          ti.get
+        } catch {
+          case e: ExecutionException =>
+            throw e.getCause
+          case _: TimeoutException =>
+            throw new TimeoutException("Timed out while fetching topic information over cluster link.")
+        }
+
+        val mirrorNumPartitions = info.description.partitions.size
+        if (mirrorNumPartitions < numPartitions)
+          throw new InvalidPartitionsException(s"Cannot set '$numPartitions' partitions for topic '$topic', " +
+            s"exceeds linked topic's '$mirrorNumPartitions' partitions.")
+
+      case None =>
+        if (!validateOnly)
+          throw new IllegalStateException("Mirror information must be provided if 'validateOnly' is not set.")
     }
   }
 
