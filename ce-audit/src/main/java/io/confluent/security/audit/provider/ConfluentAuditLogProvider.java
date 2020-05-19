@@ -48,6 +48,8 @@ import org.slf4j.LoggerFactory;
 public class ConfluentAuditLogProvider implements AuditLogProvider {
 
   public static final String AUTHORIZATION_MESSAGE_TYPE = "io.confluent.kafka.server/authorization";
+  public static final String AUTHENTICATION_MESSAGE_TYPE = "io.confluent.kafka.server/authentication";
+
   protected static final Logger log = LoggerFactory.getLogger(ConfluentAuditLogProvider.class);
   private static final String FALLBACK_LOGGER = "io.confluent.security.audit.log.fallback";
   private static final Duration CLOSE_TIMEOUT = Duration.ofSeconds(30);

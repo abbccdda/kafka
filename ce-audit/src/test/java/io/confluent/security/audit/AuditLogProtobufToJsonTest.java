@@ -4,6 +4,7 @@
 
 package io.confluent.security.audit;
 
+import static io.confluent.security.audit.provider.ConfluentAuditLogProvider.AUTHENTICATION_MESSAGE_TYPE;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
@@ -459,5 +460,85 @@ public class AuditLogProtobufToJsonTest {
       e.printStackTrace();
       throw e;
     }
+  }
+
+  @Test
+  public void testAuthenticationEventSuccessToJSON() throws Exception {
+    AuditLogEntry auditLogEntry = AuditLogEntry.newBuilder()
+        .setServiceName("crn://confluent.cloud/kafka=lkc-ld9rz")
+        .setAuthenticationInfo(
+            AuthenticationInfo.newBuilder()
+                .setPrincipal("User:123")
+                .setMetadata(
+                    AuthenticationMetadata.newBuilder()
+                        .setIdentifier("id1")
+                        .setMechanism("sasl").build()).build())
+        .setRequest(Struct.newBuilder()
+            .putFields("clientId",
+                Value.newBuilder().setStringValue("userSupplied").build())
+            .build())
+        .setRequestMetadata(Struct.newBuilder()
+            .putFields("callerIp",
+                Value.newBuilder().setStringValue("192.168.1.23").build())
+            .build())
+        .setResult(
+            Result.newBuilder()
+                .setStatus("SUCCESS")
+                .setMessage("").build())
+        .build();
+
+    CloudEvent message = ProtobufEvent.newBuilder()
+        .setType(AUTHENTICATION_MESSAGE_TYPE)
+        .setSource("crn://confluent.cloud/kafka=lkc-ld9rz")
+        .setSubject("crn://confluent.cloud/kafka=lkc-ld9rz")
+        .setId("e7872058-f971-496c-8a14-e6b0196c7ce")
+        .setTime(ZonedDateTime.parse("2020-04-05T17:31:00Z"))
+        .setEncoding(EventLoggerConfig.DEFAULT_CLOUD_EVENT_ENCODING_CONFIG)
+        .setData(auditLogEntry)
+        .build();
+
+    assertEquals(
+        "{\"data\":{\"serviceName\":\"crn://confluent.cloud/kafka=lkc-ld9rz\",\"methodName\":\"\",\"resourceName\":\"\",\"authenticationInfo\":{\"principal\":\"User:123\",\"metadata\":{\"mechanism\":\"sasl\",\"identifier\":\"id1\"}},\"request\":{\"clientId\":\"userSupplied\"},\"requestMetadata\":{\"callerIp\":\"192.168.1.23\"},\"result\":{\"status\":\"SUCCESS\",\"message\":\"\"}},\"id\":\"e7872058-f971-496c-8a14-e6b0196c7ce\",\"source\":\"crn://confluent.cloud/kafka=lkc-ld9rz\",\"specversion\":\"0.3\",\"type\":\"io.confluent.kafka.server/authentication\",\"time\":\"2020-04-05T17:31:00.000Z\",\"datacontenttype\":\"application/json\",\"subject\":\"crn://confluent.cloud/kafka=lkc-ld9rz\"}",
+        CloudEventUtils.toJsonString(message));
+  }
+
+  @Test
+  public void testAuthenticationEventFailureToJSON() throws Exception {
+    AuditLogEntry auditLogEntry = AuditLogEntry.newBuilder()
+        .setServiceName("crn://confluent.cloud/kafka=lkc-ld9rz")
+        .setAuthenticationInfo(
+            AuthenticationInfo.newBuilder()
+                .setMetadata(
+                    AuthenticationMetadata.newBuilder()
+                        .setIdentifier("id1")
+                        .setMechanism("sasl").build()).build())
+        .setRequest(Struct.newBuilder()
+            .putFields("clientId",
+                Value.newBuilder().setStringValue("userSupplied").build())
+            .build())
+        .setRequestMetadata(Struct.newBuilder()
+            .putFields("callerIp",
+                Value.newBuilder().setStringValue("192.168.1.23").build())
+            .build())
+        .setResult(
+            Result.newBuilder()
+                .setStatus("UNAUTHENTICATED")
+                .setMessage("error1").build())
+        .build();
+
+    CloudEvent message = ProtobufEvent.newBuilder()
+        .setType(AUTHENTICATION_MESSAGE_TYPE)
+        .setSource("crn://confluent.cloud/kafka=lkc-ld9rz")
+        .setSubject("crn://confluent.cloud/kafka=lkc-ld9rz")
+        .setId("e7872058-f971-496c-8a14-e6b0196c7ce")
+        .setTime(ZonedDateTime.parse("2020-04-05T17:31:00Z"))
+        .setEncoding(EventLoggerConfig.DEFAULT_CLOUD_EVENT_ENCODING_CONFIG)
+        .setData(auditLogEntry)
+        .build();
+
+    System.out.println(CloudEventUtils.toJsonString(message));
+    assertEquals(
+        "{\"data\":{\"serviceName\":\"crn://confluent.cloud/kafka=lkc-ld9rz\",\"methodName\":\"\",\"resourceName\":\"\",\"authenticationInfo\":{\"principal\":\"\",\"metadata\":{\"mechanism\":\"sasl\",\"identifier\":\"id1\"}},\"request\":{\"clientId\":\"userSupplied\"},\"requestMetadata\":{\"callerIp\":\"192.168.1.23\"},\"result\":{\"status\":\"UNAUTHENTICATED\",\"message\":\"error1\"}},\"id\":\"e7872058-f971-496c-8a14-e6b0196c7ce\",\"source\":\"crn://confluent.cloud/kafka=lkc-ld9rz\",\"specversion\":\"0.3\",\"type\":\"io.confluent.kafka.server/authentication\",\"time\":\"2020-04-05T17:31:00.000Z\",\"datacontenttype\":\"application/json\",\"subject\":\"crn://confluent.cloud/kafka=lkc-ld9rz\"}",
+        CloudEventUtils.toJsonString(message));
   }
 }

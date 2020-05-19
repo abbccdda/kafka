@@ -25,11 +25,23 @@ message AuditLogEntry {
   AuthorizationInfo authorization_info = 5;
   google.protobuf.Struct request = 6;
   google.protobuf.Struct request_metadata = 7;
+  Result result = 8;
 }
 
 message AuthenticationInfo {
-  // The user identifier for the requester
+  // The authenticated principal for the requester
   string principal = 1;
+
+  // authentication metadata
+  AuthenticationMetadata metadata = 2;
+}
+
+message AuthenticationMetadata {
+  // authentication mechanism
+  string mechanism = 1;
+
+  // The identification of the requester
+  string identifier = 2;
 }
 
 message AuthorizationInfo {
@@ -76,4 +88,12 @@ message AuthorizationScope {
   repeated string outer_scope = 1;
 
   map<string, string> clusters = 2;
+}
+
+message Result {
+  // status of the operation.
+  string status = 1;
+
+  // error message
+  string message = 2;
 }

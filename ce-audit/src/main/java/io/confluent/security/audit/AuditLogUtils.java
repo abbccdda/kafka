@@ -18,6 +18,9 @@ import io.confluent.security.rbac.RbacAccessRule;
 import io.confluent.security.rbac.RoleBinding;
 import org.apache.kafka.common.acl.AccessControlEntry;
 import org.apache.kafka.common.protocol.ApiKeys;
+import org.apache.kafka.server.audit.AuthenticationEvent;
+
+import java.util.Map;
 
 public class AuditLogUtils {
 
@@ -126,6 +129,41 @@ public class AuditLogUtils {
    */
   public static Element resourceNameElement(AuditLogEntry entry) throws CrnSyntaxException {
     return ConfluentResourceName.fromString(entry.getResourceName()).lastResourceElement();
+  }
+
+  public static AuditLogEntry authenticationEvent(String source,
+                                                  AuthenticationEvent authenticationEvent) {
+    AuditLogEntry.Builder builder = AuditLogEntry.newBuilder().setServiceName(source);
+
+    //set authenticationInfo
+    AuthenticationInfo.Builder authenticationBuilder = AuthenticationInfo.newBuilder();
+    authenticationEvent.principal().ifPresent(p ->
+        authenticationBuilder.setPrincipal(p.getPrincipalType() + ":" + p.getName()));
+
+    // set auth metadata
+    AuthenticationMetadata.Builder metadataBuilder = authenticationBuilder.getMetadataBuilder();
+    Map<String, Object> data = authenticationEvent.data();
+    metadataBuilder.setIdentifier((String) data.getOrDefault("identifier", ""));
+    metadataBuilder.setMechanism((String) data.getOrDefault("mechanism", ""));
+    authenticationBuilder.setMetadata(metadataBuilder.build());
+
+    builder.setAuthenticationInfo(authenticationBuilder);
+
+    //set status
+    Result.Builder resultBuilder = Result.newBuilder();
+    resultBuilder.setStatus(authenticationEvent.status().name());
+    resultBuilder.setMessage((String) data.getOrDefault("message", ""));
+    builder.setResult(resultBuilder.build());
+
+    //set request_metadata
+    Struct.Builder requestMetadataBuilder = Struct.newBuilder();
+    if (authenticationEvent.authenticationContext().clientAddress() != null) {
+      requestMetadataBuilder.putFields("client_address", Value.newBuilder()
+          .setStringValue(authenticationEvent.authenticationContext().clientAddress().toString()).build());
+    }
+    builder.setRequestMetadata(requestMetadataBuilder.build());
+
+    return builder.build();
   }
 
 }

@@ -5,5 +5,6 @@ package org.apache.kafka.server.audit;
 public enum AuditEventStatus {
     SUCCESS,
     FAILURE,
+    UNAUTHENTICATED,
     UNKNOWN_USER_DENIED
 }
