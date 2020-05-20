@@ -8,14 +8,13 @@ GO_OUTDIR ?= bin# default to output bins to bin/
 GO_LDFLAGS ?= -X main.version=$(VERSION)# Setup LD Flags
 GO_EXTRA_FLAGS ?=
 CODECOV ?= true# default to enabled now
-GO_TEST_ARGS ?= -race -v -cover# default list of args to pass to go test
-GO_CODECOV_TEST_ARGS ?= -race -v# default list of args to pass to go test for codecov report
 MK_INCLUDE_BIN ?= ./mk-include/bin
 
+GO_TEST_ARGS ?= -race -v -cover# default list of args to pass to go test
 ifdef TESTS_TO_RUN
 GO_TEST_ARGS += -run $(TESTS_TO_RUN)
-GO_CODECOV_TEST_ARGS += -run $(TESTS_TO_RUN)
 endif
+GO_TEST_PACKAGE_ARGS ?= ./...
 
 # flags for confluent-kafka-go-dev / librdkafka on alpine
 ifeq ($(GO_ALPINE),true)
@@ -56,7 +55,6 @@ GOPATH ?= $(shell $(GO) env GOPATH)
 
 GO_BUILD_TARGET ?= build-go
 GO_TEST_TARGET ?= lint-go test-go
-GO_TEST_PACKAGE_ARGS ?= ./...
 GO_CLEAN_TARGET ?= clean-go
 
 INIT_CI_TARGETS += deps
@@ -97,7 +95,6 @@ show-go:
 	@echo "CODECOV: $(CODECOV)"
 	@echo "GO_PREFETCH_DEPS: $(GO_PREFETCH_DEPS)"
 	@echo "GO_TEST_ARGS: $(GO_TEST_ARGS)"
-	@echo "GO_CODECOV_TEST_ARGS: $(GO_CODECOV_TEST_ARGS)"
 
 
 .PHONY: clean-go
@@ -148,12 +145,10 @@ $(GO_BINS):
 .PHONY: test-go
 ## Run Go Tests and Vet code
 test-go: vet
-ifeq ($(CI)$(CODECOV),truetrue)
 	test -f coverage.txt && truncate -s 0 coverage.txt || true
-	set -o pipefail && $(GO) test $(GO_MOD_DOWNLOAD_MODE_FLAG) $(GO_CODECOV_TEST_ARGS) -coverprofile=coverage.txt $(GO_TEST_PACKAGE_ARGS) -json | $(MK_INCLUDE_BIN)/decode_test2json.py
+	set -o pipefail && $(GO) test $(GO_MOD_DOWNLOAD_MODE_FLAG) -coverprofile=coverage.txt $(GO_TEST_ARGS) $(GO_TEST_PACKAGE_ARGS) -json | $(MK_INCLUDE_BIN)/decode_test2json.py
+ifeq ($(CI)$(CODECOV),truetrue)
 	curl -s https://codecov.io/bash | bash
-else
-	set -o pipefail && $(GO) test $(GO_MOD_DOWNLOAD_MODE_FLAG) $(GO_TEST_ARGS) $(GO_TEST_PACKAGE_ARGS) -json | $(MK_INCLUDE_BIN)/decode_test2json.py
 endif
 
 .PHONY: generate

@@ -338,7 +338,8 @@ CREATE TABLE physical_cluster (
     status_received timestamp without time zone,
     last_initialized timestamp without time zone,
     last_deleted timestamp without time zone,
-    network_isolation_domain_id text
+    network_isolation_domain_id text,
+    sni_enabled bool DEFAULT false NOT NULL
 );
 
 

@@ -28,6 +28,7 @@ RELEASE_POSTCOMMIT += push-docker-cc-kafka-init
 
 ifeq ($(CONFLUENT_PLATFORM_PACKAGING),)
 include ./mk-include/cc-begin.mk
+include ./mk-include/cc-vault.mk
 include ./mk-include/cc-semver.mk
 include ./mk-include/cc-docker.mk
 include ./mk-include/cc-end.mk

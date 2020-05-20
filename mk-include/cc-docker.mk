@@ -111,10 +111,14 @@ build-docker: $(BUILD_DOCKER_OVERRIDE)
 endif
 
 .PHONY: restore-docker-version
+ifeq ($(RESTORE_DOCKER_OVERRIDE),)
 restore-docker-version:
 ifeq ($(CI),true)
 	artifact pull project docker/$(BRANCH_NAME)/$(IMAGE_VERSION).tgz -d /dev/stdout --force | \
 		gunzip | docker image load
+endif
+else
+restore-docker-version: $(RESTORE_DOCKER_OVERRIDE)
 endif
 
 .PHONY: tag-docker
