@@ -4270,7 +4270,9 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
                    v -> new BrokerRemovalDescription(v.brokerId(),
                        BrokerRemovalDescription.BrokerShutdownStatus.valueOf(v.brokerShutdownStatus()),
                        BrokerRemovalDescription.PartitionReassignmentsStatus.valueOf(v.partitionReassignmentsStatus()),
-                       Optional.ofNullable(Errors.forCode(v.removalErrorCode()).exception(v.removalErrorMessage()))
+                       v.removalErrorCode() == Errors.NONE.code() ? Optional.empty() : Optional.of(
+                           new BrokerRemovalError(Errors.forCode(v.removalErrorCode()), v.removalErrorMessage())
+                       )
                    )
                 ));
 

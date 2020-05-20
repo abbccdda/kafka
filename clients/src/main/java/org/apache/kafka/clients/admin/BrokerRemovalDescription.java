@@ -61,11 +61,11 @@ public class BrokerRemovalDescription {
   private final Integer brokerId;
   private final BrokerShutdownStatus brokerShutdownStatus;
   private final PartitionReassignmentsStatus partitionReassignmentsStatus;
-  private final Optional<Exception> removalError;
+  private final Optional<BrokerRemovalError> removalError;
 
   public BrokerRemovalDescription(Integer brokerId, BrokerShutdownStatus brokerShutdownStatus,
                                   PartitionReassignmentsStatus partitionReassignmentsStatus,
-                                  Optional<Exception> removalError) {
+                                  Optional<BrokerRemovalError> removalError) {
     this.brokerId = brokerId;
     this.brokerShutdownStatus = brokerShutdownStatus;
     this.partitionReassignmentsStatus = partitionReassignmentsStatus;
@@ -85,9 +85,9 @@ public class BrokerRemovalDescription {
   }
 
   /**
-   * The exception that failed the broker removal operation
+   * The error that failed the broker removal operation
    */
-  public Optional<Exception> removalError() {
+  public Optional<BrokerRemovalError> removalError() {
     return removalError;
   }
 }

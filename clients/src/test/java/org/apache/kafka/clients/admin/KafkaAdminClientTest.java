@@ -790,9 +790,9 @@ public class KafkaAdminClientTest {
             assertTrue("Removal error should be populated when not NONE", descriptions.get(1).removalError().isPresent());
             assertTrue("Removal error should be populated when not NONE", descriptions.get(2).removalError().isPresent());
             assertTrue("Removal error should be populated when not NONE", descriptions.get(3).removalError().isPresent());
-            assertEquals(descriptions.get(1).removalError().get().getClass(), PlanComputationException.class);
-            assertEquals(descriptions.get(2).removalError().get().getClass(), PlanComputationException.class);
-            assertEquals(descriptions.get(3).removalError().get().getClass(), UnknownServerException.class);
+            assertEquals(descriptions.get(1).removalError().get().exception().getClass(), PlanComputationException.class);
+            assertEquals(descriptions.get(2).removalError().get().exception().getClass(), PlanComputationException.class);
+            assertEquals(descriptions.get(3).removalError().get().exception().getClass(), UnknownServerException.class);
         }
     }
 
@@ -829,8 +829,9 @@ public class KafkaAdminClientTest {
             assertEquals(BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE, broker0Removal.brokerShutdownStatus());
             assertEquals(BrokerRemovalDescription.PartitionReassignmentsStatus.IN_PROGRESS, broker0Removal.partitionReassignmentsStatus());
             assertTrue("Removal error should be populated when not NONE", broker0Removal.removalError().isPresent());
-            assertEquals(PlanComputationException.class, broker0Removal.removalError().get().getClass());
-            assertEquals("plan failed!", broker0Removal.removalError().get().getMessage());
+            assertEquals(Errors.PLAN_COMPUTATION_FAILED.code(), broker0Removal.removalError().get().errorCode());
+            assertEquals(PlanComputationException.class, broker0Removal.removalError().get().exception().getClass());
+            assertEquals("plan failed!", broker0Removal.removalError().get().errorMessage());
 
             BrokerRemovalDescription broker1Removal = descriptions.get(1);
             assertEquals(BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE, broker1Removal.brokerShutdownStatus());
