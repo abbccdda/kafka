@@ -95,6 +95,8 @@ def job = {
             stage('Downstream validation') {
                 if (config.isPrJob && config.downStreamValidate) {
                     downStreamValidation(true, true)
+                } else {
+                    return "skip downStreamValidation"
                 }
             }
         }

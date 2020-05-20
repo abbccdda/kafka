@@ -66,6 +66,7 @@ import scala.compat.java8.OptionConverters._
  */
 object ConfigCommand extends Config {
 
+  val BrokerDefaultEntityName = ""
   val BrokerLoggerConfigType = "broker-loggers"
   val BrokerSupportedConfigTypes = ConfigType.all.toSet + BrokerLoggerConfigType
   val ZkSupportedConfigTypes = ConfigType.all.toSet - ConfigType.ClusterLink
@@ -446,7 +447,7 @@ object ConfigCommand extends Config {
         case ConfigType.Topic =>
           adminClient.listTopics(new ListTopicsOptions().listInternal(true)).names().get().asScala.toSeq
         case ConfigType.Broker | BrokerLoggerConfigType =>
-          adminClient.describeCluster(new DescribeClusterOptions()).nodes().get().asScala.map(_.idString).toSeq :+ ConfigEntityName.Default
+          adminClient.describeCluster(new DescribeClusterOptions()).nodes().get().asScala.map(_.idString).toSeq :+ BrokerDefaultEntityName
         case ConfigType.ClusterLink =>
           val confluentAdminClient = adminClient.asInstanceOf[ConfluentAdmin]
           confluentAdminClient.listClusterLinks(new ListClusterLinksOptions()).result().get().asScala.map(_.linkName).toSeq
@@ -454,7 +455,7 @@ object ConfigCommand extends Config {
 
     entities.foreach { entity =>
       entity match {
-        case "" =>
+        case BrokerDefaultEntityName =>
           println(s"Default configs for $entityType in the cluster are:")
         case _ =>
           val configSourceStr = if (describeAll) "All" else "Dynamic"
@@ -479,7 +480,7 @@ object ConfigCommand extends Config {
           Topic.validate(entityName)
         (ConfigResource.Type.TOPIC, Some(ConfigEntry.ConfigSource.DYNAMIC_TOPIC_CONFIG))
       case ConfigType.Broker => entityName match {
-        case "" =>
+        case BrokerDefaultEntityName =>
           (ConfigResource.Type.BROKER, Some(ConfigEntry.ConfigSource.DYNAMIC_DEFAULT_BROKER_CONFIG))
         case _ =>
           validateBrokerId()
