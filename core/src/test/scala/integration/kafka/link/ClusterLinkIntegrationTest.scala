@@ -17,7 +17,7 @@ import kafka.server.{KafkaConfig, KafkaServer}
 import kafka.server.link.{ClusterLinkConfig, ClusterLinkTopicState}
 import kafka.utils.Implicits._
 import kafka.utils.{JaasTestUtils, Logging, TestUtils}
-import kafka.zk.{ClusterLinkProps, ConfigEntityChangeNotificationZNode}
+import kafka.zk.ConfigEntityChangeNotificationZNode
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.clients.admin.{AlterConfigOp, Config, ConfigEntry, ConfluentAdmin, NewPartitions}
 import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer}
@@ -28,7 +28,7 @@ import org.apache.kafka.common.errors.{InvalidConfigurationException, InvalidPar
 import org.apache.kafka.common.requests.NewClusterLink
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.security.scram.ScramCredential
-import org.junit.Assert.{assertEquals, assertFalse, assertNotEquals, assertTrue, fail}
+import org.junit.Assert.{assertEquals, assertFalse, assertNotEquals, assertNotNull, assertTrue, fail}
 import org.junit.{After, Before, Test}
 
 import scala.annotation.nowarn
@@ -72,6 +72,9 @@ class ClusterLinkIntegrationTest extends Logging {
 
     verifyMirror(topic)
 
+    val jaasConfig = destCluster.adminZkClient.fetchClusterLinkConfig(linkName).getProperty(SaslConfigs.SASL_JAAS_CONFIG)
+    assertNotNull(jaasConfig)
+    assertFalse(s"Password not encrypted: $jaasConfig", jaasConfig.contains("secret-"))
     destCluster.deleteClusterLink(linkName)
   }
 
@@ -478,6 +481,7 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
 
   serverConfig.put(KafkaConfig.OffsetsTopicReplicationFactorProp, brokerCount.toString)
   serverConfig.put(KafkaConfig.UncleanLeaderElectionEnableProp, "true")
+  serverConfig.put(KafkaConfig.PasswordEncoderSecretProp, "password-encoder-secret")
   consumerConfig.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false")
 
   override def configureSecurityBeforeServersStart(): Unit = {
@@ -548,7 +552,7 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
     val newProps = new Properties()
     newProps ++= clusterLinks(linkName)
     newProps ++= updatedConfigs
-    adminZkClient.changeClusterLinkConfig(linkName, ClusterLinkProps(newProps, None))
+    adminZkClient.changeClusterLinkConfig(linkName, newProps)
     clusterLinks.put(linkName, newProps)
     servers.foreach { server =>
       TestUtils.waitUntilTrue(() => {

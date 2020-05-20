@@ -14,7 +14,7 @@ import kafka.server.{AdminManager, KafkaConfig, ReplicaManager, ReplicaQuota}
 import kafka.server.link.ClusterLinkManager._
 import kafka.tier.fetcher.TierStateFetcher
 import kafka.utils.Logging
-import kafka.zk.{ClusterLinkProps, KafkaZkClient}
+import kafka.zk.KafkaZkClient
 import org.apache.kafka.clients.{ClientInterceptor, CommonClientConfigs, NetworkClient}
 import org.apache.kafka.clients.admin.{Admin, AdminClientConfig, ConfluentAdmin, KafkaAdminClient}
 import org.apache.kafka.common.{Endpoint, TopicPartition}
@@ -76,6 +76,7 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
   private val managers = mutable.Map[String, Managers]()
   val scheduler = new ClusterLinkScheduler
   val admin = new ClusterLinkAdminManager(brokerConfig, clusterId, zkClient, this)
+  val configEncoder = new ClusterLinkConfigEncoder(brokerConfig)
 
   private var replicaManager: ReplicaManager = _
 
@@ -104,7 +105,7 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
     * are processed. All updates are expected to be processed on a single thread.
     */
   def processClusterLinkChanges(linkName: String, persistentProps: Properties): Unit = {
-    val clusterLinkProps = ClusterLinkProps.fromPersistentProps(persistentProps)
+    val clusterLinkProps = configEncoder.clusterLinkProps(persistentProps)
 
     val existingManager = managersLock synchronized {
       val linkManager = managers.get(linkName)
@@ -119,7 +120,7 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
         linkManager
       }
     }
-    existingManager.foreach(manager => reconfigureClusterLink(manager, clusterLinkProps.configs))
+    existingManager.foreach(manager => reconfigureClusterLink(manager, clusterLinkProps))
   }
 
   def addClusterLink(linkName: String, clusterLinkProps: ClusterLinkProps): Unit = {
@@ -128,7 +129,7 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
     if (brokerConfig.interBrokerProtocolVersion <= KAFKA_2_3_IV1)
       throw new InvalidClusterLinkException(s"Cluster linking is not supported with inter-broker protocol version ${brokerConfig.interBrokerProtocolVersion}")
 
-    val config = new ClusterLinkConfig(clusterLinkProps.configs)
+    val config = clusterLinkProps.config
     managersLock synchronized {
       if (managers.contains(linkName))
         throw new ClusterLinkExistsException(s"Cluster link '$linkName' exists")
@@ -174,8 +175,8 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
     }
   }
 
-  private def reconfigureClusterLink(linkManagers: Managers, newProps: Properties): Unit = {
-    val newConfig = new ClusterLinkConfig(newProps)
+  private def reconfigureClusterLink(linkManagers: Managers, newProps: ClusterLinkProps): Unit = {
+    val newConfig = newProps.config
     linkManagers.fetcherManager.reconfigure(newConfig)
     linkManagers.clientManager.reconfigure(newConfig)
   }

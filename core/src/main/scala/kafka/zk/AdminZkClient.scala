@@ -24,7 +24,7 @@ import kafka.common.{TopicAlreadyMarkedForDeletionException, TopicPlacement}
 import kafka.controller.ReplicaAssignment
 import kafka.log.LogConfig
 import kafka.server.{ConfigEntityName, ConfigType, DynamicConfig}
-import kafka.server.link.{ClusterLinkConfig, ClusterLinkTopicState}
+import kafka.server.link.ClusterLinkTopicState
 import kafka.utils._
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors._
@@ -427,26 +427,27 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
     * other brokers.
     *
     * @param linkName the link name for cluster link whose config is being changed
-    * @param clusterLinkProps the configs to change
+    * @param persistentProps the configs to change
     */
-  def changeClusterLinkConfig(linkName: String, clusterLinkProps: ClusterLinkProps): Unit = {
-    validateClusterLinkConfig(linkName, clusterLinkProps.configs)
-    changeEntityConfig(ConfigType.ClusterLink, linkName, clusterLinkProps.persistentProps)
-  }
-
-  def fetchClusterLinkConfig(linkName: String): ClusterLinkProps = {
-    val props = fetchEntityConfig(ConfigType.ClusterLink, linkName)
-    ClusterLinkProps.fromPersistentProps(props)
+  def changeClusterLinkConfig(linkName: String, persistentProps: Properties): Unit = {
+    ensureClusterLinkExists(linkName)
+    changeEntityConfig(ConfigType.ClusterLink, linkName, persistentProps)
   }
 
   /**
-    * Validates the cluster link configs.
-    *
-    * @param linkName the link name for cluster link whose config is being changed
-    * @param configs the configs to change
+    * Returns persistent properties of cluster link.
+    * @param linkName the link name for cluster link whose config is returned
     */
-  def validateClusterLinkConfig(linkName: String, configs: Properties): Unit = {
-    ClusterLinkConfig.validate(configs)
+  def fetchClusterLinkConfig(linkName: String): Properties = {
+    fetchEntityConfig(ConfigType.ClusterLink, linkName)
+  }
+
+  /**
+    * Verifies that cluster link with the specified name exists.
+    *
+    * @param linkName the link name for cluster link
+    */
+  def ensureClusterLinkExists(linkName: String): Unit = {
     if (!zkClient.clusterLinkExists(linkName))
       throw new ClusterLinkNotFoundException(s"Cluster link '$linkName' does not exist.")
   }
@@ -533,13 +534,13 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
     * @param linkName the cluster link's name
     * @param linkId the UUID associated with the cluster link
     * @param clusterId the linked cluster's ID, or none if not set
-    * @param config the initial configuration properties
+    * @param persistentConfigs the initial configuration properties
     */
-  def createClusterLink(linkName: String, linkId: UUID, clusterId: Option[String], config: ClusterLinkProps): Unit = {
+  def createClusterLink(linkName: String, linkId: UUID, clusterId: Option[String], persistentConfigs: Properties): Unit = {
     if (zkClient.clusterLinkExists(linkName))
       throw new ClusterLinkExistsException(s"Cluster link with name '$linkName' already exists.")
-    info(s"Creating cluster link '$linkName' with configuration '$config'")
-    changeEntityConfig(ConfigType.ClusterLink, linkName, config.persistentProps)
+    info(s"Creating cluster link '$linkName'")
+    changeEntityConfig(ConfigType.ClusterLink, linkName, persistentConfigs)
     zkClient.createClusterLink(linkName, linkId, clusterId)
   }
 
@@ -575,8 +576,7 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
     * @param linkName the link name to delete
     */
   def deleteClusterLink(linkName: String): Unit = {
-    if (!zkClient.clusterLinkExists(linkName))
-      throw new ClusterLinkNotFoundException(s"Cluster link with name '$linkName' doesn't exist.")
+    ensureClusterLinkExists(linkName)
     info(s"Deleting cluster link '$linkName'")
     zkClient.deleteClusterLink(linkName)
     deleteEntityConfig(ConfigType.ClusterLink, linkName)

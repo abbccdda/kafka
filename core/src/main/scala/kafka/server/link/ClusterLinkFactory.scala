@@ -12,7 +12,7 @@ import kafka.controller.KafkaController
 import kafka.server.{DelayedFuturePurgatory, KafkaConfig, ReplicaManager, ReplicaQuota}
 import kafka.tier.fetcher.TierStateFetcher
 import kafka.utils.Logging
-import kafka.zk.{ClusterLinkProps, KafkaZkClient}
+import kafka.zk.KafkaZkClient
 import org.apache.kafka.clients.admin.{Config, TopicDescription}
 import org.apache.kafka.common.{Endpoint, TopicPartition}
 import org.apache.kafka.common.errors.ClusterAuthorizationException
@@ -74,6 +74,8 @@ object ClusterLinkFactory {
     def shutdown(): Unit
 
     def admin: ClusterLinkFactory.AdminManager
+
+    def configEncoder: ClusterLinkConfigEncoder
 
     def fetcherManager(linkName: String): Option[ClusterLinkFetcherManager]
 
@@ -139,6 +141,10 @@ object ClusterLinkDisabled {
     override def shutdown(): Unit = {}
 
     override def admin: ClusterLinkFactory.AdminManager = ClusterLinkDisabled.AdminManager
+
+    override def configEncoder: ClusterLinkConfigEncoder = {
+      throw exception()
+    }
 
     override def fetcherManager(linkName: String): Option[ClusterLinkFetcherManager] = {
       throw exception()

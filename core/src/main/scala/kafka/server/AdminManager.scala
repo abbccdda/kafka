@@ -30,7 +30,7 @@ import kafka.metrics.KafkaMetricsGroup
 import kafka.server.link.{ClusterLinkConfig, ClusterLinkFactory, ClusterLinkUtils}
 import kafka.server.link.ClusterLinkClientManager.{TopicInfo => MirrorTopicInfo}
 import kafka.utils._
-import kafka.zk.{AdminZkClient, ClusterLinkProps, KafkaZkClient}
+import kafka.zk.{AdminZkClient, KafkaZkClient}
 import kafka.zk.TopicZNode.TopicIdReplicaAssignment
 import org.apache.kafka.clients.admin.AlterConfigOp
 import org.apache.kafka.clients.admin.AlterConfigOp.OpType
@@ -558,9 +558,9 @@ class AdminManager(val config: KafkaConfig,
             val linkName = resource.name
             if (linkName == null || linkName.isEmpty)
               throw new InvalidRequestException("Cluster link name must not be empty")
-            if (!zkClient.clusterLinkExists(linkName))
-              throw new ClusterLinkNotFoundException(s"Cluster link '$linkName' not found")
-            val config = new ClusterLinkConfig(adminZkClient.fetchEntityConfig(ConfigType.ClusterLink, linkName))
+            adminZkClient.ensureClusterLinkExists(linkName)
+            val persistentProps = adminZkClient.fetchClusterLinkConfig(linkName)
+            val config = clusterLinkManager.configEncoder.clusterLinkProps(persistentProps).config
             createResponseConfig(allConfigs(config), createClusterLinkConfigEntry(config))
 
           case resourceType => throw new InvalidRequestException(s"Unsupported resource type: $resourceType")
@@ -692,11 +692,11 @@ class AdminManager(val config: KafkaConfig,
                                       configEntriesMap: Map[String, String],
                                       principal: KafkaPrincipal): (ConfigResource, ApiError) = {
     val linkName = resource.name
-    adminZkClient.validateClusterLinkConfig(linkName, configProps)
+    adminZkClient.ensureClusterLinkExists(linkName)
     validateConfigPolicy(resource, configEntriesMap, principal)
     if (!validateOnly) {
-      info(s"Updating cluster link $linkName with new configuration $config")
-      adminZkClient.changeClusterLinkConfig(linkName, new ClusterLinkProps(configProps, tenantPrefix))
+      info(s"Updating cluster link $linkName with new configuration ${new ClusterLinkConfig(configProps)}")
+      adminZkClient.changeClusterLinkConfig(linkName, clusterLinkManager.configEncoder.encode(configProps, tenantPrefix))
     }
 
     resource -> ApiError.NONE
@@ -767,9 +767,9 @@ class AdminManager(val config: KafkaConfig,
 
           case ConfigResource.Type.CLUSTER_LINK =>
             val currentConfig = adminZkClient.fetchClusterLinkConfig(resource.name)
-            val configProps = currentConfig.configs
+            val (configProps, tenantPrefix) = clusterLinkManager.configEncoder.decode(currentConfig)
             prepareIncrementalConfigs(alterConfigOps, configProps, ClusterLinkConfig.configKeys)
-            alterClusterLinkConfigs(resource, validateOnly, currentConfig.tenantPrefix, configProps, configEntriesMap, principal)
+            alterClusterLinkConfigs(resource, validateOnly, tenantPrefix, configProps, configEntriesMap, principal)
 
           case resourceType =>
             throw new InvalidRequestException(s"AlterConfigs is only supported for topics and brokers, but resource type is $resourceType")

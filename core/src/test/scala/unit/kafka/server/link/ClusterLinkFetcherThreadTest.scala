@@ -14,7 +14,6 @@ import kafka.server.QuotaFactory.UnboundedQuota
 import kafka.server._
 import kafka.tier.fetcher.TierStateFetcher
 import kafka.utils.{MockTime, TestUtils}
-import kafka.zk.ClusterLinkProps
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.{Endpoint, TopicPartition}
 import org.apache.kafka.common.errors.InvalidClusterLinkException
@@ -54,7 +53,7 @@ class ClusterLinkFetcherThreadTest extends ReplicaFetcherThreadTest {
       name,
       fetcherId = 0,
       brokerConfig,
-      new ClusterLinkConfig(clusterLinkProps),
+      clusterLinkProps.config,
       new ClusterLinkMetadata(brokerConfig, clusterLinkName, 100, 60000),
       fetcherManager,
       brokerEndPoint,
@@ -74,10 +73,10 @@ class ClusterLinkFetcherThreadTest extends ReplicaFetcherThreadTest {
     super.cleanup()
   }
 
-  private def clusterLinkProps : Properties = {
+  private def clusterLinkProps : ClusterLinkProps = {
     val props = new Properties
     props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, s"${brokerEndPoint.host}:${brokerEndPoint.port}")
-    props
+    ClusterLinkProps(new ClusterLinkConfig(props), None)
   }
 
   /*
@@ -101,7 +100,7 @@ class ClusterLinkFetcherThreadTest extends ReplicaFetcherThreadTest {
       tierStateFetcher = None)
     val brokerEndpoint = new Endpoint("PLAINTEXT", SecurityProtocol.PLAINTEXT, "localhost", 1234)
     clusterLinkManager.startup(brokerEndpoint, replicaManager, adminManager = null, controller, authorizer)
-    clusterLinkManager.addClusterLink(clusterLinkName, ClusterLinkProps(clusterLinkProps, None))
+    clusterLinkManager.addClusterLink(clusterLinkName, clusterLinkProps)
   }
 
   @Test
@@ -133,7 +132,7 @@ class ClusterLinkFetcherThreadTest extends ReplicaFetcherThreadTest {
     val blockingSend: BlockingSend = createNiceMock(classOf[BlockingSend])
     expect(blockingSend.close()).once()
     replay(replicaManager, stateStore, logManager, log, blockingSend)
-    val clusterLinkConfig = new ClusterLinkConfig(clusterLinkProps)
+    val clusterLinkConfig = clusterLinkProps.config
 
     val fetcherManager = new ClusterLinkFetcherManager(clusterLinkName,
                                                        clusterLinkConfig,
