@@ -137,7 +137,7 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
       val clientInterceptor = clusterLinkProps.tenantPrefix.map(tenantInterceptor)
       val clientManager = new ClusterLinkClientManager(linkName, scheduler, zkClient, config,
         authorizer, controller,
-        (cfg: ClusterLinkConfig) => newConfluentAdmin(cfg, clientInterceptor))
+        (cfg: ClusterLinkConfig) => newSourceAdmin(linkName, cfg, clientInterceptor))
       clientManager.startup()
 
       val fetcherManager = new ClusterLinkFetcherManager(
@@ -283,9 +283,12 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
     }
   }
 
-  private def newConfluentAdmin(config: ClusterLinkConfig,
-                                clientInterceptor: Option[ClientInterceptor]): ConfluentAdmin = {
-    val confluentAdmin = Admin.create(config.originals).asInstanceOf[ConfluentAdmin]
+  private def newSourceAdmin(linkName: String,
+                             config: ClusterLinkConfig,
+                             clientInterceptor: Option[ClientInterceptor]): ConfluentAdmin = {
+    val configs = config.originals
+    configs.put(CommonClientConfigs.CLIENT_ID_CONFIG, s"cluster-link-admin-${brokerConfig.brokerId}-$linkName")
+    val confluentAdmin = Admin.create(configs).asInstanceOf[ConfluentAdmin]
     clientInterceptor.foreach { interceptor =>
       confluentAdmin match {
         case adminClient: KafkaAdminClient =>

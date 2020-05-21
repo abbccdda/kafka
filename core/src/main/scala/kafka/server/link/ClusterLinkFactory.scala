@@ -28,6 +28,8 @@ case class LinkedTopicInfo(description: TopicDescription, config: Config)
 
 object ClusterLinkFactory {
 
+  def linkMetricTags(linkName: String) = Map("link-name" -> linkName)
+
   def createLinkManager(brokerConfig: KafkaConfig,
                         clusterId: String,
                         quota: ReplicaQuota,

@@ -26,7 +26,8 @@ import org.apache.kafka.common.utils.Utils
 import scala.collection.mutable
 import scala.collection.{Map, Set}
 
-abstract class AbstractFetcherManager[T <: AbstractFetcherThread](val name: String, clientId: String, numFetchers: Int)
+abstract class AbstractFetcherManager[T <: AbstractFetcherThread](val name: String, clientId: String, numFetchers: Int,
+                                                                  extraMetricTags: Map[String, String] = Map.empty)
   extends Logging with KafkaMetricsGroup {
   // map of (source broker_id, fetcher_id per source broker) => fetcher.
   // package private for test
@@ -36,7 +37,7 @@ abstract class AbstractFetcherManager[T <: AbstractFetcherThread](val name: Stri
   val failedPartitions = new FailedPartitions
   this.logIdent = "[" + name + "] "
 
-  private val tags = Map("clientId" -> clientId)
+  private val tags = Map("clientId" -> clientId) ++ extraMetricTags
 
   newGauge("MaxLag", () => {
     // current max lag across all fetchers/topics/partitions

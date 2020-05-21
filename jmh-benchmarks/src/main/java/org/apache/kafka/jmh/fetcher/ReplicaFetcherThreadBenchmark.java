@@ -267,7 +267,8 @@ public class ReplicaFetcherThreadBenchmark {
                         }
                     },
                     Option.empty(),
-                    Option.empty());
+                    Option.empty(),
+                    new scala.collection.mutable.HashMap<>());
 
             pool = partitions;
         }

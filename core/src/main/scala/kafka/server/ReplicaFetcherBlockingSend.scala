@@ -48,7 +48,8 @@ object ReplicaFetcherBlockingSend {
             time: Time,
             fetcherId: Int,
             clientId: String,
-            logContext: LogContext): ReplicaFetcherBlockingSend = {
+            logContext: LogContext,
+            extraMetricTags: Map[String, String] = Map.empty): ReplicaFetcherBlockingSend = {
     val socketTimeout: Int = brokerConfig.replicaSocketTimeoutMs
 
     val (networkClient, reconfigurableChannelBuilder) = {
@@ -74,7 +75,7 @@ object ReplicaFetcherBlockingSend {
         metrics,
         time,
         "replica-fetcher",
-        Map("broker-id" -> sourceBroker.id.toString, "fetcher-id" -> fetcherId.toString).asJava,
+        (extraMetricTags ++ Map("broker-id" -> sourceBroker.id.toString, "fetcher-id" -> fetcherId.toString)).asJava,
         false,
         channelBuilder,
         logContext

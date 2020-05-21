@@ -40,6 +40,7 @@ class ClusterLinkNetworkClient(clusterLinkConfig: ClusterLinkConfig,
                                metricTags: Map[String, String],
                                time: Time,
                                clientId: String,
+                               clientType: String,
                                logContext: LogContext) extends Reconfigurable {
 
   private val throttleTimeSensor = metrics.sensor(throttleTimeSensorName)
@@ -58,7 +59,7 @@ class ClusterLinkNetworkClient(clusterLinkConfig: ClusterLinkConfig,
     clusterLinkConfig.connectionsMaxIdleMs,
     metrics,
     time,
-    "cluster-link",
+    s"cluster-link-$clientType",
     metricTags.asJava,
     false,
     channelBuilder,

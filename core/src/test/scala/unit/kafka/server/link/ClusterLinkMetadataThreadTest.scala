@@ -47,6 +47,7 @@ class ClusterLinkMetadataThreadTest {
           Map("link-name" -> clusterLinkMetadata.linkName),
           time,
           s"cluster-link-metadata-${clusterLinkMetadata.linkName}-broker",
+          "metadata",
           new LogContext()) {
           override protected def createNetworkClient(selector: Selector): KafkaClient = {
             mockClient

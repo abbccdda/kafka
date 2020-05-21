@@ -50,8 +50,9 @@ class ClusterLinkFetcherManager(linkName: String,
                                 tierStateFetcher: Option[TierStateFetcher] = None)
   extends AbstractFetcherManager[ClusterLinkFetcherThread](
     name = s"ClusterLinkFetcherManager on broker ${brokerConfig.brokerId} for $linkName",
-    clientId = s"ClusterLinkFetcher-$linkName",
-    numFetchers = initialConfig.numClusterLinkFetchers) with MetadataListener  {
+    clientId = "ClusterLink",
+    numFetchers = initialConfig.numClusterLinkFetchers,
+    ClusterLinkFactory.linkMetricTags(linkName)) with MetadataListener  {
 
   private val linkedPartitions = new ConcurrentHashMap[TopicPartition, PartitionAndState]()
   private val unassignedPartitions = mutable.Set[TopicPartition]()

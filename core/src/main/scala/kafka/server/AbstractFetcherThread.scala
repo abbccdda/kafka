@@ -111,7 +111,8 @@ abstract class AbstractFetcherThread(name: String,
                                      failedPartitions: FailedPartitions,
                                      fetchBackOffMs: Int = 0,
                                      isInterruptible: Boolean = true,
-                                     val brokerTopicStats: BrokerTopicStats) //BrokerTopicStats's lifecycle managed by ReplicaManager
+                                     val brokerTopicStats: BrokerTopicStats, //BrokerTopicStats's lifecycle managed by ReplicaManager
+                                     extraMetricTags: Map[String, String] = Map.empty)
   extends ShutdownableThread(name, isInterruptible) {
 
   type FetchData = FetchResponse.PartitionData[Records]
@@ -122,8 +123,8 @@ abstract class AbstractFetcherThread(name: String,
   private val partitionMapCond = partitionMapLock.newCondition()
 
   private val metricId = ClientIdAndBroker(clientId, sourceBroker.host, sourceBroker.port)
-  val fetcherStats = new FetcherStats(metricId)
-  val fetcherLagStats = new FetcherLagStats(metricId)
+  val fetcherStats = new FetcherStats(metricId, extraMetricTags)
+  val fetcherLagStats = new FetcherLagStats(metricId, extraMetricTags)
 
   /* callbacks to be defined in subclass */
 
@@ -870,13 +871,13 @@ object FetcherMetrics {
   val BytesPerSec = "BytesPerSec"
 }
 
-class FetcherLagMetrics(metricId: ClientIdTopicPartition) extends KafkaMetricsGroup {
+class FetcherLagMetrics(metricId: ClientIdTopicPartition, extraMetricTags: Map[String, String] = Map.empty) extends KafkaMetricsGroup {
 
   private[this] val lagVal = new AtomicLong(-1L)
   private[this] val tags = Map(
     "clientId" -> metricId.clientId,
     "topic" -> metricId.topicPartition.topic,
-    "partition" -> metricId.topicPartition.partition.toString)
+    "partition" -> metricId.topicPartition.partition.toString) ++ extraMetricTags
 
   newGauge(FetcherMetrics.ConsumerLag, () => lagVal.get, tags)
 
@@ -891,8 +892,8 @@ class FetcherLagMetrics(metricId: ClientIdTopicPartition) extends KafkaMetricsGr
   }
 }
 
-class FetcherLagStats(metricId: ClientIdAndBroker) {
-  private val valueFactory = (k: TopicPartition) => new FetcherLagMetrics(ClientIdTopicPartition(metricId.clientId, k))
+class FetcherLagStats(metricId: ClientIdAndBroker, extraMetricTags: Map[String, String] = Map.empty) {
+  private val valueFactory = (k: TopicPartition) => new FetcherLagMetrics(ClientIdTopicPartition(metricId.clientId, k), extraMetricTags)
   val stats = new Pool[TopicPartition, FetcherLagMetrics](Some(valueFactory))
 
   def getAndMaybePut(topicPartition: TopicPartition): FetcherLagMetrics = {
@@ -911,10 +912,10 @@ class FetcherLagStats(metricId: ClientIdAndBroker) {
   }
 }
 
-class FetcherStats(metricId: ClientIdAndBroker) extends KafkaMetricsGroup {
+class FetcherStats(metricId: ClientIdAndBroker, extraMetricTags: Map[String, String] = Map.empty) extends KafkaMetricsGroup {
   val tags = Map("clientId" -> metricId.clientId,
     "brokerHost" -> metricId.brokerHost,
-    "brokerPort" -> metricId.brokerPort.toString)
+    "brokerPort" -> metricId.brokerPort.toString) ++ extraMetricTags
 
   val requestRate = newMeter(FetcherMetrics.RequestsPerSec, "requests", TimeUnit.SECONDS, tags)
 

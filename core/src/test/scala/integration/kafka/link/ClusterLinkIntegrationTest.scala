@@ -10,9 +10,11 @@ import java.util
 import java.util.{Collections, Properties}
 import java.util.concurrent.{ExecutionException, TimeUnit}
 
+import com.yammer.metrics.core.{Gauge, Histogram, Meter, Metric}
 import kafka.api.{IntegrationTestHarness, KafkaSasl, SaslSetup}
 import kafka.controller.ReplicaAssignment
 import kafka.log.LogConfig
+import kafka.metrics.KafkaYammerMetrics
 import kafka.server.{KafkaConfig, KafkaServer}
 import kafka.server.link.{ClusterLinkConfig, ClusterLinkTopicState}
 import kafka.utils.Implicits._
@@ -89,6 +91,9 @@ class ClusterLinkIntegrationTest extends Logging {
 
     destCluster.createClusterLink(linkName, sourceCluster)
     destCluster.linkTopic(topic, numPartitions, linkName)
+
+    waitForMirror(topic)
+    verifyLinkMetrics()
     verifyMirror(topic)
   }
 
@@ -461,6 +466,43 @@ class ClusterLinkIntegrationTest extends Logging {
 
   def truncate(records: mutable.Buffer[ProducerRecord[Array[Byte], Array[Byte]]], numRecords: Int): Unit = {
     records.remove(records.size - numRecords, numRecords)
+  }
+
+  private def verifyLinkMetrics(): Unit = {
+
+    def verifyKafkaMetric(name: String, group: String, expectNonZero: Boolean = true): Unit = {
+     val values = destCluster.servers.head.metrics.metrics().asScala
+        .filter { case (metricName, _) => metricName.name == name && metricName.group == group && metricName.tags.get("link-name") == linkName }
+        .map(_._2.metricValue().asInstanceOf[Double])
+      assertTrue(s"Metric does not exist: $group:$name", values.nonEmpty)
+      if (expectNonZero)
+        assertTrue(s"Metric not updated: $group:$name $values", values.exists(_ > 0.0))
+    }
+
+    def yammerMetricValue(metric: Metric): Double = {
+      metric match {
+        case m: Meter => m.count.toDouble
+        case m: Histogram => m.max
+        case m: Gauge[_] => m.value.toString.toDouble
+        case m => throw new IllegalArgumentException(s"Unexpected broker metric of class ${m.getClass}")
+      }
+    }
+
+    def verifyYammerMetric(prefix: String, expectNonZero: Boolean = true): Unit = {
+      val values = KafkaYammerMetrics.defaultRegistry().allMetrics().asScala
+        .filter { case (metricName, _) => metricName.getMBeanName.startsWith(prefix) && metricName.getMBeanName.contains(s"link-name=$linkName") }
+        .values
+      assertTrue(s"Metric does not exist: $prefix", values.nonEmpty)
+      if (expectNonZero)
+        assertTrue(s"Metric not updated: $prefix $values", values.exists(m => yammerMetricValue(m) > 0.0))
+    }
+
+    verifyKafkaMetric("incoming-byte-total", "cluster-link-metadata-metrics")
+    verifyKafkaMetric("incoming-byte-total", "cluster-link-fetcher-metrics")
+    verifyKafkaMetric("fetch-throttle-time-max", "cluster-link", expectNonZero = false)
+    verifyYammerMetric("kafka.server.link:type=ClusterLinkFetcherManager,name=MaxLag", expectNonZero = false)
+    verifyYammerMetric("kafka.server:type=FetcherStats,name=BytesPerSec")
+    verifyYammerMetric("kafka.server:type=FetcherLagMetrics,name=ConsumerLag", expectNonZero = false)
   }
 }
 
