@@ -25,7 +25,8 @@ import kafka.tier.store.{MockInMemoryTierObjectStore, TierObjectStore, TierObjec
 import kafka.tier.topic.TierTopicConsumer
 import kafka.tier.TierTestUtils
 import kafka.tier.domain.TierObjectMetadata.State
-import kafka.utils.{MockTask, MockTime, Scheduler, TestUtils}
+import kafka.utils.{MockTask, MockTime, Scheduler, TestUtils, Throttler}
+import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.record.{CompressionType, MemoryRecords, RecordBatch, SimpleRecord}
 import org.apache.kafka.common.record.ControlRecordType
 import org.apache.kafka.common.record.EndTransactionMarker
@@ -1025,6 +1026,95 @@ class MergedLogTest {
   }
 
   @Test
+  def testPreviouslyCompactedNonEmptySegmentIsTiered(): Unit = {
+    val throttler = new Throttler(desiredRatePerSec = Double.MaxValue, checkIntervalMs = Long.MaxValue, time = mockTime)
+    val cleaner = makeCleaner(Int.MaxValue, throttler, mockTime)
+
+    val logConfig = LogTest.createLogConfig(segmentBytes = segmentBytes, tierEnable = false, tierLocalHotsetBytes = 1)
+    val log = createMergedLog(logConfig)
+    val keyCount = messagesPerSegment/3
+
+    // append messages to the log until we have messages upto keyCount
+    while(log.logEndOffset <= keyCount) {
+      log.appendAsLeader(record(log.logEndOffset.toInt, Array.fill(1)( 0: Byte)), leaderEpoch = 0)
+    }
+    log.updateHighWatermark(log.logEndOffset)
+
+    val firstOffsetWithRecord = log.logEndOffset
+    // append tombstones for some messages
+    for(key <- 0 to firstOffsetWithRecord.toInt)
+      log.appendAsLeader(tombstoneRecord(key), leaderEpoch = 0)
+    log.updateHighWatermark(log.logEndOffset)
+
+    // append messages to the log until we have 2 segments
+    while(log.numberOfSegments < 2)
+      log.appendAsLeader(record(log.logEndOffset.toInt, Array.fill(1)( 0: Byte)), leaderEpoch =0)
+    log.roll()
+
+    // run compaction to delete the tombstone record batches
+    cleaner.clean(LogToClean(topicPartition, log, 0, log.activeSegment.baseOffset))
+
+    // append messages to the log until we have 4 segments
+    while(log.numberOfSegments < 4)
+      log.appendAsLeader(record(log.logEndOffset.toInt, Array.fill(1)( 0: Byte)), leaderEpoch =0)
+    log.roll()
+    log.updateHighWatermark(log.logEndOffset)
+
+    for(offset <- 0 to firstOffsetWithRecord.toInt) {
+      // read at offset 0 and validate that `firstOffsetWithRecord` is returned
+      val result = log.read(offset, Int.MaxValue, FetchLogEnd, minOneMessage = true, permitPreferredTierRead = false)
+      result match {
+        case localResult: FetchDataInfo =>
+          assertEquals(firstOffsetWithRecord, localResult.records.records().iterator().next().offset())
+
+        case tierResult: TierFetchDataInfo =>
+          fail("unexpected fetch from tiered log")
+      }
+    }
+
+    // enable tiered storage and upload two segments
+    log.tierPartitionState.enableTierConfig()
+    val epoch = 1
+    val tieredSegments = log.localLogSegments.take(2)
+
+    // append an init message
+    log.tierPartitionState.setTopicId(topicIdPartition.topicId)
+    log.tierPartitionState.onCatchUpComplete()
+    log.tierPartitionState.append(new TierTopicInitLeader(topicIdPartition,
+      epoch, java.util.UUID.randomUUID(), 0), TierTestUtils.nextTierTopicOffsetAndEpoch())
+
+    // append metadata for tiered segments
+    tieredSegments.foreach { segment =>
+      val appendResult = TierTestUtils.uploadWithMetadata(log.tierPartitionState,
+        topicIdPartition,
+        epoch,
+        UUID.randomUUID,
+        segment.baseOffset,
+        segment.readNextOffset - 1,
+        segment.largestTimestamp,
+        segment.lastModified,
+        segment.size,
+        false,
+        true)
+      assertEquals(AppendResult.ACCEPTED, appendResult)
+    }
+    log.updateHighWatermark(log.logEndOffset)
+
+    // delete tiered segments from local log
+    log.localLog.deleteOldSegments(Some(tieredSegments.last.readNextOffset), maxNumSegmentsToDelete = Int.MaxValue, retentionType = HotsetRetention)
+
+    // read at offset 0 and validate that `firstOffsetWithRecord` is returned
+    val result = log.read(0, Int.MaxValue, FetchLogEnd, minOneMessage = true, permitPreferredTierRead = false)
+    result match {
+      case localResult: FetchDataInfo =>
+        fail("unexpected fetch from local log")
+
+      case tierResult: TierFetchDataInfo =>
+        assertEquals(0, tierResult.fetchMetadata.segmentBaseOffset)
+    }
+  }
+
+  @Test
   def testRecoverLocalLogAtUncleanLeaderWithDivergence(): Unit = {
     // recover local log against a tier state that diverges from the local log. In such cases, recovery
     // logic will discard the local log and start local log at the last tiered offset.
@@ -1462,6 +1552,21 @@ class MergedLogTest {
     assertEquals(newOffset, log.logStartOffset)
     assertTrue(log.producerStateManager.isEmpty)
   }
+
+  private def makeCleaner(capacity: Int, throttler: Throttler, time: Time, checkDone: TopicPartition => Unit = _ => (), maxMessageSize: Int = 64*1024) =
+    new Cleaner(id = 0,
+      offsetMap = new FakeOffsetMap(capacity),
+      ioBufferSize = maxMessageSize,
+      maxIoBufferSize = maxMessageSize,
+      dupBufferLoadFactor = 0.75,
+      throttler = throttler,
+      time = time,
+      checkDone = checkDone)
+
+  private def record(key: Int, value: Array[Byte]): MemoryRecords =
+    TestUtils.singletonRecords(key = key.toString.getBytes, value = value)
+
+  private def tombstoneRecord(key: Int): MemoryRecords = record(key, null)
 
   private def initializeTierPartitionState(tierPartitionState: TierPartitionState, epoch: Int): Unit = {
     // append an init message
