@@ -72,6 +72,8 @@ public interface TierObjectStore {
         }
     }
 
+    Backend getBackend();
+
     TierObjectStoreResponse getObject(ObjectStoreMetadata objectMetadata,
                                       FileType fileType,
                                       Integer byteOffsetStart,
@@ -116,11 +118,11 @@ public interface TierObjectStore {
          * Converts an ObjectStoreMetadata to a map of metadata that may be useful to place on
          * objects in object storage, if this functionality is present in the object store
          * implementation of choice
-         * @param clusterId kafka cluster id
-         * @param brokerId kafka broker id
+         * @param clusterIdOpt optional kafka cluster id
+         * @param brokerIdOpt optional kafka broker id
          * @return map of KV pairs to place in object storage
          */
-        Map<String, String> objectMetadata(String clusterId, int brokerId);
+        Map<String, String> objectMetadata(Optional<String> clusterIdOpt, Optional<Integer> brokerIdOpt);
     }
 
     class ObjectMetadata implements ObjectStoreMetadata {
@@ -197,12 +199,12 @@ public interface TierObjectStore {
         }
 
         @Override
-        public Map<String, String> objectMetadata(String clusterId, int brokerId) {
+        public Map<String, String> objectMetadata(Optional<String> clusterIdOpt, Optional<Integer> brokerIdOpt) {
             Map<String, String> metadata = new HashMap<>();
             metadata.put("metadata_version", Integer.toString(version));
             metadata.put("topic", topicIdPartition().topic());
-            metadata.put("cluster_id", clusterId);
-            metadata.put("broker_id", Integer.toString(brokerId));
+            clusterIdOpt.ifPresent(clusterId -> metadata.put("cluster_id", clusterId));
+            brokerIdOpt.ifPresent(brokerId -> metadata.put("broker_id", Integer.toString(brokerId)));
             return metadata;
         }
 
@@ -298,12 +300,12 @@ public interface TierObjectStore {
 
 
         @Override
-        public Map<String, String> objectMetadata(String clusterId, int brokerId) {
+        public Map<String, String> objectMetadata(Optional<String> clusterIdOpt, Optional<Integer> brokerIdOpt) {
             Map<String, String> metadata = new HashMap<>();
             metadata.put("metadata_version", Integer.toString(version));
             metadata.put("topic", topicIdPartition().topic());
-            metadata.put("cluster_id", clusterId);
-            metadata.put("broker_id", Integer.toString(brokerId));
+            clusterIdOpt.ifPresent(clusterId -> metadata.put("cluster_id", clusterId));
+            brokerIdOpt.ifPresent(brokerId -> metadata.put("broker_id", Integer.toString(brokerId)));
             return metadata;
         }
 

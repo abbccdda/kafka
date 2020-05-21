@@ -21,8 +21,8 @@ public class S3TierObjectStoreConfig extends TierObjectStoreConfig {
     public String s3SseAlgorithm;
     public Integer s3AutoAbortThresholdBytes;
 
-    public S3TierObjectStoreConfig(String clusterId, KafkaConfig config) {
-        super(clusterId, config);
+    public S3TierObjectStoreConfig(Optional<String> clusterIdOpt, KafkaConfig config) {
+        super(clusterIdOpt, config);
         validateConfig(config);
         this.s3Bucket = config.tierS3Bucket();
         this.s3Region = config.tierS3Region();
@@ -36,19 +36,18 @@ public class S3TierObjectStoreConfig extends TierObjectStoreConfig {
         this.s3AutoAbortThresholdBytes = config.tierS3AutoAbortThresholdBytes();
     }
 
-    // used for testing
-    S3TierObjectStoreConfig(String clusterId,
-                            Integer brokerId,
-                            String bucket,
-                            String region,
-                            String secretAccessKey,
-                            String accessKeyId,
-                            String endpointOverride,
-                            String signerOverride,
-                            String sseAlgorithm,
-                            Integer s3AutoAbortThresholdBytes,
-                            String s3Prefix) {
-        super(clusterId, brokerId);
+    protected S3TierObjectStoreConfig(Optional<String> clusterIdOpt,
+                                      Optional<Integer> brokerIdOpt,
+                                      String bucket,
+                                      String region,
+                                      String secretAccessKey,
+                                      String accessKeyId,
+                                      String endpointOverride,
+                                      String signerOverride,
+                                      String sseAlgorithm,
+                                      Integer s3AutoAbortThresholdBytes,
+                                      String s3Prefix) {
+        super(clusterIdOpt, brokerIdOpt);
         this.s3Bucket = bucket;
         this.s3Region = region;
         this.s3AwsSecretAccessKey = Optional.ofNullable(secretAccessKey);
@@ -58,6 +57,20 @@ public class S3TierObjectStoreConfig extends TierObjectStoreConfig {
         this.s3SseAlgorithm = sseAlgorithm;
         this.s3AutoAbortThresholdBytes = s3AutoAbortThresholdBytes;
         this.s3Prefix = s3Prefix;
+    }
+
+    // used for testing
+    static S3TierObjectStoreConfig createWithEmptyClusterIdBrokerId(String bucket,
+                                                                    String region,
+                                                                    String secretAccessKey,
+                                                                    String accessKeyId,
+                                                                    String endpointOverride,
+                                                                    String signerOverride,
+                                                                    String sseAlgorithm,
+                                                                    Integer s3AutoAbortThresholdBytes,
+                                                                    String s3Prefix) {
+        return new S3TierObjectStoreConfig(Optional.empty(), Optional.empty(), bucket, region, secretAccessKey, accessKeyId,
+                endpointOverride, signerOverride, sseAlgorithm, s3AutoAbortThresholdBytes, s3Prefix);
     }
 
     private void validateConfig(KafkaConfig config) {

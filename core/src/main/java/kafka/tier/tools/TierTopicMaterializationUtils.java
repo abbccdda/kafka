@@ -48,27 +48,29 @@ import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 public class TierTopicMaterializationUtils {
     private final String topic = Topic.TIER_TOPIC_NAME;
     public KafkaConsumer<byte[], byte[]> consumer;
-    private ConsumerRecords<byte[], byte[]> records;
-    public TierTopicMaterializationToolConfig config;
-    private HashMap<TopicIdPartition, Long> offsetMap = null;
-    public HashMap<TopicIdPartition, FileTierPartitionState> stateMap = new HashMap<>();
+    // exposed only for tests
+    final TierTopicMaterializationToolConfig config;
+    private final Map<TopicIdPartition, Long> offsetMap;
+    // exposed for tests and TierMetadataValidator accessing the tierstate files that have been materialized
+    final Map<TopicIdPartition, FileTierPartitionState> stateMap = new HashMap<>();
     private UserTierPartition targetTierPartition;
 
-    // Keep dumping output of every 1000th event if configuration do not expe ct dumping of every event.
+    // Keep dumping output of every 1000th event if configuration do not expect dumping of every event.
     // This is super useful for tracking long running jobs.
     private static final int SAMPLING_INTERVAL = 1000;
     // Number of Partitions in tier topic. This needs to be replaced with interface, not sure if there
     // exists any.
 
-    public TierTopicMaterializationUtils(TierTopicMaterializationToolConfig config, HashMap<TopicIdPartition, Long> offsetMap) {
-        this(config);
+    public TierTopicMaterializationUtils(TierTopicMaterializationToolConfig config, Map<TopicIdPartition, Long> offsetMap) {
         this.offsetMap = offsetMap;
+        this.config = config;
+        consumer = new KafkaConsumer<>(getConsumerProperties(), new ByteArrayDeserializer(), new ByteArrayDeserializer());
+        this.targetTierPartition = new UserTierPartition(null, config.userTopicId, config.userPartition);
     }
 
     TierTopicMaterializationUtils(TierTopicMaterializationToolConfig config) {
-        this.config = config;
-        consumer = new KafkaConsumer(getConsumerProperties(), new ByteArrayDeserializer(), new ByteArrayDeserializer());
-        this.targetTierPartition = new UserTierPartition(null, config.userTopicId, config.userPartition);
+        // we are initializing with null because there is a dependency on offsetMap being null vs empty
+        this(config, null);
     }
 
     public void setupConsumer(TierTopicMaterializationToolConfig config) {
@@ -87,12 +89,13 @@ public class TierTopicMaterializationUtils {
         }
     }
 
-    private void fetchRecords() {
-        this.records = consumer.poll(Duration.ofSeconds(30));
-        if (this.records.isEmpty()) {
+    private ConsumerRecords<byte[], byte[]> fetchRecords() {
+        final ConsumerRecords<byte[], byte[]> records = consumer.poll(Duration.ofSeconds(30));
+        if (records.isEmpty()) {
             // Raise Timeout exception in general, also interpreted for end of loop.
             throw new TimeoutException();
         }
+        return records;
     }
 
     private File getStateFolder(TopicIdPartition id) {
@@ -109,7 +112,7 @@ public class TierTopicMaterializationUtils {
         System.out.println("Event processing from " + config.startOffset + " till  " + config.endOffset);
         try {
             while (config.endOffset == -1 || currentOffset <= config.endOffset) {
-                fetchRecords();
+                final ConsumerRecords<byte[], byte[]> records = fetchRecords();
                 for (ConsumerRecord<byte[], byte[]> record : records) {
                     // Note: assumption is endOffset is set only for fetch from a single partition. A check is in place at
                     // config layer. With this we keep assigning the offset to endOffset as current offset value.

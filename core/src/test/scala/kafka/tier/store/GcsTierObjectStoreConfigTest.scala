@@ -4,6 +4,8 @@
 
 package kafka.tier.store
 
+import java.util.Optional
+
 import kafka.server.KafkaConfig
 import kafka.utils.TestUtils
 import org.junit.Test
@@ -18,7 +20,7 @@ class GcsTierObjectStoreConfigTest {
     props.put(KafkaConfig.TierGcsRegionProp, "region")
     props.put(KafkaConfig.TierGcsWriteChunkSizeProp, "10000")
     val kafkaConfig = KafkaConfig.fromProps(props)
-    new GcsTierObjectStoreConfig("clusterid", kafkaConfig)
+    new GcsTierObjectStoreConfig(Optional.of("clusterid"), kafkaConfig)
   }
 
   @Test
@@ -27,7 +29,7 @@ class GcsTierObjectStoreConfigTest {
     props.put(KafkaConfig.TierGcsBucketProp, "bucket")
     props.put(KafkaConfig.TierGcsWriteChunkSizeProp, "10000")
     val kafkaConfig = KafkaConfig.fromProps(props)
-    assertThrows[IllegalArgumentException]{new GcsTierObjectStoreConfig("clusterid", kafkaConfig)}
+    assertThrows[IllegalArgumentException]{new GcsTierObjectStoreConfig(Optional.of("clusterid"), kafkaConfig)}
   }
 
   @Test
@@ -36,6 +38,6 @@ class GcsTierObjectStoreConfigTest {
     props.put(KafkaConfig.TierGcsRegionProp, "region")
     props.put(KafkaConfig.TierGcsWriteChunkSizeProp, "10000")
     val kafkaConfig = KafkaConfig.fromProps(props)
-    assertThrows[IllegalArgumentException]{new GcsTierObjectStoreConfig("clusterid", kafkaConfig)}
+    assertThrows[IllegalArgumentException]{new GcsTierObjectStoreConfig(Optional.of("clusterid"), kafkaConfig)}
   }
 }

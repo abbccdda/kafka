@@ -6,19 +6,26 @@ package kafka.tier.store;
 
 import kafka.server.KafkaConfig;
 
-public class TierObjectStoreConfig {
-    public String clusterId;
-    public Integer brokerId;
+import java.util.Optional;
 
-    public TierObjectStoreConfig(String clusterId, KafkaConfig config) {
-        this.clusterId = clusterId;
-        this.brokerId = config.brokerId();
+public class TierObjectStoreConfig {
+    public Optional<String> clusterIdOpt;
+    public Optional<Integer> brokerIdOpt;
+
+    public TierObjectStoreConfig(Optional<String> clusterIdOpt, KafkaConfig config) {
+        this(clusterIdOpt, Optional.of(config.brokerId()));
     }
 
-    // used for testing
-    public TierObjectStoreConfig(String clusterId,
-                          Integer brokerId) {
-        this.clusterId = clusterId;
-        this.brokerId = brokerId;
+    protected TierObjectStoreConfig(Optional<String> clusterIdOpt, Optional<Integer> brokerIdOpt) {
+        this.clusterIdOpt = clusterIdOpt;
+        this.brokerIdOpt = brokerIdOpt;
+    }
+
+    public TierObjectStoreConfig(String clusterId, Integer brokerId) {
+        this(Optional.of(clusterId), Optional.of(brokerId));
+    }
+
+    public static TierObjectStoreConfig createEmpty() {
+        return new TierObjectStoreConfig(Optional.empty(), Optional.empty());
     }
 }

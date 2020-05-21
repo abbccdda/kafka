@@ -41,8 +41,8 @@ import java.util.OptionalInt;
 public class GcsTierObjectStore implements TierObjectStore {
     private final static Logger log = LoggerFactory.getLogger(GcsTierObjectStore.class);
     private final static int UNKNOWN_END_RANGE_CHUNK_SIZE = 1_000_000;
-    private final String clusterId;
-    private final int brokerId;
+    private final Optional<String> clusterIdOpt;
+    private final Optional<Integer> brokerIdOpt;
     private final String bucket;
     private final String prefix;
     // If write or read chunkSize is 0, then the respective default value of the GCS implementation is used
@@ -54,13 +54,18 @@ public class GcsTierObjectStore implements TierObjectStore {
     }
 
     GcsTierObjectStore(Storage storage, GcsTierObjectStoreConfig config) {
-        this.clusterId = config.clusterId;
-        this.brokerId = config.brokerId;
+        this.clusterIdOpt = config.clusterIdOpt;
+        this.brokerIdOpt = config.brokerIdOpt;
         this.storage = storage;
         this.bucket = config.gcsBucket;
         this.prefix = config.gcsPrefix;
         this.writeChunkSize = config.gcsWriteChunkSize;
         expectBucket(bucket, config.gcsRegion);
+    }
+
+    @Override
+    public Backend getBackend() {
+        return Backend.GCS;
     }
 
     @Override
@@ -101,7 +106,7 @@ public class GcsTierObjectStore implements TierObjectStore {
                            Optional<File> producerStateSnapshotData,
                            Optional<ByteBuffer> transactionIndexData,
                            Optional<File> epochState) {
-        Map<String, String> metadata = objectMetadata.objectMetadata(clusterId, brokerId);
+        Map<String, String> metadata = objectMetadata.objectMetadata(clusterIdOpt, brokerIdOpt);
         try {
             putFile(keyPath(objectMetadata, FileType.SEGMENT), metadata, segmentData);
             putFile(keyPath(objectMetadata, FileType.OFFSET_INDEX), metadata, offsetIndexData);
@@ -122,7 +127,7 @@ public class GcsTierObjectStore implements TierObjectStore {
 
     @Override
     public void putObject(ObjectStoreMetadata objectMetadata, File file, FileType fileType) {
-        Map<String, String> metadata = objectMetadata.objectMetadata(clusterId, brokerId);
+        Map<String, String> metadata = objectMetadata.objectMetadata(clusterIdOpt, brokerIdOpt);
         try {
             putFile(keyPath(objectMetadata, fileType), metadata, file);
         } catch (StorageException e) {

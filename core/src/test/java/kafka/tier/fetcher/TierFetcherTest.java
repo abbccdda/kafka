@@ -855,6 +855,11 @@ public class TierFetcherTest {
         }
 
         @Override
+        public Backend getBackend() {
+            return Backend.Mock;
+        }
+
+        @Override
         public TierObjectStoreResponse getObject(ObjectStoreMetadata objectMetadata,
                                                  FileType fileType,
                                                  Integer byteOffset,

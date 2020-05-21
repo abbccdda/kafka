@@ -146,7 +146,7 @@ public class TierFetcherBenchmark {
                 props.put(KafkaConfig.TierS3RegionProp(), "us-west-2");
                 props.put(KafkaConfig.TierS3AutoAbortThresholdBytesProp(), autoAbortSize);
                 KafkaConfig kafkaConfig = new KafkaConfig(props);
-                S3TierObjectStoreConfig objectStoreConfig = new S3TierObjectStoreConfig("mycluster", kafkaConfig);
+                S3TierObjectStoreConfig objectStoreConfig = new S3TierObjectStoreConfig(Optional.of("mycluster"), kafkaConfig);
                 tierObjectStore = new S3TierObjectStore(objectStoreConfig);
                 break;
             }
@@ -157,12 +157,12 @@ public class TierFetcherBenchmark {
                 props.put(KafkaConfig.TierGcsBucketProp(), "tier-object-store-test");
                 props.put(KafkaConfig.TierGcsRegionProp(), "us-west2");
                 KafkaConfig kafkaConfig = new KafkaConfig(props);
-                GcsTierObjectStoreConfig objectStoreConfig = new GcsTierObjectStoreConfig("mycluster", kafkaConfig);
+                GcsTierObjectStoreConfig objectStoreConfig = new GcsTierObjectStoreConfig(Optional.of("mycluster"), kafkaConfig);
                 tierObjectStore = new GcsTierObjectStore(objectStoreConfig);
                 break;
             }
             case "Mock":
-                tierObjectStore = new MockInMemoryTierObjectStore(new TierObjectStoreConfig("mycluster", 0));
+                tierObjectStore = new MockInMemoryTierObjectStore(TierObjectStoreConfig.createEmpty());
                 break;
             default:
                 throw new IllegalArgumentException("Unsupported backend " + backend);

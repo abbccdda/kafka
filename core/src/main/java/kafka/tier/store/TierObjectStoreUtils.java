@@ -28,34 +28,24 @@ public class TierObjectStoreUtils {
             case S3:
                 // The following are mandatory properties for the S3 backend generation
                 mandatoryProps = new ArrayList<String>() {{
-                    add("cluster-id");
-                    add(KafkaConfig.BrokerIdProp());
                     add(KafkaConfig.TierS3BucketProp());
                     add(KafkaConfig.TierS3RegionProp());
                 }};
                 verifyMandatoryProps(backend, props, mandatoryProps);
-                String clusterId = props.getProperty("cluster-id");
-                int brokerId = Integer.parseInt(props.get(KafkaConfig.BrokerIdProp()).toString());
                 String s3Bucket = props.getProperty(KafkaConfig.TierS3BucketProp());
                 String s3Region = props.getProperty(KafkaConfig.TierS3RegionProp());
                 // The remaining configs will be loaded from the environment or the defaults provided in KafkaConfig
-                return new S3TierObjectStoreConfig(clusterId, brokerId, s3Bucket, s3Region,
+                return S3TierObjectStoreConfig.createWithEmptyClusterIdBrokerId(s3Bucket, s3Region,
                         props.getProperty(KafkaConfig.TierS3AwsSecretAccessKeyProp()),
                         props.getProperty(KafkaConfig.TierS3AwsAccessKeyIdProp()),
                         props.getProperty(KafkaConfig.TierS3EndpointOverrideProp()),
                         props.getProperty(KafkaConfig.TierS3SignerOverrideProp()),
                         props.getProperty(KafkaConfig.TierS3SseAlgorithmProp(), Defaults.TierS3SseAlgorithm()),
-                        (Integer) props.getOrDefault(KafkaConfig.TierS3AutoAbortThresholdBytesProp(), Defaults.TierS3AutoAbortThresholdBytes()),
+                        Integer.parseInt(props.getOrDefault(KafkaConfig.TierS3AutoAbortThresholdBytesProp(),
+                                Defaults.TierS3AutoAbortThresholdBytes()).toString()),
                         props.getProperty(KafkaConfig.TierS3PrefixProp(), Defaults.TierS3Prefix()));
             case Mock:
-                mandatoryProps = new ArrayList<String>() {{
-                    add("cluster-id");
-                    add(KafkaConfig.BrokerIdProp());
-                }};
-                verifyMandatoryProps(backend, props, mandatoryProps);
-                clusterId = props.getProperty("cluster-id");
-                brokerId = Integer.parseInt(props.get(KafkaConfig.BrokerIdProp()).toString());
-                return new TierObjectStoreConfig(clusterId, brokerId);
+                return TierObjectStoreConfig.createEmpty();
             default:
                 throw new UnsupportedOperationException("Unsupported backend for config generation: " + backend);
         }

@@ -52,7 +52,7 @@ public class SegmentFileFetchRequestTest {
     public void targetOffsetTest() {
         CancellationContext ctx = CancellationContext.newContext();
         TierObjectStore tierObjectStore =
-                new MockInMemoryTierObjectStore(new TierObjectStoreConfig("cluster", 1));
+                new MockInMemoryTierObjectStore(TierObjectStoreConfig.createEmpty());
         TopicIdPartition topicIdPartition = new TopicIdPartition("foo",
                 UUID.randomUUID(), 0);
         TopicPartition topicPartition = topicIdPartition.topicPartition();
@@ -97,8 +97,7 @@ public class SegmentFileFetchRequestTest {
     @Test
     public void targetOffsetOutOfRangeTest() {
         CancellationContext ctx = CancellationContext.newContext();
-        TierObjectStore tierObjectStore =
-                new MockInMemoryTierObjectStore(new TierObjectStoreConfig("cluster", 1));
+        TierObjectStore tierObjectStore = new MockInMemoryTierObjectStore(TierObjectStoreConfig.createEmpty());
         TopicIdPartition topicIdPartition = new TopicIdPartition("foo",
                 UUID.randomUUID(), 0);
         TopicPartition topicPartition = topicIdPartition.topicPartition();
@@ -176,8 +175,7 @@ public class SegmentFileFetchRequestTest {
     @Test
     public void testReadCommittedEmptyBatch() {
         CancellationContext ctx = CancellationContext.newContext();
-        TierObjectStore tierObjectStore =
-                new MockInMemoryTierObjectStore(new TierObjectStoreConfig("cluster", 1));
+        TierObjectStore tierObjectStore = new MockInMemoryTierObjectStore(TierObjectStoreConfig.createEmpty());
         TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
         TopicPartition topicPartition = topicIdPartition.topicPartition();
 
@@ -223,8 +221,7 @@ public class SegmentFileFetchRequestTest {
     @Test
     public void testFetchingReadCommitted() {
         CancellationContext ctx = CancellationContext.newContext();
-        TierObjectStore tierObjectStore =
-                new MockInMemoryTierObjectStore(new TierObjectStoreConfig("cluster", 1));
+        TierObjectStore tierObjectStore = new MockInMemoryTierObjectStore(TierObjectStoreConfig.createEmpty());
         TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
         TopicPartition topicPartition = topicIdPartition.topicPartition();
 
@@ -275,8 +272,7 @@ public class SegmentFileFetchRequestTest {
           // no data is returned except the exception.
     public void testFetchingReadCommittedException() {
         CancellationContext ctx = CancellationContext.newContext();
-        MockInMemoryTierObjectStore tierObjectStore =
-                new MockInMemoryTierObjectStore(new TierObjectStoreConfig("cluster", 1));
+        MockInMemoryTierObjectStore tierObjectStore = new MockInMemoryTierObjectStore(TierObjectStoreConfig.createEmpty());
         TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
         TopicPartition topicPartition = topicIdPartition.topicPartition();
 

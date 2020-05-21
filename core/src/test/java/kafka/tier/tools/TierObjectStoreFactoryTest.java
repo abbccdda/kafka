@@ -31,4 +31,17 @@ public class TierObjectStoreFactoryTest {
         assertNotEquals(objectStore, TierObjectStoreFactory.getObjectStoreInstance(TierObjectStore.Backend.Mock, mockConfig));
         assertEquals(0, TierObjectStoreFactory.closeBackendInstance(TierObjectStore.Backend.Mock));
     }
+
+    @Test
+    public void testObjectStoreWithEmptyConfig() {
+        Properties props = new Properties();
+        TierObjectStoreConfig mockConfig = TierObjectStoreUtils.generateBackendConfig(TierObjectStore.Backend.Mock, props);
+        TierObjectStore objectStore = TierObjectStoreFactory.getObjectStoreInstance(TierObjectStore.Backend.Mock, mockConfig);
+        TierObjectStore secondInstance = TierObjectStoreFactory.getObjectStoreInstance(TierObjectStore.Backend.Mock, mockConfig);
+        assertEquals(objectStore, secondInstance);
+        assertEquals(1, TierObjectStoreFactory.closeBackendInstance(TierObjectStore.Backend.Mock));
+        assertEquals(0, TierObjectStoreFactory.closeBackendInstance(TierObjectStore.Backend.Mock));
+        assertNotEquals(objectStore, TierObjectStoreFactory.getObjectStoreInstance(TierObjectStore.Backend.Mock, mockConfig));
+        assertEquals(0, TierObjectStoreFactory.closeBackendInstance(TierObjectStore.Backend.Mock));
+    }
 }
