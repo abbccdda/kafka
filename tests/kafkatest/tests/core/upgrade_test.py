@@ -98,16 +98,6 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
         self.add_log_metrics(self.topic, partitions=range(0, self.PARTITIONS))
         self.kafka.jmx_object_names += [TieredStorageMetricsRegistry.ARCHIVER_LAG.mbean]
 
-    def add_error_metrics(self):
-        self.kafka.jmx_object_names += [TieredStorageMetricsRegistry.TIER_TOPIC_MANAGER_NUM_FENCED_PARTITIONS.mbean,
-                TieredStorageMetricsRegistry.ARCHIVER_PARTITIONS_IN_ERROR.mbean,
-                TieredStorageMetricsRegistry.TIER_TOPIC_MANAGER_HEARTBEAT.mbean,
-                TieredStorageMetricsRegistry.DELETED_PARTITIONS_COORDINATOR_HEARTBEAT.mbean]
-        self.kafka.jmx_attributes += [TieredStorageMetricsRegistry.TIER_TOPIC_MANAGER_NUM_FENCED_PARTITIONS.attribute,
-                TieredStorageMetricsRegistry.ARCHIVER_PARTITIONS_IN_ERROR.attribute,
-                TieredStorageMetricsRegistry.TIER_TOPIC_MANAGER_HEARTBEAT.attribute,
-                TieredStorageMetricsRegistry.DELETED_PARTITIONS_COORDINATOR_HEARTBEAT.attribute]
-
     @cluster(num_nodes=6)
     @matrix(from_kafka_project=["confluentplatform"], dist_version=["5.5.0"], from_kafka_version=[str(LATEST_2_5)], to_message_format_version=[None], compression_types=[["none"]],
             from_tiered_storage=[False, True], to_tiered_storage=[True], hotset_bytes=[-1, 1], backend=[S3_BACKEND, GCS_BACKEND])

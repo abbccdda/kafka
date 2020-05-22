@@ -264,6 +264,16 @@ class TierSupport():
                       TieredStorageMetricsRegistry.num_log_segments(topic, p).mbean,
                       TieredStorageMetricsRegistry.log_tier_size(topic, p).mbean]
 
+    def add_error_metrics(self):
+        self.kafka.jmx_object_names += [TieredStorageMetricsRegistry.TIER_TOPIC_MANAGER_NUM_FENCED_PARTITIONS.mbean,
+                TieredStorageMetricsRegistry.ARCHIVER_PARTITIONS_IN_ERROR.mbean,
+                TieredStorageMetricsRegistry.TIER_TOPIC_MANAGER_HEARTBEAT.mbean,
+                TieredStorageMetricsRegistry.DELETED_PARTITIONS_COORDINATOR_HEARTBEAT.mbean]
+        self.kafka.jmx_attributes += [TieredStorageMetricsRegistry.TIER_TOPIC_MANAGER_NUM_FENCED_PARTITIONS.attribute,
+                TieredStorageMetricsRegistry.ARCHIVER_PARTITIONS_IN_ERROR.attribute,
+                TieredStorageMetricsRegistry.TIER_TOPIC_MANAGER_HEARTBEAT.attribute,
+                TieredStorageMetricsRegistry.DELETED_PARTITIONS_COORDINATOR_HEARTBEAT.attribute]
+
     def remove_log_metrics(self, topic, partitions=[0]):
         """Removes log related metrics for given topic partitions.
            This is necessary when these topics are deleted as jmx tool will return
