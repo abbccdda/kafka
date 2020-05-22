@@ -672,6 +672,13 @@ class TopicCommandWithZKClientTest extends ZooKeeperTestHarness with Logging wit
     )
   }
 
+  @Test
+  def testAlterMirror(): Unit = {
+    assertExitCode(1, () =>
+      new TopicCommandOptions(Array("--zookeeper", "localhost:8081", "--alter", "--mirror-action", "stop")).checkArgs()
+    )
+  }
+
   def assertExitCode(expected: Int, method: () => Unit): Unit = {
     def mockExitProcedure(exitCode: Int, exitMessage: Option[String]): Nothing = {
       assertEquals(expected, exitCode)

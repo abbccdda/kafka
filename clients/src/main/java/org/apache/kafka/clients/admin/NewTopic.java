@@ -42,8 +42,7 @@ public class NewTopic {
     private final Optional<Short> replicationFactor;
     private final Map<Integer, List<Integer>> replicasAssignments;
     private Map<String, String> configs = null;
-    private Optional<String> linkName;
-    private Optional<String> mirrorTopic;
+    private Optional<NewTopicMirror> mirror = Optional.empty();
 
     /**
      * A new topic with the specified replication factor and number of partitions.
@@ -62,8 +61,6 @@ public class NewTopic {
         this.numPartitions = numPartitions;
         this.replicationFactor = replicationFactor;
         this.replicasAssignments = null;
-        this.linkName = Optional.empty();
-        this.mirrorTopic = Optional.empty();
     }
 
     /**
@@ -78,8 +75,6 @@ public class NewTopic {
         this.numPartitions = Optional.empty();
         this.replicationFactor = Optional.empty();
         this.replicasAssignments = Collections.unmodifiableMap(replicasAssignments);
-        this.linkName = Optional.empty();
-        this.mirrorTopic = Optional.empty();
     }
 
     /**
@@ -130,42 +125,25 @@ public class NewTopic {
     }
 
     /**
-     * Sets the cluster link name for topic mirroring.
+     * Sets the mirror information for topic creation.
      */
-    public NewTopic linkName(Optional<String> linkName) {
-        this.linkName = Objects.requireNonNull(linkName);
+    public NewTopic mirror(Optional<NewTopicMirror> mirror) {
+        this.mirror = Objects.requireNonNull(mirror);
         return this;
     }
 
     /**
-     * The cluster link name for topic mirroring.
+     * The mirror information for topic creation.
      */
-    public Optional<String> linkName() {
-        return linkName;
-    }
-
-    /**
-     * Sets the topic name over the cluster link that the topic will mirror.
-     */
-    public NewTopic mirrorTopic(Optional<String> mirrorTopic) {
-        this.mirrorTopic = Objects.requireNonNull(mirrorTopic);
-        return this;
-    }
-
-    /**
-     * The topic name over the cluster link that the topic will mirror.
-     */
-    public Optional<String> mirrorTopic() {
-        return mirrorTopic;
+    public Optional<NewTopicMirror> mirror() {
+        return mirror;
     }
 
     CreatableTopic convertToCreatableTopic() {
         CreatableTopic creatableTopic = new CreatableTopic().
             setName(name).
             setNumPartitions(numPartitions.orElse(NO_PARTITIONS)).
-            setReplicationFactor(replicationFactor.orElse(NO_REPLICATION_FACTOR)).
-            setLinkName(linkName.orElse(null)).
-            setMirrorTopic(mirrorTopic.orElse(null));
+            setReplicationFactor(replicationFactor.orElse(NO_REPLICATION_FACTOR));
         if (replicasAssignments != null) {
             for (Entry<Integer, List<Integer>> entry : replicasAssignments.entrySet()) {
                 creatableTopic.assignments().add(
@@ -182,6 +160,10 @@ public class NewTopic {
                         setValue(entry.getValue()));
             }
         }
+        if (mirror.isPresent()) {
+            creatableTopic.setLinkName(mirror.get().linkName());
+            creatableTopic.setMirrorTopic(mirror.get().mirrorTopic());
+        }
         return creatableTopic;
     }
 
@@ -193,11 +175,8 @@ public class NewTopic {
                 append(", replicationFactor=").append(replicationFactor.map(String::valueOf).orElse("default")).
                 append(", replicasAssignments=").append(replicasAssignments).
                 append(", configs=").append(configs);
-        if (linkName.isPresent()) {
-            bld.append(", linkName=").append(linkName.get());
-        }
-        if (mirrorTopic.isPresent()) {
-            bld.append(", mirrorTopic=").append(mirrorTopic.get());
+        if (mirror.isPresent()) {
+            bld.append(", mirror=").append(mirror.get());
         }
         bld.append(")");
         return bld.toString();
@@ -213,12 +192,11 @@ public class NewTopic {
             Objects.equals(replicationFactor, that.replicationFactor) &&
             Objects.equals(replicasAssignments, that.replicasAssignments) &&
             Objects.equals(configs, that.configs) &&
-            Objects.equals(linkName, that.linkName) &&
-            Objects.equals(mirrorTopic, that.mirrorTopic);
+            Objects.equals(mirror, that.mirror);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(name, numPartitions, replicationFactor, replicasAssignments, configs, linkName, mirrorTopic);
+        return Objects.hash(name, numPartitions, replicationFactor, replicasAssignments, configs, mirror);
     }
 }

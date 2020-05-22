@@ -31,6 +31,7 @@ import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.clients.admin.CreateClusterLinksOptions;
 import org.apache.kafka.clients.admin.NewPartitions;
 import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.clients.admin.NewTopicMirror;
 import org.apache.kafka.clients.admin.TopicDescription;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
@@ -86,8 +87,7 @@ public class MultiTenantClusterLinkTest {
 
     sourceCluster.physicalCluster.kafkaCluster().createTopic(sourceCluster.user.tenantPrefix() + topic, 2, 1);
     NewTopic newTopic = new NewTopic(topic, Optional.empty(), Optional.of((short) 1))
-        .linkName(Optional.of(linkName))
-        .mirrorTopic(Optional.of(topic));
+        .mirror(Optional.of(new NewTopicMirror(linkName, topic)));
     destCluster.admin.createTopics(Collections.singleton(newTopic)).all().get();
 
     // Verify mirroring
