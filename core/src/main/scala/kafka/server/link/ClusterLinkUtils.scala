@@ -10,7 +10,8 @@ import kafka.log.LogConfig
 import kafka.server.KafkaConfig
 import kafka.utils.Logging
 import org.apache.kafka.clients.admin.Config
-import org.apache.kafka.common.errors.{InvalidClusterLinkException, InvalidConfigurationException, InvalidPartitionsException, InvalidRequestException, TimeoutException, UnsupportedVersionException}
+import org.apache.kafka.common.acl.AclOperation
+import org.apache.kafka.common.errors.{InvalidClusterLinkException, InvalidConfigurationException, InvalidPartitionsException, InvalidRequestException, TimeoutException, TopicAuthorizationException, UnsupportedVersionException}
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopic
 import org.apache.kafka.common.requests.CreateTopicsRequest.NO_NUM_PARTITIONS
 
@@ -284,6 +285,9 @@ object ClusterLinkUtils extends Logging {
                 throw new TimeoutException(s"Timed out while fetching topic information over cluster link '$linkName'.")
             }
 
+            if (!info.description.authorizedOperations.contains(AclOperation.READ))
+              throw new TopicAuthorizationException("Mirror topic creation requires READ access on the source topic.")
+
             val newConfigs = ClusterLinkUtils.initMirrorProps(topic.name, configs, info.config)
             ResolveCreateTopic(newConfigs, Some(new ClusterLinkTopicState.Mirror(linkName)), info.description.partitions.size)
 
@@ -313,21 +317,20 @@ object ClusterLinkUtils extends Logging {
   def validateCreatePartitions(topic: String,
                                numPartitions: Int,
                                validateOnly: Boolean,
-                               topicInfo: Option[CompletableFuture[ClusterLinkClientManager.TopicInfo]]): Unit = {
-    topicInfo match {
-      case Some(ti) =>
-        val info = try {
-          if (!ti.isDone)
-            throw new IllegalStateException("Mirror information must have been resolved.")
-          ti.get
+                               partitions: Option[CompletableFuture[Int]]): Unit = {
+    partitions match {
+      case Some(parts) =>
+        val mirrorNumPartitions = try {
+          if (!parts.isDone)
+            throw new IllegalStateException("Mirror partitions must have been resolved.")
+          parts.get
         } catch {
           case e: ExecutionException =>
             throw e.getCause
           case _: TimeoutException =>
-            throw new TimeoutException("Timed out while fetching topic information over cluster link.")
+            throw new TimeoutException("Timed out while fetching topic partitions over cluster link.")
         }
 
-        val mirrorNumPartitions = info.description.partitions.size
         if (mirrorNumPartitions < numPartitions)
           throw new InvalidPartitionsException(s"Cannot set '$numPartitions' partitions for topic '$topic', " +
             s"exceeds linked topic's '$mirrorNumPartitions' partitions.")

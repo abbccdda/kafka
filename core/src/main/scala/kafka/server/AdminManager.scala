@@ -27,7 +27,7 @@ import kafka.controller.ReplicaAssignment
 import kafka.log.LogConfig
 import kafka.utils.Log4jController
 import kafka.metrics.KafkaMetricsGroup
-import kafka.server.link.{ClusterLinkConfig, ClusterLinkFactory, ClusterLinkUtils}
+import kafka.server.link.{ClusterLinkClientManager, ClusterLinkConfig, ClusterLinkFactory, ClusterLinkUtils}
 import kafka.server.link.ClusterLinkClientManager.{TopicInfo => MirrorTopicInfo}
 import kafka.utils._
 import kafka.zk.{AdminZkClient, KafkaZkClient}
@@ -122,7 +122,9 @@ class AdminManager(val config: KafkaConfig,
         val topicLinks = mirrorTopics.values.map(topic => topic.name -> topic.linkName).toMap
 
         // 2. Fetch the remote topics' information.
-        val mirrorInfo = fetchMirrorTopicInfo(topicLinks, results, timeout)
+        val mirrorInfo = fetchMirrorTopicInfo(topicLinks, results, (topic: String, client: ClusterLinkClientManager) => {
+          client.fetchTopicInfo(topic, timeout)
+        })
 
         // 3. Perform the topic creation with the remote topic information.
         clusterLinkManager.admin.purgatory.tryCompleteElseWatch(timeout, mirrorInfo.values.toSeq, () => {
@@ -372,16 +374,19 @@ class AdminManager(val config: KafkaConfig,
 
       def mirrorValidateCallback(results: Map[String, ApiError]): Unit = {
         // 2. Fetch the remote topics' information.
-        val mirrorInfo = fetchMirrorTopicInfo(topicLinks, results, timeout)
+        val mirrorPartitions = fetchMirrorTopicInfo(topicLinks, results, (topic: String, client: ClusterLinkClientManager) => {
+          client.fetchTopicPartitions(topic, timeout)
+        })
 
         // 3. Perform the partition creation with the remote topic information.
-        clusterLinkManager.admin.purgatory.tryCompleteElseWatch(timeout, mirrorInfo.values.toSeq, () => {
-          doCreatePartitions(timeout, newPartitions, validateOnly, listenerName, getTopicInfos(), Some(mirrorInfo), callback)
+        clusterLinkManager.admin.purgatory.tryCompleteElseWatch(timeout, mirrorPartitions.values.toSeq, () => {
+          doCreatePartitions(timeout, newPartitions, validateOnly, listenerName, getTopicInfos(), Some(mirrorPartitions), callback)
         })
       }
 
       // 1. Ensure the partition creation for the mirror topics is valid without using remote topic information.
-      doCreatePartitions(timeout, newPartitions, validateOnly = true, listenerName, topicInfos, mirrorInfo = None, mirrorValidateCallback)
+      doCreatePartitions(timeout, newPartitions, validateOnly = true, listenerName, topicInfos,
+        mirrorPartitions = None, mirrorValidateCallback)
     }
   }
 
@@ -390,7 +395,7 @@ class AdminManager(val config: KafkaConfig,
                          validateOnly: Boolean,
                          listenerName: ListenerName,
                          topicInfos: Map[String, TopicIdReplicaAssignment],
-                         mirrorInfo: Option[Map[String, CompletableFuture[MirrorTopicInfo]]],
+                         mirrorPartitions: Option[Map[String, CompletableFuture[Int]]],
                          callback: Map[String, ApiError] => Unit): Unit = {
 
     val allBrokers = adminZkClient.getBrokerMetadatas()
@@ -416,7 +421,7 @@ class AdminManager(val config: KafkaConfig,
         if (existingAssignment.isEmpty)
           throw new UnknownTopicOrPartitionException(s"The topic '$topic' does not exist.")
         if (topicInfo.clusterLink.exists(_.mirrorIsEstablished))
-          ClusterLinkUtils.validateCreatePartitions(topic, newPartition.count, validateOnly, mirrorInfo.flatMap(_.get(topic)))
+          ClusterLinkUtils.validateCreatePartitions(topic, newPartition.count, validateOnly, mirrorPartitions.flatMap(_.get(topic)))
 
         val oldNumPartitions = existingAssignment.size
         val newNumPartitions = newPartition.count
@@ -1150,16 +1155,16 @@ class AdminManager(val config: KafkaConfig,
   }
 
   /**
-    * Helper for fetching remote topic information over cluster links.
+    * Helper for fetching topic information over cluster links.
     *
     * @param topicLinks a map from topic name to link name
     * @param validateResult result from request validation
-    * @param timeoutMs the timeout in milliseconds
+    * @param fetchWork the work to be performed for fetching the topic's information
     * @return a map from topic name to a future containing its information
     */
-  private def fetchMirrorTopicInfo(topicLinks: Map[String, String],
-                                   validateResult: Map[String, ApiError],
-                                   timeoutMs: Int): Map[String, CompletableFuture[MirrorTopicInfo]] = {
+  private def fetchMirrorTopicInfo[T](topicLinks: Map[String, String],
+                                      validateResult: Map[String, ApiError],
+                                      fetchWork: (String, ClusterLinkClientManager) => CompletableFuture[T]): Map[String, CompletableFuture[T]] = {
     topicLinks.map { case (topic, linkName) =>
       val future = try {
         val error = validateResult(topic)
@@ -1167,10 +1172,10 @@ class AdminManager(val config: KafkaConfig,
           throw error.exception()
         val clientManager = clusterLinkManager.clientManager(linkName).getOrElse(
           throw new ClusterLinkNotFoundException(s"Cluster link '$linkName' doesn't exist."))
-        clientManager.fetchTopicInfo(topic, timeoutMs)
+        fetchWork(topic, clientManager)
       } catch {
         case e: Throwable =>
-          val result = new CompletableFuture[MirrorTopicInfo]
+          val result = new CompletableFuture[T]
           result.completeExceptionally(e)
           result
       }

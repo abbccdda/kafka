@@ -34,9 +34,9 @@ class ClusterLinkClientManager(val linkName: String,
                                val scheduler: ClusterLinkScheduler,
                                val zkClient: KafkaZkClient,
                                private var config: ClusterLinkConfig,
-                               private val authorizer: Option[Authorizer],
-                               private val controller: KafkaController,
-                               private val adminFactory: ClusterLinkConfig => ConfluentAdmin) extends Logging {
+                               authorizer: Option[Authorizer],
+                               controller: KafkaController,
+                               adminFactory: ClusterLinkConfig => ConfluentAdmin) extends Logging {
 
   @volatile private var admin: Option[ConfluentAdmin] = None
 
@@ -117,63 +117,83 @@ class ClusterLinkClientManager(val linkName: String,
   }
 
   /**
-    * Fetches information about a remote topic.
+    * Fetches the number of partitions for a remote topic.
+    *
+    * @param topic the remote topic to fetch the number of partitions for
+    * @param timeoutMs the timeout, in milliseconds
+    * @return a future with the topic's number of partitions
+    */
+  def fetchTopicPartitions(topic: String, timeoutMs: Int): CompletableFuture[Int] = {
+    val result = new CompletableFuture[Int]
+    try {
+      val describeTopicsOptions = new DescribeTopicsOptions().timeoutMs(timeoutMs)
+      val describeTopicsResult = getAdmin.describeTopics(Seq(topic).asJava, describeTopicsOptions)
+      scheduler.scheduleWhenComplete("FetchTopicPartitions", describeTopicsResult.all, () => {
+        result.complete(describeTopicsResult.values.get(topic).get.partitions.size)
+        ()
+      })
+    } catch {
+      case e: Throwable =>
+        result.completeExceptionally(fetchTopicInfoWrapException(topic, e, "fetching partitions"))
+    }
+    result
+  }
+
+  /**
+    * Fetches information about a remote topic, verifying topic read access and returning the resulting information.
     *
     * @param topic the remote topic to fetch information for
     * @param timeoutMs the timeout, in milliseconds
-    * @return a future for the topic's description and its configuration
+    * @return a future with the topic's description and configuration
     */
   def fetchTopicInfo(topic: String, timeoutMs: Int): CompletableFuture[ClusterLinkClientManager.TopicInfo] = {
     val result = new CompletableFuture[ClusterLinkClientManager.TopicInfo]
 
     try {
-      val options = new DescribeTopicsOptions().timeoutMs(timeoutMs)
-      val describeTopicsResult = getAdmin.describeTopics(Seq(topic).asJava, options)
-      scheduler.scheduleWhenComplete("FetchTopicInfoDescription", describeTopicsResult.all, () => {
-        fetchTopicInfoHandleDescription(topic, timeoutMs, describeTopicsResult.values.get(topic), result)
+      val describeTopicsOptions = new DescribeTopicsOptions().timeoutMs(timeoutMs).includeAuthorizedOperations(true)
+      val describeTopicsResult = getAdmin.describeTopics(Seq(topic).asJava, describeTopicsOptions)
+
+      val resource = new ConfigResource(ConfigResource.Type.TOPIC, topic)
+      val describeConfigsOptions = new DescribeConfigsOptions().timeoutMs(timeoutMs)
+      val describeConfigsResult = getAdmin.describeConfigs(Seq(resource).asJava, describeConfigsOptions)
+
+      val futures = KafkaFuture.allOf(describeTopicsResult.all, describeConfigsResult.all)
+      scheduler.scheduleWhenComplete("FetchTopicInfo", futures, () => {
+        fetchTopicInfoHandleResults(topic, describeConfigsResult.values.get(resource), describeTopicsResult.values.get(topic), result)
       })
     } catch {
-      case e: Throwable => throw fetchTopicInfoWrapException(topic, e)
+      case e: Throwable =>
+        result.completeExceptionally(fetchTopicInfoWrapException(topic, e, "preparing client to fetch information"))
     }
 
     result
   }
 
-  private def fetchTopicInfoHandleDescription(topic: String,
-                                              timeoutMs: Int,
-                                              descriptionFuture: KafkaFuture[TopicDescription],
-                                              result: CompletableFuture[ClusterLinkClientManager.TopicInfo]): Unit = {
-    try {
-      val description = descriptionFuture.get
-      val resource = new ConfigResource(ConfigResource.Type.TOPIC, topic)
-      val options = new DescribeConfigsOptions().timeoutMs(timeoutMs)
-      val describeConfigsResult = getAdmin.describeConfigs(Seq(resource).asJava, options)
-      scheduler.scheduleWhenComplete("FetchTopicInfoConfig", describeConfigsResult.all, () => {
-        fetchTopicInfoHandleConfig(topic, description, describeConfigsResult.values.get(resource), result)
-      })
-    } catch {
-      case e: ExecutionException => result.completeExceptionally(fetchTopicInfoWrapException(topic, e.getCause))
-      case e: Throwable => result.completeExceptionally(fetchTopicInfoWrapException(topic, e))
+  private def fetchTopicInfoHandleResults(topic: String,
+                                          configFuture: KafkaFuture[Config],
+                                          descriptionFuture: KafkaFuture[TopicDescription],
+                                          result: CompletableFuture[ClusterLinkClientManager.TopicInfo]): Unit = {
+    def maybeThrowException[T](topic: String, future: KafkaFuture[T], action: String): T = {
+      try {
+        future.get
+      } catch {
+        case e: ExecutionException => throw fetchTopicInfoWrapException(topic, e, action)
+        case e: Throwable => throw fetchTopicInfoWrapException(topic, e, action)
+      }
     }
-  }
 
-  private def fetchTopicInfoHandleConfig(topic: String,
-                                         description: TopicDescription,
-                                         configFuture: KafkaFuture[Config],
-                                         result: CompletableFuture[ClusterLinkClientManager.TopicInfo]): Unit = {
     try {
-      val config = configFuture.get
+      val description = maybeThrowException(topic, descriptionFuture, "fetching description")
+      val config = maybeThrowException(topic, configFuture, "fetching configuration")
       result.complete(ClusterLinkClientManager.TopicInfo(description, config))
     } catch {
-      case e: ExecutionException => result.completeExceptionally(fetchTopicInfoWrapException(topic, e.getCause))
-      case e: Throwable => result.completeExceptionally(fetchTopicInfoWrapException(topic, e))
+      case e: Throwable => result.completeExceptionally(e)
     }
   }
 
-  private def fetchTopicInfoWrapException(topic: String, e: Throwable): Throwable = {
+  private def fetchTopicInfoWrapException(topic: String, e: Throwable, action: String): Throwable = {
     val error = ApiError.fromThrowable(e)
-    error.error.exception(s"While fetching topic '$topic's info over cluster link '$linkName': " +
-      s"${error.messageWithFallback}")
+    error.error.exception(s"While $action for topic '$topic' over cluster link '$linkName': ${error.messageWithFallback}")
   }
 
 }
