@@ -8,7 +8,7 @@ import java.util.concurrent.ExecutionException
 
 import kafka.api.IntegrationTestHarness
 import org.apache.kafka.clients.CommonClientConfigs
-import org.apache.kafka.clients.admin.{Admin, ConfluentAdmin, CreateClusterLinksOptions, CreateTopicsOptions, NewTopic}
+import org.apache.kafka.clients.admin.{Admin, ConfluentAdmin, CreateClusterLinksOptions, CreateTopicsOptions, NewTopic, NewTopicMirror}
 import org.apache.kafka.common.KafkaFuture
 import org.apache.kafka.common.errors._
 import org.apache.kafka.common.internals.KafkaFutureImpl
@@ -95,8 +95,7 @@ class AlterMirrorsRequestTest extends BaseRequestTest {
   private def createTopicWith(adminClient: Admin, topic: String, linkName: Option[String] = None, mirrorTopic: Option[String] = None): Unit = {
     val admin = adminClient.asInstanceOf[ConfluentAdmin]
     val newTopic = new NewTopic(topic, Optional.empty[Integer], Optional.of(Short.box(1)))
-    linkName.foreach(ln => newTopic.linkName(Optional.of(ln)))
-    mirrorTopic.foreach(mt => newTopic.mirrorTopic(Optional.of(mt)))
+    linkName.foreach(ln => newTopic.mirror(Optional.of(new NewTopicMirror(ln, mirrorTopic.get))))
     admin.createTopics(Seq(newTopic).asJavaCollection, new CreateTopicsOptions().timeoutMs(1000)).all.get
   }
 

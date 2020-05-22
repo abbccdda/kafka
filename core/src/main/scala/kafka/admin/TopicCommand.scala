@@ -31,12 +31,13 @@ import kafka.utils.Implicits._
 import kafka.utils._
 import kafka.zk.{AdminZkClient, KafkaZkClient}
 import org.apache.kafka.clients.CommonClientConfigs
-import org.apache.kafka.clients.admin.{Admin, ConfigEntry, ListPartitionReassignmentsOptions, ListTopicsOptions, NewPartitions, NewTopic, PartitionReassignment, Config => JConfig}
+import org.apache.kafka.clients.admin.{Admin, AlterMirrorsOptions, ConfigEntry, ConfluentAdmin, ListPartitionReassignmentsOptions, ListTopicsOptions, NewPartitions, NewTopic, NewTopicMirror, PartitionReassignment, Config => JConfig}
 import org.apache.kafka.common.{Node, TopicPartition, TopicPartitionInfo}
 import org.apache.kafka.common.config.ConfigResource.Type
 import org.apache.kafka.common.config.{ConfigResource, ConfluentTopicConfig, TopicConfig}
 import org.apache.kafka.common.errors.{InvalidTopicException, TopicExistsException, UnsupportedVersionException}
 import org.apache.kafka.common.internals.Topic
+import org.apache.kafka.common.requests.AlterMirrorsRequest
 import org.apache.kafka.common.security.JaasUtils
 import org.apache.kafka.common.utils.{Time, Utils}
 import org.apache.zookeeper.KeeperException.NodeExistsException
@@ -296,8 +297,7 @@ object TopicCommand extends Logging {
           .toMap.asJava
 
         newTopic.configs(configsMap)
-        topic.linkName.foreach(ln => newTopic.linkName(Optional.of(ln)))
-        topic.mirrorTopic.foreach(mt => newTopic.mirrorTopic(Optional.of(mt)))
+        topic.mirrorTopic.foreach(mt => newTopic.mirror(Optional.of(new NewTopicMirror(topic.linkName.get, mt))))
         val createResult = adminClient.createTopics(Collections.singleton(newTopic))
         createResult.all().get()
         println(s"Created topic ${topic.name}.")
@@ -310,22 +310,42 @@ object TopicCommand extends Logging {
       println(getTopics(opts.topic, opts.excludeInternalTopics).mkString("\n"))
     }
 
+    private def alterTopicMirror(opts: TopicCommandOptions): Unit = {
+      opts.mirrorAction match {
+        case Some("stop") =>
+          val topic = opts.topic.get
+          val op: AlterMirrorsRequest.Op = new AlterMirrorsRequest.StopTopicMirrorOp(topic)
+          adminClient.asInstanceOf[ConfluentAdmin].alterMirrors(List(op).asJava, new AlterMirrorsOptions()).result().asScala.foreach(_.get)
+          println(s"Topic '$topic's mirror was successfully stopped.")
+
+        case Some(other) =>
+          throw new IllegalArgumentException(s"Unknown mirror command '$other'")
+
+        case None =>
+          throw new IllegalArgumentException("Mirror action not provided")
+      }
+    }
+
     override def alterTopic(opts: TopicCommandOptions): Unit = {
       val topic = new CommandTopicPartition(opts)
       val topics = getTopics(opts.topic, opts.excludeInternalTopics)
       ensureTopicExists(topics, opts.topic)
-      val topicsInfo = adminClient.describeTopics(topics.asJavaCollection).values()
-      adminClient.createPartitions(topics.map {topicName =>
-        if (topic.hasReplicaAssignment) {
-          val startPartitionId = topicsInfo.get(topicName).get().partitions().size()
-          val newAssignment = {
-            val replicaMap = topic.replicaAssignment.get.drop(startPartitionId)
-            new util.ArrayList(replicaMap.map(p => p._2.asJava).asJavaCollection).asInstanceOf[util.List[util.List[Integer]]]
-          }
-          topicName -> NewPartitions.increaseTo(topic.partitions.get, newAssignment)
-        } else {
-          topicName -> NewPartitions.increaseTo(topic.partitions.get)
-        }}.toMap.asJava).all().get()
+      if (opts.mirrorAction.nonEmpty) {
+        alterTopicMirror(opts)
+      } else {
+        val topicsInfo = adminClient.describeTopics(topics.asJavaCollection).values()
+        adminClient.createPartitions(topics.map {topicName =>
+          if (topic.hasReplicaAssignment) {
+            val startPartitionId = topicsInfo.get(topicName).get().partitions().size()
+            val newAssignment = {
+              val replicaMap = topic.replicaAssignment.get.drop(startPartitionId)
+              new util.ArrayList(replicaMap.map(p => p._2.asJava).asJavaCollection).asInstanceOf[util.List[util.List[Integer]]]
+            }
+            topicName -> NewPartitions.increaseTo(topic.partitions.get, newAssignment)
+          } else {
+            topicName -> NewPartitions.increaseTo(topic.partitions.get)
+          }}.toMap.asJava).all().get()
+      }
     }
 
     private def listAllReassignments(): Map[TopicPartition, PartitionReassignment] = {
@@ -736,6 +756,10 @@ object TopicCommand extends Logging {
       .withRequiredArg
       .describedAs("mirror topic")
       .ofType(classOf[String])
+    private val mirrorActionOpt = parser.accepts("mirror-action", "The action to perform when altering a topic's mirror, supported: {stop}.")
+      .withRequiredArg
+      .describedAs("mirror action")
+      .ofType(classOf[String])
 
     // This is not currently used, but we keep it for compatibility
     parser.accepts("force", "Suppress console prompts")
@@ -785,6 +809,7 @@ object TopicCommand extends Logging {
     def configsToDelete: Option[util.List[String]] = valuesAsOption(deleteConfigOpt)
     def linkName: Option[String] = valueAsOption(linkNameOpt)
     def mirrorTopic: Option[String] = valueAsOption(mirrorTopicOpt)
+    def mirrorAction: Option[String] = valueAsOption(mirrorActionOpt)
 
     def checkArgs(): Unit = {
       if (args.length == 0)
@@ -819,6 +844,8 @@ object TopicCommand extends Logging {
       if (has(bootstrapServerOpt) && has(alterOpt)) {
         CommandLineUtils.checkInvalidArgsSet(parser, options, Set(bootstrapServerOpt, configOpt), Set(alterOpt))
         CommandLineUtils.checkRequiredArgs(parser, options, partitionsOpt)
+        if (has(mirrorActionOpt))
+          CommandLineUtils.checkRequiredArgs(parser, options, topicOpt)
       }
 
       // check invalid args
@@ -848,6 +875,7 @@ object TopicCommand extends Logging {
       CommandLineUtils.checkInvalidArgs(parser, options, excludeInternalTopicOpt, allTopicLevelOpts -- Set(listOpt, describeOpt))
       CommandLineUtils.checkInvalidArgs(parser, options, mirrorTopicOpt, allTopicLevelOpts - createOpt ++ Set(zkConnectOpt, partitionsOpt, replicaAssignmentOpt))
       CommandLineUtils.checkInvalidArgs(parser, options, linkNameOpt, allTopicLevelOpts - createOpt ++ Set(zkConnectOpt, partitionsOpt, replicaAssignmentOpt))
+      CommandLineUtils.checkInvalidArgs(parser, options, mirrorActionOpt, allTopicLevelOpts -- Set(alterOpt) ++ Set(zkConnectOpt))
     }
   }
 

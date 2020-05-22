@@ -26,13 +26,15 @@ import kafka.utils.{Exit, Logging, TestUtils}
 import kafka.zk.{ConfigEntityChangeNotificationZNode, DeleteTopicsTopicZNode}
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.clients.admin._
-import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.{KafkaFuture, Node, TopicPartition}
 import org.apache.kafka.common.config.{ConfigException, ConfigResource, ConfluentTopicConfig, TopicConfig}
 import org.apache.kafka.common.errors._
-import org.apache.kafka.common.internals.Topic
+import org.apache.kafka.common.internals.{KafkaFutureImpl, Topic}
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.protocol.Errors
+import org.apache.kafka.common.requests.{AlterMirrorsRequest, AlterMirrorsResponse}
 import org.apache.kafka.common.security.auth.SecurityProtocol
+import org.easymock.EasyMock
 import org.junit.Assert.{assertEquals, assertFalse, assertTrue}
 import org.junit.rules.TestName
 import org.junit.{After, Before, Rule, Test}
@@ -1230,4 +1232,60 @@ class TopicCommandWithAdminClientTest extends KafkaServerTestHarness with Loggin
         "--mirror-topic", testTopicName, "--link-name", "linked-cluster", "--replica-assignment", "3:0,5:1")))
   }
 
+  @Test
+  def testStopMirror(): Unit = {
+    createAndWaitTopic(new TopicCommandOptions(Array("--topic", testTopicName)))
+
+    var issuedCommand = false
+    val future = new KafkaFutureImpl[AlterMirrorsResponse.Result]
+    future.complete(new AlterMirrorsResponse.StopTopicMirrorResult())
+    val result: AlterMirrorsResult = EasyMock.createNiceMock(classOf[AlterMirrorsResult])
+    EasyMock.expect(result.result()).andReturn(List(future.asInstanceOf[KafkaFuture[AlterMirrorsResponse.Result]]).asJava).once()
+
+    val node = new Node(1, "localhost", 9092)
+    val mockAdminClient = new TestAlterMirrorsAdminClient(node) {
+      override def listTopics(options: ListTopicsOptions): ListTopicsResult = adminClient.listTopics(options)
+
+      override def alterMirrors(ops: java.util.List[AlterMirrorsRequest.Op], options: AlterMirrorsOptions): AlterMirrorsResult = {
+        issuedCommand = true
+        assertEquals(1, ops.size)
+        ops.get(0) match {
+          case op: AlterMirrorsRequest.StopTopicMirrorOp => assertEquals(testTopicName, op.topic)
+          case _ => fail("Unexpected op type")
+        }
+        result
+      }
+    }
+    EasyMock.replay(result)
+    val mockTopicService = AdminClientTopicService(mockAdminClient)
+    mockTopicService.alterTopic(new TopicCommandOptions(Array("--bootstrap-server", brokerList, "--alter",
+      "--mirror-action", "stop", "--topic", testTopicName)))
+    assertTrue(issuedCommand)
+    EasyMock.reset(result)
+  }
+
+  class TestAlterMirrorsAdminClient(node: Node) extends MockAdminClient(java.util.Collections.singletonList(node), node) {
+    override def alterMirrors(ops: java.util.List[AlterMirrorsRequest.Op], options: AlterMirrorsOptions): AlterMirrorsResult =
+      EasyMock.createNiceMock(classOf[AlterMirrorsResponse.Result])
+  }
+
+  @Test
+  def testAlterMirrorBadCommand(): Unit = {
+    assertCheckArgsExitCode(1,
+      new TopicCommandOptions(Array("--bootstrap-server", brokerList, "--delete", "--mirror-action", "stop",
+        "--topic", testTopicName)))
+  }
+
+  @Test
+  def testAlterMirrorBadSubCommand(): Unit = {
+    assertCheckArgsExitCode(1,
+      new TopicCommandOptions(Array("--bootstrap-server", brokerList, "--alter", "--mirror-action", "make-writable",
+        "--topic", testTopicName)))
+  }
+
+  @Test
+  def testAlterMirrorNoTopic(): Unit = {
+    assertCheckArgsExitCode(1,
+      new TopicCommandOptions(Array("--bootstrap-server", brokerList, "--alter", "--mirror-action", "stop")))
+  }
 }
