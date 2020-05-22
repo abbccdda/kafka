@@ -10,7 +10,7 @@ import kafka.cluster.Partition
 import kafka.server.QuotaFactory.UnboundedQuota
 import kafka.server.{KafkaConfig, MetadataCache, ReplicaManager}
 import kafka.utils.TestUtils
-import kafka.zk.{ClusterLinkProps, KafkaZkClient}
+import kafka.zk.KafkaZkClient
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.errors.ClusterAuthorizationException
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
@@ -59,6 +59,7 @@ class ClusterLinkFactoryTest {
     assertSame(ClusterLinkDisabled.LinkManager, clusterLinkManager)
     assertSame(ClusterLinkDisabled.AdminManager, clusterLinkManager.admin)
 
+    verifyClusterLinkDisabled(() => clusterLinkManager.configEncoder)
     verifyClusterLinkDisabled(() => clusterLinkManager.fetcherManager(linkName))
     verifyClusterLinkDisabled(() => clusterLinkManager.clientManager(linkName))
     verifyClusterLinkDisabled(() => clusterLinkManager.addClusterLink(linkName, clusterLinkProps))
@@ -87,7 +88,7 @@ class ClusterLinkFactoryTest {
   }
 
   @Test
-  def testAdminManagerWithClusterLinKDisabled(): Unit = {
+  def testAdminManagerWithClusterLinkDisabled(): Unit = {
     val linkName = "testLink"
     val brokerConfig = createBrokerConfig(enableClusterLink = false)
     clusterLinkManager = createClusterLinkManager(brokerConfig)
@@ -116,7 +117,7 @@ class ClusterLinkFactoryTest {
   private def clusterLinkProps: ClusterLinkProps = {
     val props = new Properties
     props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "localhost:1234")
-    ClusterLinkProps(props, None)
+    ClusterLinkProps(new ClusterLinkConfig(props), None)
   }
 
   private def setupMock(partition: Partition, tp: TopicPartition, linkName: Option[String]): Unit = {

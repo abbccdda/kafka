@@ -85,7 +85,7 @@ public class MergedLogTierBenchmark {
         // setup merged log and tier partition states
         TierPartitionStateFactory partitionStateFactory = new TierPartitionStateFactory(true);
         TierLogComponents tierLogComponents = TierLogComponents.apply(Option.empty(),
-                Option.apply(new MockInMemoryTierObjectStore(new TierObjectStoreConfig("cluster", 1))),
+                Option.apply(new MockInMemoryTierObjectStore(TierObjectStoreConfig.createEmpty())),
                 new TierPartitionStateFactory(true));
         state = partitionStateFactory.initState(logDir,
             topicPartition,

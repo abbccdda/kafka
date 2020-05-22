@@ -18,6 +18,11 @@ class FetchRequestTestUtils {
     static TierObjectStore ioExceptionThrowingTierObjectStore() {
         return new TierObjectStore() {
             @Override
+            public Backend getBackend() {
+                return Backend.Mock;
+            }
+
+            @Override
             public TierObjectStoreResponse getObject(ObjectStoreMetadata objectMetadata, FileType objectFileType, Integer byteOffsetStart, Integer byteOffsetEnd) throws IOException {
                 throw new IOException("");
             }
@@ -62,6 +67,11 @@ class FetchRequestTestUtils {
 
     static TierObjectStore fileReturningTierObjectStore(File offsetIndexFile, File timestampIndexFile) {
         return new TierObjectStore() {
+            @Override
+            public Backend getBackend() {
+                return Backend.Mock;
+            }
+
             @Override
             public TierObjectStoreResponse getObject(ObjectStoreMetadata objectMetadata,
                                                      FileType objectFileType,

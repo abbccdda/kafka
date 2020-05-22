@@ -10,7 +10,7 @@ import kafka.cluster.Partition
 import kafka.server.QuotaFactory.UnboundedQuota
 import kafka.server.{KafkaConfig, MetadataCache, ReplicaManager}
 import kafka.utils.TestUtils
-import kafka.zk.{ClusterLinkData, ClusterLinkProps, KafkaZkClient}
+import kafka.zk.{ClusterLinkData, KafkaZkClient}
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.{Endpoint, TopicPartition}
 import org.apache.kafka.common.errors.{ClusterLinkInUseException, ClusterLinkNotFoundException}
@@ -65,7 +65,7 @@ class ClusterLinkManagerTest {
     }
 
     setupMock(partition0, tp0, Some(linkName))
-    clusterLinkManager.addClusterLink(linkName, clusterLinkProps(linkName))
+    clusterLinkManager.addClusterLink(linkName, clusterLinkProps)
     assertNotEquals(None, clusterLinkManager.fetcherManager(linkName))
     assertNotEquals(None, clusterLinkManager.clientManager(linkName))
     val fetcherManager = clusterLinkManager.fetcherManager(linkName).get
@@ -136,8 +136,7 @@ class ClusterLinkManagerTest {
     val linkName = "testLink"
 
     assertEquals(None, clusterLinkManager.fetcherManager(linkName))
-    val linkProps = clusterLinkProps(linkName)
-    clusterLinkManager.addClusterLink(linkName, linkProps)
+    clusterLinkManager.addClusterLink(linkName, clusterLinkProps)
     val fetcherManager = clusterLinkManager.fetcherManager(linkName).get
     assertEquals(Collections.singletonList("localhost:1234"), fetcherManager.currentConfig.bootstrapServers)
 
@@ -157,10 +156,10 @@ class ClusterLinkManagerTest {
     KafkaConfig.fromProps(props)
   }
 
-  private def clusterLinkProps(linkName: String): ClusterLinkProps = {
+  private def clusterLinkProps: ClusterLinkProps = {
     val props = new Properties
     props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "localhost:1234")
-    ClusterLinkProps(props, None)
+    ClusterLinkProps(new ClusterLinkConfig(props), None)
   }
 
   private def setupMock(partition: Partition, tp: TopicPartition, linkName: Option[String]): Unit = {

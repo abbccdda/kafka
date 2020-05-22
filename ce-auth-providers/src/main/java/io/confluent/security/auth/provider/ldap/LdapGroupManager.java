@@ -265,7 +265,7 @@ public class LdapGroupManager {
         listener.fail("LDAP search failed with exception: " + exception);
     } else {
       log.error("LDAP search failed, search will be retried. Groups from the last successful search will "
-          + "continue to be applied until the configured retry timeout or the next succcessful search.", exception);
+          + "continue to be applied until the configured retry timeout or the next successful search.", exception);
     }
     try {
       if (searchFuture != null) {

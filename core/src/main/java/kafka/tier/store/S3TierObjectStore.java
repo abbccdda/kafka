@@ -34,8 +34,8 @@ import java.util.Optional;
 
 public class S3TierObjectStore implements TierObjectStore {
     private final static Logger log = LoggerFactory.getLogger(S3TierObjectStore.class);
-    private final String clusterId;
-    private final int brokerId;
+    private final Optional<String> clusterIdOpt;
+    private final Optional<Integer> brokerIdOpt;
     private final AmazonS3 client;
     private final String bucket;
     private final String prefix;
@@ -48,14 +48,19 @@ public class S3TierObjectStore implements TierObjectStore {
 
     // used for testing
     S3TierObjectStore(AmazonS3 client, S3TierObjectStoreConfig config) {
-        this.clusterId = config.clusterId;
-        this.brokerId = config.brokerId;
+        this.clusterIdOpt = config.clusterIdOpt;
+        this.brokerIdOpt = config.brokerIdOpt;
         this.client = client;
         this.bucket = config.s3Bucket;
         this.prefix = config.s3Prefix;
         this.sseAlgorithm = config.s3SseAlgorithm;
         this.autoAbortThresholdBytes = config.s3AutoAbortThresholdBytes;
         expectBucket(bucket, config.s3Region);
+    }
+
+    @Override
+    public Backend getBackend() {
+        return Backend.S3;
     }
 
     @Override
@@ -93,7 +98,7 @@ public class S3TierObjectStore implements TierObjectStore {
 
     @Override
     public void putObject(ObjectStoreMetadata objectMetadata, File file, FileType fileType) {
-        Map<String, String> metadata = objectMetadata.objectMetadata(clusterId, brokerId);
+        Map<String, String> metadata = objectMetadata.objectMetadata(clusterIdOpt, brokerIdOpt);
         try {
             putFile(keyPath(objectMetadata, fileType), metadata, file);
         } catch (AmazonClientException e) {
@@ -113,7 +118,7 @@ public class S3TierObjectStore implements TierObjectStore {
                            Optional<File> producerStateSnapshotData,
                            Optional<ByteBuffer> transactionIndexData,
                            Optional<File> epochState) {
-        Map<String, String> metadata = objectMetadata.objectMetadata(clusterId, brokerId);
+        Map<String, String> metadata = objectMetadata.objectMetadata(clusterIdOpt, brokerIdOpt);
 
         try {
             putFile(keyPath(objectMetadata, FileType.SEGMENT), metadata, segmentData);

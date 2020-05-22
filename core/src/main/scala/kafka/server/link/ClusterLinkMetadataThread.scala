@@ -10,7 +10,7 @@ import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.utils.{LogContext, Time}
 import org.apache.kafka.common.Cluster
 
-import scala.collection.{Map, mutable}
+import scala.collection.mutable
 
 trait MetadataListener {
   def onNewMetadata(newCluster: Cluster): Unit
@@ -72,9 +72,10 @@ class ClusterLinkMetadataThread(clusterLinkConfig: ClusterLinkConfig,
       Some(clusterLinkMetadata),
       metadataUpdater = None,
       metrics,
-      Map("link-name" -> clusterLinkMetadata.linkName),
+      ClusterLinkFactory.linkMetricTags(clusterLinkMetadata.linkName),
       time,
       s"cluster-link-metadata-${clusterLinkMetadata.linkName}-broker-${clusterLinkMetadata.brokerConfig.brokerId}",
+      "metadata",
       logContext)
   }
 

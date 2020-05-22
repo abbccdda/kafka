@@ -22,7 +22,7 @@ import java.net.{InetAddress, SocketTimeoutException}
 import java.util
 import java.util.concurrent._
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger, AtomicLong}
-import java.util.Collections
+import java.util.{Collections, Optional}
 import java.util.function.Supplier
 
 import com.typesafe.scalalogging.Logger
@@ -403,9 +403,9 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         val tierTopicManagerConfig = new TierTopicManagerConfig(config, tieredStorageInterBrokerClientConfigsSupplier, _clusterId)
         if (config.tierFeature) {
           tierObjectStoreOpt = config.tierBackend match {
-            case "S3" => Some(new S3TierObjectStore(new S3TierObjectStoreConfig(clusterId, config)))
-            case "GCS" => Some(new GcsTierObjectStore(new GcsTierObjectStoreConfig(clusterId, config)))
-            case "mock" => Some(new MockInMemoryTierObjectStore(new TierObjectStoreConfig(clusterId, config)))
+            case "S3" => Some(new S3TierObjectStore(new S3TierObjectStoreConfig(Optional.of(clusterId), config)))
+            case "GCS" => Some(new GcsTierObjectStore(new GcsTierObjectStoreConfig(Optional.of(clusterId), config)))
+            case "mock" => Some(new MockInMemoryTierObjectStore(new TierObjectStoreConfig(Optional.of(clusterId), config)))
             case v => throw new IllegalStateException(s"Unknown TierObjectStore type: %s".format(v))
           }
           tierFetcherOpt = Some(new TierFetcher(time, new TierFetcherConfig(config), tierObjectStoreOpt.get, kafkaScheduler, metrics, logContext))

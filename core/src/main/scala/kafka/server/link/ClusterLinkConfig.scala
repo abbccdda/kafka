@@ -4,10 +4,12 @@
 
 package kafka.server.link
 
-import java.util.{Collections, Properties}
+import java.util
+import java.util.Collections
 
 import kafka.server.Defaults
 import kafka.server.KafkaConfig._
+import kafka.server.link.ClusterLinkConfig._
 import kafka.server.link.ClusterLinkConfigDefaults._
 import org.apache.kafka.clients.CommonClientConfigs._
 import org.apache.kafka.clients.{ClientDnsLookup, CommonClientConfigs}
@@ -32,17 +34,17 @@ object ClusterLinkConfigDefaults {
   val TopicConfigSyncMsDefault = 5000
 }
 
-case class ClusterLinkConfig(props: java.util.Map[_, _])
-  extends AbstractConfig(ClusterLinkConfig.configDef, props, false) {
+class ClusterLinkConfig(props: util.Map[_, _]) extends AbstractConfig(configDef, props, false) {
 
   val log: Logger = LoggerFactory.getLogger(getClass())
 
-  val numClusterLinkFetchers = getInt(ClusterLinkConfig.NumClusterLinkFetchersProp)
-  val aclSyncEnable = getBoolean(ClusterLinkConfig.AclSyncEnableProp)
-  val aclFilters: Option[AclFiltersJson] = AclJson.parse(getString(
-    ClusterLinkConfig.AclFiltersProp))
-  val aclSyncMs = getInt(ClusterLinkConfig.AclSyncMsProp)
-  val topicConfigSyncMs = getInt(ClusterLinkConfig.TopicConfigSyncMsProp)
+  validate(props)
+
+  val numClusterLinkFetchers = getInt(NumClusterLinkFetchersProp)
+  val aclSyncEnable = getBoolean(AclSyncEnableProp)
+  val aclFilters: Option[AclFiltersJson] = AclJson.parse(getString(AclFiltersProp))
+  val aclSyncMs = getInt(AclSyncMsProp)
+  val topicConfigSyncMs = getInt(TopicConfigSyncMsProp)
   val bootstrapServers = getList(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG)
   val dnsLookup = ClientDnsLookup.forConfig(getString(CommonClientConfigs.CLIENT_DNS_LOOKUP_CONFIG))
   val securityProtocol = SecurityProtocol.forName(getString(SECURITY_PROTOCOL_CONFIG))
@@ -60,7 +62,7 @@ case class ClusterLinkConfig(props: java.util.Map[_, _])
   val metadataRefreshBackoffMs = getLong(CommonClientConfigs.RETRY_BACKOFF_MS_CONFIG)
   val metadataMaxAgeMs = getLong(CommonClientConfigs.METADATA_MAX_AGE_CONFIG)
 
-  val retryTimeoutMs: Int = getInt(ClusterLinkConfig.RetryTimeoutMsProp)
+  val retryTimeoutMs: Int = getInt(RetryTimeoutMsProp)
 }
 
 object ClusterLinkConfig {
@@ -125,7 +127,9 @@ object ClusterLinkConfig {
 
   def configKeys: Map[String, ConfigKey] = configDef.configKeys.asScala.toMap
 
-  def validate(props: Properties): Unit = {
+  def typeOf(name: String): Option[ConfigDef.Type] = Option(configDef.configKeys().get(name)).map(_.`type`)
+
+  private[link] def validate(props: util.Map[_, _]): Unit = {
     val parsedProps = configDef.parse(props)
     val aclSyncEnable = parsedProps.get(AclSyncEnableProp).asInstanceOf[Boolean]
     val aclFilters: String = props.get(AclFiltersProp).asInstanceOf[String]
@@ -135,3 +139,5 @@ object ClusterLinkConfig {
     }
   }
 }
+
+case class ClusterLinkProps(config: ClusterLinkConfig, tenantPrefix: Option[String])

@@ -4,6 +4,8 @@
 
 package kafka.tier.store
 
+import java.util.Optional
+
 import kafka.server.KafkaConfig
 import kafka.utils.TestUtils
 import org.junit.Test
@@ -17,7 +19,7 @@ class S3TierObjectStoreConfigTest {
     props.put(KafkaConfig.TierS3BucketProp, "bucket")
     props.put(KafkaConfig.TierS3RegionProp, "region")
     val kafkaConfig = KafkaConfig.fromProps(props)
-    val s3Config = new S3TierObjectStoreConfig("clusterid", kafkaConfig)
+    val s3Config = new S3TierObjectStoreConfig(Optional.of("clusterid"), kafkaConfig)
     assert(!s3Config.s3AwsAccessKeyId.isPresent)
     assert(!s3Config.s3AwsSecretAccessKey.isPresent)
   }
@@ -30,7 +32,7 @@ class S3TierObjectStoreConfigTest {
     props.put(KafkaConfig.TierS3AwsSecretAccessKeyProp, "secret")
     props.put(KafkaConfig.TierS3AwsAccessKeyIdProp, "keyid")
     val kafkaConfig = KafkaConfig.fromProps(props)
-    val s3Config = new S3TierObjectStoreConfig("clusterid", kafkaConfig)
+    val s3Config = new S3TierObjectStoreConfig(Optional.of("clusterid"), kafkaConfig)
     assert(s3Config.s3AwsAccessKeyId.isPresent)
     assert(s3Config.s3AwsSecretAccessKey.isPresent)
   }
@@ -42,7 +44,7 @@ class S3TierObjectStoreConfigTest {
     props.put(KafkaConfig.TierS3RegionProp, "region")
     props.put(KafkaConfig.TierS3EndpointOverrideProp, "endpoint")
     val kafkaConfig = KafkaConfig.fromProps(props)
-    val s3Config = new S3TierObjectStoreConfig("clusterid", kafkaConfig)
+    val s3Config = new S3TierObjectStoreConfig(Optional.of("clusterid"), kafkaConfig)
     assert(s3Config.s3EndpointOverride.isPresent)
   }
 
@@ -51,7 +53,7 @@ class S3TierObjectStoreConfigTest {
     val props = TestUtils.createBrokerConfig(0, "127.0.0.1:1", port = -1)
     props.put(KafkaConfig.TierS3BucketProp, "bucket")
     val kafkaConfig = KafkaConfig.fromProps(props)
-    assertThrows[IllegalArgumentException]{new S3TierObjectStoreConfig("clusterid", kafkaConfig)}
+    assertThrows[IllegalArgumentException]{new S3TierObjectStoreConfig(Optional.of("clusterid"), kafkaConfig)}
   }
 
   @Test
@@ -61,6 +63,6 @@ class S3TierObjectStoreConfigTest {
     props.put(KafkaConfig.TierS3RegionProp, "region")
     props.put(KafkaConfig.TierS3AwsSecretAccessKeyProp, "secret")
     val kafkaConfig = KafkaConfig.fromProps(props)
-    assertThrows[IllegalArgumentException]{new S3TierObjectStoreConfig("clusterid", kafkaConfig)}
+    assertThrows[IllegalArgumentException]{new S3TierObjectStoreConfig(Optional.of("clusterid"), kafkaConfig)}
   }
 }

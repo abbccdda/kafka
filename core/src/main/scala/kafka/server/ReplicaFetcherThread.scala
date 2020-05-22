@@ -50,14 +50,16 @@ class ReplicaFetcherThread(name: String,
                            time: Time,
                            quota: ReplicaQuota,
                            leaderEndpointBlockingSend: Option[BlockingSend] = None,
-                           logContextOpt: Option[LogContext] = None)
+                           logContextOpt: Option[LogContext] = None,
+                           extraMetricTags: Map[String, String] = Map.empty)
   extends AbstractFetcherThread(name = name,
                                 clientId = name,
                                 sourceBroker = sourceBroker,
                                 failedPartitions,
                                 fetchBackOffMs = brokerConfig.replicaFetchBackoffMs,
                                 isInterruptible = false,
-                                replicaMgr.brokerTopicStats) {
+                                replicaMgr.brokerTopicStats,
+                                extraMetricTags) {
 
   private val replicaId = brokerConfig.brokerId
   private val logContext = logContextOpt.getOrElse(
@@ -66,7 +68,7 @@ class ReplicaFetcherThread(name: String,
 
   private val leaderEndpoint = leaderEndpointBlockingSend.getOrElse(
     ReplicaFetcherBlockingSend(sourceBroker, brokerConfig, metrics, time, fetcherId,
-      s"broker-$replicaId-fetcher-$fetcherId", logContext))
+      s"broker-$replicaId-fetcher-$fetcherId", logContext, extraMetricTags))
 
   // Visible for testing
   private[server] val fetchRequestVersion: Short =

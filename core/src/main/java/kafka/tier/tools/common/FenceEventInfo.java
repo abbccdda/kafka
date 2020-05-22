@@ -1,11 +1,14 @@
 package kafka.tier.tools.common;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -117,6 +120,12 @@ public class FenceEventInfo {
             recordMessageIdBase64(),
             recordOffset()
         );
+    }
+
+    public static List<FenceEventInfo> jsonToList(Path inputJsonFile) throws IOException {
+        return JSON_SERDE.readValue(inputJsonFile.toFile(),
+                new TypeReference<List<FenceEventInfo>>() {
+                });
     }
 }
 

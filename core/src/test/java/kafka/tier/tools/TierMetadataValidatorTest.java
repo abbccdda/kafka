@@ -8,9 +8,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertThrows;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -20,16 +17,18 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
 
 import kafka.server.KafkaConfig;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.TierObjectMetadata;
 import kafka.tier.domain.TierObjectMetadata.State;
+import kafka.tier.fetcher.CancellationContext;
 import kafka.tier.store.TierObjectStore;
 import kafka.tier.store.TierObjectStore.FileType;
 import kafka.tier.store.TierObjectStore.ObjectMetadata;
 import kafka.tier.store.TierObjectStoreConfig;
-import org.junit.After;
+import org.apache.kafka.common.TopicPartition;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -39,9 +38,9 @@ public class TierMetadataValidatorTest {
     TopicIdPartition tid = new TopicIdPartition("a1", UUID.randomUUID(), 0);
     Iterator<TierObjectMetadata> aIterator;
     Iterator<TierObjectMetadata> eIterator;
-    TierMetadataValidator validator;
     TierObjectStore objStore;
-    TierTopicMaterializationUtils mockUtils;
+    private final Function<TopicPartition, Long> constantStartOffsetProducer = topic -> 0L;
+    private final CancellationContext cancellationContext = CancellationContext.newContext();
 
     @Before
     public void setup() throws IOException {
@@ -60,8 +59,7 @@ public class TierMetadataValidatorTest {
         eList.add(new TierObjectMetadata(tid, 0, aList.get(2).objectId(), 2001, 3000, 1, 1000,
             State.SEGMENT_UPLOAD_COMPLETE, false, false, false));
 
-        objStore = TierObjectStoreFactory.getObjectStoreInstance(TierObjectStore.Backend.Mock,
-                new TierObjectStoreConfig("mock_cluster", 42));
+        objStore = TierObjectStoreFactory.getObjectStoreInstance(TierObjectStore.Backend.Mock, TierObjectStoreConfig.createEmpty());
 
         for (TierObjectMetadata tierMetadata : aList) {
             ObjectMetadata metadata = new ObjectMetadata(tierMetadata);
@@ -74,26 +72,9 @@ public class TierMetadataValidatorTest {
 
         aIterator = aList.iterator();
         eIterator = eList.iterator();
-
-        String[] args = {
-                "--metadata-states-dir", "/mnt/kafka",
-                "--validate-tier-storage", "true",
-                "--confluent.tier.backend", "Mock",
-                "--cluster-id", "mock_cluster",
-                "--broker.id", "42"
-        };
-        validator = new TierMetadataValidator(args);
-        mockUtils = mock(TierTopicMaterializationUtils.class);
-        when(mockUtils.getStartOffset(any())).thenReturn(0L);
-        validator.utils = mockUtils;
     }
 
-    @After
-    public void teardown() {
-        validator.close();
-    }
-
-    private File generateDummyTempFiles(String fileName, FileType type, long size)
+    static File generateDummyTempFiles(String fileName, FileType type, long size)
         throws IOException {
         File tempFile = File.createTempFile(fileName, "." + type.suffix());
         byte[] buffer = new byte[4 * (int) size];
@@ -132,7 +113,8 @@ public class TierMetadataValidatorTest {
 
     @Test
     public void basicValidateStatesTest() {
-        assertTrue(validator.isValidStates(aIterator, eIterator, 0));
+        assertTrue(TierMetadataValidator.isValidStates(aIterator, eIterator, 0, Optional.of(objStore),
+                false, cancellationContext, constantStartOffsetProducer));
     }
 
     @Test
@@ -144,7 +126,8 @@ public class TierMetadataValidatorTest {
         aList.set(0, eList.get(0));
         aIterator = aList.iterator();
         eIterator = eList.iterator();
-        assertFalse(validator.isValidStates(aIterator, eIterator, 0));
+        assertFalse(TierMetadataValidator.isValidStates(aIterator, eIterator, 0, Optional.of(objStore),
+                false, cancellationContext, constantStartOffsetProducer));
     }
 
     @Test
@@ -156,12 +139,14 @@ public class TierMetadataValidatorTest {
         aList.set(0, eList.get(0));
         aIterator = aList.iterator();
         eIterator = eList.iterator();
-        assertTrue(validator.isValidStates(aIterator, eIterator, 1001));
+        assertTrue(TierMetadataValidator.isValidStates(aIterator, eIterator, 1001, Optional.of(objStore),
+                false, cancellationContext, constantStartOffsetProducer));
 
         // Same test should fail if firstValidOffset is found in object with a hole.
         aIterator = aList.iterator();
         eIterator = eList.iterator();
-        assertFalse(validator.isValidStates(aIterator, eIterator, 501));
+        assertFalse(TierMetadataValidator.isValidStates(aIterator, eIterator, 501, Optional.of(objStore),
+                false, cancellationContext, constantStartOffsetProducer));
     }
 
     @Test
@@ -177,7 +162,8 @@ public class TierMetadataValidatorTest {
         eList.add(obj);
         aIterator = aList.iterator();
         eIterator = eList.iterator();
-        assertTrue(validator.isValidStates(aIterator, eIterator, 0));
+        assertTrue(TierMetadataValidator.isValidStates(aIterator, eIterator, 0, Optional.of(objStore),
+                false, cancellationContext, constantStartOffsetProducer));
     }
 
     @Test
@@ -204,8 +190,9 @@ public class TierMetadataValidatorTest {
     public void testObjectStoreIgnoresInactiveSegment() {
         TierObjectMetadata deletedMetadata = new TierObjectMetadata(tid, 0, UUID.randomUUID(), 41, 50, 1, 10,
                 State.SEGMENT_DELETE_COMPLETE, false, false, false);
-        when(mockUtils.getStartOffset(any())).thenReturn(deletedMetadata.endOffset() + 1);
-        final TierMetadataValidator.OffsetValidationResult validationResult = validator.verifyObjectInBackend(deletedMetadata, 0, objStore, false);
+        final Function<TopicPartition, Long> startOffsetProducer = topic -> deletedMetadata.endOffset() + 1;
+        final TierMetadataValidator.OffsetValidationResult validationResult = TierMetadataValidator.verifyObjectInBackend(
+                deletedMetadata, 0, objStore, false, cancellationContext, startOffsetProducer);
         assertTrue(validationResult.result);
         assertEquals(deletedMetadata.endOffset() + 1, validationResult.firstValidOffset);
     }
@@ -214,8 +201,9 @@ public class TierMetadataValidatorTest {
     public void testObjectStoreIgnoresFencedSegment() {
         TierObjectMetadata deletedMetadata = new TierObjectMetadata(tid, 0, UUID.randomUUID(), 41, 50, 1, 10,
                 State.SEGMENT_FENCED, false, false, false);
-        when(mockUtils.getStartOffset(any())).thenReturn(20L);
-        TierMetadataValidator.OffsetValidationResult validationResult = validator.verifyObjectInBackend(deletedMetadata, 0, objStore, false);
+        final Function<TopicPartition, Long> startOffsetProducer = topic -> 20L;
+        TierMetadataValidator.OffsetValidationResult validationResult = TierMetadataValidator.verifyObjectInBackend(
+                deletedMetadata, 0, objStore, false, cancellationContext, startOffsetProducer);
         assertTrue(validationResult.result);
     }
 
@@ -223,12 +211,14 @@ public class TierMetadataValidatorTest {
     public void testNonExistentObject() {
         TierObjectMetadata nonExistentMetadata = new TierObjectMetadata(tid, 0, UUID.randomUUID(), 41, 50, 1, 10,
                 State.SEGMENT_UPLOAD_COMPLETE, false, false, false);
-        assertFalse(validator.verifyObjectInBackend(nonExistentMetadata, 0, objStore, false).result);
+        assertFalse(TierMetadataValidator.verifyObjectInBackend(nonExistentMetadata, 0, objStore, false,
+                cancellationContext, constantStartOffsetProducer).result);
     }
 
     @Test
     public void testOffsetScanFailsWithMockBackend() {
-        TierMetadataValidator.OffsetValidationResult validationResult = validator.verifyObjectInBackend(aList.get(0), 0, objStore, true);
+        TierMetadataValidator.OffsetValidationResult validationResult = TierMetadataValidator.verifyObjectInBackend(
+                aList.get(0), 0, objStore, true, cancellationContext, constantStartOffsetProducer);
         assertFalse(validationResult.result);
     }
 }

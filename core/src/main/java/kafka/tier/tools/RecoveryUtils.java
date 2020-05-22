@@ -41,6 +41,14 @@ public class RecoveryUtils {
     public static final String TIER_PROPERTIES_CONF_FILE_DOC =
         "The path to a configuration file containing the required properties";
 
+    public static final String COMPARISON_TOOL_INPUT = "input.json";
+    public static final String COMPARISON_TOOL_INPUT_DOC =
+            "The path to a json file to be accepted as the input to the tool";
+
+    public static final String COMPARISON_TOOL_OUTPUT = "output.json";
+    public static final String COMPARISON_TOOL_OUTPUT_DOC =
+            "The path to a json file where the tool will generate the output";
+
     /**
      * Discovers and returns the number of partitions in the provided topicName.
      * The implementation uses an Admin client to achieve the above.

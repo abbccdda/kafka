@@ -159,7 +159,7 @@ public class TierSegmentReader {
             RecordBatch recordBatch = readBatch(inputStream, segmentSize);
             totalBytesRead += recordBatch.sizeInBytes();
 
-            if (recordBatch.baseOffset() <= targetOffset && recordBatch.lastOffset() >= targetOffset) {
+            if (recordBatch.lastOffset() >= targetOffset) {
                 firstBatch = recordBatch;
                 break;
             }

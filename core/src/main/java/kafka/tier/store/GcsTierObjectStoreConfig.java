@@ -16,8 +16,8 @@ public class GcsTierObjectStoreConfig extends TierObjectStoreConfig {
     public Integer gcsWriteChunkSize;
     public Optional<String> gcsCredFilePath;
 
-    public GcsTierObjectStoreConfig(String clusterId, KafkaConfig config) {
-        super(clusterId, config);
+    public GcsTierObjectStoreConfig(Optional<String> clusterIdOpt, KafkaConfig config) {
+        super(clusterIdOpt, config);
         validateConfig(config);
         this.gcsBucket = config.tierGcsBucket();
         this.gcsRegion = config.tierGcsRegion();
@@ -26,20 +26,28 @@ public class GcsTierObjectStoreConfig extends TierObjectStoreConfig {
         this.gcsCredFilePath = OptionConverters.toJava(config.tierGcsCredFilePath());
     }
 
-    // used for testing
-    GcsTierObjectStoreConfig(String clusterId,
-                             Integer brokerId,
-                             String bucket,
-                             String prefix,
-                             String region,
-                             Integer writeChunkSize,
-                             String credFilePath) {
-        super(clusterId, brokerId);
+    protected GcsTierObjectStoreConfig(Optional<String> clusterIdOpt,
+                                       Optional<Integer> brokerIdOpt,
+                                       String bucket,
+                                       String prefix,
+                                       String region,
+                                       Integer writeChunkSize,
+                                       String credFilePath) {
+        super(clusterIdOpt, brokerIdOpt);
         this.gcsBucket = bucket;
         this.gcsRegion = region;
         this.gcsPrefix = prefix;
         this.gcsWriteChunkSize = writeChunkSize;
         this.gcsCredFilePath = Optional.ofNullable(credFilePath);
+    }
+
+    // used for testing
+    static GcsTierObjectStoreConfig createWithEmptyClusterIdBrokerId(String bucket,
+                                                                     String prefix,
+                                                                     String region,
+                                                                     Integer writeChunkSize,
+                                                                     String credFilePath) {
+        return new GcsTierObjectStoreConfig(Optional.empty(), Optional.empty(), bucket, prefix, region, writeChunkSize, credFilePath);
     }
 
     private void validateConfig(KafkaConfig config) {

@@ -52,9 +52,10 @@ object ClusterLinkFetcherThread {
       metadata = None,
       Some(new ManualMetadataUpdater),
       metrics,
-      Map("link-name" -> clusterLinkMetadata.linkName, "broker-id" -> sourceBroker.id.toString, "fetcher-id" -> fetcherId.toString),
+      ClusterLinkFactory.linkMetricTags(clusterLinkMetadata.linkName) ++ Map("broker-id" -> sourceBroker.id.toString, "fetcher-id" -> fetcherId.toString),
       time,
       s"link-${clusterLinkMetadata.linkName}-broker-$brokerId-fetcher-$fetcherId",
+      "fetcher",
       logContext
     )
     val leaderEndpoint = new ReplicaFetcherBlockingSend(sourceBroker,
@@ -97,7 +98,8 @@ class ClusterLinkFetcherThread(name: String,
                                time = time,
                                quota,
                                Some(leaderEndpointBlockingSend),
-                               logContextOpt) {
+                               logContextOpt,
+                               ClusterLinkFactory.linkMetricTags(clusterLinkMetadata.linkName)) {
 
   private val maxWait = clusterLinkConfig.replicaFetchWaitMaxMs
   private val minBytes = clusterLinkConfig.replicaFetchMinBytes

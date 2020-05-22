@@ -30,7 +30,7 @@ import kafka.controller.{IsrChangeNotificationHandler, LeaderIsrAndControllerEpo
 import kafka.security.authorizer.AclAuthorizer.VersionedAcls
 import kafka.security.authorizer.AclEntry
 import kafka.server.{ConfigType, DelegationTokenManager}
-import kafka.server.link.{ClusterLinkConfig, ClusterLinkTopicState}
+import kafka.server.link.ClusterLinkTopicState
 import kafka.utils.Json
 import kafka.utils.json.JsonObject
 import org.apache.kafka.common.{KafkaException, TopicPartition}
@@ -806,18 +806,6 @@ object ClusterLinksZNode {
 }
 
 case class ClusterLinkData(linkName: String, linkId: UUID, clusterId: Option[String])
-case class ClusterLinkProps(configs: Properties, tenantPrefix: Option[String]) {
-  val persistentProps: Properties = new Properties()
-  persistentProps.putAll(configs)
-  tenantPrefix.foreach(persistentProps.put(ClusterLinkConfig.TenantPrefixProp, _))
-}
-
-object ClusterLinkProps {
-  def fromPersistentProps(props: Properties): ClusterLinkProps = {
-    val tenantPrefix = props.remove(ClusterLinkConfig.TenantPrefixProp).asInstanceOf[String]
-    ClusterLinkProps(props, Option(tenantPrefix))
-  }
-}
 
 object ClusterLinkZNode {
   def path(linkName: String) = s"${ClusterLinksZNode.path}/$linkName"

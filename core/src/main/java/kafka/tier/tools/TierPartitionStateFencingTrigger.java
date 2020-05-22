@@ -18,6 +18,7 @@ import java.util.concurrent.ExecutionException;
 import kafka.server.KafkaConfig;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.domain.TierPartitionFence;
+import kafka.tier.tools.common.FenceEventInfo;
 import kafka.tier.topic.TierTopic;
 
 import kafka.utils.CoreUtils;
@@ -82,8 +83,8 @@ public class TierPartitionStateFencingTrigger {
         return parser;
     }
 
-    // Main entry point for the CLI tool.
-    private static List<kafka.tier.tools.common.FenceEventInfo> run(ArgumentParser parser, Namespace args)
+    // Main entry point for the CLI tool. This picks the sub-command logic to run.
+    private static List<FenceEventInfo> run(ArgumentParser parser, Namespace args)
         throws ArgumentParserException, InterruptedException, ExecutionException {
         final String propertiesConfFile =
             args.getString(RecoveryUtils.TIER_PROPERTIES_CONF_FILE_CONFIG).trim();
@@ -140,12 +141,12 @@ public class TierPartitionStateFencingTrigger {
         return injectFencingEvents(bootstrapServers, tierTopicNamespace, tieredTopicIdPartitions);
     }
 
-    public static List<kafka.tier.tools.common.FenceEventInfo> injectFencingEvents(
+    public static List<FenceEventInfo> injectFencingEvents(
         String bootstrapServers,
         String tierTopicNamespace,
         List<TopicIdPartition> tieredTopicIdPartitions) throws ExecutionException, InterruptedException {
         final String tierTopicName = TierTopic.topicName(tierTopicNamespace);
-        final List<kafka.tier.tools.common.FenceEventInfo> events = new ArrayList<>();
+        final List<FenceEventInfo> events = new ArrayList<>();
         Producer<byte[], byte[]> producer = null;
         try {
             short numTierTopicPartitions = RecoveryUtils.getNumPartitions(
@@ -161,7 +162,7 @@ public class TierPartitionStateFencingTrigger {
                 final RecordMetadata metadata = RecoveryUtils.injectTierTopicEvent(
                     producer, fencingEvent, tierTopicName, numTierTopicPartitions);
                 events.add(
-                    new kafka.tier.tools.common.FenceEventInfo(
+                    new FenceEventInfo(
                         tieredPartition.topic(),
                         tieredPartition.topicIdAsBase64(),
                         tieredPartition.partition(),
@@ -180,11 +181,10 @@ public class TierPartitionStateFencingTrigger {
     }
 
     public static void main(String[] args) throws Exception {
-        System.out.println(kafka.tier.tools.common.FenceEventInfo.listToJson(runMain(args)));
+        System.out.println(FenceEventInfo.listToJson(runMain(args)));
     }
 
-    public static List<kafka.tier.tools.common.FenceEventInfo> runMain(String[] args)
-        throws ArgumentParserException, ExecutionException, InterruptedException {
+    public static List<FenceEventInfo> runMain(String[] args) throws Exception {
         final  ArgumentParser parser = TierPartitionStateFencingTrigger.createArgParser();
         try {
             return run(parser, parser.parseArgs(args));

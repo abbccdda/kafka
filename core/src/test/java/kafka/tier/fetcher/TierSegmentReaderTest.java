@@ -113,6 +113,80 @@ public class TierSegmentReaderTest {
     }
 
     @Test
+    public void testReadRecordsMissingRecordsBetweenBatches() throws IOException {
+        SimpleRecord[] simpleRecords = new SimpleRecord[] {
+                new SimpleRecord(1L, "foo".getBytes(), "1".getBytes()),
+                new SimpleRecord(2L, "b".getBytes(), "2".getBytes()),
+                new SimpleRecord(3L, "c".getBytes(), "3".getBytes())
+        };
+        ByteBuffer records1 = MemoryRecords.withRecords(RecordBatch.MAGIC_VALUE_V2, 3L,
+                CompressionType.NONE,
+                TimestampType.CREATE_TIME, simpleRecords).buffer();
+        ByteBuffer records2 = MemoryRecords.withRecords(RecordBatch.MAGIC_VALUE_V2, 6L,
+                CompressionType.NONE, TimestampType.CREATE_TIME, simpleRecords).buffer();
+        ByteBuffer records3 = MemoryRecords.withRecords(RecordBatch.MAGIC_VALUE_V2, 12L,
+                CompressionType.NONE, TimestampType.CREATE_TIME, simpleRecords).buffer();
+        ByteBuffer combinedBuffer = ByteBuffer.allocate(records1.limit() + records2.limit() + records3.limit());
+        combinedBuffer.put(records1);
+        combinedBuffer.put(records2);
+        combinedBuffer.put(records3);
+        combinedBuffer.flip();
+
+        // first batch missing records for target offset
+        testExpected(combinedBuffer, 0L, 3L, 14L);
+        testExpected(combinedBuffer, 1L, 3L, 14L);
+        testExpected(combinedBuffer, 2L, 3L, 14L);
+        // target offset records exist
+        testExpected(combinedBuffer, 3L, 3L, 14L);
+        testExpected(combinedBuffer, 4L, 3L, 14L);
+        testExpected(combinedBuffer, 5L, 3L, 14L);
+        testExpected(combinedBuffer, 6L, 6L, 14L);
+        testExpected(combinedBuffer, 7L, 6L, 14L);
+        testExpected(combinedBuffer, 8L, 6L, 14L);
+        // offset holes between batches
+        testExpected(combinedBuffer, 9L, 12L, 14L);
+        testExpected(combinedBuffer, 10L, 12L, 14L);
+        testExpected(combinedBuffer, 11L, 12L, 14L);
+        testExpected(combinedBuffer, 12L, 12L, 14L);
+        testExpected(combinedBuffer, 13L, 12L, 14L);
+        testExpected(combinedBuffer, 14L, 12L, 14L);
+        // offset not present
+        testThrows(reader, combinedBuffer, 15L, EOFException.class);
+    }
+
+    @Test
+    public void testReadRecordsMissingRecordsWithinBatch() throws IOException {
+        SimpleRecord[] simpleRecords = new SimpleRecord[] {
+                new SimpleRecord(1L, "foo".getBytes(), "1".getBytes()),
+                new SimpleRecord(2L, "b".getBytes(), "2".getBytes()),
+                new SimpleRecord(3L, "c".getBytes(), "3".getBytes())
+        };
+        ByteBuffer buffer = ByteBuffer.allocate(simpleRecords.length);
+        MemoryRecordsBuilder builder = MemoryRecords.builder(buffer, RecordBatch.CURRENT_MAGIC_VALUE, CompressionType.NONE,
+                TimestampType.LOG_APPEND_TIME, 1L, System.currentTimeMillis(), 0);
+        builder.appendWithOffset(3L, simpleRecords[0]);
+        builder.appendWithOffset(5L, simpleRecords[1]);
+        ByteBuffer records = builder.build().buffer();
+
+        ByteBuffer combinedBuffer = ByteBuffer.allocate(records.limit());
+        combinedBuffer.put(records);
+        combinedBuffer.flip();
+
+        // first batch missing records for target offset
+        testExpected(combinedBuffer, 0L, 1L, 5L);
+        testExpected(combinedBuffer, 1L, 1L, 5L);
+        testExpected(combinedBuffer, 2L, 1L, 5L);
+        // target offset records exist
+        testExpected(combinedBuffer, 3L, 1L, 5L);
+        testExpected(combinedBuffer, 5L, 1L, 5L);
+        // offset holes between records
+        testExpected(combinedBuffer, 4L, 1L, 5L);
+        // offset not present
+        testThrows(reader, combinedBuffer, 6L, EOFException.class);
+    }
+
+
+    @Test
     public void testReadRecordsOneBatchAlignedBoundaries() throws IOException {
         List<MemoryRecords> batches = createBatches();
         int batchSize = batches.get(0).sizeInBytes();

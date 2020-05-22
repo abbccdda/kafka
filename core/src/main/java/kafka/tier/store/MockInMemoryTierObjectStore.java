@@ -42,6 +42,11 @@ public class MockInMemoryTierObjectStore implements TierObjectStore, AutoCloseab
     }
 
     @Override
+    public Backend getBackend() {
+        return Backend.Mock;
+    }
+
+    @Override
     public TierObjectStoreResponse getObject(ObjectStoreMetadata objectMetadata,
                                              FileType objectFileType,
                                              Integer byteOffset,

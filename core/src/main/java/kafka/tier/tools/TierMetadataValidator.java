@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.function.Function;
 
 import joptsimple.OptionParser;
 import joptsimple.OptionSet;
@@ -64,10 +65,10 @@ import org.apache.kafka.common.record.RecordBatch;
  * validator/scrubber which may run from separate system and may call this after collecting all state files.
  */
 public class TierMetadataValidator implements AutoCloseable {
-    private HashMap<TopicIdPartition, TierMetadataValidatorRecord> stateMap = new HashMap<>();
+    private Map<TopicIdPartition, TierMetadataValidatorRecord> stateMap = new HashMap<>();
     public final String metadataStatesDir;
     public final String workDir;
-    private final String snapshotDirSuffix = "snapshots";
+    private static final String SNAPSHOT_DIR_SUFFIX = "snapshots";
     public Properties props;
     private TierObjectStore objectStore;
     private boolean validateAgainstObjectStore;
@@ -76,8 +77,8 @@ public class TierMetadataValidator implements AutoCloseable {
     // Use utils to materialize various tier state file. This is initialized in the run() method.
     TierTopicMaterializationUtils utils;
     // The following args are specific to validation against the S3 object store
-    private final int objectStoreRetryCount = 3;
-    private final long objectStoreBackoffMS = 1000L;
+    private static final int OBJECT_STORE_RETRY_COUNT = 3;
+    private static final long OBJECT_STORE_BACKOFF_MS = 1000L;
     private final CancellationContext cancellationContext;
     private static final String OFFSET_SCAN_PREFIX = "[OFFSET_SCAN] ";
 
@@ -190,12 +191,13 @@ public class TierMetadataValidator implements AutoCloseable {
         }
     }
 
-    private String getSnapshotDir(String dir) {
-        return Paths.get(dir, snapshotDirSuffix).toString();
+    static String getSnapshotDir(String dir) {
+        return Paths.get(dir, SNAPSHOT_DIR_SUFFIX).toString();
     }
 
-    private Path getSnapshotFilePath(TopicPartition id) {
-        return Paths.get(getSnapshotDir(this.workDir), id.topic() + "-" + id.partition());
+    // exposed for tests
+    static Path getSnapshotFilePath(TopicPartition id, String baseDir) {
+        return Paths.get(baseDir, id.topic() + "-" + id.partition());
     }
 
     public void run() throws IOException {
@@ -203,13 +205,16 @@ public class TierMetadataValidator implements AutoCloseable {
 
         System.out.println("**** Fetching target partition states from folder. \n");
         // Create snapshot of all the state files.
-        if (this.props.get(TierTopicMaterializationToolConfig.SNAPSHOT_STATES_FILES).equals(false))
-            snapshotStateFiles(new File(getSnapshotDir(this.workDir)), false);
+        final boolean skipPopulate = this.props.get(TierTopicMaterializationToolConfig.SNAPSHOT_STATES_FILES).equals(false);
+        final File tierStateFolder;
+        if (skipPopulate)
+            tierStateFolder = new File(getSnapshotDir(this.workDir));
         else
-            snapshotStateFiles(new File(props.getProperty(TierTopicMaterializationToolConfig.METADATA_STATES_DIR)), true);
+            tierStateFolder = new File(props.getProperty(TierTopicMaterializationToolConfig.METADATA_STATES_DIR));
+        this.stateMap = snapshotStateFiles(tierStateFolder, !skipPopulate, this.workDir);
 
         // Calculate the maximum offset needed.
-        HashMap<TopicIdPartition, Long> offsetMap = new HashMap();
+        HashMap<TopicIdPartition, Long> offsetMap = new HashMap<>();
         for (Map.Entry<TopicIdPartition, TierMetadataValidatorRecord> entry : stateMap.entrySet()) {
             TopicIdPartition id = entry.getKey();
             offsetMap.put(id, entry.getValue().maxOffset);
@@ -251,15 +256,20 @@ public class TierMetadataValidator implements AutoCloseable {
      * populated.
      * Also, process each states file by reading its header and initializing its properties like
      * lastLocalOffset etc.
+     *
      * @param tierStateFolder path of snapshot folder if populate is false else path of live data log folder.
-     * @param populate if true than copy live tierState file of user partitions to snapshot folder.
-     * @throws IOException
-     * In case of unhandled exception we will let the exception terminate the application.
+     * @param populate        if true than copy live tierState file of user partitions to snapshot folder.
+     * @param workDir         current workDir to generate the snapshots directory in case we want to copy from the broker
+     * @return the map containing the details of the materialized file per topicIdPartition
+     * @throws IOException In case of unhandled exception we will let the exception terminate the application.
      */
-    private void snapshotStateFiles(File tierStateFolder, boolean populate) throws IOException {
+    static Map<TopicIdPartition, TierMetadataValidatorRecord> snapshotStateFiles(File tierStateFolder, boolean populate,
+                                                                                 String workDir) throws IOException {
         if (!tierStateFolder.isDirectory()) {
             throw new IllegalStateException(tierStateFolder + " is not metadata states directory");
         }
+
+        Map<TopicIdPartition, TierMetadataValidatorRecord> stateMap = new HashMap<>();
 
         for (File dir: tierStateFolder.listFiles()) {
             if (dir.isDirectory()) {
@@ -274,16 +284,19 @@ public class TierMetadataValidator implements AutoCloseable {
                     continue;
                 }
 
-                File snapShotFile = getSnapshotFilePath(topicPartition).toFile();
+                // If populate is true, we would need to generate the snapshots folder from the workdir, otherwise
+                // the provided tierStateFolder itself should be the snapshots folder
+                File snapshotFile = populate ? getSnapshotFilePath(topicPartition, getSnapshotDir(workDir)).toFile() :
+                        getSnapshotFilePath(topicPartition, tierStateFolder.getAbsolutePath()).toFile();
                 if (populate) {
-                    if (!snapShotFile.exists())
-                        snapShotFile.mkdir();
+                    if (!snapshotFile.exists())
+                        snapshotFile.mkdir();
                     System.out.println("Found TierTopicPartition dir " + dir.toPath());
                 }
 
                 for (File file: dir.listFiles()) {
                     if (file.isFile() && Log.isTierStateFile(file)) {
-                        Path ss = Paths.get(snapShotFile.toString(), file.getName());
+                        Path ss = Paths.get(snapshotFile.toString(), file.getName());
                         if (populate) {
                             System.out.println("Taking snapshot of partition states for " + topicPartition);
                             Files.copy(file.toPath(), ss);
@@ -300,6 +313,7 @@ public class TierMetadataValidator implements AutoCloseable {
         if (stateMap.isEmpty()) {
             throw new IllegalStateException("Can not find any metadata states file in " + tierStateFolder);
         }
+        return stateMap;
     }
 
     /**
@@ -308,7 +322,7 @@ public class TierMetadataValidator implements AutoCloseable {
      * There can be scenario when 'startOffset' may not be available -say verifying from recorded states,
      * the method will find the first metadata state which represents an active mapping.
      */
-    private boolean mayBeActiveObject(long startOffset, TierObjectMetadata metadata) {
+    private static boolean mayBeActiveObject(long startOffset, TierObjectMetadata metadata) {
         List<State> inActiveStateList = ImmutableList.of(State.SEGMENT_FENCED,
             State.SEGMENT_DELETE_COMPLETE, State.SEGMENT_DELETE_INITIATE, State.SEGMENT_UPLOAD_INITIATE);
         List<State> nonCommittedList = ImmutableList.of(State.SEGMENT_FENCED);
@@ -324,16 +338,64 @@ public class TierMetadataValidator implements AutoCloseable {
      * file are valid or not (basically check for any offset range).
      */
     public boolean validateStates(Path expected, Path actual, TopicPartition id, long startOffset) throws IOException {
-        FileChannel achannel = FileChannel.open(actual, StandardOpenOption.READ);
-        FileChannel echannel = FileChannel.open(expected, StandardOpenOption.READ);
-        FileTierPartitionIterator eiterator = FileTierPartitionState.iterator(id, echannel).get();
-        FileTierPartitionIterator aiterator = FileTierPartitionState.iterator(id, achannel).get();
+        FileTierPartitionIterator eiterator = getTierPartitionIterator(id, expected);
+        FileTierPartitionIterator aiterator = getTierPartitionIterator(id, actual);
 
-        if (!comparesStates(actual, expected) || !isValidStates(eiterator, aiterator, startOffset)) {
+        Optional<TierObjectStore> objectStoreOpt = Optional.ofNullable(objectStore);
+
+        if (!comparesStates(actual, expected) || !isValidStates(eiterator, aiterator, startOffset, objectStoreOpt,
+                verifyOffsetScanAgainstObjectStore, cancellationContext, utils::getStartOffset)) {
             System.out.println("Metadata inconsistencies(" + id + ") " + actual + "Vs " + expected);
             return false;
         }
         return true;
+    }
+
+    /**
+     * This is a utility function through the TierMetadataValidator will make sure whether the provided tierstate file
+     * has any inconsistencies in it.
+     * The inconsistencies could be of various types, including non-contiguous offset ranges or unexpected offset gap
+     * found in the remote segment pointed to by the tierstate file.
+     * However, to make sure that the validator has a way to ignore such issues for inactive offsets, the user would
+     * also have to provide a startOffsetProducer which would be used to check for startOffset changes.
+     * For tests, it's okay to provide a constant producer such as
+     * Function<TopicPartition, Long> startOffsetProducer = topic -> 0L;
+     *
+     * @param tierStateFile       the Path to the .tierstate to be verified
+     * @param id                  topicIdPartition that is described by the tierstate file
+     * @param objStoreOpt         optional instance of the backend object store, if defined, then we should verify object presence
+     * @param verifyOffsetScan    boolean flag to indicate if we need to scan the offsets for inconsistencies in the remote segment files
+     * @param cancellationContext used for cancelling long-running verification tasks in case the tool is shutting down
+     * @param startOffsetProducer lambda used to fetch the latest firstValidOffset in case we see missing segment files
+     * @return validatorResult the validation result object
+     * @throws IOException This may be thrown due to accessing the tierstate file from local disk
+     */
+    static TierMetadataValidatorResult validateStandaloneTierStateFile(Path tierStateFile, TopicIdPartition id,
+                                                                       Optional<TierObjectStore> objStoreOpt,
+                                                                       boolean verifyOffsetScan,
+                                                                       CancellationContext cancellationContext,
+                                                                       Function<TopicPartition, Long> startOffsetProducer) throws IOException {
+        long currentStartOffset = startOffsetProducer.apply(id.topicPartition());
+        Path copiedTierStateFile = Paths.get(tierStateFile.toUri());
+        FileTierPartitionIterator expIterator = TierMetadataValidator.getTierPartitionIterator(id.topicPartition(), tierStateFile);
+        FileTierPartitionIterator actIterator = getTierPartitionIterator(id.topicPartition(), copiedTierStateFile);
+        boolean isValid = isValidStates(expIterator, actIterator, currentStartOffset, objStoreOpt, verifyOffsetScan,
+                cancellationContext, startOffsetProducer);
+        final Optional<Header> headerOpt = FileTierPartitionState.readHeader(
+                FileChannel.open(tierStateFile, StandardOpenOption.READ));
+        if (isValid && headerOpt.isPresent()) {
+            System.out.println("Metadata state is consistent for file: " + tierStateFile);
+        } else {
+            System.out.println("Metadata state is inconsistent for file: " + tierStateFile);
+        }
+        return new TierMetadataValidatorResult(isValid, headerOpt);
+    }
+
+    static FileTierPartitionIterator getTierPartitionIterator(TopicPartition id, Path tierstateFile) throws IOException {
+        FileChannel channel = FileChannel.open(tierstateFile, StandardOpenOption.READ);
+        return FileTierPartitionState.iterator(id, channel).orElseGet(() -> {
+            throw new IllegalStateException("Couldn't create tierPartitionIterator for: " + id + " from file: " + tierstateFile);
+        });
     }
 
     /**
@@ -366,31 +428,34 @@ public class TierMetadataValidator implements AutoCloseable {
         return true;
     }
 
-    private boolean objectExistsOnTierStore(TierObjectMetadata tierMetadata, TierObjectStore objStore, boolean offsetScan) {
+    private static boolean objectExistsOnTierStore(TierObjectMetadata tierMetadata, TierObjectStore objStore,
+                                                   boolean offsetScan, CancellationContext cancellationContext) {
         try {
-            return checkObjectStoreExistenceWithRetries(tierMetadata, objStore, offsetScan, 0);
+            return checkObjectStoreExistenceWithRetries(tierMetadata, objStore, offsetScan, 0, cancellationContext);
         } catch (InterruptedException e) {
             System.err.println("Interrupted while retrying for checkObjectStoreExistenceWithRetries with object(" + tierMetadata + "): " + e);
             return false;
         }
     }
 
-    private boolean checkObjectStoreExistenceWithRetries(TierObjectMetadata tierMetadata, TierObjectStore objStore, boolean offsetScan,
-                                                         int retryCount) throws InterruptedException {
-        if (retryCount >= objectStoreRetryCount) {
+    private static boolean checkObjectStoreExistenceWithRetries(TierObjectMetadata tierMetadata, TierObjectStore objStore,
+                                                                boolean offsetScan, int retryCount,
+                                                                CancellationContext cancellationContext) throws InterruptedException {
+        if (retryCount >= OBJECT_STORE_RETRY_COUNT) {
             System.err.println("checkObjectStoreExistenceWithRetries reached maximum retries #" + retryCount + " for object: " + tierMetadata);
             return false;
         }
         ObjectMetadata objMetadata = new ObjectMetadata(tierMetadata);
         try {
             TierObjectStoreResponse objStoreResponse = objStore.getObject(objMetadata, FileType.SEGMENT);
-            return handleObjectStoreResponse(objStoreResponse, tierMetadata, offsetScan);
+            return handleObjectStoreResponse(objStoreResponse, tierMetadata, offsetScan, objStore.getBackend(), cancellationContext);
         } catch (TierObjectStoreRetriableException e) {
             System.err.println("Received Transient error from ObjectStore: " + e.getCause() + ", will retry: " + e);
-            long sleepDuration = objectStoreBackoffMS * (1 + retryCount);
+            long sleepDuration = OBJECT_STORE_BACKOFF_MS * (1 + retryCount);
             System.out.println("ObjectStore retryCount#" + retryCount + ". Going to sleep for " + sleepDuration + "ms");
             Thread.sleep(sleepDuration);
-            return checkObjectStoreExistenceWithRetries(tierMetadata, objStore, offsetScan, retryCount + 1);
+            return checkObjectStoreExistenceWithRetries(tierMetadata, objStore, offsetScan, retryCount + 1,
+                    cancellationContext);
         } catch (Exception e) {
             System.err.println("ObjectStore: " + objStore + " actualObj: " + tierMetadata + " raised fatal error: " + e);
             return false;
@@ -415,7 +480,8 @@ public class TierMetadataValidator implements AutoCloseable {
      * @param offsetScan  The boolean flag to indicate whether the offset of batches would be scanned within the response
      * @return True if the object verification went okay
      */
-    private boolean handleObjectStoreResponse(TierObjectStoreResponse response, TierObjectMetadata object, boolean offsetScan) {
+    private static boolean handleObjectStoreResponse(TierObjectStoreResponse response, TierObjectMetadata object,
+                                                     boolean offsetScan, Backend backend, CancellationContext cancellationContext) {
         try (InputStream inputStream = response.getInputStream()) {
             if (offsetScan) {
                 if (backend != Backend.S3) {
@@ -478,16 +544,17 @@ public class TierMetadataValidator implements AutoCloseable {
      * @param firstValidOffset the first valid offset on the tier topic partition
      * @param objStore the object store instance
      * @param offsetScan boolean flag indicating whether to perform the offset scan on the segment file
+     * @param startOffsetProducer a producer function that will be called to fetch the refreshed firstValidOffset
      * @return A tuple with the verification result and the firstValidOffset, to avoid further active segment lookups for the same iterator
      */
-    OffsetValidationResult verifyObjectInBackend(TierObjectMetadata objectMetadata, long firstValidOffset, TierObjectStore objStore, boolean offsetScan) {
-        boolean objectPresentInTierStore = objectExistsOnTierStore(objectMetadata, objStore, offsetScan);
+    static OffsetValidationResult verifyObjectInBackend(TierObjectMetadata objectMetadata, long firstValidOffset,
+                                                        TierObjectStore objStore, boolean offsetScan,
+                                                        CancellationContext cancellationContext,
+                                                        Function<TopicPartition, Long> startOffsetProducer) {
+        boolean objectPresentInTierStore = objectExistsOnTierStore(objectMetadata, objStore, offsetScan, cancellationContext);
         OffsetValidationResult result = new OffsetValidationResult(true, firstValidOffset);
         if (!objectPresentInTierStore) {
-            if (utils == null) {
-                throw new IllegalStateException("Can't refresh firstValidOffset since utils is uninitialized!");
-            }
-            long updatedFirstValidOffset = utils.getStartOffset(objectMetadata.topicIdPartition().topicPartition());
+            long updatedFirstValidOffset = startOffsetProducer.apply(objectMetadata.topicIdPartition().topicPartition());
             boolean activeSegment = true;
             if (updatedFirstValidOffset > firstValidOffset) {
                 // Here we are trying to see if the firstValidOffset has been updated in the broker and
@@ -511,13 +578,15 @@ public class TierMetadataValidator implements AutoCloseable {
         return result;
     }
 
-    public boolean isValidStates(Iterator<TierObjectMetadata> eIterator, Iterator<TierObjectMetadata> aIterator,
-                        long firstValidOffset) {
+    public static boolean isValidStates(Iterator<TierObjectMetadata> eIterator, Iterator<TierObjectMetadata> aIterator,
+                                        long firstValidOffset, Optional<TierObjectStore> objectStoreOpt, boolean verifyOffsetScan,
+                                        CancellationContext cancellationContext,
+                                        Function<TopicPartition, Long> startOffsetProducer) {
         long prevEndOffset = -1;
 
         while (eIterator.hasNext()) {
             if (!aIterator.hasNext()) {
-                System.err.println("Metadata inconsistency(more states).");
+                System.err.println("Metadata inconsistency(more states) for #expected > #actual");
                 return false;
             }
 
@@ -541,9 +610,9 @@ public class TierMetadataValidator implements AutoCloseable {
                         // offset etc. None of this is possible for active offsets (offset which is
                         // active for reading). Since this is inactive offset range, we will ignore.
                     }
-                } else if (validateAgainstObjectStore && active && actualObject.state() == State.SEGMENT_UPLOAD_COMPLETE) {
-                    OffsetValidationResult result = verifyObjectInBackend(actualObject, firstValidOffset, objectStore,
-                            verifyOffsetScanAgainstObjectStore);
+                } else if (objectStoreOpt.isPresent() && active && actualObject.state() == State.SEGMENT_UPLOAD_COMPLETE) {
+                    OffsetValidationResult result = verifyObjectInBackend(actualObject, firstValidOffset, objectStoreOpt.get(),
+                            verifyOffsetScan, cancellationContext, startOffsetProducer);
                     if (result.firstValidOffset > firstValidOffset) {
                         firstValidOffset = result.firstValidOffset;
                     }
@@ -560,7 +629,7 @@ public class TierMetadataValidator implements AutoCloseable {
         }
 
         if (aIterator.hasNext()) {
-            System.err.println("Metadata inconsistency(more states).");
+            System.err.println("Metadata inconsistency(more states) for #expected < #actual");
             return false;
         }
         return true;
@@ -577,7 +646,17 @@ public class TierMetadataValidator implements AutoCloseable {
         }
     }
 
-    private class TierMetadataValidatorRecord {
+    static class TierMetadataValidatorResult {
+        final boolean valid;
+        final Optional<Header> headerOpt;
+
+        public TierMetadataValidatorResult(final boolean valid, final Optional<Header> headerOpt) {
+            this.valid = valid;
+            this.headerOpt = headerOpt;
+        }
+    }
+
+    static class TierMetadataValidatorRecord {
         public Path snapshot;
         public TopicIdPartition id;
         public long maxOffset;
@@ -591,6 +670,15 @@ public class TierMetadataValidator implements AutoCloseable {
             this.snapshot = stateFile;
             this.id = new TopicIdPartition(topicPartition.topic(), header.topicId(), topicPartition.partition());
             this.maxOffset = header.localMaterializedOffsetAndEpoch().offset();
+        }
+
+        @Override
+        public String toString() {
+            return "TierMetadataValidatorRecord{" +
+                    "snapshot=" + snapshot +
+                    ", id=" + id +
+                    ", maxOffset=" + maxOffset +
+                    '}';
         }
     }
 

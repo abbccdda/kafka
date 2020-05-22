@@ -80,6 +80,11 @@ mvn-docker-package: docker-login
 	docker tag $(DOCKER_REPO)/confluentinc/$(IMAGE_NAME):$(IMAGE_VERSION) \
 		confluentinc/$(IMAGE_NAME):$(IMAGE_VERSION)
 
+ifeq ($(CI),true)
+	docker image save confluentinc/$(IMAGE_NAME):$(IMAGE_VERSION) | gzip | \
+		artifact push project /dev/stdin -d docker/$(BRANCH_NAME)/$(IMAGE_VERSION).tgz --force
+endif
+
 .PHONY: show-maven
 show-maven:
 	@echo "MVN:                     $(MVN)"

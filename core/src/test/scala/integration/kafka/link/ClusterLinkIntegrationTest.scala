@@ -10,14 +10,16 @@ import java.util
 import java.util.{Collections, Properties}
 import java.util.concurrent.{ExecutionException, TimeUnit}
 
+import com.yammer.metrics.core.{Gauge, Histogram, Meter, Metric}
 import kafka.api.{IntegrationTestHarness, KafkaSasl, SaslSetup}
 import kafka.controller.ReplicaAssignment
 import kafka.log.LogConfig
+import kafka.metrics.KafkaYammerMetrics
 import kafka.server.{KafkaConfig, KafkaServer}
 import kafka.server.link.{ClusterLinkConfig, ClusterLinkTopicState}
 import kafka.utils.Implicits._
 import kafka.utils.{JaasTestUtils, Logging, TestUtils}
-import kafka.zk.{ClusterLinkProps, ConfigEntityChangeNotificationZNode}
+import kafka.zk.ConfigEntityChangeNotificationZNode
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.clients.admin.{AlterConfigOp, Config, ConfigEntry, ConfluentAdmin, NewPartitions}
 import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer}
@@ -28,7 +30,7 @@ import org.apache.kafka.common.errors.{InvalidConfigurationException, InvalidPar
 import org.apache.kafka.common.requests.NewClusterLink
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.security.scram.ScramCredential
-import org.junit.Assert.{assertEquals, assertFalse, assertNotEquals, assertTrue, fail}
+import org.junit.Assert.{assertEquals, assertFalse, assertNotEquals, assertNotNull, assertTrue, fail}
 import org.junit.{After, Before, Test}
 
 import scala.annotation.nowarn
@@ -72,6 +74,9 @@ class ClusterLinkIntegrationTest extends Logging {
 
     verifyMirror(topic)
 
+    val jaasConfig = destCluster.adminZkClient.fetchClusterLinkConfig(linkName).getProperty(SaslConfigs.SASL_JAAS_CONFIG)
+    assertNotNull(jaasConfig)
+    assertFalse(s"Password not encrypted: $jaasConfig", jaasConfig.contains("secret-"))
     destCluster.deleteClusterLink(linkName)
   }
 
@@ -86,6 +91,9 @@ class ClusterLinkIntegrationTest extends Logging {
 
     destCluster.createClusterLink(linkName, sourceCluster)
     destCluster.linkTopic(topic, numPartitions, linkName)
+
+    waitForMirror(topic)
+    verifyLinkMetrics()
     verifyMirror(topic)
   }
 
@@ -459,6 +467,43 @@ class ClusterLinkIntegrationTest extends Logging {
   def truncate(records: mutable.Buffer[ProducerRecord[Array[Byte], Array[Byte]]], numRecords: Int): Unit = {
     records.remove(records.size - numRecords, numRecords)
   }
+
+  private def verifyLinkMetrics(): Unit = {
+
+    def verifyKafkaMetric(name: String, group: String, expectNonZero: Boolean = true): Unit = {
+     val values = destCluster.servers.head.metrics.metrics().asScala
+        .filter { case (metricName, _) => metricName.name == name && metricName.group == group && metricName.tags.get("link-name") == linkName }
+        .map(_._2.metricValue().asInstanceOf[Double])
+      assertTrue(s"Metric does not exist: $group:$name", values.nonEmpty)
+      if (expectNonZero)
+        assertTrue(s"Metric not updated: $group:$name $values", values.exists(_ > 0.0))
+    }
+
+    def yammerMetricValue(metric: Metric): Double = {
+      metric match {
+        case m: Meter => m.count.toDouble
+        case m: Histogram => m.max
+        case m: Gauge[_] => m.value.toString.toDouble
+        case m => throw new IllegalArgumentException(s"Unexpected broker metric of class ${m.getClass}")
+      }
+    }
+
+    def verifyYammerMetric(prefix: String, expectNonZero: Boolean = true): Unit = {
+      val values = KafkaYammerMetrics.defaultRegistry().allMetrics().asScala
+        .filter { case (metricName, _) => metricName.getMBeanName.startsWith(prefix) && metricName.getMBeanName.contains(s"link-name=$linkName") }
+        .values
+      assertTrue(s"Metric does not exist: $prefix", values.nonEmpty)
+      if (expectNonZero)
+        assertTrue(s"Metric not updated: $prefix $values", values.exists(m => yammerMetricValue(m) > 0.0))
+    }
+
+    verifyKafkaMetric("incoming-byte-total", "cluster-link-metadata-metrics")
+    verifyKafkaMetric("incoming-byte-total", "cluster-link-fetcher-metrics")
+    verifyKafkaMetric("fetch-throttle-time-max", "cluster-link", expectNonZero = false)
+    verifyYammerMetric("kafka.server.link:type=ClusterLinkFetcherManager,name=MaxLag", expectNonZero = false)
+    verifyYammerMetric("kafka.server:type=FetcherStats,name=BytesPerSec")
+    verifyYammerMetric("kafka.server:type=FetcherLagMetrics,name=ConsumerLag", expectNonZero = false)
+  }
 }
 
 class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends IntegrationTestHarness with SaslSetup {
@@ -478,6 +523,7 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
 
   serverConfig.put(KafkaConfig.OffsetsTopicReplicationFactorProp, brokerCount.toString)
   serverConfig.put(KafkaConfig.UncleanLeaderElectionEnableProp, "true")
+  serverConfig.put(KafkaConfig.PasswordEncoderSecretProp, "password-encoder-secret")
   consumerConfig.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false")
 
   override def configureSecurityBeforeServersStart(): Unit = {
@@ -548,7 +594,7 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
     val newProps = new Properties()
     newProps ++= clusterLinks(linkName)
     newProps ++= updatedConfigs
-    adminZkClient.changeClusterLinkConfig(linkName, ClusterLinkProps(newProps, None))
+    adminZkClient.changeClusterLinkConfig(linkName, newProps)
     clusterLinks.put(linkName, newProps)
     servers.foreach { server =>
       TestUtils.waitUntilTrue(() => {
