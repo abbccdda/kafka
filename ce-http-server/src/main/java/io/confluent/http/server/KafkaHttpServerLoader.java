@@ -73,6 +73,7 @@ public final class KafkaHttpServerLoader {
     }
 
     if (implementations.isEmpty()) {
+      log.info("No Kafka HTTP server implementation configured. Skipping.");
       return Optional.empty();
     }
     if (implementations.size() > 1) {

@@ -209,6 +209,13 @@ CLASSPATH="$CLASSPATH":"$base_dir/share/java/confluent-metadata-service/*"
 CLASSPATH="$CLASSPATH":"$base_dir/share/java/rest-utils/*"
 CLASSPATH="$CLASSPATH":"$base_dir/share/java/confluent-common/*"
 
+# classpath for Kafka HTTP server and its servlets
+CLASSPATH="$CLASSPATH":"$base_dir/share/java/ce-kafka-http-server/*"
+CLASSPATH="$CLASSPATH":"$base_dir/share/java/ce-kafka-rest-servlet/*"
+CLASSPATH="$CLASSPATH":"$base_dir/share/java/ce-kafka-rest-extensions/*"
+CLASSPATH="$CLASSPATH":"$base_dir/share/java/kafka-rest/*"
+CLASSPATH="$CLASSPATH":"$base_dir/share/java/confluent-security/kafka-rest/*"
+
 # classpath for schema validator
 CLASSPATH="$CLASSPATH":"$base_dir/share/java/confluent-security/schema-validator/*"
 
