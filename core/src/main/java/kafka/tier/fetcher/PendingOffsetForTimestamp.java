@@ -160,8 +160,9 @@ public class PendingOffsetForTimestamp implements Runnable {
                     }
                 }
             } catch (Exception e) {
-                log.debug("Failed to fetch TierTimestampAndOffset {} from tiered storage",
-                        tierTimestampAndOffset, e);
+                log.error("{} tier offset for timestamp lookup failed to fetch "
+                                + "TierTimestampAndOffset {} from tiered storage",
+                        logPrefix, tierTimestampAndOffset, e);
                 tierFetcherMetrics.ifPresent(metrics -> metrics.fetchOffsetForTimestampException().record());
                 results.putIfAbsent(topicPartition,
                         Optional.of(new FileRecords.FileTimestampAndOffset(targetTimestamp,

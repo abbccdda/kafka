@@ -292,7 +292,9 @@ public class PendingFetch implements Runnable {
                                List<AbortedTxn> abortedTxns,
                                Throwable throwable) {
         if (throwable != null) {
-            log.error("{} tier fetch completed with exception", logPrefix, throwable);
+            log.error("{} tier fetch objectMetadata={}, targetOffset={}, maxBytes={}, "
+                            + "isolationLevel={} completed with exception", logPrefix,
+                    objectMetadata, targetOffset, maxBytes, isolationLevel, throwable);
             tierFetcherMetrics.ifPresent(metrics -> metrics.fetchException().record());
         }
 
