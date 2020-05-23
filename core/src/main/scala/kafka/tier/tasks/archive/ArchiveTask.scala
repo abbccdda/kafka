@@ -304,13 +304,12 @@ object ArchiveTask extends Logging {
                 segment.producerStateOpt.isDefined,
                 stateOffset)
 
-              val startTime = time.milliseconds
+              val startTimeMs = time.milliseconds
               Future.fromTry(Try(tierTopicAppender.addMetadata(uploadInitiate).toScala))
                 .flatMap(identity)
                 .map {
                   case AppendResult.ACCEPTED =>
-                    info(s"Completed UploadInitiate(objectId: ${uploadInitiate.messageId}, baseOffset: ${uploadInitiate.baseOffset}," +
-                      s" endOffset: ${uploadInitiate.endOffset}]) for $topicIdPartition in ${time.milliseconds - startTime}ms")
+                    info(s"Completed $uploadInitiate for $topicIdPartition in ${time.milliseconds - startTimeMs}ms")
                     Upload(state.leaderEpoch, uploadInitiate, segment)
                   case AppendResult.FAILED =>
                     throw new TierArchiverFailedException(topicIdPartition)
@@ -344,7 +343,7 @@ object ArchiveTask extends Logging {
         uploadableSegment.leaderEpochStateOpt.isDefined)
 
       blocking {
-        val startTime = time.milliseconds
+        val startTimeMs = time.milliseconds
 
         try {
           tierObjectStore.putSegment(metadata,
@@ -359,7 +358,7 @@ object ArchiveTask extends Logging {
             throw SegmentDeletedException(s"Segment ${uploadableSegment.logSegmentFile.getAbsolutePath} of $topicIdPartition deleted when tiering", e)
         }
 
-        info(s"Uploaded segment for $topicIdPartition in ${time.milliseconds - startTime}ms")
+        info(s"Uploaded segment for $topicIdPartition in ${time.milliseconds - startTimeMs}ms")
         AfterUpload(state.leaderEpoch, uploadInitiate, state.uploadableSegment.uploadedSize)
       }
     }
@@ -372,14 +371,13 @@ object ArchiveTask extends Logging {
                                        byteRateMetric: Option[Meter])
                                       (implicit ec: ExecutionContext): Future[BeforeUpload] = {
     val uploadComplete = new TierSegmentUploadComplete(state.uploadInitiate)
-    val startTime = time.milliseconds
+    val startTimeMs = time.milliseconds
 
     Future.fromTry(Try(tierTopicAppender.addMetadata(uploadComplete).toScala))
       .flatMap(identity)
       .map {
         case AppendResult.ACCEPTED =>
-          info(s"Finalized UploadComplete(${uploadComplete.messageId()}) " +
-            s"for $topicIdPartition in ${time.milliseconds - startTime} ms")
+          info(s"Finalized $uploadComplete for $topicIdPartition in ${time.milliseconds - startTimeMs} ms")
           byteRateMetric.foreach(_.mark(state.uploadedSize))
           BeforeUpload(state.leaderEpoch)
         case AppendResult.FAILED =>
