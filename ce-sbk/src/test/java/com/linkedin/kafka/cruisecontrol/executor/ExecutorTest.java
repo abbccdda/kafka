@@ -16,14 +16,18 @@ import com.linkedin.kafka.cruisecontrol.model.ReplicaPlacementInfo;
 import com.linkedin.kafka.cruisecontrol.monitor.LoadMonitor;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.NoopSampler;
 import com.yammer.metrics.core.MetricsRegistry;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 
+import java.util.concurrent.TimeoutException;
 import kafka.server.ConfigType;
 import kafka.server.ConfigType$;
 import kafka.server.KafkaConfig;
@@ -67,6 +71,7 @@ import static com.linkedin.kafka.cruisecontrol.executor.ExecutorNotification.Act
 import static java.lang.String.valueOf;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -82,6 +87,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
   private static final String DESCRIBE_TOPICS_RESPONSE_TIMEOUT_MS = "10000";
 
   private MetricsRegistry metricsRegistry;
+  private Map<String, TopicDescription> topicsCreated = new HashMap<>();
 
   @Override
   public int clusterSize() {
@@ -125,39 +131,235 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
 
   @Test
   public void testRebalanceCancellation() throws InterruptedException, ExecutionException {
-    KafkaZkClient kafkaZkClient = KafkaCruiseControlUtils.createKafkaZkClient(zookeeper().connectionString(),
-        "ExecutorTestMetricGroup",
-        "BasicBalanceMovement",
-        false);
+    KafkaCruiseControlConfig config = new KafkaCruiseControlConfig(getExecutorProperties());
+    ConfluentAdmin admin = KafkaCruiseControlUtils.createAdmin(config.originals());
     try {
       Map<String, TopicDescription> topicDescriptions = createTopics();
       int initialLeader = topicDescriptions.get(TP0.topic()).partitions().get(TP0.partition()).leader().id();
-      ExecutionProposal proposal = getBasicTopicPartition0Proposal(initialLeader);
+      Executor executor = fillUpAndMoveBasicTopicPartition0(1L);
 
-      produceData(TP0.topic(), REPLICA_FETCH_MAX_BYTES * 3);
-
-      Executor executor = executeProposals(executor(), Collections.singletonList(proposal), 1L);
-      waitForAssert(() -> {
-        // assert reassignment is in progress
-        assertEquals(2, kafkaZkClient.getReplicasForPartition(TP0).size());
-        return true;
-      }, 10000, "Should have started reassigning");
+      assertReassignmentsStarted(admin, 1);
       assertEquals(0, executor.numCancelledReassignments());
+
       executor.stopExecution();
 
-      waitForAssert(() -> {
-        // assert reassignment is cancelled
-        assertEquals(1, kafkaZkClient.getReplicasForPartition(TP0).size());
-        assertTrue(kafkaZkClient.getReplicasForPartition(TP0).contains(initialLeader));
-        return true;
-      },  5000, "Should have reverted the reassignment");
-      waitForAssert(() -> {
-        assertEquals(1, executor.numCancelledReassignments());
-        return true;
-      },  5000, "Reassignment cancellation should be reflected in the metrics");
+      assertReassignmentsCanceled(admin, initialLeader, executor);
       executor.shutdown();
     } finally {
-      KafkaCruiseControlUtils.closeKafkaZkClientWithTimeout(kafkaZkClient);
+      KafkaCruiseControlUtils.closeAdminClientWithTimeout(admin);
+    }
+  }
+
+  private void assertReassignmentsStarted(ConfluentAdmin admin, int numExpectedStartedReassignments) throws InterruptedException {
+    waitForAssert(() -> {
+      // assert reassignment is in progress
+      assertEquals(numExpectedStartedReassignments, admin.listPartitionReassignments().reassignments().get().size());
+      return true;
+    }, 10000, "Should have started reassigning");
+  }
+
+  /**
+   * Assert that the reassignment for #{@code TP0} is canceled
+   */
+  private void assertReassignmentsCanceled(ConfluentAdmin admin, int initialLeader, Executor executor) throws InterruptedException {
+    int expectedNumCanceled = 1;
+    Set<String> topic = new HashSet<>();
+    topic.add(TP0.topic());
+
+    waitForAssert(() -> {
+      assertEquals(0, admin.listPartitionReassignments().reassignments().get().size());
+      // assert reassignment is cancelled and didn't occur
+      assertEquals(initialLeader, admin.describeTopics(topic).all().get().get(TP0.topic()).partitions().get(TP0.partition()).leader().id());
+      return true;
+    },  5000, "Should have reverted the reassignment");
+
+    waitForAssert(() -> {
+      assertEquals(expectedNumCanceled, executor.numCancelledReassignments());
+      return true;
+    },  5000, "Reassignment cancellation should be reflected in the metrics");
+  }
+
+  /**
+   * Assert that the reservation cannot be acquired by another thread while it is held by the testing thread.
+   */
+  @Test
+  public void testAbortAndAcquireThrowsIllegalStateExceptionWhenLockAcquired() throws Exception {
+    Executor executor = executor();
+    // get reservation
+    try (AutoCloseable ignored = executor.reserveAndAbortOngoingExecutions(Duration.ofSeconds(5))) {
+      assertFalse("Expected Executor to not be reserved for the current thread", executor.isReservedByOther());
+      assertTrue("Expected the executor's reservation to be taken", executor._reservation.isReserved());
+      assertIllegalStateExceptionThrownWhileReservationIsHeld(executor, () -> {
+        try {
+          executor.reserveAndAbortOngoingExecutions(Duration.ofMillis(100));
+        } catch (TimeoutException e) {
+          throw new RuntimeException(e);
+        }
+      });
+      assertAbortAndAcquireThrowsIllegalStateExceptionWhenReservationAcquired(executor);
+      assertTrue("Expected the executor's reservation to be taken", executor._reservation.isReserved());
+      assertFalse("Expected Executor to not be reserved for the current thread", executor.isReservedByOther());
+    }
+  }
+
+  /**
+   * Spin up a new thread that wouldn't be able to get the executor's reservation,
+   *   assert that the underlying reservation is taken by another (the main test) thread
+   */
+  private void assertAbortAndAcquireThrowsIllegalStateExceptionWhenReservationAcquired(Executor executor) throws InterruptedException {
+    AtomicReference<Throwable> exceptionRef = new AtomicReference<>();
+    Thread th = new Thread(() -> {
+      try {
+        assertTrue("Expected the executor to be reserved", executor.isReservedByOther());
+        executor.reserveAndAbortOngoingExecutions(Duration.ofMillis(100));
+        exceptionRef.set(new Exception("Expected Executor reservation to be held by another thread and this thread to not be able to reserve it."));
+      } catch (Throwable e) {
+        exceptionRef.set(e);
+      }
+    });
+    th.start();
+    th.join();
+
+    assertNotNull("Expected exception to be populated", exceptionRef.get());
+    assertTrue("Expected populated exception to be IllegalStateException", exceptionRef.get() instanceof IllegalStateException);
+    assertTrue("Expected the executor's reservation to be taken", executor._reservation.isReserved());
+  }
+
+  /**
+   * Asserts that an #{@link IllegalStateException} is thrown by the given #{@code runnable}
+   * while the Executor is reserved
+   */
+  private void assertIllegalStateExceptionThrownWhileReservationIsHeld(Executor executor, Runnable runnable) throws InterruptedException {
+    AtomicReference<Throwable> exceptionRef = new AtomicReference<>();
+    Thread th = new Thread(() -> {
+      try {
+        assertTrue("Expected the executor to be reserved", executor.isReservedByOther());
+        runnable.run();
+        exceptionRef.set(new Exception("Expected Executor reservation to be held by another thread and this thread to not be able to reserve it."));
+      } catch (Throwable e) {
+        exceptionRef.set(e);
+      }
+    });
+    th.start();
+    th.join();
+
+    assertNotNull("Expected exception to be populated", exceptionRef.get());
+    assertTrue("Expected populated exception to be IllegalStateException", exceptionRef.get() instanceof IllegalStateException);
+    assertTrue("Expected the executor's reservation to be taken", executor._reservation.isReserved());
+  }
+
+  /**
+   * Assert that #{@link Executor#reserveAndAbortOngoingExecutions(Duration)} aborts the current execution and acquires the reservation
+   */
+  @Test
+  public void testAbortAndAcquireCancelsCurrentRebalanceAndGetsReservation() throws InterruptedException, ExecutionException, TimeoutException {
+    KafkaCruiseControlConfig config = new KafkaCruiseControlConfig(getExecutorProperties());
+
+    Duration abortionTimeout = Duration.ofMillis(10000L); // give the Executor some time to abort the execution
+    ConfluentAdmin admin = KafkaCruiseControlUtils.createAdmin(config.originals());
+    try {
+      Map<String, TopicDescription> topicDescriptions = createTopics();
+      int initialLeader = topicDescriptions.get(TP0.topic()).partitions().get(TP0.partition()).leader().id();
+      Executor executor = fillUpAndMoveBasicTopicPartition0(1L);
+
+      assertReassignmentsStarted(admin, 1);
+      assertEquals(0, executor.numCancelledReassignments());
+
+      try (Executor.AutoCloseableReservationHandle ignored = executor.reserveAndAbortOngoingExecutions(abortionTimeout)) {
+        assertFalse("Expected ongoing execution to be canceled", executor.hasOngoingExecution());
+
+        // assert execution canceled/reverted
+        assertReassignmentsCanceled(admin, initialLeader, executor);
+
+        // assert lock is taken
+        assertTrue("Expected the executor's reservation to be taken", executor._reservation.isReserved());
+        assertTrue("Expected reservation to be held by the test thread",
+            executor._reservation.isReservedByMe());
+        assertFalse("Expected the Executor to not be reserved for the test thread that holds the reservation",
+            executor.isReservedByOther());
+      }
+
+      executor.shutdown();
+    } finally {
+      KafkaCruiseControlUtils.closeAdminClientWithTimeout(admin);
+    }
+  }
+
+  @Test(expected = IllegalStateException.class)
+  public void testCannotAcquireReservationTwice() throws TimeoutException {
+    Executor executor = executor();
+    executor.reserveAndAbortOngoingExecutions(Duration.ofSeconds(1));
+    executor.reserveAndAbortOngoingExecutions(Duration.ofSeconds(1));
+  }
+
+  /**
+   * Trigger a slow reassignment and assert that:
+   * 1. #{@link Executor#reserveAndAbortOngoingExecutions(Duration)} tries to abort the current execution but gives up after the timeout passes
+   * 2. #{@link Executor#reserveAndAbortOngoingExecutions(Duration)} releases its reservation after it gives up waiting for execution abortion
+   */
+  @Test
+  public void testAbortAndAcquireShortAbortTimeoutThrowsExceptionAndGivesUpReservation() throws ExecutionException, InterruptedException {
+    KafkaCruiseControlConfig config = new KafkaCruiseControlConfig(getExecutorProperties());
+
+    Duration smallExecutionTimeout = Duration.ofMillis(50L); // very small timeout to ensure we time out
+    ConfluentAdmin admin = KafkaCruiseControlUtils.createAdmin(config.originals());
+    try {
+      Map<String, TopicDescription> topicDescriptions = createTopics();
+      int initialLeader = topicDescriptions.get(TP0.topic()).partitions().get(TP0.partition()).leader().id();
+      Executor executor = fillUpAndMoveBasicTopicPartition0(1L);
+
+      assertReassignmentsStarted(admin, 1);
+      assertEquals(0, executor.numCancelledReassignments());
+
+      try {
+        executor.reserveAndAbortOngoingExecutions(smallExecutionTimeout);
+      } catch (TimeoutException te) {
+        assertFalse("Expected the reservation to not be taken", executor._reservation.isReserved());
+        assertFalse("Expected the Executor's reservation to not be held", executor.isReservedByOther());
+      }
+
+      assertReassignmentsCanceled(admin, initialLeader, executor);
+
+      executor.shutdown();
+    } finally {
+      KafkaCruiseControlUtils.closeAdminClientWithTimeout(admin);
+    }
+  }
+
+  @Test
+  public void testProposalsCannotBeExecutedWhileReservationHeld() throws TimeoutException, InterruptedException {
+    KafkaCruiseControlConfig config = new KafkaCruiseControlConfig(getExecutorProperties());
+
+    Duration abortionTimeout = Duration.ofMillis(50L);
+    ConfluentAdmin admin = KafkaCruiseControlUtils.createAdmin(config.originals());
+    try {
+      Executor executor = executor();
+
+      try (Executor.AutoCloseableReservationHandle ignored = executor.reserveAndAbortOngoingExecutions(abortionTimeout)) {
+        // assert reservation is taken
+        assertTrue("Expected the executor's reservation to be taken", executor._reservation.isReserved());
+        assertTrue("Expected reservation to be held by the test thread",
+            executor._reservation.isReservedByMe());
+        assertFalse("Expected the Executor to not be reserved for the test thread that holds the reservation",
+            executor.isReservedByOther());
+
+        assertIllegalStateExceptionThrownWhileReservationIsHeld(executor, () -> {
+          ExecutionProposal proposal;
+          try {
+            proposal = getBasicTopicPartition0Proposal();
+          } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+          }
+          executeProposals(executor, Collections.singletonList(proposal), 1L);
+        });
+      }
+
+      assertReassignmentsStarted(admin, 0);
+      assertEquals(0, executor.numCancelledReassignments());
+
+      executor.shutdown();
+    } finally {
+      KafkaCruiseControlUtils.closeAdminClientWithTimeout(admin);
     }
   }
 
@@ -239,7 +441,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
       LoadMonitor loadMonitor = EasyMock.mock(LoadMonitor.class);
 
       // Initialize the proposal
-      executor.initProposalExecution(proposalsToExecute, Collections.emptySet(), loadMonitor, null, null, null,
+      executor.initProposalExecution(proposalsToExecute, Collections.emptySet(), null, null, null,
                                      null, RANDOM_UUID);
 
       // Delete the topic after the proposal has been initialized but before it is executed.
@@ -569,9 +771,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     Map<String, TopicDescription> topicDescriptions = createTopics();
     int initialLeader1 = topicDescriptions.get(TOPIC1).partitions().get(0).leader().id();
 
-    ExecutionProposal proposal0 = getBasicTopicPartition0Proposal(
-        topicDescriptions.get(TOPIC0).partitions().get(0).leader().id()
-    );
+    ExecutionProposal proposal0 = getBasicTopicPartition0Proposal();
     ExecutionProposal proposal1 =
         new ExecutionProposal(TP1, 0, new ReplicaPlacementInfo(initialLeader1),
                               Arrays.asList(new ReplicaPlacementInfo(initialLeader1),
@@ -583,7 +783,19 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     return Arrays.asList(proposal0, proposal1);
   }
 
-  private ExecutionProposal getBasicTopicPartition0Proposal(int initialLeader) {
+  private Executor fillUpAndMoveBasicTopicPartition0(long replicationThrottle) throws InterruptedException, ExecutionException {
+    return fillUpAndMoveBasicTopicPartition0(replicationThrottle, executor());
+  }
+
+  private Executor fillUpAndMoveBasicTopicPartition0(long replicationThrottle, Executor executor) throws InterruptedException, ExecutionException {
+    ExecutionProposal proposal = getBasicTopicPartition0Proposal();
+    produceData(TP0.topic(), REPLICA_FETCH_MAX_BYTES * 3);
+
+    return executeProposals(executor, Collections.singletonList(proposal), replicationThrottle);
+  }
+
+  private ExecutionProposal getBasicTopicPartition0Proposal() throws InterruptedException {
+    int initialLeader = createTopics().get(TP0.topic()).partitions().get(TP0.partition()).leader().id();
     return new ExecutionProposal(TP0, 0, new ReplicaPlacementInfo(initialLeader),
         Collections.singletonList(new ReplicaPlacementInfo(initialLeader)),
         Collections.singletonList(initialLeader == 0 ? new ReplicaPlacementInfo(1) :
@@ -805,6 +1017,10 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
   }
 
   private Map<String, TopicDescription> createTopics() throws InterruptedException {
+    if (topicsCreated.size() != 0) {
+      return topicsCreated;
+    }
+
     ConfluentAdmin adminClient = KafkaCruiseControlUtils.createAdmin(Collections.singletonMap(
                               AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, broker(0).plaintextAddr()));
     try {
@@ -841,7 +1057,8 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     } while (topicDescriptions0 == null || topicDescriptions0.size() < 2
         || topicDescriptions1 == null || topicDescriptions1.size() < 2);
 
-    return topicDescriptions0;
+    topicsCreated = topicDescriptions0;
+    return topicsCreated;
   }
 
   private void deleteTopics(Collection<String> topics) throws ExecutionException, InterruptedException {

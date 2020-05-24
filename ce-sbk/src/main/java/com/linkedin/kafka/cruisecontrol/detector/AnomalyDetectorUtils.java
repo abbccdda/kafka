@@ -81,6 +81,10 @@ public class AnomalyDetectorUtils {
       LOG.info("Skipping anomaly detection because the executor is in {} state.", executionState);
       return true;
     }
+    if (kafkaCruiseControl.executorIsReserved()) {
+      LOG.info("Skipping anomaly detection because the executor is reserved.");
+      return true;
+    }
 
     return false;
   }

@@ -286,6 +286,9 @@ public class AnomalyDetector {
       if (executorState != ExecutorState.State.NO_TASK_IN_PROGRESS) {
         LOG.debug("Schedule delayed check for anomaly {} because executor is in {} state", _anomalyInProgress, executorState);
         checkWithDelay(_anomalyDetectionIntervalMs);
+      } else if (_kafkaCruiseControl.executorIsReserved()) {
+        LOG.debug("Ignoring anomaly {} because the executor is reserved", _anomalyInProgress);
+        _anomalyDetectorState.onAnomalyHandle(_anomalyInProgress, AnomalyState.Status.IGNORED);
       } else {
         processAnomalyInProgress(anomalyType);
       }

@@ -17,6 +17,9 @@ import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import java.util.HashMap;
 import java.util.Optional;
 import kafka.admin.PreferredReplicaLeaderElectionCommand;
+import java.time.Duration;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.locks.ReentrantLock;
 import kafka.zk.KafkaZkClient;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.clients.admin.ListPartitionReassignmentsResult;
@@ -79,13 +82,17 @@ public class Executor {
   private final ConfluentAdmin _adminClient;
   private final SbkAdminUtils adminUtils;
 
-  private static final long METADATA_REFRESH_BACKOFF = 100L;
-  private static final long METADATA_EXPIRY_MS = Long.MAX_VALUE;
-
   // Some state for external service to query
   private final AtomicBoolean _stopRequested;
   private final Time _time;
   private volatile boolean _hasOngoingExecution;
+  /*
+   * A class that allows callers to reserve this Executor instance
+   * A reserved Executor is eligible to execute proposals only from the thread
+   * that holds the reservation.
+   */
+  final ExecutorReservation _reservation = new ExecutorReservation();
+
   private volatile ExecutorState _executorState;
   private volatile String _uuid;
   private final ExecutorNotifier _executorNotifier;
@@ -245,42 +252,120 @@ public class Executor {
   }
 
   /**
-   * Register gauge sensors.
+   * Attempts to acquire a reservation on the Executor, blocking other threads from executing proposals
+   * and, if successfully reserved, aborts all of its ongoing executions.
+   *
+   * This method is blocking. After this method returns, the caller is ensured that the Executor is not executing any proposals.
+   *
+   * The callee is expected to check #{@link #isReservedByOther()} prior to calling this method.
+   *
+   * @throws IllegalStateException if the Executor is already reserved by another thread
+   * @throws TimeoutException if the aborted proposal execution doesn't stop before #{@code executionAbortTimeout}
+   * @return a reservation handle #{@code AutoCloseableReservationHandle} if the reservation is taken successfully
    */
-  private void registerGaugeSensors(DataBalancerMetricsRegistry metricRegistry) {
-    metricRegistry.newGauge(Executor.class, GAUGE_EXECUTION_STOPPED, this::numExecutionStopped);
-    metricRegistry.newGauge(Executor.class, GAUGE_EXECUTION_STOPPED_BY_USER, this::numExecutionStoppedByUser);
-    metricRegistry.newGauge(Executor.class, GAUGE_EXECUTION_STARTED_IN_KAFKA_ASSIGNER_MODE, this::numExecutionStartedInKafkaAssignerMode);
-    metricRegistry.newGauge(Executor.class, GAUGE_EXECUTION_STARTED_IN_NON_KAFKA_ASSIGNER_MODE, this::numExecutionStartedInNonKafkaAssignerMode);
-    metricRegistry.newGauge(Executor.class, GAUGE_CANCELLED_REASSIGNMENTS, this::numCancelledReassignments);
-    metricRegistry.newGauge(Executor.class, GAUGE_FAILED_REASSIGNMENT_CANCELLATIONS, this::numFailedReassignmentCancellations);
-  }
-
-  private void removeExpiredDemotionHistory() {
-    LOG.debug("Remove expired demotion history");
-    _latestDemoteStartTimeMsByBrokerId.entrySet()
-            .removeIf(entry -> (entry.getValue() + _demotionHistoryRetentionTimeMs) < _time.milliseconds());
-  }
-
-  private void removeExpiredRemovalHistory() {
-    LOG.debug("Remove expired broker removal history");
-    _latestRemoveStartTimeMsByBrokerId.entrySet()
-            .removeIf(entry -> (entry.getValue() + _removalHistoryRetentionTimeMs) < _time.milliseconds());
+  public AutoCloseableReservationHandle reserveAndAbortOngoingExecutions(Duration executionAbortTimeout)
+      throws TimeoutException {
+    AutoCloseableReservationHandle reservation = null;
+    boolean isAbortedSuccessfully = false;
+    try {
+      reservation = new AutoCloseableReservationHandle();
+      // we've got the reservation flag set -> no new executions can be scheduled at this point
+      // abort any on-going executions
+      abortExecution(executionAbortTimeout);
+      isAbortedSuccessfully = true;
+      return reservation;
+    } finally {
+      // give up the reservation if the abortion didn't succeed
+      if (!isAbortedSuccessfully && reservation != null) {
+        reservation.close();
+      }
+    }
   }
 
   /**
-   * A runnable class to remove expired execution history.
+   * Request the executor to stop any ongoing execution.
    */
-  private class ExecutionHistoryScanner implements Runnable {
-    @Override
-    public void run() {
-      try {
-        removeExpiredDemotionHistory();
-        removeExpiredRemovalHistory();
-      } catch (Throwable t) {
-        LOG.warn("Received exception when trying to expire execution history.", t);
-      }
+  public synchronized void userTriggeredStopExecution() {
+    if (stopExecution()) {
+      LOG.info("User requested to stop the ongoing proposal execution and cancel the existing reassignments.");
+      _numExecutionStoppedByUser.incrementAndGet();
+      _executionStoppedByUser.set(true);
     }
+  }
+
+  /**
+   * Shutdown the executor.
+   */
+  public synchronized void shutdown() {
+    LOG.info("Shutting down executor.");
+    if (_hasOngoingExecution) {
+      LOG.warn("Shutdown executor may take long because execution is still in progress.");
+    }
+    _proposalExecutor.shutdown();
+
+    try {
+      _proposalExecutor.awaitTermination(Long.MAX_VALUE, TimeUnit.MILLISECONDS);
+    } catch (InterruptedException e) {
+      LOG.warn("Interrupted while waiting for anomaly detector to shutdown.");
+    }
+    _metadataClient.close();
+    KafkaCruiseControlUtils.closeKafkaZkClientWithTimeout(_kafkaZkClient);
+    KafkaCruiseControlUtils.closeAdminClientWithTimeout(_adminClient);
+    _executionHistoryScannerExecutor.shutdownNow();
+    LOG.info("Executor shutdown completed.");
+  }
+
+  /**
+   * Whether there is an ongoing operation triggered by current Cruise Control deployment.
+   *
+   * @return True if there is an ongoing execution.
+   */
+  public boolean hasOngoingExecution() {
+    return _hasOngoingExecution;
+  }
+
+  /**
+   * Whether the Executor's is reserved (paused) by another thread.
+   */
+  public boolean isReservedByOther() {
+    return _reservation.isReserved() && !_reservation.isReservedByMe();
+  }
+
+  /**
+   * Update the throttle rate in ZK (for ongoing executions)
+   *  and set a new throttle value, persisted in memory until the process dies
+   * @param newThrottle The new throttle rate, in bytes
+   */
+  public boolean updateThrottle(long newThrottle) {
+    if (newThrottle < 0) {
+      throw new IllegalArgumentException("Cannot set a negative throttle");
+    }
+    int updatedBrokers;
+    boolean updatedRate;
+    synchronized (_throttleHelper) {
+      updatedRate = _throttleHelper.setThrottleRate(newThrottle);
+      updatedBrokers = _throttleHelper.updateOrRemoveThrottleRate(newThrottle);
+    }
+
+    if (updatedBrokers == 0) {
+      LOG.info("No brokers had throttling rate updated");
+    } else {
+      LOG.info("Updated throttle rate config on {} brokers to {}", updatedBrokers, newThrottle);
+    }
+    return updatedBrokers != 0 && updatedRate;
+  }
+
+  /**
+   * Whether there is any ongoing partition reassignment.
+   * This method directly checks the existence of znode /admin/partition_reassignment.
+   * Note this method returning false does not guarantee that there is no ongoing execution because when there is an ongoing
+   * execution inside Cruise Control, partition reassignment task batches are writen to zookeeper periodically, there will be
+   * small intervals that /admin/partition_reassignment does not exist.
+   *
+   * @return True if there is any ongoing partition reassignment.
+   */
+  public boolean hasOngoingPartitionReassignments() {
+    return !partitionsBeingReassigned().isEmpty();
   }
 
   /**
@@ -299,26 +384,6 @@ public class Executor {
    */
   public Set<Integer> recentlyRemovedBrokers() {
     return Collections.unmodifiableSet(_latestRemoveStartTimeMsByBrokerId.keySet());
-  }
-
-  /**
-   * Drop the given brokers from the recently removed brokers.
-   *
-   * @param brokersToDrop Brokers to drop from the {@link #_latestRemoveStartTimeMsByBrokerId}.
-   * @return {@code true} if any elements were removed from {@link #_latestRemoveStartTimeMsByBrokerId}.
-   */
-  public boolean dropRecentlyRemovedBrokers(Set<Integer> brokersToDrop) {
-    return _latestRemoveStartTimeMsByBrokerId.entrySet().removeIf(entry -> brokersToDrop.contains(entry.getKey()));
-  }
-
-  /**
-   * Drop the given brokers from the recently demoted brokers.
-   *
-   * @param brokersToDrop Brokers to drop from the {@link #_latestDemoteStartTimeMsByBrokerId}.
-   * @return {@code true} if any elements were removed from {@link #_latestDemoteStartTimeMsByBrokerId}.
-   */
-  public boolean dropRecentlyDemotedBrokers(Set<Integer> brokersToDrop) {
-    return _latestDemoteStartTimeMsByBrokerId.entrySet().removeIf(entry -> brokersToDrop.contains(entry.getKey()));
   }
 
   /**
@@ -356,31 +421,33 @@ public class Executor {
                                             ReplicaMovementStrategy replicaMovementStrategy,
                                             Long replicationThrottle,
                                             String uuid) {
-    initProposalExecution(proposals, unthrottledBrokers, loadMonitor, requestedInterBrokerPartitionMovementConcurrency,
-                          requestedIntraBrokerPartitionMovementConcurrency, requestedLeadershipMovementConcurrency,
-                          replicaMovementStrategy, uuid);
-    startExecution(loadMonitor, null, removedBrokers, replicationThrottle);
-  }
-
-  // Package private for testing
-  synchronized void initProposalExecution(Collection<ExecutionProposal> proposals,
-                                          Collection<Integer> brokersToSkipConcurrencyCheck,
-                                          LoadMonitor loadMonitor,
-                                          Integer requestedInterBrokerPartitionMovementConcurrency,
-                                          Integer requestedIntraBrokerPartitionMovementConcurrency,
-                                          Integer requestedLeadershipMovementConcurrency,
-                                          ReplicaMovementStrategy replicaMovementStrategy,
-                                          String uuid) {
     if (_hasOngoingExecution) {
       throw new IllegalStateException("Cannot execute new proposals while there is an ongoing execution.");
     }
-
+    if (isReservedByOther()) {
+      throw new IllegalStateException("Cannot execute new proposals because the Executor is reserved by another thread.");
+    }
     if (loadMonitor == null) {
       throw new IllegalArgumentException("Load monitor cannot be null.");
     }
     if (uuid == null) {
       throw new IllegalStateException("UUID of the execution cannot be null.");
     }
+
+    initProposalExecution(proposals, unthrottledBrokers, requestedInterBrokerPartitionMovementConcurrency,
+        requestedIntraBrokerPartitionMovementConcurrency, requestedLeadershipMovementConcurrency,
+        replicaMovementStrategy, uuid);
+    startExecution(loadMonitor, null, removedBrokers, replicationThrottle);
+  }
+
+  // Package private for testing
+  void initProposalExecution(Collection<ExecutionProposal> proposals,
+                             Collection<Integer> brokersToSkipConcurrencyCheck,
+                             Integer requestedInterBrokerPartitionMovementConcurrency,
+                             Integer requestedIntraBrokerPartitionMovementConcurrency,
+                             Integer requestedLeadershipMovementConcurrency,
+                             ReplicaMovementStrategy replicaMovementStrategy,
+                             String uuid) {
     _executionTaskManager.setExecutionModeForTaskTracker(_isKafkaAssignerMode);
     _executionTaskManager.addExecutionProposals(proposals, brokersToSkipConcurrencyCheck, _metadataClient.refreshMetadata().cluster(),
                                                 replicaMovementStrategy);
@@ -388,33 +455,6 @@ public class Executor {
     setRequestedIntraBrokerPartitionMovementConcurrency(requestedIntraBrokerPartitionMovementConcurrency);
     setRequestedLeadershipMovementConcurrency(requestedLeadershipMovementConcurrency);
     _uuid = uuid;
-  }
-
-  /**
-   * Initialize proposal execution and start demotion.
-   *
-   * @param proposals Proposals to be executed.
-   * @param demotedBrokers Demoted brokers.
-   * @param loadMonitor Load monitor.
-   * @param concurrentSwaps The number of concurrent swap operations per broker.
-   * @param requestedLeadershipMovementConcurrency The maximum number of concurrent leader movements
-   *                                               (if null, use num.concurrent.leader.movements).
-   * @param replicationThrottle The replication throttle (bytes/second) to apply to both leaders and followers
-   *                            while executing demotion proposals (if null, no throttling is applied).
-   * @param replicaMovementStrategy The strategy used to determine the execution order of generated replica movement tasks.
-   * @param uuid UUID of the execution.
-   */
-  public synchronized void executeDemoteProposals(Collection<ExecutionProposal> proposals,
-                                                  Collection<Integer> demotedBrokers,
-                                                  LoadMonitor loadMonitor,
-                                                  Integer concurrentSwaps,
-                                                  Integer requestedLeadershipMovementConcurrency,
-                                                  ReplicaMovementStrategy replicaMovementStrategy,
-                                                  Long replicationThrottle,
-                                                  String uuid) {
-    initProposalExecution(proposals, demotedBrokers, loadMonitor, concurrentSwaps, 0, requestedLeadershipMovementConcurrency,
-                          replicaMovementStrategy, uuid);
-    startExecution(loadMonitor, demotedBrokers, null, replicationThrottle);
   }
 
   /**
@@ -454,31 +494,6 @@ public class Executor {
     _isKafkaAssignerMode = isKafkaAssignerMode;
   }
 
-  private int numExecutionStopped() {
-    return _numExecutionStopped.get();
-  }
-
-  private int numExecutionStoppedByUser() {
-    return _numExecutionStoppedByUser.get();
-  }
-
-  private int numExecutionStartedInKafkaAssignerMode() {
-    return _numExecutionStartedInKafkaAssignerMode.get();
-  }
-
-  private int numExecutionStartedInNonKafkaAssignerMode() {
-    return _numExecutionStartedInNonKafkaAssignerMode.get();
-  }
-
-  // package-private for testing
-  int numCancelledReassignments() {
-    return _numCancelledReassignments.get();
-  }
-
-  private int numFailedReassignmentCancellations() {
-    return _numFailedReassignmentCancellations.get();
-  }
-
   /**
    * Pause the load monitor and kick off the execution.
    *
@@ -509,6 +524,47 @@ public class Executor {
   }
 
   /**
+   * Aborts the currently-running execution and awaits for it to end.
+   * It is recommended that this method should be called while holding the Executor reservation,
+   * to ensure no other thread triggers other executions while aborting.
+   * @throws TimeoutException - if the execution was not aborted during the timeout
+   */
+  private void abortExecution(Duration timeout) throws TimeoutException {
+    userTriggeredStopExecution();
+    long startMs = _time.milliseconds();
+    long timeoutMs = startMs + timeout.toMillis();
+
+    while (hasOngoingExecution()) {
+      if (timeoutMs <= _time.milliseconds()) {
+        throw new TimeoutException(String.format("Timed out awaiting for execution to finish after %s", timeout));
+      }
+      _time.sleep(100);
+    }
+  }
+
+  /**
+   * Request the executor to stop any ongoing execution.
+   *
+   * package-private for testing
+   *
+   * @return True if the flag to stop the execution is set after the call (i.e. was not set already), false otherwise.
+   */
+  synchronized boolean stopExecution() {
+    if (_stopRequested.compareAndSet(false, true)) {
+      _numExecutionStopped.incrementAndGet();
+      _executionTaskManager.setStopRequested();
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+  // package-private for testing
+  int numCancelledReassignments() {
+    return _numCancelledReassignments.get();
+  }
+
+  /**
    * Sanity check whether there are ongoing inter-broker or intra-broker replica movements.
    */
   private void sanityCheckOngoingReplicaMovement() {
@@ -528,85 +584,15 @@ public class Executor {
   }
 
   /**
-   * Request the executor to stop any ongoing execution.
+   * Register gauge sensors.
    */
-  public synchronized void userTriggeredStopExecution() {
-    if (stopExecution()) {
-      LOG.info("User requested to stop the ongoing proposal execution and cancel the existing reassignments.");
-      _numExecutionStoppedByUser.incrementAndGet();
-      _executionStoppedByUser.set(true);
-    }
-  }
-
-  /**
-   * Request the executor to stop any ongoing execution.
-   *
-   * package-private for testing
-   *
-   * @return True if the flag to stop the execution is set after the call (i.e. was not set already), false otherwise.
-   */
-  synchronized boolean stopExecution() {
-    if (_stopRequested.compareAndSet(false, true)) {
-      _numExecutionStopped.incrementAndGet();
-      _executionTaskManager.setStopRequested();
-      return true;
-    }
-    return false;
-  }
-
-  /**
-   * Shutdown the executor.
-   */
-  public synchronized void shutdown() {
-    LOG.info("Shutting down executor.");
-    if (_hasOngoingExecution) {
-      LOG.warn("Shutdown executor may take long because execution is still in progress.");
-    }
-    _proposalExecutor.shutdown();
-
-    try {
-      _proposalExecutor.awaitTermination(Long.MAX_VALUE, TimeUnit.MILLISECONDS);
-    } catch (InterruptedException e) {
-      LOG.warn("Interrupted while waiting for anomaly detector to shutdown.");
-    }
-    _metadataClient.close();
-    KafkaCruiseControlUtils.closeKafkaZkClientWithTimeout(_kafkaZkClient);
-    KafkaCruiseControlUtils.closeAdminClientWithTimeout(_adminClient);
-    _executionHistoryScannerExecutor.shutdownNow();
-    LOG.info("Executor shutdown completed.");
-  }
-
-  /**
-   * Whether there is an ongoing operation triggered by current Cruise Control deployment.
-   *
-   * @return True if there is an ongoing execution.
-   */
-  public boolean hasOngoingExecution() {
-    return _hasOngoingExecution;
-  }
-
-  /**
-   * Update the throttle rate in ZK (for ongoing executions)
-   *  and set a new throttle value, persisted in memory until the process dies
-   * @param newThrottle The new throttle rate, in bytes
-   */
-  public boolean updateThrottle(long newThrottle) {
-    if (newThrottle < 0) {
-      throw new IllegalArgumentException("Cannot set a negative throttle");
-    }
-    int updatedBrokers;
-    boolean updatedRate;
-    synchronized (_throttleHelper) {
-      updatedRate = _throttleHelper.setThrottleRate(newThrottle);
-      updatedBrokers = _throttleHelper.updateOrRemoveThrottleRate(newThrottle);
-    }
-
-    if (updatedBrokers == 0) {
-      LOG.info("No brokers had throttling rate updated");
-    } else {
-      LOG.info("Updated throttle rate config on {} brokers to {}", updatedBrokers, newThrottle);
-    }
-    return updatedBrokers != 0 && updatedRate;
+  private void registerGaugeSensors(DataBalancerMetricsRegistry metricRegistry) {
+    metricRegistry.newGauge(Executor.class, GAUGE_EXECUTION_STOPPED, this::numExecutionStopped);
+    metricRegistry.newGauge(Executor.class, GAUGE_EXECUTION_STOPPED_BY_USER, this::numExecutionStoppedByUser);
+    metricRegistry.newGauge(Executor.class, GAUGE_EXECUTION_STARTED_IN_KAFKA_ASSIGNER_MODE, this::numExecutionStartedInKafkaAssignerMode);
+    metricRegistry.newGauge(Executor.class, GAUGE_EXECUTION_STARTED_IN_NON_KAFKA_ASSIGNER_MODE, this::numExecutionStartedInNonKafkaAssignerMode);
+    metricRegistry.newGauge(Executor.class, GAUGE_CANCELLED_REASSIGNMENTS, this::numCancelledReassignments);
+    metricRegistry.newGauge(Executor.class, GAUGE_FAILED_REASSIGNMENT_CANCELLATIONS, this::numFailedReassignmentCancellations);
   }
 
   /**
@@ -620,17 +606,51 @@ public class Executor {
     }
   }
 
+  private void removeExpiredDemotionHistory() {
+    LOG.debug("Remove expired demotion history");
+    _latestDemoteStartTimeMsByBrokerId.entrySet()
+        .removeIf(entry -> (entry.getValue() + _demotionHistoryRetentionTimeMs) < _time.milliseconds());
+  }
+
+  private void removeExpiredRemovalHistory() {
+    LOG.debug("Remove expired broker removal history");
+    _latestRemoveStartTimeMsByBrokerId.entrySet()
+        .removeIf(entry -> (entry.getValue() + _removalHistoryRetentionTimeMs) < _time.milliseconds());
+  }
+
+  private int numExecutionStopped() {
+    return _numExecutionStopped.get();
+  }
+
+  private int numExecutionStoppedByUser() {
+    return _numExecutionStoppedByUser.get();
+  }
+
+  private int numExecutionStartedInKafkaAssignerMode() {
+    return _numExecutionStartedInKafkaAssignerMode.get();
+  }
+
+  private int numExecutionStartedInNonKafkaAssignerMode() {
+    return _numExecutionStartedInNonKafkaAssignerMode.get();
+  }
+
+  private int numFailedReassignmentCancellations() {
+    return _numFailedReassignmentCancellations.get();
+  }
+
   /**
-   * Whether there is any ongoing partition reassignment.
-   * This method directly checks the existence of znode /admin/partition_reassignment.
-   * Note this method returning false does not guarantee that there is no ongoing execution because when there is an ongoing
-   * execution inside Cruise Control, partition reassignment task batches are writen to zookeeper periodically, there will be
-   * small intervals that /admin/partition_reassignment does not exist.
-   *
-   * @return True if there is any ongoing partition reassignment.
+   * A runnable class to remove expired execution history.
    */
-  public boolean hasOngoingPartitionReassignments() {
-    return !partitionsBeingReassigned().isEmpty();
+  private class ExecutionHistoryScanner implements Runnable {
+    @Override
+    public void run() {
+      try {
+        removeExpiredDemotionHistory();
+        removeExpiredRemovalHistory();
+      } catch (Throwable t) {
+        LOG.warn("Received exception when trying to expire execution history.", t);
+      }
+    }
   }
 
   /**
@@ -1299,6 +1319,78 @@ public class Executor {
           executePreferredLeaderElection(leaderActionsToReexecute);
         }
       }
+    }
+  }
+
+  /**
+   * A helper auto closeable class for acquiring the Executor's reservation.
+   *
+   * This reservation should be closed by the same thread that acquired it,
+   * otherwise an #{@link IllegalMonitorStateException} will be thrown.
+   *
+   * A reservation cannot be acquired twice - any subsequent reservation
+   * attempts after a successful one will result in #{@link IllegalStateException}
+   */
+  public class AutoCloseableReservationHandle implements AutoCloseable {
+    /**
+     * Acquires the Executor's reservation
+     */
+    public AutoCloseableReservationHandle() {
+      boolean locked = _reservation.attemptReservation();
+      if (!locked) {
+        throw new IllegalStateException("Cannot reserve the Executor because it is already reserved by another thread!");
+      }
+    }
+
+    @Override
+    public void close() {
+      _reservation.cancelReservation();
+    }
+  }
+
+  /**
+   * A wrapper over a #{@link ReentrantLock} to:
+   * - use the lock as a flag
+   * - understand what thread holds the lock
+   * - make use of its memory-synchronization semantics (volatility) - see https://docs.oracle.com/javase/6/docs/api/java/util/concurrent/locks/Lock.html
+   */
+  final static class ExecutorReservation {
+    private ReentrantLock _lock;
+
+    public ExecutorReservation() {
+      _lock = new ReentrantLock();
+    }
+
+    /**
+     * Attempt to acquire the reservation
+     *
+     * @return {@code true} if the reservation was free and was acquired by the
+     * current thread, or the reservation was already held by the current
+     * thread; and {@code false} otherwise
+     */
+    boolean attemptReservation() {
+      if (_lock.isHeldByCurrentThread()) {
+        throw new IllegalStateException("Cannot reserve the Executor again while already holding a reservation.");
+      }
+      return _lock.tryLock();
+    }
+
+    void cancelReservation() {
+      _lock.unlock();
+    }
+
+    /**
+     * @return {@code true} if the caller is holding the reservation; {@code false} otherwise
+     */
+    boolean isReservedByMe() {
+      return _lock.isHeldByCurrentThread();
+    }
+
+    /**
+     * @return {@code true} if a reservation is held; {@code false} otherwise
+     */
+    boolean isReserved() {
+      return _lock.isLocked();
     }
   }
 

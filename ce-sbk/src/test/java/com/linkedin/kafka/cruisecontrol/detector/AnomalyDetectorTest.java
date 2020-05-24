@@ -17,6 +17,7 @@ import com.linkedin.kafka.cruisecontrol.exception.KafkaCruiseControlException;
 import com.linkedin.kafka.cruisecontrol.executor.ExecutorState;
 import com.linkedin.kafka.cruisecontrol.monitor.LoadMonitor;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
+import org.apache.kafka.test.TestUtils;
 import org.easymock.EasyMock;
 import org.junit.Test;
 
@@ -111,12 +112,11 @@ public class AnomalyDetectorTest {
     DiskFailureDetector mockDiskFailureDetector = EasyMock.createNiceMock(DiskFailureDetector.class);
     ScheduledExecutorService mockDetectorScheduler = EasyMock.mock(ScheduledExecutorService.class);
     ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
-    KafkaCruiseControl mockKafkaCruiseControl = EasyMock.mock(KafkaCruiseControl.class);
     EasyMock.expect(mockAnomalyNotifier.onBrokerFailure(EasyMock.isA(BrokerFailures.class)))
             .andReturn(AnomalyNotificationResult.check(MOCK_DELAY_CHECK_MS));
     EasyMock.expect(mockAnomalyNotifier.selfHealingEnabledRatio()).andReturn(MOCK_SELF_HEALING_ENABLED_RATIO);
     Properties props = KafkaCruiseControlUnitTestUtils.getKafkaCruiseControlProperties();
-    EasyMock.expect(mockKafkaCruiseControl.config()).andReturn(new KafkaCruiseControlConfig(props)).times(1, 2);
+    KafkaCruiseControl mockKafkaCruiseControl = mockKafkaCruiseControl(props);
 
     startPeriodicDetectors(mockDetectorScheduler, mockGoalViolationDetector, mockMetricAnomalyDetector, mockDiskFailureDetector, executorService);
     // Schedule a delayed check
@@ -179,9 +179,8 @@ public class AnomalyDetectorTest {
     DiskFailureDetector mockDiskFailureDetector = EasyMock.createNiceMock(DiskFailureDetector.class);
     ScheduledExecutorService mockDetectorScheduler = EasyMock.mock(ScheduledExecutorService.class);
     ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
-    KafkaCruiseControl mockKafkaCruiseControl = EasyMock.mock(KafkaCruiseControl.class);
     Properties props = KafkaCruiseControlUnitTestUtils.getKafkaCruiseControlProperties();
-    EasyMock.expect(mockKafkaCruiseControl.config()).andReturn(new KafkaCruiseControlConfig(props)).times(1, 2);
+    KafkaCruiseControl mockKafkaCruiseControl = mockKafkaCruiseControl(props);
 
     startPeriodicDetectors(mockDetectorScheduler, mockGoalViolationDetector, mockMetricAnomalyDetector, mockDiskFailureDetector, executorService);
     shutdownDetector(mockDetectorScheduler, executorService);
@@ -258,9 +257,10 @@ public class AnomalyDetectorTest {
                                                      Collections.emptyList());
         anomalies.add(diskFailures);
       }
-      while (anomalyDetector.numSelfHealingStarted() < 1) {
+      TestUtils.waitForCondition(() -> {
         // Wait for the anomaly to be fixed before attempting to shutdown the anomaly detector.
-      }
+        return anomalyDetector.numSelfHealingStarted() >= 1;
+      }, 120_000L, "Anomaly was not fixed in due time");
       anomalyDetector.shutdown();
       assertEquals(1, anomalyDetector.numSelfHealingStarted());
       assertEquals(0, anomalyDetector.numCheckedWithDelay());
@@ -282,6 +282,39 @@ public class AnomalyDetectorTest {
 
   @Test
   public void testExecutionInProgress() throws InterruptedException {
+    assertExecutorNotAvailable(mockKafkaCruiseControl -> {
+      // The following state are used to test the delayed check when executor is idle.
+      EasyMock.expect(mockKafkaCruiseControl.executionState())
+          .andReturn(ExecutorState.State.INTER_BROKER_REPLICA_MOVEMENT_TASK_IN_PROGRESS);
+    });
+  }
+
+  @Test
+  public void testExecutorIsReserved() throws InterruptedException {
+    assertExecutorNotAvailable(mockKafkaCruiseControl -> {
+      EasyMock.expect(mockKafkaCruiseControl.executionState())
+          .andReturn(ExecutorState.State.NO_TASK_IN_PROGRESS);
+      EasyMock.expect(mockKafkaCruiseControl.executorIsReserved())
+          .andReturn(true);
+    });
+  }
+
+  interface ExecutionNotPossibleMocker {
+    void mockExecutionNotPossible(KafkaCruiseControl mockKafkaCruiseControl);
+  }
+
+  private KafkaCruiseControl mockKafkaCruiseControl(Properties cruiseControlProps) {
+    KafkaCruiseControl mockKafkaCruiseControl = EasyMock.mock(KafkaCruiseControl.class);
+    EasyMock.expect(mockKafkaCruiseControl.config()).andReturn(new KafkaCruiseControlConfig(cruiseControlProps)).times(1, 2);
+    EasyMock.expect(mockKafkaCruiseControl.executorIsReserved()).andReturn(false).anyTimes();
+    return mockKafkaCruiseControl;
+  }
+
+  /**
+   * Assert that a goal violation is not acted upon while the executor is unavailable
+   * (either reserved or another proposal is in progress)
+   */
+  public void assertExecutorNotAvailable(ExecutionNotPossibleMocker executionNotPossibleMocker) throws InterruptedException {
     LinkedBlockingDeque<Anomaly> anomalies = new LinkedBlockingDeque<>();
     ConfluentAdmin mockAdminClient = EasyMock.createNiceMock(ConfluentAdmin.class);
     AnomalyNotifier mockAnomalyNotifier = EasyMock.mock(AnomalyNotifier.class);
@@ -299,26 +332,23 @@ public class AnomalyDetectorTest {
     shutdownDetector(mockDetectorScheduler, executorService);
     EasyMock.expect(mockAnomalyNotifier.selfHealingEnabledRatio()).andReturn(MOCK_SELF_HEALING_ENABLED_RATIO);
 
-    // The following state are used to test the delayed check when executor is idle.
-    EasyMock.expect(mockKafkaCruiseControl.executionState())
-            .andReturn(ExecutorState.State.INTER_BROKER_REPLICA_MOVEMENT_TASK_IN_PROGRESS);
+    executionNotPossibleMocker.mockExecutionNotPossible(mockKafkaCruiseControl);
 
     replayMocks(mockAnomalyNotifier, mockBrokerFailureDetector, mockGoalViolationDetector, mockMetricAnomalyDetector,
-                mockDetectorScheduler, mockKafkaCruiseControl);
+        mockDetectorScheduler, mockKafkaCruiseControl);
 
     AnomalyDetector anomalyDetector = new AnomalyDetector(anomalies, mockAdminClient, MOCK_ANOMALY_DETECTION_INTERVAL_MS, mockKafkaCruiseControl,
-                                                          mockAnomalyNotifier, mockGoalViolationDetector, mockBrokerFailureDetector,
-                                                          mockMetricAnomalyDetector, mockDiskFailureDetector, mockDetectorScheduler,
-                                                          EasyMock.mock(LoadMonitor.class));
+        mockAnomalyNotifier, mockGoalViolationDetector, mockBrokerFailureDetector,
+        mockMetricAnomalyDetector, mockDiskFailureDetector, mockDetectorScheduler,
+        EasyMock.mock(LoadMonitor.class));
 
     try {
       anomalyDetector.startDetection();
       anomalies.add(new GoalViolations(mockKafkaCruiseControl, true,
-                                       true, true,
-                                       Collections.emptyList()));
-      while (!anomalies.isEmpty()) {
-        // Just wait for the anomalies to be drained.
-      }
+          true, true,
+          Collections.emptyList()));
+      TestUtils.waitForCondition(anomalies::isEmpty, "Expected the anomalies to be emptied out;");
+
       anomalyDetector.shutdown();
       assertEquals(0, anomalyDetector.numSelfHealingStarted());
       assertEquals(0, anomalyDetector.numCheckedWithDelay());

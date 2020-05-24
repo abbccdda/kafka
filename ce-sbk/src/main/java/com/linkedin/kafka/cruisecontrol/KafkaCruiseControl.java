@@ -338,6 +338,9 @@ public class KafkaCruiseControl {
     if (_executor.hasOngoingPartitionReassignments()) {
       throw new IllegalStateException("Cannot execute new proposals while there are ongoing partition reassignments.");
     }
+    if (executorIsReserved()) {
+      throw new IllegalStateException("Cannot execute new proposals while the Executor is reserved.");
+    }
   }
 
   /**
@@ -819,6 +822,10 @@ public class KafkaCruiseControl {
 
   public ExecutorState.State executionState() {
     return _executor.state().state();
+  }
+
+  public boolean executorIsReserved() {
+    return _executor.isReservedByOther();
   }
 
   private ModelCompletenessRequirements modelCompletenessRequirements(Collection<Goal> overrides) {
