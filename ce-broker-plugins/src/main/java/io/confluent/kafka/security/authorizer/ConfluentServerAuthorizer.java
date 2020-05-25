@@ -39,6 +39,7 @@ import org.apache.kafka.server.authorizer.AuthorizableRequestContext;
 import org.apache.kafka.server.authorizer.AuthorizationResult;
 import org.apache.kafka.server.authorizer.Authorizer;
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
+import org.apache.kafka.server.authorizer.internals.ConfluentAuthorizerServerInfo;
 
 public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Authorizer, Reconfigurable {
 
@@ -77,7 +78,7 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
   }
 
   // Visibility for tests
-  public void configureServerInfo(AuthorizerServerInfo serverInfo) {
+  public void configureServerInfo(ConfluentAuthorizerServerInfo serverInfo) {
     super.configureServerInfo(serverInfo);
 
     initializeAclUpdater();
@@ -141,12 +142,12 @@ public class ConfluentServerAuthorizer extends EmbeddedAuthorizer implements Aut
 
   @Override
   public Map<Endpoint, ? extends CompletionStage<Void>> start(AuthorizerServerInfo serverInfo) {
-    configureServerInfo(serverInfo);
+    configureServerInfo((ConfluentAuthorizerServerInfo) serverInfo);
     Runnable migrationTask = createMigrationTask();
     CompletableFuture<Void> startFuture = super.start(
-        serverInfo,
-        ConfluentConfigs.interBrokerClientConfigs(new KafkaConfig(authorizerConfig.originals()), serverInfo.interBrokerEndpoint()),
-        migrationTask);
+            (ConfluentAuthorizerServerInfo) serverInfo,
+            ConfluentConfigs.interBrokerClientConfigs(new KafkaConfig(authorizerConfig.originals()), serverInfo.interBrokerEndpoint()),
+            migrationTask);
 
     Map<Endpoint, CompletableFuture<Void>> futures = new HashMap<>(serverInfo.endpoints().size());
     Optional<String> controlPlaneListener = Optional.ofNullable((String)

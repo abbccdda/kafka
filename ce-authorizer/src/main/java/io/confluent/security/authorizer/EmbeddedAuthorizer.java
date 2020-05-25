@@ -33,10 +33,15 @@ import java.util.stream.Collectors;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.common.metrics.Metrics;
+import org.apache.kafka.common.metrics.Sensor;
+import org.apache.kafka.common.metrics.stats.Rate;
+import org.apache.kafka.common.metrics.stats.WindowedCount;
+import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.server.authorizer.internals.ConfluentAuthorizerServerInfo;
 import org.apache.kafka.server.audit.AuditEvent;
 import org.apache.kafka.server.audit.AuditLogProvider;
 import org.apache.kafka.server.audit.NoOpAuditLogProvider;
-import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -62,6 +67,7 @@ public class EmbeddedAuthorizer implements Authorizer {
   private volatile boolean ready;
   private volatile String clusterId;
   private volatile Scope scope;
+  private AuthorizerMetrics authorizerMetrics;
 
 
   public EmbeddedAuthorizer() {
@@ -79,11 +85,12 @@ public class EmbeddedAuthorizer implements Authorizer {
     brokerUsers = authorizerConfig.brokerUsers;
   }
 
-  public void configureServerInfo(AuthorizerServerInfo serverInfo) {
+  public void configureServerInfo(ConfluentAuthorizerServerInfo serverInfo) {
     this.clusterId = serverInfo.clusterResource().clusterId();
     log.debug("Configuring scope for Kafka cluster with cluster id {}", clusterId);
     this.scope = Scope.kafkaClusterScope(clusterId);
     this.interBrokerListener = serverInfo.interBrokerEndpoint().listenerName().get();
+    this.authorizerMetrics = new AuthorizerMetrics(serverInfo.metrics());
 
     ConfluentAuthorizerConfig.Providers providers = authorizerConfig.createProviders(clusterId);
     providersCreated.addAll(providers.accessRuleProviders);
@@ -138,8 +145,16 @@ public class EmbeddedAuthorizer implements Authorizer {
     return auditLogProvider;
   }
 
-  public CompletableFuture<Void> start(AuthorizerServerInfo serverInfo, Map<String, ?> interBrokerListenerConfigs, Runnable initTask) {
+  public CompletableFuture<Void> start(ConfluentAuthorizerServerInfo serverInfo,
+                                       Map<String, ?> interBrokerListenerConfigs, Runnable initTask) {
     initTimeout = authorizerConfig.initTimeout;
+    /* Normal route configureServerInfo should be called by caller first so that authorizerMetrics got initialized there.
+     * For some unit tests, a caller doesn't call configureServerInfo and directly call start. So I create
+     * authorizerMetrics on two places. First it is created in configureServerInfo, second it is created in start
+     * method after checking it is not null.
+     */
+    if (authorizerMetrics == null)
+      authorizerMetrics = new AuthorizerMetrics(serverInfo.metrics());
 
     Set<Provider> allProviders = new HashSet<>(); // Use a set to remove duplicates
     if (groupProvider != null)
@@ -231,6 +246,10 @@ public class EmbeddedAuthorizer implements Authorizer {
             action, authorizeResult, authorizePolicy,
             e);
       }
+
+      // Record authorizer metrics
+      authorizerMetrics.recordAuthorizerMetrics(authorizeResult);
+
       return authorizeResult;
 
     } catch (InvalidScopeException e) {
@@ -301,6 +320,11 @@ public class EmbeddedAuthorizer implements Authorizer {
     return scope;
   }
 
+  /* Confluent provider create the EmbeddedAuthorizer without starting it, so need setup Kafka metrics */
+  protected void setupAuthorizerMetrics(Metrics metrics) {
+    authorizerMetrics = new AuthorizerMetrics(metrics);
+  }
+
   private Optional<AuthorizePolicy> authorizePolicy(Operation op,
                                                     ResourcePattern resource,
                                                     String host,
@@ -354,5 +378,78 @@ public class EmbeddedAuthorizer implements Authorizer {
     return CompletableFuture.anyOf(readyFuture, timeoutFuture)
         .thenApply(unused -> (Void) null)
         .whenComplete((unused, e) -> executor.shutdownNow());
+  }
+
+  // Visibility for testing
+  protected Metrics metrics() {
+    return authorizerMetrics.metrics();
+  }
+
+  // Visible for testing only
+  void setupAuthorizerMetrics(Time time) {
+    authorizerMetrics = new AuthorizerMetrics(time);
+  }
+
+  // Visibility for testing
+  protected Time metricsTime() {
+    return authorizerMetrics.metricsTime();
+  }
+
+  class AuthorizerMetrics {
+    public static final String GROUP_NAME = "confluent-authorizer-metrics";
+    public static final String AUTHORIZATION_REQUEST_RATE_MINUTE = "authorization-request-rate-per-minute";
+    public static final String AUTHORIZATION_ALLOWED_RATE_MINUTE = "authorization-allowed-rate-per-minute";
+    public static final String AUTHORIZATION_DENIED_RATE_MINUTE = "authorization-denied-rate-per-minute";
+    private static final String AUTHORIZER_AUTHORIZATION_ALLOWED_SENSOR = "authorizer-authorization-allowed";
+    private static final String AUTHORIZER_AUTHORIZATION_DENIED_SENSOR = "authorizer-authorization-denied";
+    private static final String AUTHORIZER_AUTHORIZATION_REQUEST_SENSOR = "authorizer-authorization-request";
+    private Time time = null;
+    private Metrics metrics = null;
+    private Sensor authorizationAllowedSensor = null;
+    private Sensor authorizationDeniedSensor = null;
+    private Sensor authorizationRequestSensor = null;
+
+    AuthorizerMetrics(Metrics metrics) {
+      this.metrics = metrics;
+      setupMetrics();
+    }
+
+    // Visibility for testing
+    AuthorizerMetrics(Time time) {
+      this.time = time;
+      this.metrics = new Metrics(time);
+      setupMetrics();
+    }
+
+    void recordAuthorizerMetrics(AuthorizeResult result) {
+      authorizationRequestSensor.record();
+      if (result == AuthorizeResult.ALLOWED) {
+        authorizationAllowedSensor.record();
+      } else {
+        authorizationDeniedSensor.record();
+      }
+    }
+
+    Metrics metrics() {
+      return metrics;
+    }
+
+    Time metricsTime() {
+      return time;
+    }
+
+    void setupMetrics() {
+      authorizationAllowedSensor = metrics.sensor(AUTHORIZER_AUTHORIZATION_ALLOWED_SENSOR);
+      authorizationAllowedSensor.add(metrics.metricName(AUTHORIZATION_ALLOWED_RATE_MINUTE, GROUP_NAME,
+              "The number of authorization allowed per minute"), new Rate(TimeUnit.MINUTES, new WindowedCount()));
+
+      authorizationDeniedSensor = metrics.sensor(AUTHORIZER_AUTHORIZATION_DENIED_SENSOR);
+      authorizationDeniedSensor.add(metrics.metricName(AUTHORIZATION_DENIED_RATE_MINUTE, GROUP_NAME,
+              "The number of authorization denied per minute"), new Rate(TimeUnit.MINUTES, new WindowedCount()));
+
+      authorizationRequestSensor = metrics.sensor(AUTHORIZER_AUTHORIZATION_REQUEST_SENSOR);
+      authorizationRequestSensor.add(metrics.metricName(AUTHORIZATION_REQUEST_RATE_MINUTE, GROUP_NAME,
+              "The number of authorization request per minute"), new Rate(TimeUnit.MINUTES, new WindowedCount()));
+    }
   }
 }

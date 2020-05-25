@@ -77,7 +77,9 @@ import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
+import org.apache.kafka.server.authorizer.internals.ConfluentAuthorizerServerInfo;
 import org.apache.kafka.server.http.MetadataServerConfig;
 import org.junit.After;
 import org.junit.Before;
@@ -505,12 +507,13 @@ public class ConfluentProviderTest {
       }
 
       @Override
-      protected AuthStore createAuthStore(Scope scope, AuthorizerServerInfo serverInfo, Map<String, ?> configs) {
+      protected AuthStore createAuthStore(Scope scope, ConfluentAuthorizerServerInfo serverInfo, Map<String, ?> configs) {
         return new MockAuthStore(RbacRoles.loadDefaultPolicy(), scope);
       }
     };
     rbacProvider.onUpdate(new ClusterResource(clusterId));
     rbacProvider.configure(configs);
+    rbacProvider.setKafkaMetrics(new Metrics());
   }
 
   private void updateRoleBinding(KafkaPrincipal principal, String role, Scope scope, Set<ResourcePattern> resources) {

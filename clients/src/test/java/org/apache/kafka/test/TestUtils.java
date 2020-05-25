@@ -32,6 +32,9 @@ import org.apache.kafka.common.requests.MetadataResponse;
 import org.apache.kafka.common.requests.RequestHeader;
 import org.apache.kafka.common.utils.Exit;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.common.MetricName;
+import org.apache.kafka.common.metrics.Metrics;
+import org.apache.kafka.common.metrics.KafkaMetric;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -580,5 +583,19 @@ public class TestUtils {
         Field field = obj.getClass().getDeclaredField(fieldName);
         field.setAccessible(true);
         field.set(obj, value);
+    }
+
+    public static double getMetricValue(Metrics metrics, String attribute) {
+        Map<MetricName, KafkaMetric> allMetrics =  metrics.metrics();
+        Optional<KafkaMetric> metric = allMetrics.entrySet()
+                .stream()
+                .filter(m -> m.getKey().name().equals(attribute))
+                .map(Map.Entry::getValue)
+                .findFirst();
+        if (metric.isPresent()) {
+            return (Double) metric.get().metricValue();
+        } else {
+            return -1;
+        }
     }
 }

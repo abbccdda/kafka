@@ -23,11 +23,12 @@ import io.confluent.http.server.KafkaHttpServerBinder
 import kafka.common.BrokerEndPointNotAvailableException
 import kafka.server.KafkaConfig
 import org.apache.kafka.common.{ClusterResource, Endpoint, Node}
+import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.server.audit.{AuditLogProvider, NoOpAuditLogProvider}
-import org.apache.kafka.server.authorizer.AuthorizerServerInfo
 import org.apache.kafka.server.http.MetadataServer
+import org.apache.kafka.server.authorizer.internals.ConfluentAuthorizerServerInfo
 
 import scala.collection.Seq
 import scala.jdk.CollectionConverters._
@@ -39,7 +40,8 @@ object Broker {
                                          interBrokerEndpoint: Endpoint,
                                          override val metadataServer: MetadataServer,
                                          override val httpServerBinder: KafkaHttpServerBinder,
-                                         override val auditLogProvider: AuditLogProvider) extends AuthorizerServerInfo
+                                         override val auditLogProvider: AuditLogProvider,
+                                         override val metrics: Metrics) extends ConfluentAuthorizerServerInfo
 }
 
 /**
@@ -90,10 +92,11 @@ case class Broker(id: Int, endPoints: Seq[EndPoint], rack: Option[String]) {
                    config: KafkaConfig,
                    metadataServer: MetadataServer,
                    httpServerBinder: KafkaHttpServerBinder,
-                   auditLogProvider: AuditLogProvider = NoOpAuditLogProvider.INSTANCE): AuthorizerServerInfo = {
+                   auditLogProvider: AuditLogProvider = NoOpAuditLogProvider.INSTANCE,
+                   metrics: Metrics): ConfluentAuthorizerServerInfo = {
     val clusterResource: ClusterResource = new ClusterResource(clusterId)
     val interBrokerEndpoint: Endpoint = endPoint(config.interBrokerListenerName).toJava
     val brokerEndpoints: util.List[Endpoint] = endPoints.toList.map(_.toJava).asJava
-    Broker.ServerInfo(clusterResource, id, brokerEndpoints, interBrokerEndpoint, metadataServer, httpServerBinder, auditLogProvider)
+    Broker.ServerInfo(clusterResource, id, brokerEndpoints, interBrokerEndpoint, metadataServer, httpServerBinder, auditLogProvider, metrics)
   }
 }

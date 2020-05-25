@@ -336,6 +336,18 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
     return statusValue != null ? statusValue.status() : MetadataStoreStatus.UNKNOWN;
   }
 
+  public int totalRoleBindings() {
+    return roleBindings.size();
+  }
+
+  public int totalRbacAccessRules() {
+    return rbacAccessRules.size();
+  }
+
+  public int totalAclAccessRules() {
+    return aclAccessRules.size();
+  }
+
   private AuthorizeRule findMatchingRule(Set<KafkaPrincipal> matchingPrincipals,
                                          String host,
                                          Action action,

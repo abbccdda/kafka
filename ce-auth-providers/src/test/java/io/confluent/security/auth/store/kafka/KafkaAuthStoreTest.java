@@ -18,7 +18,12 @@ import io.confluent.security.auth.store.data.StatusKey;
 import io.confluent.security.auth.store.data.StatusValue;
 import io.confluent.security.auth.store.data.UserKey;
 import io.confluent.security.auth.store.data.UserValue;
+import io.confluent.security.auth.store.kafka.KafkaAuthStore.AuthStoreMetrics;
 import io.confluent.security.authorizer.Scope;
+import io.confluent.security.authorizer.acl.AclRule;
+import io.confluent.security.authorizer.Operation;
+import io.confluent.security.authorizer.PermissionType;
+import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.minikdc.MiniKdcWithLdapService;
 import io.confluent.security.rbac.RbacRoles;
 import io.confluent.security.rbac.RoleBinding;
@@ -29,6 +34,8 @@ import io.confluent.security.test.utils.RbacTestUtils;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
+import java.util.HashSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -45,6 +52,9 @@ import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.common.acl.AclBinding;
+import org.apache.kafka.common.acl.AclBindingFilter;
+import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.test.TestUtils;
 import org.junit.After;
 import org.junit.Before;
@@ -238,6 +248,54 @@ public class KafkaAuthStoreTest {
 
   }
 
+  @Test
+  public void testAuthStoreRbacRolesMetrics() throws Exception {
+    createAuthStore();
+    startAuthService();
+    assertTrue(authStore.isMasterWriter());
+
+    authStore.configureDelays(1, 2);
+    for (int i = 0;  i < 10; i++) {
+      Scope clusterX = new Scope.Builder("testOrg").withKafkaCluster("cluster" + i).build();
+      for (int j = 0; j < 10; j++) {
+        authWriter.addClusterRoleBinding(principal("user" + j), "Operator", clusterX);
+      }
+      TestUtils.waitForCondition(() -> authCache.rbacRoleBindings(clusterX).size() == 10,
+              "Roles not assigned");
+      for (int j = 0; j < 10; j++) {
+        verifyRole("user" + j, "Operator", clusterX);
+      }
+    }
+    assertEquals(100.0, TestUtils.getMetricValue(authStore.metrics(), AuthStoreMetrics.RBAC_ROLE_BINDINGS_COUNT), 0.0);
+    assertEquals(10.0, TestUtils.getMetricValue(authStore.metrics(), AuthStoreMetrics.RBAC_ACCESS_RULES_COUNT), 0.0);
+
+    for (int i = 0;  i < 5; i++) {
+      Scope clusterX = new Scope.Builder("testOrg").withKafkaCluster("cluster" + i).build();
+      for (int j = 0; j < 10; j++) {
+        authWriter.removeRoleBinding(principal("user" + j), "Operator", clusterX);
+      }
+      TestUtils.waitForCondition(() -> authCache.rbacRoleBindings(clusterX).size() == 0,
+              "Roles not assigned");
+    }
+    assertEquals(50.0, TestUtils.getMetricValue(authStore.metrics(), AuthStoreMetrics.RBAC_ROLE_BINDINGS_COUNT), 0.0);
+    assertEquals(10.0, TestUtils.getMetricValue(authStore.metrics(), AuthStoreMetrics.RBAC_ACCESS_RULES_COUNT), 0.0);
+  }
+
+  @Test
+  public void testAuthStoreAclsMetrics() throws Exception {
+    createAuthStore();
+    startAuthService();
+    assertTrue(authStore.isMasterWriter());
+
+    for (int i = 0; i < 10; i++) {
+      Scope clusterX = new Scope.Builder("testOrg").withKafkaCluster("cluster" + i).build();
+      AclBinding userTopicABinding = topicBinding("User", "TopicA", new Operation("Read"), PermissionType.ALLOW);
+      authWriter.createAcls(clusterX, userTopicABinding).toCompletableFuture().join();
+      assertEquals(Collections.singleton(userTopicABinding), aclRules(clusterX, userTopicABinding.toFilter()));
+    }
+    assertEquals(10.0, TestUtils.getMetricValue(authStore.metrics(), AuthStoreMetrics.ACL_ACCESS_RULES_COUNT), 0.0);
+  }
+
   private void createAuthStore() throws Exception {
     authStore = MockAuthStore.create(rbacRoles, time, Scope.intermediateScope("testOrg"), 1, storeNodeId);
   }
@@ -268,9 +326,27 @@ public class KafkaAuthStoreTest {
   }
 
   private void verifyRole(String userName, String role) {
+    verifyRole(userName, role, clusterA);
+  }
+
+  private void verifyRole(String userName, String role, Scope scope) {
     RoleBinding binding =
-        new RoleBinding(principal(userName), role, clusterA, Collections.emptySet());
+            new RoleBinding(principal(userName), role, scope, Collections.emptySet());
     assertTrue("Missing role for " + userName,
-        authCache.rbacRoleBindings(clusterA).contains(binding));
+            authCache.rbacRoleBindings(scope).contains(binding));
+  }
+
+  private AclBinding topicBinding(String userName,
+                                  String topic,
+                                  Operation operation,
+                                  PermissionType permissionType) {
+    ResourcePattern resourcePattern = new ResourcePattern("Topic", topic, PatternType.LITERAL);
+    KafkaPrincipal principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "username");
+    AclRule accessRule = new AclRule(principal, permissionType, "", operation);
+    return new AclBinding(ResourcePattern.to(resourcePattern), accessRule.toAccessControlEntry());
+  }
+
+  private Set<AclBinding> aclRules(Scope scope, AclBindingFilter filter) {
+    return new HashSet<>(authCache.aclBindings(scope, filter, r -> true));
   }
 }

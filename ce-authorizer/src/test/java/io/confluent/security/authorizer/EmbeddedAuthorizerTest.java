@@ -8,10 +8,12 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.fail;
+import static org.junit.Assert.assertTrue;
 
 import io.confluent.security.authorizer.AuthorizePolicy.PolicyType;
 import io.confluent.security.authorizer.provider.ProviderFailedException;
 import io.confluent.security.authorizer.utils.AuthorizerUtils;
+import io.confluent.security.authorizer.EmbeddedAuthorizer.AuthorizerMetrics;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collection;
@@ -32,7 +34,9 @@ import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.Utils;
-import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
+import org.apache.kafka.common.metrics.Metrics;
+import org.apache.kafka.common.utils.MockTime;
+import org.apache.kafka.server.authorizer.internals.ConfluentAuthorizerServerInfo;
 import org.apache.kafka.test.TestUtils;
 import org.junit.After;
 import org.junit.Test;
@@ -44,7 +48,7 @@ public class EmbeddedAuthorizerTest {
   private final KafkaPrincipal group = new KafkaPrincipal(AccessRule.GROUP_PRINCIPAL_TYPE, "groupA");
   private final ResourcePattern topic = new ResourcePattern(new ResourceType("Topic"), "testTopic", PatternType.LITERAL);
   private final Scope scope = Scope.kafkaClusterScope("testScope");
-  private final AuthorizerServerInfo serverInfo = serverInfo("testScope");
+  private final ConfluentAuthorizerServerInfo serverInfo = serverInfo("testScope");
 
   @After
   public void tearDown() {
@@ -243,6 +247,81 @@ public class EmbeddedAuthorizerTest {
     assertEquals(RuntimeException.class, t.getCause().getClass());
   }
 
+  @Test
+  public void testAuthorizationAllowedRate() throws Exception {
+    int count = 10;
+    RequestContext requestContext = requestContext(principal, "127.0.0.1");
+    Action write = action("Write");
+    Action read = action("Read");
+    PolicyType policyType = PolicyType.ALLOW_ROLE;
+    Set<AccessRule> topicRules = new HashSet<>();
+    List<AuthorizeResult> result;
+
+    configureAuthorizer("TEST", "TEST");
+    TestGroupProvider.groups.put(principal, Collections.singleton(group));
+    setupAuthorizerMetrics();
+
+    TestAccessRuleProvider.accessRules.put(topic, topicRules);
+    topicRules.add(new MockRoleAccessRule(topic, group, PermissionType.ALLOW, "127.0.0.1", read.operation(), policyType));
+    topicRules.add(new MockRoleAccessRule(topic, group, PermissionType.ALLOW, "127.0.0.1", write.operation(), policyType));
+    for (int i = 0; i < count; i++) {
+      result = authorizer.authorize(requestContext, Arrays.asList(write, read));
+      assertEquals(Arrays.asList(AuthorizeResult.ALLOWED, AuthorizeResult.ALLOWED), result);
+    }
+    authorizer.metricsTime().sleep(20000);
+    assertTrue(TestUtils.getMetricValue(authorizer.metrics(), AuthorizerMetrics.AUTHORIZATION_ALLOWED_RATE_MINUTE) >= 20);
+  }
+
+  @Test
+  public void testAuthorizationDeniedRate() throws Exception {
+    int count = 10;
+    RequestContext requestContext = requestContext(principal, "127.0.0.1");
+    Action write = action("Write");
+    Action read = action("Read");
+    PolicyType policyType = PolicyType.ALLOW_ROLE;
+    Set<AccessRule> topicRules = new HashSet<>();
+    List<AuthorizeResult> result;
+
+    configureAuthorizer("TEST", "TEST");
+    TestGroupProvider.groups.put(principal, Collections.singleton(group));
+    setupAuthorizerMetrics();
+    for (int i = 0; i < count; i++) {
+      result = authorizer.authorize(requestContext, Arrays.asList(read, write));
+      assertEquals(Arrays.asList(AuthorizeResult.DENIED, AuthorizeResult.DENIED), result);
+    }
+    authorizer.metricsTime().sleep(20000);
+    assertTrue(TestUtils.getMetricValue(authorizer.metrics(), AuthorizerMetrics.AUTHORIZATION_DENIED_RATE_MINUTE) >= 20);
+  }
+
+  @Test
+  public void testAuthorizationRequestedRate() throws Exception {
+    int count = 10;
+    RequestContext requestContext = requestContext(principal, "127.0.0.1");
+    Action write = action("Write");
+    Action read = action("Read");
+    PolicyType policyType = PolicyType.ALLOW_ROLE;
+    Set<AccessRule> topicRules = new HashSet<>();
+    List<AuthorizeResult> result;
+
+    configureAuthorizer("TEST", "TEST");
+    TestGroupProvider.groups.put(principal, Collections.singleton(group));
+    setupAuthorizerMetrics();
+    for (int i = 0; i < count; i++) {
+      result = authorizer.authorize(requestContext, Arrays.asList(read, write));
+      assertEquals(Arrays.asList(AuthorizeResult.DENIED, AuthorizeResult.DENIED), result);
+    }
+
+    TestAccessRuleProvider.accessRules.put(topic, topicRules);
+    topicRules.add(new MockRoleAccessRule(topic, group, PermissionType.ALLOW, "127.0.0.1", read.operation(), policyType));
+    topicRules.add(new MockRoleAccessRule(topic, group, PermissionType.ALLOW, "127.0.0.1", write.operation(), policyType));
+    for (int i = 0; i < count; i++) {
+      result = authorizer.authorize(requestContext, Arrays.asList(write, read));
+      assertEquals(Arrays.asList(AuthorizeResult.ALLOWED, AuthorizeResult.ALLOWED), result);
+    }
+    authorizer.metricsTime().sleep(20000);
+    assertTrue(TestUtils.getMetricValue(authorizer.metrics(), AuthorizerMetrics.AUTHORIZATION_REQUEST_RATE_MINUTE) >= 40);
+  }
+
   private long threadCount(String prefix) {
     return Thread.getAllStackTraces().keySet().stream()
         .filter(t -> t.getName().startsWith(prefix))
@@ -262,9 +341,9 @@ public class EmbeddedAuthorizerTest {
     return new Action(scope, topic.resourceType(), topic.name(), new Operation(operation));
   }
 
-  private AuthorizerServerInfo serverInfo(String clusterId) {
+  private ConfluentAuthorizerServerInfo serverInfo(String clusterId) {
     Endpoint endpoint = new Endpoint("PLAINTEXT", SecurityProtocol.PLAINTEXT, "127.0.0.1", 9092);
-    return new AuthorizerServerInfo() {
+    return new ConfluentAuthorizerServerInfo() {
       @Override
       public ClusterResource clusterResource() {
         return new ClusterResource(clusterId);
@@ -284,6 +363,11 @@ public class EmbeddedAuthorizerTest {
       public Endpoint interBrokerEndpoint() {
         return endpoint;
       }
+
+      @Override
+      public Metrics metrics() {
+        return new Metrics();
+      };
     };
   }
 
@@ -301,5 +385,10 @@ public class EmbeddedAuthorizerTest {
         Operation operation, PolicyType policyType) {
       super(resourcePattern, principal, permissionType, host, operation, policyType);
     }
+  }
+
+  private void setupAuthorizerMetrics() throws Exception {
+    MockTime time = new MockTime();
+    authorizer.setupAuthorizerMetrics(time);
   }
 }

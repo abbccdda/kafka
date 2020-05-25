@@ -7,6 +7,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.function.UnaryOperator;
 import org.apache.kafka.common.Reconfigurable;
+import org.apache.kafka.common.metrics.Metrics;
 
 /**
  * Interface used by audit log provider that logs audit events.
@@ -51,4 +52,11 @@ public interface AuditLogProvider extends Reconfigurable, AutoCloseable {
    * Returns true if this audit log destination topics are in this cluster
    */
   boolean usesMetadataFromThisKafkaCluster();
+
+  /**
+   * Set the Kafka Metrics to this audit log provider.
+   */
+  default void setMetrics(Metrics metrics) {
+    return;
+  }
 }

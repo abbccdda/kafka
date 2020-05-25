@@ -42,6 +42,11 @@ import java.util.function.UnaryOperator;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.errors.InterruptException;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.common.metrics.Metrics;
+import org.apache.kafka.common.metrics.Sensor;
+import org.apache.kafka.common.metrics.stats.Rate;
+import org.apache.kafka.common.metrics.stats.WindowedCount;
+import org.apache.kafka.common.utils.Time;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -81,6 +86,8 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
 
   private volatile boolean eventLoggerReady;
   private String clusterId;
+
+  private AuditLogMetrics auditLogMetrics;
 
   // The router is used in the logAuthorization() and can be reconfigured. It is best to update it atomically.
 
@@ -181,7 +188,6 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
   public CompletionStage<Void> start(Map<String, ?> interBrokerListenerConfigs) {
     initExecutor = Executors.
         newSingleThreadScheduledExecutor(ThreadUtils.createThreadFactory("audit-init-%d", true));
-
     // save these, in case we're reconfigured without bootstrap servers
     this.originalInterBrokerListenerConfigs = new HashMap<>(interBrokerListenerConfigs);
     CompletableFuture<Void> future = new CompletableFuture<>();
@@ -231,6 +237,10 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
     this.sanitizer = sanitizer;
   }
 
+  @Override
+  public void setMetrics(Metrics metrics) {
+    auditLogMetrics = new AuditLogMetrics(metrics);
+  }
 
   private void logAuthorization(ConfluentAuthorizationEvent authZEvent) {
 
@@ -291,9 +301,9 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
           .setSubject(subject)
           .setType(AUTHORIZATION_MESSAGE_TYPE)
           .setEncoding(state.config.getString(AUDIT_CLOUD_EVENT_ENCODING_CONFIG));
-
       if (!eventLoggerReady || !generateEvent) {
         fallbackLog.info(CloudEventUtils.toJsonString(eventBuilder.build()));
+        auditLogMetrics.recordFallbackAuditlogMetrics();
         return;
       }
 
@@ -309,8 +319,10 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
       boolean routeReady = state.logger.ready(event);
       if (routeReady) {
         state.logger.log(event);
+        auditLogMetrics.recordNormalAuditlogMetrics();
       } else {
         fallbackLog.info(CloudEventUtils.toJsonString(event));
+        auditLogMetrics.recordFallbackAuditlogMetrics();
       }
 
     } catch (CrnSyntaxException e) {
@@ -332,7 +344,6 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
     Utils.closeQuietly(configuredState.logger, "eventLogger");
   }
 
-
   // Visibility for testing
   public ExecutorService initExecutor() {
     return initExecutor;
@@ -346,5 +357,69 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
   // Visibility for testing
   public boolean isEventLoggerReady() {
     return eventLoggerReady;
+  }
+
+  // Visibility for testing
+  protected Metrics metrics() {
+    return auditLogMetrics.metrics();
+  }
+
+  // Visibility for testing
+  protected void setupMetrics(Time time) {
+    auditLogMetrics = new AuditLogMetrics(time);
+  }
+
+  // Visibility for testing
+  protected Time metricsTime() {
+    return auditLogMetrics.metricsTime();
+  }
+
+  class AuditLogMetrics {
+    public static final String GROUP_NAME = "confluent-audit-metrics";
+    public static final String AUDIT_LOG_RATE_MINUTE = "audit-log-rate-per-minute";
+    public static final String AUDIT_LOG_FALLBACK_RATE_MINUTE = "audit-log-fallback-rate-per-minute";
+    private static final String AUDIT_LOG_NORMAL_SENSOR = "audit-log-normal";
+    private static final String AUDIT_LOG_FALLBACK_SENSOR = "audit-log-fallback";
+    private Sensor normalAuditSensor = null;
+    private Sensor fallbackAuditSensor = null;
+    private Time time;
+    private Metrics metrics;
+
+    AuditLogMetrics(Metrics metrics) {
+      this.metrics = metrics;
+      setupMetrics();
+    }
+
+    // Visibility for testing
+    AuditLogMetrics(Time time) {
+      this.time = time;
+      this.metrics = new Metrics(time);
+      setupMetrics();
+    }
+
+    void recordNormalAuditlogMetrics() {
+      normalAuditSensor.record();
+    }
+
+    void recordFallbackAuditlogMetrics() {
+      fallbackAuditSensor.record();
+    }
+
+    Metrics metrics() {
+      return metrics;
+    }
+
+    Time metricsTime() {
+      return time;
+    }
+
+    void setupMetrics() {
+      normalAuditSensor = metrics.sensor(AUDIT_LOG_NORMAL_SENSOR);
+      normalAuditSensor.add(metrics.metricName(AUDIT_LOG_RATE_MINUTE, GROUP_NAME,
+              "The number of audit log per minute"), new Rate(TimeUnit.MINUTES, new WindowedCount()));
+      fallbackAuditSensor = metrics.sensor(AUDIT_LOG_FALLBACK_SENSOR);
+      fallbackAuditSensor.add(metrics.metricName(AUDIT_LOG_FALLBACK_RATE_MINUTE, GROUP_NAME,
+              "The number of audit log fallback per minute"), new Rate(TimeUnit.MINUTES, new WindowedCount()));
+    }
   }
 }

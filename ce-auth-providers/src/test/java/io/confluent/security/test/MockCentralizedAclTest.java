@@ -68,6 +68,7 @@ import org.apache.kafka.server.authorizer.AuthorizableRequestContext;
 import org.apache.kafka.server.authorizer.AuthorizationResult;
 import org.apache.kafka.server.authorizer.Authorizer;
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
+import org.apache.kafka.server.authorizer.internals.ConfluentAuthorizerServerInfo;
 import org.apache.kafka.server.http.MetadataServerConfig;
 import org.easymock.EasyMock;
 import org.junit.Ignore;
@@ -179,7 +180,7 @@ public class MockCentralizedAclTest extends ConfluentServerAuthorizerTest {
 
   private static class TestAuthorizer extends ConfluentServerAuthorizer {
 
-    private final AuthorizerServerInfo serverInfo = KafkaTestUtils
+    private final ConfluentAuthorizerServerInfo serverInfo = KafkaTestUtils
         .serverInfo("clusterA", SecurityProtocol.SSL);
     private final MockCentralizedAclProvider centralizedAclProvider = new MockCentralizedAclProvider(
         "clusterA");
@@ -226,7 +227,7 @@ public class MockCentralizedAclTest extends ConfluentServerAuthorizerTest {
     }
 
     @Override
-    protected AuthStore createAuthStore(Scope scope, AuthorizerServerInfo serverInfo,
+    protected AuthStore createAuthStore(Scope scope, ConfluentAuthorizerServerInfo serverInfo,
         Map<String, ?> configs) {
       return new MockAuthStore(RbacRoles.loadDefaultPolicy(), scope);
     }

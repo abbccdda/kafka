@@ -43,7 +43,8 @@ import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
-import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
+import org.apache.kafka.common.metrics.Metrics;
+import org.apache.kafka.server.authorizer.internals.ConfluentAuthorizerServerInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -57,7 +58,7 @@ public class KafkaAuthStore implements AuthStore, ConsumerListener<AuthKey, Auth
 
   private static final Duration CLOSE_TIMEOUT = Duration.ofSeconds(30);
 
-  private final AuthorizerServerInfo serverInfo;
+  private final ConfluentAuthorizerServerInfo serverInfo;
   private final DefaultAuthCache authCache;
   private final Time time;
   private final int numAuthTopicPartitions;
@@ -67,6 +68,7 @@ public class KafkaAuthStore implements AuthStore, ConsumerListener<AuthKey, Auth
   private final StoreStatusListener statusListener;
   private final List<Meter> successfulSendMeters;
   private final List<Meter> failedSendMeters;
+  private AuthStoreMetrics authStoreMetrics;
 
   private KafkaStoreConfig clientConfig;
   private KafkaReader<AuthKey, AuthValue> reader;
@@ -74,12 +76,12 @@ public class KafkaAuthStore implements AuthStore, ConsumerListener<AuthKey, Auth
   private volatile KafkaAuthWriter writer;
   private volatile Integer masterWriterId;
 
-  public KafkaAuthStore(Scope scope, AuthorizerServerInfo serverInfo) {
+  public KafkaAuthStore(Scope scope, ConfluentAuthorizerServerInfo serverInfo) {
     this(RbacRoles.loadDefaultPolicy(), Time.SYSTEM, scope, serverInfo, KafkaStoreConfig.NUM_PARTITIONS);
   }
 
   public KafkaAuthStore(RbacRoles rbacRoles, Time time, Scope scope,
-      AuthorizerServerInfo serverInfo, int numAuthTopicPartitions) {
+                        ConfluentAuthorizerServerInfo serverInfo, int numAuthTopicPartitions) {
     this.serverInfo = serverInfo;
     this.authCache = new DefaultAuthCache(rbacRoles, scope);
     this.time = time;
@@ -88,6 +90,7 @@ public class KafkaAuthStore implements AuthStore, ConsumerListener<AuthKey, Auth
     this.statusListener = new StoreStatusListener();
     this.keySerde = JsonSerde.serde(AuthKey.class, true);
     this.valueSerde = JsonSerde.serde(AuthValue.class, false);
+    this.authStoreMetrics = new AuthStoreMetrics(serverInfo.metrics());
 
     successfulSendMeters = new ArrayList<>(numAuthTopicPartitions);
     failedSendMeters = new ArrayList<>(numAuthTopicPartitions);
@@ -169,6 +172,9 @@ public class KafkaAuthStore implements AuthStore, ConsumerListener<AuthKey, Auth
     nodeManager = createNodeManager(nodeUrls, clientConfig, writer, time);
     writer.rebalanceListener(nodeManager);
     nodeManager.start();
+
+    // Register auth store meters
+    authStoreMetrics.registerAuthStoreMeters();
   }
 
   @Override
@@ -295,6 +301,11 @@ public class KafkaAuthStore implements AuthStore, ConsumerListener<AuthKey, Auth
     return clientConfig;
   }
 
+  // Visibility for unit test
+  protected Metrics metrics() {
+    return authStoreMetrics.metrics();
+  }
+
   private class StoreStatusListener implements StatusListener {
 
     private final AtomicLong readerFailureStartMs;
@@ -381,6 +392,35 @@ public class KafkaAuthStore implements AuthStore, ConsumerListener<AuthKey, Auth
     private Long firstFailureMs(Map<Integer, Long> failuresStartMs) {
       Set<Long> failures = new HashSet<>(failuresStartMs.values());
       return failures.isEmpty() ? null : Collections.min(failures);
+    }
+  }
+
+  class AuthStoreMetrics {
+    public static final String GROUP_NAME = "confluent-auth-store-metrics";
+    public static final String RBAC_ROLE_BINDINGS_COUNT = "rbac-role-bindings-count";
+    public static final String RBAC_ACCESS_RULES_COUNT = "rbac-access-rules-count";
+    public static final String ACL_ACCESS_RULES_COUNT = "acl-access-rules-count";
+
+    private Metrics metrics = null;
+
+    AuthStoreMetrics(Metrics metrics) {
+      this.metrics = metrics;
+    }
+
+    void registerAuthStoreMeters() {
+      metrics.addMetric(metrics.metricName(RBAC_ROLE_BINDINGS_COUNT,
+              GROUP_NAME, "The number of role bindings defined"),
+              (config, now) -> authCache.totalRoleBindings());
+      metrics.addMetric(metrics.metricName(RBAC_ACCESS_RULES_COUNT,
+              GROUP_NAME, "The number of rbac access rules defined"),
+              (config, now) -> authCache.totalRbacAccessRules());
+      metrics.addMetric(metrics.metricName(ACL_ACCESS_RULES_COUNT,
+              GROUP_NAME, "The number of acl access rules defined"),
+              (config, now) -> authCache.totalAclAccessRules());
+    }
+
+    Metrics metrics() {
+      return metrics;
     }
   }
 }

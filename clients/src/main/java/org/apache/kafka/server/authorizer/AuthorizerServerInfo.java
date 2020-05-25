@@ -17,15 +17,10 @@
 
 package org.apache.kafka.server.authorizer;
 
-import io.confluent.http.server.KafkaHttpServerBinder;
 import java.util.Collection;
 import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.Endpoint;
 import org.apache.kafka.common.annotation.InterfaceStability;
-import org.apache.kafka.server.audit.AuditLogProvider;
-import org.apache.kafka.server.audit.NoOpAuditLogProvider;
-import org.apache.kafka.server.http.MetadataServer;
-import org.apache.kafka.server.http.MetadataServerFactory;
 
 /**
  * Runtime broker configuration metadata provided to authorizers during start up.
@@ -53,24 +48,4 @@ public interface AuthorizerServerInfo {
      * Returns the inter-broker endpoint. This is one of the endpoints returned by {@link #endpoints()}.
      */
     Endpoint interBrokerEndpoint();
-
-    // Confluent extensions to Authorizer API
-
-    /**
-     * Returns the embedded {@link MetadataServer} installed in this broker.
-     */
-    default MetadataServer metadataServer() {
-        return MetadataServerFactory.none();
-    }
-
-    default KafkaHttpServerBinder httpServerBinder() {
-        return new KafkaHttpServerBinder();
-    }
-
-    /**
-     * Returns the {@link org.apache.kafka.server.audit.AuditLogProvider} configured in this broker.
-     */
-    default AuditLogProvider auditLogProvider() {
-        return NoOpAuditLogProvider.INSTANCE;
-    }
 }

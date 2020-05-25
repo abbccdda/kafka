@@ -27,7 +27,7 @@ import org.apache.kafka.common.errors.AuthorizationException;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
-import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
+import org.apache.kafka.server.authorizer.internals.ConfluentAuthorizerServerInfo;
 import org.apache.kafka.server.http.MetadataServerConfig;
 import org.junit.After;
 import org.junit.Before;
@@ -70,7 +70,7 @@ public class MetadataAuthorizationTest {
     props.put(MetadataServerConfig.METADATA_SERVER_LISTENERS_PROP, "http://127.0.0.1:8090");
     props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
     authorizer.configure(props);
-    AuthorizerServerInfo serverInfo = KafkaTestUtils.serverInfo("clusterA", SecurityProtocol.SSL);
+    ConfluentAuthorizerServerInfo serverInfo = KafkaTestUtils.serverInfo("clusterA", SecurityProtocol.SSL);
     authorizer.configureServerInfo(serverInfo);
     authorizer.start(serverInfo, props, () -> { }).get();
     ConfluentProvider rbacProvider = (ConfluentProvider) authorizer.accessRuleProvider("MOCK_RBAC");

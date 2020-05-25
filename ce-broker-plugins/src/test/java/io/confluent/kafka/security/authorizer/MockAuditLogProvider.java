@@ -57,7 +57,6 @@ public class MockAuditLogProvider implements AuditLogProvider {
     return new CompletableFuture<>();
   }
 
-
   @Override
   public boolean providerConfigured(Map<String, ?> configs) {
     if (configs.containsKey("confluent.security.event.logger.enable")) {

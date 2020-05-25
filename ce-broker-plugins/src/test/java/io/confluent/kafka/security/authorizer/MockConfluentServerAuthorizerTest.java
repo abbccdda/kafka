@@ -43,10 +43,11 @@ import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.resource.ResourceType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
+import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.server.audit.AuditLogProvider;
 import org.apache.kafka.server.authorizer.AuthorizableRequestContext;
 import org.apache.kafka.server.authorizer.AuthorizationResult;
-import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
+import org.apache.kafka.server.authorizer.internals.ConfluentAuthorizerServerInfo;
 import org.apache.kafka.test.TestUtils;
 import org.junit.After;
 import org.junit.Before;
@@ -55,7 +56,7 @@ import org.junit.Test;
 public class MockConfluentServerAuthorizerTest {
 
   private ConfluentServerAuthorizer authorizer;
-  private AuthorizerServerInfo serverInfo;
+  private ConfluentAuthorizerServerInfo serverInfo;
   private Endpoint controlPlaneEndpoint;
   private Endpoint interBrokerEndpoint;
   private Endpoint externalEndpoint;
@@ -83,7 +84,7 @@ public class MockConfluentServerAuthorizerTest {
     interBrokerEndpoint = new Endpoint("internal", SecurityProtocol.PLAINTEXT, "localhost", 9091);
     externalEndpoint = new Endpoint("external", SecurityProtocol.SASL_SSL, "localhost", 9092);
 
-    serverInfo = new AuthorizerServerInfo() {
+    serverInfo = new ConfluentAuthorizerServerInfo() {
       @Override
       public ClusterResource clusterResource() {
         return new ClusterResource("clusterA");
@@ -108,6 +109,11 @@ public class MockConfluentServerAuthorizerTest {
       public AuditLogProvider auditLogProvider() {
         return new MockAuditLogProvider();
       }
+
+      @Override
+      public Metrics metrics() {
+        return new Metrics();
+      };
     };
   }
 
@@ -252,7 +258,7 @@ public class MockConfluentServerAuthorizerTest {
     }
 
     @Override
-    public CompletionStage<Void> start(AuthorizerServerInfo serverInfo, Map<String, ?> clientConfigs) {
+    public CompletionStage<Void> start(ConfluentAuthorizerServerInfo serverInfo, Map<String, ?> clientConfigs) {
       // Metrics reporter doesn't like broker.id in client configs
       assertTrue(!clientConfigs.containsKey(KafkaConfig$.MODULE$.BrokerIdProp()));
       return startFuture;

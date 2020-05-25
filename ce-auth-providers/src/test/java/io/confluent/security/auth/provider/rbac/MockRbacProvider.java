@@ -18,6 +18,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
+import org.apache.kafka.server.authorizer.internals.ConfluentAuthorizerServerInfo;
 
 public class MockRbacProvider extends ConfluentProvider implements MetadataProvider {
 
@@ -33,7 +34,7 @@ public class MockRbacProvider extends ConfluentProvider implements MetadataProvi
   }
 
   @Override
-  protected AuthStore createAuthStore(Scope scope, AuthorizerServerInfo serverInfo, Map<String, ?> configs) {
+  protected AuthStore createAuthStore(Scope scope, ConfluentAuthorizerServerInfo serverInfo, Map<String, ?> configs) {
     return new MockAuthStore(RbacRoles.loadDefaultPolicy(), scope);
   }
 

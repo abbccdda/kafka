@@ -14,8 +14,8 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
+import org.apache.kafka.server.authorizer.internals.ConfluentAuthorizerServerInfo;
 import org.apache.kafka.server.audit.AuditLogProvider;
-import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
 
 public class TestAccessRuleProvider implements AccessRuleProvider, Auditable {
 
@@ -33,7 +33,7 @@ public class TestAccessRuleProvider implements AccessRuleProvider, Auditable {
   }
 
   @Override
-  public CompletionStage<Void> start(AuthorizerServerInfo serverInfo, Map<String, ?> interBrokerListenerConfigs) {
+  public CompletionStage<Void> start(ConfluentAuthorizerServerInfo serverInfo, Map<String, ?> interBrokerListenerConfigs) {
     return startFuture;
   }
 

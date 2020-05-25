@@ -36,6 +36,7 @@ import org.apache.kafka.server.authorizer.AuthorizableRequestContext;
 import org.apache.kafka.server.authorizer.AuthorizationResult;
 import org.apache.kafka.server.authorizer.Authorizer;
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
+import org.apache.kafka.server.authorizer.internals.ConfluentAuthorizerServerInfo;
 
 // Note: This test is useful during the early stages of development to ensure consistency
 // with Apache Kafka AclAuthorizer. It can be removed once the code is stable if it
@@ -106,7 +107,7 @@ public class ConfluentServerAuthorizerTest extends AclAuthorizerTest {
 
   private static class TestAuthorizer extends ConfluentServerAuthorizer {
 
-    private final AuthorizerServerInfo serverInfo = KafkaTestUtils.serverInfo("clusterA", SecurityProtocol.SSL);
+    private final ConfluentAuthorizerServerInfo serverInfo = KafkaTestUtils.serverInfo("clusterA", SecurityProtocol.SSL);
 
     @Override
     public void configure(Map<String, ?> configs) {

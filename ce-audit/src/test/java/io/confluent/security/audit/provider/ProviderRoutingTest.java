@@ -21,6 +21,7 @@ import io.confluent.security.audit.AuditLogConfig;
 import io.confluent.security.audit.AuditLogEntry;
 import io.confluent.security.audit.AuditLogRouterJsonConfigUtils;
 import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
+import io.confluent.security.audit.provider.ConfluentAuditLogProvider.AuditLogMetrics;
 import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizePolicy;
 import io.confluent.security.authorizer.AuthorizeResult;
@@ -45,6 +46,9 @@ import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.SecurityUtils;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.common.utils.MockTime;
+import org.apache.kafka.common.metrics.Metrics;
+import org.apache.kafka.test.TestUtils;
 import org.junit.Test;
 
 @SuppressWarnings("unchecked")
@@ -68,14 +72,24 @@ public class ProviderRoutingTest {
 
   private ConfluentAuditLogProvider providerWithMockExporter(String clusterId,
       Map<String, String> configOverrides) throws Exception {
+    return providerWithMockExporter(clusterId, configOverrides, true);
+  }
+
+  private ConfluentAuditLogProvider providerWithMockExporter(String clusterId,
+                                                             Map<String, String> configOverrides,
+                                                             Boolean startProvider) throws Exception {
     ConfluentAuditLogProvider provider = new ConfluentAuditLogProvider();
     configs.put(AUDIT_EVENT_ROUTER_CONFIG, json);
     configs.put(AuditLogConfig.EVENT_EXPORTER_CLASS_CONFIG, MockExporter.class.getName());
     configs.putAll(configOverrides);
     provider.configure(configs);
-    CompletableFuture<Void> startFuture = provider
-        .start(configs).toCompletableFuture();
-    startFuture.get(10_000, TimeUnit.MILLISECONDS);
+    provider.setMetrics(new Metrics());
+    if (startProvider) {
+      CompletableFuture<Void> startFuture = provider
+              .start(configs).toCompletableFuture();
+      startFuture.get(10_000, TimeUnit.MILLISECONDS);
+    }
+
     return provider;
   }
 
@@ -427,6 +441,66 @@ public class ProviderRoutingTest {
     provider.close();
   }
 
+  @Test
+  public void testAuditLogMetricRate() throws Exception {
+    MockTime time = new MockTime();
+    ConfluentAuthorizationEvent authEvent = createConfluentAuthorizationEvent(true, true);
+    ConfluentAuditLogProvider provider = providerWithMockExporter("63REM3VWREiYtMuVxZeplA", Utils.mkMap());
+    // reset Metrics
+    provider.setupMetrics(time);
+    for (int i = 0; i < 20; i++) {
+      provider.logEvent(authEvent);
+    }
+    provider.metricsTime().sleep(20000);
+    assertTrue(TestUtils.getMetricValue(provider.metrics(), AuditLogMetrics.AUDIT_LOG_RATE_MINUTE) >= 20);
+  }
+
+  @Test
+  public void testAuditLogMetricsRouteNotReady() throws Exception {
+    MockTime time = new MockTime();
+    ConfluentAuthorizationEvent authEvent = createConfluentAuthorizationEvent(true, true);
+    ConfluentAuditLogProvider provider = providerWithMockExporter("63REM3VWREiYtMuVxZeplA", Utils.mkMap());
+    MockExporter export = (MockExporter) provider.getEventLogger().eventExporter();
+    export.setRouteReady(false);
+    // reset Metrics
+    provider.setupMetrics(time);
+    for (int i = 0; i < 20; i++) {
+      provider.logEvent(authEvent);
+    }
+    provider.metricsTime().sleep(20000);
+    assertTrue(TestUtils.getMetricValue(provider.metrics(), AuditLogMetrics.AUDIT_LOG_FALLBACK_RATE_MINUTE) >= 20);
+  }
+
+  @Test
+  public void testAuditLogMetricsEventLoggerNotReady() throws Exception {
+    MockTime time = new MockTime();
+    ConfluentAuthorizationEvent authEvent = createConfluentAuthorizationEvent(true, true);
+    ConfluentAuditLogProvider provider =
+            providerWithMockExporter("63REM3VWREiYtMuVxZeplA", Utils.mkMap(), false);
+    // reset Metrics
+    provider.setupMetrics(time);
+    for (int i = 0; i < 20; i++) {
+      provider.logEvent(authEvent);
+    }
+    provider.metricsTime().sleep(20000);
+    assertTrue(TestUtils.getMetricValue(provider.metrics(), AuditLogMetrics.AUDIT_LOG_FALLBACK_RATE_MINUTE) >= 20);
+  }
+
+  @Test
+  public void testAuditLogFallbackRate() throws Exception {
+    MockTime time = new MockTime();
+    ConfluentAuthorizationEvent authEvent = createConfluentAuthorizationEvent(false, false);
+    ConfluentAuditLogProvider provider =
+            providerWithMockExporter("63REM3VWREiYtMuVxZeplA", Utils.mkMap());
+    // reset Metrics
+    provider.setupMetrics(time);
+    for (int i = 0; i < 20; i++) {
+      provider.logEvent(authEvent);
+    }
+    provider.metricsTime().sleep(20000);
+    assertTrue(TestUtils.getMetricValue(provider.metrics(), AuditLogMetrics.AUDIT_LOG_FALLBACK_RATE_MINUTE) >= 20);
+  }
+
   public void checkTestMessage(ConfluentAuditLogProvider provider, Scope clusterScope, AuthorizeResult result, String expectedTopic) {
     KafkaPrincipal principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "eventLogReader");
     ResourcePattern topic = new ResourcePattern(new ResourceType("Topic"), "testTopic",
@@ -460,6 +534,23 @@ public class ProviderRoutingTest {
       // Make sure the event is not routed
       assertEquals(0, ma.events.size());
     }
+  }
+
+  private ConfluentAuthorizationEvent createConfluentAuthorizationEvent(boolean logIfAllowed, boolean logIfDenied) {
+    Scope clusterScope = Scope.kafkaClusterScope("63REM3VWREiYtMuVxZeplA");
+
+    KafkaPrincipal principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "user1");
+    ResourcePattern topicPattern = new ResourcePattern(new ResourceType("Topic"), "testTopic",
+            PatternType.LITERAL);
+    RequestContext requestContext = new MockRequestContext(
+            new RequestHeader(ApiKeys.CREATE_TOPICS, (short) 1, "", 1), "",
+            InetAddress.getLoopbackAddress(), principal, ListenerName.normalised("EXTERNAL"),
+            SecurityProtocol.SASL_SSL, RequestContext.KAFKA);
+    Action write = new Action(clusterScope, topicPattern, new Operation("CreateTopics"), 1, logIfAllowed, logIfDenied);
+    AuthorizePolicy policy = new AuthorizePolicy.SuperUser(AuthorizePolicy.PolicyType.SUPER_USER,
+            principal);
+
+    return new ConfluentAuthorizationEvent(clusterScope, requestContext, write, AuthorizeResult.ALLOWED, policy);
   }
 
   private class MockRequestContext implements RequestContext {

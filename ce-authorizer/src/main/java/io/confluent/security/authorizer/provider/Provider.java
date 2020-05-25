@@ -7,7 +7,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import org.apache.kafka.common.Configurable;
-import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
+import org.apache.kafka.server.authorizer.internals.ConfluentAuthorizerServerInfo;
 
 /**
  * Interface used by providers used for authorization.
@@ -27,7 +27,7 @@ public interface Provider extends Configurable, Closeable {
    *    topic if metadata client configs are not explicitly overridden. This avoids the need for
    *    redundant configs for brokers in the metadata cluster.
    */
-  default CompletionStage<Void> start(AuthorizerServerInfo serverInfo, Map<String, ?> interBrokerListenerConfigs) {
+  default CompletionStage<Void> start(ConfluentAuthorizerServerInfo serverInfo, Map<String, ?> interBrokerListenerConfigs) {
     return CompletableFuture.completedFuture(null);
   }
 

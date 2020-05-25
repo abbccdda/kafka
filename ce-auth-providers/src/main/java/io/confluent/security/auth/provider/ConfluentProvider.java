@@ -57,12 +57,14 @@ import org.apache.kafka.common.errors.RebalanceInProgressException;
 import org.apache.kafka.common.security.auth.AuthenticateCallbackHandler;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.server.audit.AuditLogProvider;
 import org.apache.kafka.server.authorizer.AclCreateResult;
 import org.apache.kafka.server.authorizer.AclDeleteResult;
 import org.apache.kafka.server.authorizer.AuthorizableRequestContext;
 import org.apache.kafka.server.authorizer.AuthorizationResult;
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
+import org.apache.kafka.server.authorizer.internals.ConfluentAuthorizerServerInfo;
 import org.apache.kafka.server.http.MetadataServer;
 import org.apache.kafka.server.http.MetadataServerConfig;
 import org.slf4j.Logger;
@@ -94,6 +96,7 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
   private String clusterId;
   private Set<KafkaPrincipal> configuredSuperUsers;
   private MetadataServer metadataServer;
+  private Metrics kafkaMetrics = null;
 
   public ConfluentProvider() {
     this.authScope = Scope.ROOT_SCOPE;
@@ -188,7 +191,7 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
    * metadata cluster to create and initialize the topic.
    */
   @Override
-  public CompletionStage<Void> start(AuthorizerServerInfo serverInfo,
+  public CompletionStage<Void> start(ConfluentAuthorizerServerInfo serverInfo,
                                      Map<String, ?> interBrokerListenerConfigs) {
     if (!providerConfigured(interBrokerListenerConfigs)) {
       throw new ConfigException("Metadata bootstrap servers not specified for broker which does not host metadata service");
@@ -198,6 +201,7 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
     clientConfigs.putAll(interBrokerListenerConfigs);
     authStore = createAuthStore(authStoreScope, serverInfo, clientConfigs);
     this.authCache = authStore.authCache();
+    this.kafkaMetrics = serverInfo.metrics();
     if (LdapConfig.ldapEnabled(configs)) {
       authenticateCallbackHandler = new LdapAuthenticateCallbackHandler();
       authenticateCallbackHandler.configure(configs, "PLAIN", Collections.emptyList());
@@ -315,7 +319,7 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
   }
 
   // Allow override for testing
-  protected AuthStore createAuthStore(Scope scope, AuthorizerServerInfo serverInfo, Map<String, ?> configs) {
+  protected AuthStore createAuthStore(Scope scope, ConfluentAuthorizerServerInfo serverInfo, Map<String, ?> configs) {
     KafkaAuthStore authStore = new KafkaAuthStore(scope, serverInfo);
     authStore.configure(configs);
     return authStore;
@@ -484,12 +488,18 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
     };
   }
 
+  /* Visible for testing use only */
+  protected void setKafkaMetrics(Metrics metrics) {
+    kafkaMetrics = metrics;
+  }
+
   private ApiException toApiException(Throwable throwable) {
     return throwable instanceof ApiException ? (ApiException) throwable : new ApiException(throwable);
   }
 
   private class RbacAuthorizer extends EmbeddedAuthorizer {
     RbacAuthorizer() {
+      setupAuthorizerMetrics(kafkaMetrics);
       configureProviders(Collections.singletonList(ConfluentProvider.this), ConfluentProvider.this, null, auditLogProvider);
     }
 

@@ -28,6 +28,7 @@ import org.apache.kafka.server.authorizer.AuthorizableRequestContext;
 import org.apache.kafka.server.authorizer.AuthorizationResult;
 import org.apache.kafka.server.authorizer.Authorizer;
 import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
+import org.apache.kafka.server.authorizer.internals.ConfluentAuthorizerServerInfo;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -73,7 +74,7 @@ public class AclMigrationTest {
     authorizerConfigs.put(KafkaConfig$.MODULE$.ZkConnectProp(), zkConnect);
     authorizerConfigs.put(ConfluentAuthorizerConfig.MIGRATE_ACLS_FROM_ZK_PROP, "true");
     authorizer1.configure(authorizerConfigs);
-    AuthorizerServerInfo serverInfo = KafkaTestUtils.serverInfo("clusterA", SecurityProtocol.SSL);
+    ConfluentAuthorizerServerInfo serverInfo = KafkaTestUtils.serverInfo("clusterA", SecurityProtocol.SSL);
 
     assertThrows(IllegalArgumentException.class, () ->
         ((ConfluentServerAuthorizer) authorizer1).configureServerInfo(serverInfo));
@@ -133,7 +134,7 @@ public class AclMigrationTest {
   }
 
   private static class TestAuthorizer extends ConfluentServerAuthorizer {
-    volatile AuthorizerServerInfo serverInfo;
+    volatile ConfluentAuthorizerServerInfo serverInfo;
 
     @Override
     public void configure(Map<String, ?> configs) {
@@ -143,7 +144,7 @@ public class AclMigrationTest {
     }
 
     @Override
-    public void configureServerInfo(AuthorizerServerInfo serverInfo) {
+    public void configureServerInfo(ConfluentAuthorizerServerInfo serverInfo) {
       this.serverInfo = serverInfo;
       super.configureServerInfo(serverInfo);
     }

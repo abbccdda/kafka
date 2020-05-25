@@ -53,4 +53,8 @@ public class MockExporter implements Exporter {
   @Override
   public void close() throws Exception {
   }
+
+  public void setRouteReady(boolean ready) {
+    routeReady = ready;
+  }
 }

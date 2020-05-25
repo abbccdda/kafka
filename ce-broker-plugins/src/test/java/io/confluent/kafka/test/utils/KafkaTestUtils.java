@@ -45,7 +45,8 @@ import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.apache.kafka.common.utils.Utils;
-import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
+import org.apache.kafka.common.metrics.Metrics;
+import org.apache.kafka.server.authorizer.internals.ConfluentAuthorizerServerInfo;
 import org.apache.kafka.server.http.MetadataServer;
 import org.apache.kafka.server.http.MetadataServerFactory;
 import org.apache.kafka.test.TestUtils;
@@ -335,11 +336,11 @@ public class KafkaTestUtils {
     }
   }
 
-  public static AuthorizerServerInfo serverInfo(String clusterId, SecurityProtocol... protocols) {
+  public static ConfluentAuthorizerServerInfo serverInfo(String clusterId, SecurityProtocol... protocols) {
     return serverInfo(clusterId, MetadataServerFactory.none(), protocols);
   }
 
-  public static AuthorizerServerInfo serverInfo(String clusterId, MetadataServer metadataServer, SecurityProtocol... protocols) {
+  public static ConfluentAuthorizerServerInfo serverInfo(String clusterId, MetadataServer metadataServer, SecurityProtocol... protocols) {
     List<Endpoint> endpoints = new ArrayList<>(protocols.length);
     int port = 9092;
     if (protocols.length != 0) {
@@ -352,7 +353,7 @@ public class KafkaTestUtils {
               port++));
     }
 
-    return new AuthorizerServerInfo() {
+    return new ConfluentAuthorizerServerInfo() {
       @Override
       public ClusterResource clusterResource() {
         return new ClusterResource(clusterId);
@@ -377,6 +378,11 @@ public class KafkaTestUtils {
       public MetadataServer metadataServer() {
         return metadataServer;
       }
+
+      @Override
+      public Metrics metrics() {
+          return new Metrics();
+      };
     };
   }
 

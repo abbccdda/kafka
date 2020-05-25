@@ -434,6 +434,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         //auditLogProvider.start() will called as part of authorizer.start()
         auditLogProvider = AuditLogProviderFactory.create(config.originals)
+        auditLogProvider.setMetrics(metrics)
 
         // Create and start the socket server acceptor threads so that the bound port is known.
         // Delay starting processors until the end of the initialization sequence to ensure
@@ -504,7 +505,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         authorizer.foreach(_.configure(config.originals))
         val authorizerFutures: Map[Endpoint, CompletableFuture[Void]] = authorizer match {
           case Some(authZ) =>
-            authZ.start(brokerInfo.broker.toServerInfo(clusterId, config, metadataServer, httpServerBinder, auditLogProvider)).asScala.map { case (ep, cs) =>
+            authZ.start(brokerInfo.broker.toServerInfo(clusterId, config, metadataServer, httpServerBinder, auditLogProvider, metrics)).asScala.map { case (ep, cs) =>
               ep -> cs.toCompletableFuture
             }
           case None =>

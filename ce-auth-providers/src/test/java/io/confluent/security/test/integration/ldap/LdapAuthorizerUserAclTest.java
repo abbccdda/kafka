@@ -27,7 +27,7 @@ import java.util.HashMap;
 import java.util.Map;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.server.authorizer.Authorizer;
-import org.apache.kafka.server.authorizer.AuthorizerServerInfo;
+import org.apache.kafka.server.authorizer.internals.ConfluentAuthorizerServerInfo;
 
 // Note: This test has been very useful for early development and testing, especially
 // as SimpleAclAuthorizer has been changing frequently in AK as wildcard support was
@@ -65,7 +65,7 @@ public class LdapAuthorizerUserAclTest extends ConfluentServerAuthorizerTest {
   // broker configs, so make sure LDAP configs are added.
   private class TestLdapAuthorizer extends LdapAuthorizer {
 
-    private final AuthorizerServerInfo serverInfo = KafkaTestUtils.serverInfo("clusterA", SecurityProtocol.SSL);
+    private final ConfluentAuthorizerServerInfo serverInfo = KafkaTestUtils.serverInfo("clusterA", SecurityProtocol.SSL);
     @Override
     public void configure(Map<String, ?> configs) {
       Map<String, Object> authorizerConfigs = new HashMap<>();
@@ -77,7 +77,7 @@ public class LdapAuthorizerUserAclTest extends ConfluentServerAuthorizerTest {
     }
 
     @Override
-    public void configureServerInfo(AuthorizerServerInfo serverInfo) {
+    public void configureServerInfo(ConfluentAuthorizerServerInfo serverInfo) {
       super.configureServerInfo(serverInfo);
     }
   }
