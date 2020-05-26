@@ -75,14 +75,22 @@ public class MockAdminClient extends AdminClient implements ConfluentAdmin {
     private Node controller;
     private int timeoutNextRequests = 0;
     private int numCreateTopicsInvocation = 0;
+    private final int defaultPartitions;
+    private final int defaultReplicationFactor;
 
     private Map<MetricName, Metric> mockMetrics = new HashMap<>();
+
+    public static Builder create() {
+        return new Builder();
+    }
 
     public static class Builder {
         private String clusterId = DEFAULT_CLUSTER_ID;
         private List<Node> brokers = new ArrayList<>();
         private Node controller = null;
         private List<List<String>> brokerLogDirs = new ArrayList<>();
+        private Short defaultPartitions;
+        private Integer defaultReplicationFactor;
 
         public Builder() {
             numBrokers(1);
@@ -122,27 +130,43 @@ public class MockAdminClient extends AdminClient implements ConfluentAdmin {
             return this;
         }
 
+        public Builder defaultReplicationFactor(int defaultReplicationFactor) {
+            this.defaultReplicationFactor = defaultReplicationFactor;
+            return this;
+        }
+
+        public Builder defaultPartitions(short numPartitions) {
+            this.defaultPartitions = numPartitions;
+            return this;
+        }
+
         public MockAdminClient build() {
             return new MockAdminClient(brokers,
                 controller == null ? brokers.get(0) : controller,
                 clusterId,
+                defaultPartitions != null ? defaultPartitions.shortValue() : 1,
+                defaultReplicationFactor != null ? defaultReplicationFactor.shortValue() : Math.min(brokers.size(), 3),
                 brokerLogDirs);
         }
     }
 
     public MockAdminClient(List<Node> brokers,
                            Node controller) {
-        this(brokers, controller, DEFAULT_CLUSTER_ID,
+        this(brokers, controller, DEFAULT_CLUSTER_ID, 1, brokers.size(),
             Collections.nCopies(brokers.size(), DEFAULT_LOG_DIRS));
     }
 
     private MockAdminClient(List<Node> brokers,
                             Node controller,
                             String clusterId,
+                            int defaultPartitions,
+                            int defaultReplicationFactor,
                             List<List<String>> brokerLogDirs) {
         this.brokers = brokers;
         controller(controller);
         this.clusterId = clusterId;
+        this.defaultPartitions = defaultPartitions;
+        this.defaultReplicationFactor = defaultReplicationFactor;
         this.brokerLogDirs = brokerLogDirs;
         this.brokerConfigs = new ArrayList<>();
         for (int i = 0; i < brokers.size(); i++) {
@@ -247,6 +271,9 @@ public class MockAdminClient extends AdminClient implements ConfluentAdmin {
                 continue;
             }
             int replicationFactor = newTopic.replicationFactor();
+            if (replicationFactor == -1) {
+                replicationFactor = defaultReplicationFactor;
+            }
             if (replicationFactor > brokers.size()) {
                 future.completeExceptionally(new InvalidReplicationFactorException(
                         String.format("Replication factor: %d is larger than brokers: %d", newTopic.replicationFactor(), brokers.size())));
@@ -260,6 +287,9 @@ public class MockAdminClient extends AdminClient implements ConfluentAdmin {
             }
 
             int numberOfPartitions = newTopic.numPartitions();
+            if (numberOfPartitions == -1) {
+                numberOfPartitions = defaultPartitions;
+            }
             List<TopicPartitionInfo> partitions = new ArrayList<>(numberOfPartitions);
             // Partitions start off on the first log directory of each broker, for now.
             List<String> logDirs = new ArrayList<>(numberOfPartitions);
