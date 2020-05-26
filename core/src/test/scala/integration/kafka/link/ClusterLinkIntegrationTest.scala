@@ -7,12 +7,11 @@ import java.io.File
 import java.nio.file.{Files, StandardCopyOption}
 import java.time.Duration
 import java.util
-import java.util.{Collections, Properties}
+import java.util.{Collections, Optional, Properties}
 import java.util.concurrent.{ExecutionException, TimeUnit}
 
 import com.yammer.metrics.core.{Gauge, Histogram, Meter, Metric}
 import kafka.api.{IntegrationTestHarness, KafkaSasl, SaslSetup}
-import kafka.controller.ReplicaAssignment
 import kafka.log.LogConfig
 import kafka.metrics.KafkaYammerMetrics
 import kafka.server.{KafkaConfig, KafkaServer}
@@ -21,17 +20,18 @@ import kafka.utils.Implicits._
 import kafka.utils.{JaasTestUtils, Logging, TestUtils}
 import kafka.zk.ConfigEntityChangeNotificationZNode
 import org.apache.kafka.clients.CommonClientConfigs
-import org.apache.kafka.clients.admin.{AlterConfigOp, Config, ConfigEntry, ConfluentAdmin, NewPartitions}
+import org.apache.kafka.clients.admin._
 import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer}
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, ProducerRecord}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.{ConfigDef, ConfigResource, SaslConfigs, SslConfigs, TopicConfig}
 import org.apache.kafka.common.errors.{InvalidConfigurationException, InvalidPartitionsException, InvalidRequestException}
-import org.apache.kafka.common.requests.NewClusterLink
+import org.apache.kafka.common.requests.{AlterMirrorsRequest, NewClusterLink}
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.security.scram.ScramCredential
 import org.junit.Assert.{assertEquals, assertFalse, assertNotEquals, assertNotNull, assertTrue, fail}
 import org.junit.{After, Before, Test}
+import org.scalatest.Assertions.intercept
 
 import scala.annotation.nowarn
 import scala.collection.{Map, Seq, mutable}
@@ -67,7 +67,7 @@ class ClusterLinkIntegrationTest extends Logging {
     val numRecords = 20
     sourceCluster.createTopic(topic, numPartitions, replicationFactor = 2)
     destCluster.createClusterLink(linkName, sourceCluster)
-    destCluster.linkTopic(topic, numPartitions, linkName)
+    destCluster.linkTopic(topic, replicationFactor = 2, linkName)
 
     produceToSourceCluster(numRecords)
     consume(sourceCluster, topic)
@@ -77,6 +77,7 @@ class ClusterLinkIntegrationTest extends Logging {
     val jaasConfig = destCluster.adminZkClient.fetchClusterLinkConfig(linkName).getProperty(SaslConfigs.SASL_JAAS_CONFIG)
     assertNotNull(jaasConfig)
     assertFalse(s"Password not encrypted: $jaasConfig", jaasConfig.contains("secret-"))
+
     destCluster.deleteClusterLink(linkName)
   }
 
@@ -90,7 +91,7 @@ class ClusterLinkIntegrationTest extends Logging {
     produceToSourceCluster(numRecords)
 
     destCluster.createClusterLink(linkName, sourceCluster)
-    destCluster.linkTopic(topic, numPartitions, linkName)
+    destCluster.linkTopic(topic, replicationFactor = 2, linkName)
 
     waitForMirror(topic)
     verifyLinkMetrics()
@@ -114,7 +115,7 @@ class ClusterLinkIntegrationTest extends Logging {
 
     // Create a topic mirror when source epoch > 0 and verify that records with different epochs are mirrored
     destCluster.createClusterLink(linkName, sourceCluster)
-    destCluster.linkTopic(topic, numPartitions, linkName)
+    destCluster.linkTopic(topic, replicationFactor = 2, linkName)
     var destLeaderEpoch = destCluster.waitForLeaderEpochChange(tp, 0, sourceCluster.leaderEpoch(tp))
     waitForMirror(topic)
     produceToSourceCluster(2)
@@ -150,7 +151,7 @@ class ClusterLinkIntegrationTest extends Logging {
 
     // Create a mirror and produce some records.
     destCluster.createClusterLink(linkName, sourceCluster)
-    destCluster.linkTopic(topic, numPartitions, linkName)
+    destCluster.linkTopic(topic, replicationFactor = 2, linkName)
     produceToSourceCluster(2)
     waitForMirror(topic)
 
@@ -191,7 +192,7 @@ class ClusterLinkIntegrationTest extends Logging {
     val tp = partitions.head
     sourceCluster.createTopic(topic, numPartitions, replicationFactor = 2)
     destCluster.createClusterLink(linkName, sourceCluster)
-    destCluster.linkTopic(topic, numPartitions, linkName)
+    destCluster.linkTopic(topic, replicationFactor = 2, linkName)
 
     val (destBroker1, _) = destCluster.shutdownLeader(tp)
     val destBroker2 = TestUtils.waitUntilLeaderIsElectedOrChanged(destCluster.zkClient, topic, 0, oldLeaderOpt = Some(destBroker1))
@@ -231,17 +232,15 @@ class ClusterLinkIntegrationTest extends Logging {
 
     // Create a mirror and produce some records.
     destCluster.createClusterLink(linkName, sourceCluster, metadataMaxAgeMs = 1000L)
-    destCluster.linkTopic(topic, numPartitions, linkName)
+    destCluster.linkTopic(topic, replicationFactor = 2, linkName)
     produceToSourceCluster(4)
     waitForMirror(topic)
 
     numPartitions = 4
-    sourceCluster.createAdminClient()
-      .createPartitions(Collections.singletonMap(topic, NewPartitions.increaseTo(numPartitions)))
-      .all().get(20, TimeUnit.SECONDS)
+    sourceCluster.createPartitions(topic, numPartitions)
     produceToSourceCluster(8)
 
-    val (numDestPartitions, _) = TestUtils.computeUntilTrue(destCluster.adminZkClient.numPartitions(Set(topic))(topic)) {
+    val (numDestPartitions, _) = TestUtils.computeUntilTrue(destCluster.describeTopic(topic).partitions.size) {
       _ == numPartitions
     }
     assertEquals(numPartitions, numDestPartitions)
@@ -256,14 +255,18 @@ class ClusterLinkIntegrationTest extends Logging {
 
     // Create a mirror and produce some records.
     destCluster.createClusterLink(linkName, sourceCluster, metadataMaxAgeMs = 10000L)
-    destCluster.linkTopic(topic, numPartitions, linkName)
+    destCluster.linkTopic(topic, replicationFactor = 2, linkName)
     produceToSourceCluster(8)
     waitForMirror(topic)
 
     // Update non-critical non-dynamic config metadata.max.age.ms
-    destCluster.alterClusterLink(linkName, Map(CommonClientConfigs.METADATA_MAX_AGE_CONFIG -> "60000"))
+    val metadataMaxAge = "60000"
+    destCluster.alterClusterLink(linkName, Map(CommonClientConfigs.METADATA_MAX_AGE_CONFIG -> metadataMaxAge))
     produceToSourceCluster(8)
     waitForMirror(topic)
+
+    // Verify the update.
+    assertEquals(metadataMaxAge, destCluster.describeClusterLink(linkName).get(CommonClientConfigs.METADATA_MAX_AGE_CONFIG).value)
 
     // Update critical non-dynamic config bootstrap.servers. Restart source brokers to ensure
     // new bootstrap servers are required for the test to pass.
@@ -275,7 +278,7 @@ class ClusterLinkIntegrationTest extends Logging {
     waitForMirror(topic)
 
     // Update critical dynamic truststore path config
-    val oldFile = new File(destCluster.clusterLinks(linkName).getProperty(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG))
+    val oldFile = new File(destCluster.describeClusterLink(linkName).get(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG).value)
     val newFile = File.createTempFile("truststore", ".jks")
     Files.copy(oldFile.toPath, newFile.toPath, StandardCopyOption.REPLACE_EXISTING)
     destCluster.alterClusterLink(linkName, Map(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG -> newFile.getAbsolutePath))
@@ -289,13 +292,12 @@ class ClusterLinkIntegrationTest extends Logging {
     val numRecords = 10
     sourceCluster.createTopic(topic, numPartitions, replicationFactor = 2)
     destCluster.createClusterLink(linkName, sourceCluster, retryTimeoutMs = 10000)
-    destCluster.linkTopic(topic, numPartitions, linkName)
+    destCluster.linkTopic(topic, replicationFactor = 2, linkName)
 
     produceToSourceCluster(numRecords)
     waitForMirror(topic)
     assertTrue(destCluster.topicLinkState(topic).state.shouldSync)
-    sourceCluster.createAdminClient().deleteTopics(Collections.singleton(topic)).all()
-      .get(20, TimeUnit.SECONDS)
+    sourceCluster.deleteTopic(topic)
     TestUtils.waitUntilTrue(() => !destCluster.topicLinkState(topic).state.shouldSync,
       "Source topic deletion not propagated", waitTimeMs = 20000)
 
@@ -306,17 +308,9 @@ class ClusterLinkIntegrationTest extends Logging {
     truncate(producedRecords, numRecords)
 
     // Verify that partitions and configs of new source topic are not sync'ed
-    val destAdmin = destCluster.createAdminClient()
-    val topicDescription = destAdmin.describeTopics(Collections.singleton(topic))
-      .values().get(topic)
-      .get(20, TimeUnit.SECONDS)
-    assertEquals(numPartitions, topicDescription.partitions().size())
+    assertEquals(numPartitions, destCluster.describeTopic(topic).partitions().size())
 
-    val topicResource = new ConfigResource(ConfigResource.Type.TOPIC, topic)
-    val topicConfigs = destAdmin.describeConfigs(Collections.singleton(topicResource))
-      .values().get(topicResource)
-      .get(20, TimeUnit.SECONDS)
-    val maxMessageSize = topicConfigs.entries().asScala.find(entry => entry.name == TopicConfig.MAX_MESSAGE_BYTES_CONFIG)
+    val maxMessageSize = Option(destCluster.describeTopicConfig(topic).get(TopicConfig.MAX_MESSAGE_BYTES_CONFIG))
     assertTrue(maxMessageSize.nonEmpty)
     assertNotEquals("100000", maxMessageSize.get.value)
     verifyMirror(topic)
@@ -329,7 +323,7 @@ class ClusterLinkIntegrationTest extends Logging {
 
     // Create a mirror and produce some records.
     destCluster.createClusterLink(linkName, sourceCluster, metadataMaxAgeMs = 10000L)
-    destCluster.linkTopic(topic, numPartitions, linkName)
+    destCluster.linkTopic(topic, replicationFactor = 2, linkName)
     produceToSourceCluster(4)
     waitForMirror(topic)
 
@@ -344,15 +338,12 @@ class ClusterLinkIntegrationTest extends Logging {
       producer.close()
     }
 
-    destCluster.withAdmin((admin: ConfluentAdmin) => {
-      try {
-        // Attempt to increase the partitions of the mirror, which should fail as an invalid request.
-        admin.createPartitions(Collections.singletonMap(topic, NewPartitions.increaseTo(8))).all().get(20, TimeUnit.SECONDS)
-        fail("Modifying mirror topic partitions should not succeed")
-      } catch {
-        case e: ExecutionException => assertTrue(e.getCause.isInstanceOf[InvalidPartitionsException])
-      }
+    // Attempt to increase the partitions of the mirror, which should fail as an invalid request.
+    intercept[InvalidPartitionsException] {
+      destCluster.createPartitions(topic, 8)
+    }
 
+    destCluster.withAdmin((admin: ConfluentAdmin) => {
       val resource = new ConfigResource(ConfigResource.Type.TOPIC, topic)
 
       try {
@@ -511,6 +502,8 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
   override val brokerCount = 3
   private val kafkaClientSaslMechanism = "SCRAM-SHA-256"
   private val kafkaServerSaslMechanisms = Collections.singletonList("SCRAM-SHA-256").asScala
+  private val adminTimeoutMs = 10 * 1000
+  private val waitTimeMs = 15 * 1000
 
   override protected def securityProtocol = kafkaSecurityProtocol
 
@@ -518,7 +511,6 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
   override protected val clientSaslProperties = Some(kafkaClientSaslProperties(kafkaClientSaslMechanism))
   override protected lazy val trustStoreFile = Some(File.createTempFile("truststore", ".jks"))
 
-  val clusterLinks = mutable.Map[String, Properties]()
   private var producer: KafkaProducer[Array[Byte], Array[Byte]] = _
 
   serverConfig.put(KafkaConfig.OffsetsTopicReplicationFactorProp, brokerCount.toString)
@@ -562,40 +554,44 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
     val linkConfigs = ConfigDef.convertToStringMapWithPasswordValues(props.asInstanceOf[util.Map[String, _]])
 
     val newLink = new NewClusterLink(linkName, null, linkConfigs)
-    servers.head.clusterLinkManager.admin.createClusterLink(
-      newLink,
-      None,
-      validateLink = false,
-      validateOnly = false,
-      timeoutMs = 10000
-    ).get(15, TimeUnit.SECONDS)
+    withAdmin((admin: ConfluentAdmin) => {
+      val options = new CreateClusterLinksOptions().timeoutMs(adminTimeoutMs)
+      admin.createClusterLinks(Collections.singleton(newLink), options).all.get
+    })
 
     servers.foreach { server =>
       TestUtils.waitUntilTrue(() =>
         server.clusterLinkManager.fetcherManager(linkName).nonEmpty,
         s"Linked fetcher not created for $linkName on broker ${server.config.brokerId}")
     }
-    val linkProps = new Properties
-    linkProps ++= linkConfigs.asScala
-    clusterLinks += linkName -> linkProps
   }
 
   def deleteClusterLink(linkName: String): Unit = {
-    servers.head.clusterLinkManager.admin.deleteClusterLink(linkName, validateOnly = false, force = false)
+    withAdmin((admin: ConfluentAdmin) => {
+      val options = new DeleteClusterLinksOptions().timeoutMs(adminTimeoutMs)
+      admin.deleteClusterLinks(Collections.singleton(linkName), options)
+        .all.get(waitTimeMs, TimeUnit.MILLISECONDS)
+    })
+
     servers.foreach { server =>
       TestUtils.waitUntilTrue(() =>
         server.clusterLinkManager.fetcherManager(linkName).isEmpty,
         s"Linked fetcher not deleted for $linkName on broker ${server.config.brokerId}")
     }
-    clusterLinks.remove(linkName)
   }
 
   def alterClusterLink(linkName: String, updatedConfigs: Map[String, String]): Unit = {
-    val newProps = new Properties()
-    newProps ++= clusterLinks(linkName)
-    newProps ++= updatedConfigs
-    adminZkClient.changeClusterLinkConfig(linkName, newProps)
-    clusterLinks.put(linkName, newProps)
+    val resource = new ConfigResource(ConfigResource.Type.CLUSTER_LINK, linkName)
+    val ops = updatedConfigs.map { case (k, v) =>
+      new AlterConfigOp(new ConfigEntry(k, v), AlterConfigOp.OpType.SET)
+    }
+
+    withAdmin((admin: ConfluentAdmin) => {
+      val options = new AlterConfigsOptions().timeoutMs(adminTimeoutMs)
+      admin.incrementalAlterConfigs(Map(resource -> ops.asJavaCollection).asJava, options)
+        .all.get(waitTimeMs, TimeUnit.MILLISECONDS)
+    })
+
     servers.foreach { server =>
       TestUtils.waitUntilTrue(() => {
         val config = server.clusterLinkManager.fetcherManager(linkName).get.currentConfig
@@ -604,31 +600,71 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
     }
   }
 
-  def linkTopic(topic: String, numPartitions: Int, linkName: String): Unit = {
-    val assignment = (0 until numPartitions).map { i =>
-      i -> ReplicaAssignment(Seq(i % 2, (i + 1) % 2), Seq.empty)
-    }.toMap
+  def describeClusterLink(linkName: String): Config = {
+    val resource = new ConfigResource(ConfigResource.Type.CLUSTER_LINK, linkName)
+    withAdmin((admin: ConfluentAdmin) => {
+      val options = new DescribeConfigsOptions().timeoutMs(adminTimeoutMs)
+      admin.describeConfigs(Collections.singleton(resource), options)
+        .all.get(waitTimeMs, TimeUnit.MILLISECONDS).get(resource)
+    })
+  }
 
-    val mirror = ClusterLinkTopicState.Mirror(linkName)
-    adminZkClient.createTopicWithAssignment(topic,
-      config = new Properties(),
-      assignment,
-      clusterLink = Some(mirror))
-
-    assertEquals(Map(topic -> mirror), zkClient.getClusterLinkForTopics(Set(topic)))
+  def linkTopic(topic: String, replicationFactor: Short, linkName: String): Unit = {
+    val newTopic = new NewTopic(topic, Optional.empty[Integer], Optional.of(Short.box(replicationFactor)))
+    newTopic.mirror(Optional.of(new NewTopicMirror(linkName, topic)))
+    withAdmin((admin: ConfluentAdmin) => {
+      val options = new CreateTopicsOptions().timeoutMs(adminTimeoutMs)
+      admin.createTopics(Collections.singleton(newTopic), options)
+        .all.get(waitTimeMs, TimeUnit.MILLISECONDS)
+    })
   }
 
   def unlinkTopic(topic: String, linkName: String): Unit = {
-    val assignment = zkClient.getFullReplicaAssignmentForTopics(Set(topic)).map { case (tp, tpAssignment) =>
-      (tp.partition, tpAssignment)
-    }
-    adminZkClient.writeTopicPartitionAssignment(topic, assignment, isUpdate = true, clusterLink = None)
+    withAdmin((admin: ConfluentAdmin) => {
+      val op = new AlterMirrorsRequest.StopTopicMirrorOp(topic)
+      val options = new AlterMirrorsOptions().timeoutMs(adminTimeoutMs)
+      admin.alterMirrors(Collections.singletonList(op), options)
+        .all.get(waitTimeMs, TimeUnit.MILLISECONDS)
+    })
 
     servers.foreach { server =>
       TestUtils.waitUntilTrue(() =>
         server.clusterLinkManager.fetcherManager(linkName).forall(_.isEmpty),
         s"Linked fetchers not stopped for $linkName on broker ${server.config.brokerId}")
     }
+  }
+
+  def describeTopic(topic: String): TopicDescription = {
+    withAdmin((admin: ConfluentAdmin) => {
+      val options = new DescribeTopicsOptions().timeoutMs(adminTimeoutMs)
+      admin.describeTopics(Collections.singleton(topic), options)
+        .all.get(waitTimeMs, TimeUnit.MILLISECONDS).get(topic)
+    })
+  }
+
+  def describeTopicConfig(topic: String): Config = {
+    val resource = new ConfigResource(ConfigResource.Type.TOPIC, topic)
+    withAdmin((admin: ConfluentAdmin) => {
+      val options = new DescribeConfigsOptions().timeoutMs(adminTimeoutMs)
+      admin.describeConfigs(Collections.singleton(resource), options)
+        .all.get(waitTimeMs, TimeUnit.MILLISECONDS).get(resource)
+    })
+  }
+
+  def deleteTopic(topic: String): Unit = {
+    withAdmin((admin: ConfluentAdmin) => {
+      val options = new DeleteTopicsOptions().timeoutMs(adminTimeoutMs)
+      admin.deleteTopics(Collections.singleton(topic), options)
+        .all.get(waitTimeMs, TimeUnit.MILLISECONDS)
+    })
+  }
+
+  def createPartitions(topic: String, numPartitions: Int): Unit = {
+    withAdmin((admin: ConfluentAdmin) => {
+      val options = new CreatePartitionsOptions().timeoutMs(adminTimeoutMs)
+      admin.createPartitions(Collections.singletonMap(topic, NewPartitions.increaseTo(numPartitions)), options)
+        .all.get(waitTimeMs, TimeUnit.MILLISECONDS)
+    })
   }
 
   def topicLinkState(topic: String): ClusterLinkTopicState = {
@@ -701,10 +737,19 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
     updateBootstrapServers()
   }
 
-  def withAdmin(callable: ConfluentAdmin => Unit): Unit = {
+  /**
+    * Runs the callable with an admin client that communicates with the cluster, closing it on completion.
+    * All thrown ExecutionExceptions are unwrapped for convenience.
+    *
+    * @param callable the callable to invoke with an admin client
+    * @return the result of the callable
+    */
+  def withAdmin[T](callable: ConfluentAdmin => T): T = {
     val admin = createAdminClient().asInstanceOf[ConfluentAdmin]
     try {
       callable(admin)
+    } catch {
+      case e: ExecutionException => throw e.getCause
     } finally {
       admin.close()
     }

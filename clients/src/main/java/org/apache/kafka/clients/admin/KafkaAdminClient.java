@@ -2092,6 +2092,9 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
     private ConfigEntry.ConfigSource configSource(DescribeConfigsResponse.ConfigSource source) {
         ConfigEntry.ConfigSource configSource;
         switch (source) {
+            case CLUSTER_LINK_CONFIG:
+                configSource = ConfigEntry.ConfigSource.DYNAMIC_CLUSTER_LINK_CONFIG;
+                break;
             case TOPIC_CONFIG:
                 configSource = ConfigEntry.ConfigSource.DYNAMIC_TOPIC_CONFIG;
                 break;

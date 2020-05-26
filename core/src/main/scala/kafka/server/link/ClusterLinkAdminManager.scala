@@ -87,7 +87,9 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
 
     val allTopics = zkClient.getAllTopicsInCluster()
     if (allTopics.nonEmpty) {
-      val topicsInUse = zkClient.getClusterLinkForTopics(allTopics).filter(_._2.linkName == linkName).values
+      val topicsInUse = zkClient.getClusterLinkForTopics(allTopics).filter { case (_, state) =>
+        state.mirrorIsEstablished && state.linkName == linkName
+      }.keys
       if (topicsInUse.nonEmpty) {
         if (force)
           throw new UnsupportedVersionException("Force deletion not yet implemented")
