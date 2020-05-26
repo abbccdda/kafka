@@ -30,6 +30,32 @@ import java.util.Objects;
  * Cluster ids may not be globally unique. For example, Connect cluster id may be unique only within
  * the context of its kafka cluster. Hence the combination of cluster ids is used to define a unique
  * scope, e.g. {"kafka-cluster" : "kafkaClusterA", "connect-cluster" : "connectCluster1"}.
+ *
+ *
+ * JSON Examples:
+ * 1) A Scope with no hierarchy.
+ *   {
+ *     "path" : [],
+ *     "clusters" : {
+ *       "kafka-cluster" : "kafkaClusterA",
+ *       "connect-cluster" : "connectCluster1"
+ *     }
+ *   }
+ *
+ * 2) A Scope with hierarchy.
+ *   {
+ *     "path" : [ "myorg", "staging ],
+ *     "clusters" : {
+ *       "kafka-cluster" : "kafkaClusterA",
+ *       "connect-cluster" : "connectCluster1"
+ *     }
+ *   }
+ *
+ * 3) A Scope with only hierarchy.
+ *   {
+ *     "path" : [ "myorg" ],
+ *     "clusters" : {}
+ *   }
  */
 public class Scope {
 

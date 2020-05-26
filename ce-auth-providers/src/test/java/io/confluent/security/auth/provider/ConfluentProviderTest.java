@@ -156,15 +156,16 @@ public class ConfluentProviderTest {
 
     // Statically configured super users have access to security metadata in all clusters.
     // These users can also describe and alter access of any resource.
-    // For the metadata service authorizer, these users are not granted access to any other resource.
     Operation alter = new Operation("Alter");
     Operation alterAccess = new Operation("AlterAccess");
     verifyAccess(authorizer, admin, metadataCluster, ConfluentProvider.SECURITY_METADATA, alter, AuthorizeResult.ALLOWED);
     verifyAccess(authorizer, admin, otherCluster, ConfluentProvider.SECURITY_METADATA, alter, AuthorizeResult.ALLOWED);
-    verifyAccess(authorizer, admin, metadataCluster, topic.resourceType(), alter, AuthorizeResult.DENIED);
-    verifyAccess(authorizer, admin, otherCluster, topic.resourceType(), alter, AuthorizeResult.DENIED);
     verifyAccess(authorizer, admin, metadataCluster, topic.resourceType(), alterAccess, AuthorizeResult.ALLOWED);
     verifyAccess(authorizer, admin, otherCluster, topic.resourceType(), alterAccess, AuthorizeResult.ALLOWED);
+
+    // For the metadata service authorizer, these users are not granted access to any other resource.
+    verifyAccess(authorizer, admin, metadataCluster, topic.resourceType(), alter, AuthorizeResult.DENIED);
+    verifyAccess(authorizer, admin, otherCluster, topic.resourceType(), alter, AuthorizeResult.DENIED);
 
     // SystemAdmin role has access to all resources within the role binding scope
     KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
@@ -175,6 +176,22 @@ public class ConfluentProviderTest {
     verifyAccess(authorizer, alice, otherCluster, topic.resourceType(), alter, AuthorizeResult.DENIED);
     verifyAccess(authorizer, alice, metadataCluster, topic.resourceType(), alterAccess, AuthorizeResult.ALLOWED);
     verifyAccess(authorizer, alice, otherCluster, topic.resourceType(), alterAccess, AuthorizeResult.DENIED);
+
+    //// ClusterRegistry Checks
+    Operation describe = new Operation("Describe");
+    Operation shine = new Operation("Shine"); // some other operation
+
+    // ClusterRegistry positive testing
+    // super.user can Alter and Describe against the ClusterRegistry resourceType against any cluster
+    verifyAccess(authorizer, admin, metadataCluster, ConfluentProvider.CLUSTER_REGISTRY, alter, AuthorizeResult.ALLOWED);
+    verifyAccess(authorizer, admin, metadataCluster, ConfluentProvider.CLUSTER_REGISTRY, describe, AuthorizeResult.ALLOWED);
+    verifyAccess(authorizer, admin, otherCluster, ConfluentProvider.CLUSTER_REGISTRY, alter, AuthorizeResult.ALLOWED);
+    verifyAccess(authorizer, admin, otherCluster, ConfluentProvider.CLUSTER_REGISTRY, describe, AuthorizeResult.ALLOWED);
+
+    // ClusterRegistry negative testing
+    // operations other than Alter and Describe are not allowed
+    verifyAccess(authorizer, admin, metadataCluster, ConfluentProvider.CLUSTER_REGISTRY, shine, AuthorizeResult.DENIED);
+    verifyAccess(authorizer, admin, otherCluster, ConfluentProvider.CLUSTER_REGISTRY, shine, AuthorizeResult.DENIED);
   }
 
   @Test

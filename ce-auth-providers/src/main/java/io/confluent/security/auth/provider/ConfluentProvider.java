@@ -82,6 +82,13 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
       new Operation("AlterAccess")
   );
 
+  static final ResourceType CLUSTER_REGISTRY = new ResourceType("ClusterRegistry");
+  private static final Set<ResourceType> CLUSTER_REGISTRY_TYPES = Utils.mkSet(CLUSTER_REGISTRY);
+  private static final Set<Operation> CLUSTER_REGISTRY_OPS = Utils.mkSet(
+          new Operation("Describe"),
+          new Operation("Alter")
+  );
+
   private Map<String, ?> configs;
   private MetadataServerConfig metadataServerConfig;
   private LdapAuthenticateCallbackHandler authenticateCallbackHandler;
@@ -509,6 +516,9 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
      * new clusters, allowing role bindings to be created for new clusters using
      * these super user principals.
      *
+     * Additionally `super.users` are allowed to fully CRUD data in the ClusterRegistry, which
+     * helps with bootstrapping.
+     *
      * Note that `super.users` also have access to all broker resources in the metadata
      * cluster, but these are handled by the broker authorizer.
      */
@@ -517,7 +527,29 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
                                   KafkaPrincipal userOrGroupPrincipal,
                                   Action action) {
       return configuredSuperUsers.contains(userOrGroupPrincipal) &&
-          (METADATA_RESOURCE_TYPES.contains(action.resourceType()) || METADATA_OPS.contains(action.operation()));
+              (isRoleBindingRelated(action) || isClusterRegistryRelated(action));
+    }
+
+    /**
+     * Rolebinding actions have two gatekeeping mechanisms, one for setting "cluster" scoped
+     *  roles and another for resource scoped roles.
+     *
+     * 1) Actions against ResourceType "SecurityMetadata" for setting cluster scoped roles.
+     * 2) Operations "AlterAccess" and "DescribeAccess" for adding and removing rolebindings from
+     *    specific resources.
+     */
+    private boolean isRoleBindingRelated(final Action action) {
+      return METADATA_RESOURCE_TYPES.contains(action.resourceType()) ||
+              METADATA_OPS.contains(action.operation());
+    }
+
+    /**
+     * ClusterRegistry operations are about the "ClusterRegistry" ResourceType with
+     *  operations Alter and Describe.
+     */
+    private boolean isClusterRegistryRelated(final Action action) {
+      return CLUSTER_REGISTRY_TYPES.contains(action.resourceType()) &&
+              CLUSTER_REGISTRY_OPS.contains(action.operation());
     }
   }
 
