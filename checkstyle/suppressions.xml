@@ -361,6 +361,8 @@
     <suppress checks="ClassDataAbstractionCoupling" files="(MiniKdcWithLdapService|MockAuthStore).java"/>
     <suppress checks="ClassFanOutComplexity" files="(MiniKdcWithLdapService|MockAuthStore|KafkaAuthWriter).java"/>
     <suppress checks="CyclomaticComplexity" files="KafkaUtils.java"/>
+    <suppress checks="ImportControl" files="ClusterLinkAclSyncIntegrationTest.java"/>
+    <suppress checks="ClassDataAbstractionCoupling" files="ClusterLinkAclSyncIntegrationTest.java"/>
 
     <suppress checks="ImportControl" files="TierFetcherTest.java|TierSegmentWindowTest.java"/>
 
