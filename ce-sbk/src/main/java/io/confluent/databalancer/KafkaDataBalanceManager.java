@@ -184,7 +184,7 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
     }
 
     @Override
-    public synchronized void removeBroker(int brokerToRemove, Option<Long> brokerToRemoveEpoch) {
+    public synchronized void scheduleBrokerRemoval(int brokerToRemove, Option<Long> brokerToRemoveEpoch) {
         if (!balanceEngine.isActive()) {
             String msg = String.format("Received request to remove broker %d while SBK is not started.", brokerToRemove);
             LOG.error(msg);
@@ -194,5 +194,10 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
         Optional<Long> brokerEpoch = brokerToRemoveEpoch.isEmpty() ? Optional.empty()
                 : Optional.of(brokerToRemoveEpoch.get());
         balanceEngine.removeBroker(brokerToRemove, brokerEpoch);
+    }
+
+    @Override
+    public void scheduleBrokerAdd(Set<Integer> brokersToAdd) {
+        // CNKAF-730: No-op for now
     }
 }

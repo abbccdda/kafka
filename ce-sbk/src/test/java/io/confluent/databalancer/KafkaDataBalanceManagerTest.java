@@ -236,7 +236,7 @@ public class KafkaDataBalanceManagerTest {
         dataBalancer = new KafkaDataBalanceManager(initConfig,
                 new KafkaDataBalanceManager.DataBalanceEngineFactory(mockActiveDataBalanceEngine, mockInactiveDataBalanceEngine),
                 mockDbMetrics);
-        dataBalancer.removeBroker(2, Option.<Long>apply(25L));
+        dataBalancer.scheduleBrokerRemoval(2, Option.<Long>apply(25L));
     }
 
     /**
@@ -249,7 +249,7 @@ public class KafkaDataBalanceManagerTest {
                 mockDbMetrics);
         dataBalancer.onElection();
 
-        dataBalancer.removeBroker(1, Option.<Long>apply(15L));
+        dataBalancer.scheduleBrokerRemoval(1, Option.<Long>apply(15L));
         verify(mockActiveDataBalanceEngine).removeBroker(anyInt(), any());
     }
 
@@ -263,7 +263,7 @@ public class KafkaDataBalanceManagerTest {
                 mockDbMetrics);
         dataBalancer.onElection();
 
-        dataBalancer.removeBroker(1, Option.<Long>apply(null));
+        dataBalancer.scheduleBrokerRemoval(1, Option.<Long>apply(null));
         verify(mockActiveDataBalanceEngine).removeBroker(anyInt(), any());
     }
 }

@@ -47,6 +47,7 @@ import org.apache.zookeeper.KeeperException.Code
 
 import scala.collection.{Map, Seq, Set, immutable, mutable}
 import scala.collection.mutable.ArrayBuffer
+import scala.jdk.CollectionConverters._
 import scala.util.{Failure, Try}
 
 sealed trait ElectionTrigger
@@ -179,7 +180,7 @@ class KafkaController(val config: KafkaConfig,
   def shutdown() = {
     eventManager.close()
     onControllerResignation()
-    dataBalancer.map { _.shutdown }
+    dataBalancer.foreach { _.shutdown }
   }
 
   /**
@@ -276,7 +277,7 @@ class KafkaController(val config: KafkaConfig,
         unit = TimeUnit.MILLISECONDS)
     }
 
-    dataBalancer.map { _.onElection }
+    dataBalancer.foreach { _.onElection }
   }
 
   private def scheduleAutoLeaderRebalanceTask(delay: Long, unit: TimeUnit): Unit = {
@@ -298,7 +299,7 @@ class KafkaController(val config: KafkaConfig,
     unregisterBrokerModificationsHandler(brokerModificationsHandlers.keySet)
 
     // Notify databalancer it's time to resign
-    dataBalancer.map { _.onResignation }
+    dataBalancer.foreach { _.onResignation }
 
     // shutdown leader rebalance scheduler
     kafkaScheduler.shutdown()
@@ -391,6 +392,11 @@ class KafkaController(val config: KafkaConfig,
         s"${newBrokers.mkString(",")}. Signaling restart of topic deletion for these topics")
       topicDeletionManager.resumeDeletionForTopics(replicasForTopicsToBeDeleted.map(_.topic))
     }
+    // Determine which if any of the new brokers have no replicas on them, but we've already computed what replicas
+    // are present.
+    val emptyNewBrokers = newBrokersSet -- allReplicasOnNewBrokers.map {_.replica}
+    dataBalancer.foreach { _.scheduleBrokerAdd(emptyNewBrokers.map { i => i:java.lang.Integer}.asJava) }
+
     registerBrokerModificationsHandler(newBrokers)
   }
 
@@ -1888,7 +1894,7 @@ class KafkaController(val config: KafkaConfig,
     } else {
       val results = dataBalancer.map { db =>
         try {
-          db.removeBroker(brokerToRemove,
+          db.scheduleBrokerRemoval(brokerToRemove,
             controllerContext.liveBrokerIdAndEpochs.get(brokerToRemove).map(java.lang.Long.valueOf))
           None
         } catch {

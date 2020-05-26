@@ -14,9 +14,9 @@ import org.slf4j.{Logger, LoggerFactory}
  * brokers are equally loaded (for some definition of equal), taking into account
  * partition counts, disk usage, CPU, and network usage, among other factors).
  *
- * This is a facade object around the CruiseControl code. This object is expected to
- * be long-lived (lifetime of the broker) even as the node gains and loses responsibility
- * for doing data balancing -- analogous to (and co-located with) the controller.
+ * This object is expected to be long-lived (lifetime of the broker) even as the
+ * node gains and loses responsibility for doing data balancing -- analogous to
+ * (and co-located with) the controller.
  */
 trait DataBalanceManager {
   def onElection(): Unit
@@ -27,7 +27,9 @@ trait DataBalanceManager {
 
   def updateConfig(oldConfig: KafkaConfig, newConfig: KafkaConfig): Unit
 
-  def removeBroker(brokerToRemove: Int, brokerToRemoveEpoch: Option[java.lang.Long]): Unit
+  def scheduleBrokerRemoval(brokerToRemove: Int, brokerToRemoveEpoch: Option[java.lang.Long]): Unit
+
+  def scheduleBrokerAdd(brokersToAdd: java.util.Set[Integer]): Unit
 }
 
 object DataBalanceManager {
