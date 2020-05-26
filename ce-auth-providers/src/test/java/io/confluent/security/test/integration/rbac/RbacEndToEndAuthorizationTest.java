@@ -53,7 +53,7 @@ import org.powermock.modules.junit4.PowerMockRunner;
 
 @RunWith(PowerMockRunner.class)
 @PrepareForTest({License.class})
-@PowerMockIgnore({"javax.*", "sun.*"})
+@PowerMockIgnore({"javax.*", "sun.*", "org.apache.kafka.common.security.scram.Scram*"})
 @Category(IntegrationTest.class)
 public class RbacEndToEndAuthorizationTest {
 
