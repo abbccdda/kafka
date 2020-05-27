@@ -24,6 +24,7 @@ import java.util.Properties
 import com.fasterxml.jackson.dataformat.csv.CsvMapper
 import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import com.fasterxml.jackson.module.scala.experimental.ScalaObjectMapper
+import kafka.common.TenantHelpers._
 import kafka.utils._
 import org.apache.kafka.clients.admin._
 import org.apache.kafka.clients.consumer.OffsetAndMetadata
@@ -514,15 +515,15 @@ object ConsumerGroupCommand extends Logging {
       val groupOffsets = TreeMap[String, (Option[String], Option[Seq[PartitionAssignmentState]])]() ++ (for ((groupId, consumerGroup) <- consumerGroups) yield {
         val state = consumerGroup.state
         val committedOffsets = getCommittedOffsets(groupId)
+        val getMemberAssignments = getMemberAssignmentsFunction(groupId, committedOffsets)
         var assignedTopicPartitions = ListBuffer[TopicPartition]()
         val rowsWithConsumer = consumerGroup.members.asScala.filter(!_.assignment.topicPartitions.isEmpty).toSeq
           .sortWith(_.assignment.topicPartitions.size > _.assignment.topicPartitions.size).flatMap { consumerSummary =>
-          val topicPartitions = consumerSummary.assignment.topicPartitions.asScala
+          val topicPartitions = getMemberAssignments(consumerSummary)
           assignedTopicPartitions = assignedTopicPartitions ++ topicPartitions
-          val partitionOffsets = consumerSummary.assignment.topicPartitions.asScala
-            .map { topicPartition =>
+          val partitionOffsets = topicPartitions.map { topicPartition =>
               topicPartition -> committedOffsets.get(topicPartition).map(_.offset)
-            }.toMap
+          }.toMap
           collectConsumerAssignment(groupId, Option(consumerGroup.coordinator), topicPartitions.toList,
             partitionOffsets, Some(s"${consumerSummary.consumerId}"), Some(s"${consumerSummary.host}"),
             Some(s"${consumerSummary.clientId}"))
@@ -543,6 +544,22 @@ object ConsumerGroupCommand extends Logging {
       }).toMap
 
       groupOffsets
+    }
+
+    /**
+     * Returns a function that automatically prefixes assignments when the group id and
+     * all the committed offsets are prefixed. When these two conditions are met, we assume
+     * that the tool is used against a ccloud cluster that uses the MT interceptor.
+     */
+    private[admin] def getMemberAssignmentsFunction(groupId: String,
+                                                    offsets: Map[TopicPartition, OffsetAndMetadata]
+                                                    ): MemberDescription => Set[TopicPartition] = {
+      if (isTenantPrefixed(groupId) && offsets.keys.forall(isTenantPrefixed)) {
+        val prefix = extractTenantPrefix(groupId)
+        _.assignment.topicPartitions.asScala.map(prefixWithTenant(prefix, _)).toSet
+      } else {
+        _.assignment.topicPartitions.asScala.toSet
+      }
     }
 
     private[admin] def collectGroupMembers(groupId: String, verbose: Boolean): (Option[String], Option[Seq[MemberAssignmentState]]) = {
