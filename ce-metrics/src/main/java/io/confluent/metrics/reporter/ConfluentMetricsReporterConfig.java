@@ -91,6 +91,7 @@ public class ConfluentMetricsReporterConfig extends AbstractConfig {
   public static final List<String> DEFAULT_BROKER_MONITORING_METRICS = Collections.unmodifiableList(
       Arrays.asList(
           "ActiveControllerCount",
+          "BytesFetchedRate", // kafka.server:type=TierFetcher,name=BytesFetchedRate
           "BytesInPerSec",
           "BytesOutPerSec",
           "CaughtUpReplicasCount",
@@ -104,6 +105,7 @@ public class ConfluentMetricsReporterConfig extends AbstractConfig {
           "LogStartOffset",
           "NetworkProcessorAvgIdlePercent",
           "NumLogSegments",
+          "NumPartitionsInError", // kafka.tier.tasks:type=TierTasks,name=NumPartitionsInError"
           "OfflinePartitionsCount",
           "ObserverReplicasCount",
           "PartitionCount",
@@ -117,8 +119,11 @@ public class ConfluentMetricsReporterConfig extends AbstractConfig {
           "ResponseQueueTimeMs",
           "ResponseSendTimeMs",
           "Size",
+          "TierSize", // kafka.log:type=Log,name=TierSize
           "TotalFetchRequestsPerSec",
+          "TotalLag", // kafka.tier.tasks.archive:type=TierArchiver,name=TotalLag
           "TotalProduceRequestsPerSec",
+          "TotalSize", // kafka.log:type=Log,name=TotalSize
           "TotalTimeMs",
           "UncleanLeaderElectionsPerSec",
           "UnderReplicated",
