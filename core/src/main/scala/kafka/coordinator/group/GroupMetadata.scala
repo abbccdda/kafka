@@ -19,9 +19,8 @@ package kafka.coordinator.group
 import java.nio.ByteBuffer
 import java.util.UUID
 import java.util.concurrent.locks.ReentrantLock
-import java.util.regex.Pattern
 
-import kafka.common.OffsetAndMetadata
+import kafka.common.{OffsetAndMetadata, TenantHelpers}
 import kafka.utils.{CoreUtils, Logging, nonthreadsafe}
 import org.apache.kafka.clients.consumer.internals.ConsumerProtocol
 import org.apache.kafka.common.TopicPartition
@@ -155,7 +154,6 @@ private object GroupMetadata extends Logging {
 
   private val MemberIdDelimiter = "-"
 
-  private val TenantPrefix = Pattern.compile("^(lkc-[0-9a-z]+_).+")
   var VerifyGroupSubscriptionPrefix = false
 }
 
@@ -481,7 +479,7 @@ private[group] class GroupMetadata(val groupId: String, initialState: GroupState
           // This code can be removed once all clusters have been upgraded and all groups have been
           // rebalanced.
           if (GroupMetadata.VerifyGroupSubscriptionPrefix) {
-            val matcher = GroupMetadata.TenantPrefix.matcher(groupId)
+            val matcher = TenantHelpers.TENANT_PREFIX_REGEX.matcher(groupId)
             if (matcher.matches) {
               val prefix = matcher.group(1)
               if (topics.isDefined && !topics.get.forall(_.startsWith(prefix))) {

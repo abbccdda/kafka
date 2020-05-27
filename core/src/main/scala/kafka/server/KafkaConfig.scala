@@ -33,7 +33,7 @@ import kafka.utils.Implicits._
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.Reconfigurable
 import org.apache.kafka.common.config.SecurityConfig
-import org.apache.kafka.common.config.ConfigDef.{ConfigKey, ValidList}
+import org.apache.kafka.common.config.ConfigDef.{ConfigKey, ValidList, ValidString}
 import org.apache.kafka.common.config.internals.{BrokerSecurityConfigs, ConfluentConfigs}
 import org.apache.kafka.common.config.{AbstractConfig, ConfigDef, ConfigException, ConfluentTopicConfig, SaslConfigs, SslClientAuth, SslConfigs, TopicConfig}
 import org.apache.kafka.common.config.types.Password
@@ -728,6 +728,7 @@ object KafkaConfig {
 
   /** ********* Audit Logs Configuration *********/
   val AuditLogEnableProp = ConfluentConfigs.AUDIT_LOGGER_ENABLE_CONFIG
+  val AuthenticationAuditLogEnableProp = ConfluentConfigs.ENABLE_AUTHENTICATION_AUDIT_LOGS
   val AuditLogRouterConfigProp = ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG
 
   /** ********* Cluster Registry Configuration *********/
@@ -1210,6 +1211,7 @@ object KafkaConfig {
   val ConfluentResourceNameAuthorityDoc = ConfluentConfigs.CRN_AUTHORITY_NAME_DOC
   /** ********* Audit Logs Configuration *********/
   val AuditLogEnableDoc = ConfluentConfigs.AUDIT_LOGGER_ENABLE_DOC
+  val AuthenticationAuditLogEnableDoc = ConfluentConfigs.ENABLE_AUTHENTICATION_AUDIT_LOGS_DOC
   val AuditLogRouterConfigDoc = ConfluentConfigs.AUDIT_EVENT_ROUTER_DOC
 
   private val configDef = {
@@ -1546,6 +1548,7 @@ object KafkaConfig {
 
       /** ********* Audit Logs Configuration *********/
       .define(AuditLogEnableProp, BOOLEAN, ConfluentConfigs.AUDIT_LOGGER_ENABLE_DEFAULT, HIGH, AuditLogEnableDoc)
+      .define(AuthenticationAuditLogEnableProp, BOOLEAN, ConfluentConfigs.ENABLE_AUTHENTICATION_AUDIT_LOGS_DEFAULT, HIGH, AuthenticationAuditLogEnableDoc)
       .define(AuditLogRouterConfigProp, STRING, ConfluentConfigs.AUDIT_EVENT_ROUTER_DEFAULT, LOW, AuditLogRouterConfigDoc)
 
       /** ********* Cluster Registry Configuration *********/
@@ -1608,6 +1611,11 @@ object KafkaConfig {
       .define(ConfluentConfigs.BALANCER_ENABLE_CONFIG, BOOLEAN,
               ConfluentConfigs.BALANCER_ENABLE_DEFAULT,
               HIGH, ConfluentConfigs.BALANCER_ENABLE_DOC)
+      .define(ConfluentConfigs.BALANCER_AUTO_HEAL_MODE_CONFIG, STRING,
+              ConfluentConfigs.BALANCER_AUTO_HEAL_MODE_DEFAULT,
+              ValidString.in(ConfluentConfigs.BalancerSelfHealMode.ANY_UNEVEN_LOAD.toString,
+              ConfluentConfigs.BalancerSelfHealMode.EMPTY_BROKER.toString), HIGH,
+              ConfluentConfigs.BALANCER_AUTO_HEAL_MODE_DOC)
       .define(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, LONG,
               ConfluentConfigs.BALANCER_THROTTLE_DEFAULT, atLeast(ConfluentConfigs.BALANCER_THROTTLE_MIN), HIGH,
               ConfluentConfigs.BALANCER_THROTTLE_DOC)
@@ -1632,7 +1640,6 @@ object KafkaConfig {
       .define(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG, LIST,
               ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_DEFAULT, MEDIUM,
               ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_DOC)
-
       .defineInternal(ConfluentConfigs.APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS, BOOLEAN,
                       ConfluentConfigs.APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS_DEFAULT, HIGH,
                       ConfluentConfigs.APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS_DOC)

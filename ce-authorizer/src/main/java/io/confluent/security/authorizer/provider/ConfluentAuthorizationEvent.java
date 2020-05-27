@@ -35,14 +35,23 @@ public class ConfluentAuthorizationEvent implements AuthorizationEvent {
                                        RequestContext requestContext,
                                        Action action,
                                        AuthorizeResult authorizationResult,
-                                       AuthorizePolicy authorizePolicy) {
+                                       AuthorizePolicy authorizePolicy,
+                                       Instant timestamp) {
         this.sourceScope = sourceScope;
         this.requestContext = requestContext;
         this.action = action;
         this.authorizeResult = authorizationResult;
         this.authorizePolicy = authorizePolicy;
-        this.timestamp = Instant.now();
+        this.timestamp = timestamp;
         this.lazyUUID = new Lazy<>();
+    }
+
+    public ConfluentAuthorizationEvent(Scope sourceScope,
+                                       RequestContext requestContext,
+                                       Action action,
+                                       AuthorizeResult authorizationResult,
+                                       AuthorizePolicy authorizePolicy) {
+        this(sourceScope, requestContext, action, authorizationResult, authorizePolicy, Instant.now());
     }
 
     public Scope sourceScope() {

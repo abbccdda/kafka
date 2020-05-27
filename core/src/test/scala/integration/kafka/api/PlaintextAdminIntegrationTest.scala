@@ -347,17 +347,16 @@ class PlaintextAdminIntegrationTest extends BaseAdminIntegrationTest {
     assertFalse(maxMessageBytes2.isSensitive)
     assertFalse(maxMessageBytes2.isReadOnly)
 
-    // calculate the config count for a server, filtering out
-    // tier related broker configs for comparison with topic describe
-    def tierFeatureFilteredConfigCount(server: KafkaServer): Long = {
-      server.config.values.keySet().asScala.filterNot(config =>
-        !tierFeature && config.startsWith(KafkaConfig.ConfluentTierPrefix) ||
+    // calculate the config count for a server, filtering out proprietary broker configs for comparison with topic describe
+    def filteredConfigCount(server: KafkaServer): Long = {
+      server.config.values.keySet().asScala.filterNot { config =>
         config.equals(ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG) ||
-        config.equals(ConfluentConfigs.BASIC_AUTH_CREDENTIALS_SOURCE_CONFIG) ||
-        config.equals(ConfluentConfigs.USER_INFO_CONFIG) ||
-        config.equals(ConfluentConfigs.BEARER_AUTH_CREDENTIALS_SOURCE_CONFIG) ||
-        config.equals(ConfluentConfigs.BEARER_AUTH_TOKEN_CONFIG) ||
-        config.equals(LogConfig.AppendRecordInterceptorClassesProp)).size
+          config.equals(ConfluentConfigs.BASIC_AUTH_CREDENTIALS_SOURCE_CONFIG) ||
+          config.equals(ConfluentConfigs.USER_INFO_CONFIG) ||
+          config.equals(ConfluentConfigs.BEARER_AUTH_CREDENTIALS_SOURCE_CONFIG) ||
+          config.equals(ConfluentConfigs.BEARER_AUTH_TOKEN_CONFIG) ||
+          config.equals(LogConfig.AppendRecordInterceptorClassesProp)
+      }.size
     }
     // Remove Confluent configs that are not defined in KafkaConfig from described configs
     def customFilteredDescribedConfigCount(brokerResource: ConfigResource): Long = {
@@ -366,7 +365,7 @@ class PlaintextAdminIntegrationTest extends BaseAdminIntegrationTest {
         .size
     }
 
-    assertEquals(tierFeatureFilteredConfigCount(servers(1)), customFilteredDescribedConfigCount(brokerResource1))
+    assertEquals(filteredConfigCount(servers(1)), customFilteredDescribedConfigCount(brokerResource1))
     assertEquals(servers(1).config.brokerId.toString, configs.get(brokerResource1).get(KafkaConfig.BrokerIdProp).value)
     val listenerSecurityProtocolMap = configs.get(brokerResource1).get(KafkaConfig.ListenerSecurityProtocolMapProp)
     assertEquals(servers(1).config.getString(KafkaConfig.ListenerSecurityProtocolMapProp), listenerSecurityProtocolMap.value)
@@ -387,7 +386,7 @@ class PlaintextAdminIntegrationTest extends BaseAdminIntegrationTest {
     assertFalse(compressionType.isSensitive)
     assertFalse(compressionType.isReadOnly)
 
-    assertEquals(tierFeatureFilteredConfigCount(servers(2)), customFilteredDescribedConfigCount(brokerResource2))
+    assertEquals(filteredConfigCount(servers(2)), customFilteredDescribedConfigCount(brokerResource2))
     assertEquals(servers(2).config.brokerId.toString, configs.get(brokerResource2).get(KafkaConfig.BrokerIdProp).value)
     assertEquals(servers(2).config.logCleanerThreads.toString,
       configs.get(brokerResource2).get(KafkaConfig.LogCleanerThreadsProp).value)
@@ -896,17 +895,6 @@ class PlaintextAdminIntegrationTest extends BaseAdminIntegrationTest {
       client.deleteRecords(Map(nonExistPartition -> RecordsToDelete.beforeOffset(20L)).asJava).lowWatermarks.get(nonExistPartition).get
     }.getCause
     assertEquals(classOf[LeaderNotAvailableException], cause.getClass)
-  }
-
-  @Test
-  def testDescribeConfigsTierFiltering(): Unit = {
-    createTopic(topic, numPartitions = 2, replicationFactor = brokerCount)
-    client = AdminClient.create(createConfig())
-
-    val existingTopic = new ConfigResource(ConfigResource.Type.TOPIC, topic)
-    val configs = client.describeConfigs(Collections.singletonList(existingTopic)).values.get(existingTopic).get()
-    val foundTierConfigs = configs.entries().asScala.map(_.name).toSet.contains("confluent.tier.enable")
-    assertTrue(tierFeature && foundTierConfigs || !tierFeature && !foundTierConfigs)
   }
 
   @Test

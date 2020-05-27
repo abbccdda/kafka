@@ -123,7 +123,7 @@ class DynamicBrokerReconfigurationTest extends ZooKeeperTestHarness with SaslSet
       props.put(KafkaConfig.PasswordEncoderSecretProp, "dynamic-config-secret")
       props.put(KafkaConfig.LogRetentionTimeMillisProp, 1680000000.toString)
       props.put(KafkaConfig.LogRetentionTimeHoursProp, 168.toString)
-      props.put(ConfluentConfigs.BALANCER_ENABLE_CONFIG, true.toString)
+      props.put(ConfluentConfigs.BALANCER_ENABLE_CONFIG, ConfluentConfigs.BALANCER_ENABLE_DEFAULT.toString)
 
       props ++= sslProperties1
       props ++= securityProps(sslProperties1, KEYSTORE_PROPS, listenerPrefix(SecureInternal))
@@ -551,7 +551,7 @@ class DynamicBrokerReconfigurationTest extends ZooKeeperTestHarness with SaslSet
       server.kafkaController.dataBalancer = Some(dataBalancer)
     }
     reconfigureServers(props, perBrokerConfig = false, (ConfluentConfigs.BALANCER_ENABLE_CONFIG, "PAUSED"), expectFailure = true)
-    dataBalancer.verifyBalancerConfigs(true, 0)
+    dataBalancer.verifyBalancerConfigs()
 
     // verify produce/consume works throughout balancer config updates with no retries
     stopAndVerifyProduceConsume(producerThread, consumerThread)
@@ -567,7 +567,7 @@ class DynamicBrokerReconfigurationTest extends ZooKeeperTestHarness with SaslSet
       server.kafkaController.dataBalancer = Some(dataBalancer)
     }
     reconfigureServers(props, perBrokerConfig = false, (ConfluentConfigs.BALANCER_THROTTLE_CONFIG, "-10"), expectFailure = true)
-    dataBalancer.verifyBalancerConfigs(true, 0)
+    dataBalancer.verifyBalancerConfigs()
 
     // verify produce/consume works throughout balancer config updates with no retries
     stopAndVerifyProduceConsume(producerThread, consumerThread)
@@ -577,7 +577,7 @@ class DynamicBrokerReconfigurationTest extends ZooKeeperTestHarness with SaslSet
   def testBalancerConfigUpdate(): Unit = {
     val (producerThread, consumerThread) = startProduceConsume(0)
     val props = new Properties
-    props.put(ConfluentConfigs.BALANCER_ENABLE_CONFIG, false.toString)
+    props.put(ConfluentConfigs.BALANCER_ENABLE_CONFIG, true.toString)
     props.put(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, "50")
     val dataBalancer = new TestDataBalancer()
     servers.foreach { server =>
@@ -590,7 +590,25 @@ class DynamicBrokerReconfigurationTest extends ZooKeeperTestHarness with SaslSet
         assertEquals(s"Not reconfigured $k", server.config.originals.get(k).toString, v)
       }
     }
-    dataBalancer.verifyBalancerConfigs(false, 50)
+    dataBalancer.verifyBalancerConfigs(enabledExpected = true, throttleExpected =  50)
+
+    // verify produce/consume works throughout balancer config updates with no retries
+    stopAndVerifyProduceConsume(producerThread, consumerThread)
+  }
+
+  @Test
+  def testBalancerAutoHealConfigUpdate(): Unit = {
+    val (producerThread, consumerThread) = startProduceConsume(0)
+    val props = new Properties
+    props.put(ConfluentConfigs.BALANCER_AUTO_HEAL_MODE_CONFIG, ConfluentConfigs.BalancerSelfHealMode.EMPTY_BROKER.toString)
+    val dataBalancer = new TestDataBalancer()
+    servers.foreach { server =>
+      server.kafkaController.dataBalancer = Some(dataBalancer)
+    }
+    reconfigureServers(props, perBrokerConfig = false,
+      (ConfluentConfigs.BALANCER_AUTO_HEAL_MODE_CONFIG, ConfluentConfigs.BalancerSelfHealMode.EMPTY_BROKER.toString))
+
+    dataBalancer.verifyBalancerConfigs(autoHealExpected = ConfluentConfigs.BalancerSelfHealMode.EMPTY_BROKER.toString)
 
     // verify produce/consume works throughout balancer config updates with no retries
     stopAndVerifyProduceConsume(producerThread, consumerThread)
@@ -1898,8 +1916,9 @@ class TestMetricsReporter extends MetricsReporter with Reconfigurable with Close
 
 class TestDataBalancer extends DataBalanceManager {
 
-  var selfHealingConfig = true;
-  var throttleConfig: Long = 0;
+  var enabledConfig = ConfluentConfigs.BALANCER_ENABLE_DEFAULT;
+  var throttleConfig = ConfluentConfigs.BALANCER_THROTTLE_DEFAULT;
+  var autoHealModeConfig = ConfluentConfigs.BALANCER_AUTO_HEAL_MODE_DEFAULT;
 
   override def onElection(): Unit = {}
 
@@ -1908,17 +1927,23 @@ class TestDataBalancer extends DataBalanceManager {
   override def shutdown(): Unit = {}
 
   override def updateConfig(oldConfig: KafkaConfig, newConfig: KafkaConfig): Unit = {
-    selfHealingConfig = newConfig.getBoolean(ConfluentConfigs.BALANCER_ENABLE_CONFIG);
+    enabledConfig = newConfig.getBoolean(ConfluentConfigs.BALANCER_ENABLE_CONFIG);
     throttleConfig = newConfig.getLong(ConfluentConfigs.BALANCER_THROTTLE_CONFIG);
+    autoHealModeConfig = newConfig.getString(ConfluentConfigs.BALANCER_AUTO_HEAL_MODE_CONFIG);
   }
 
-  override def removeBroker(brokerToRemove: Int, brokerToRemoveEpoch: Option[java.lang.Long]): Unit = {
+  override def scheduleBrokerRemoval(brokerToRemove: Int, brokerToRemoveEpoch: Option[java.lang.Long]): Unit = {
     // do nothing
   }
 
-  def verifyBalancerConfigs(selfHealingExpected: Boolean, throttleExpected: Long): Unit = {
-    assertEquals(selfHealingExpected, selfHealingConfig)
-    assertEquals(throttleExpected, throttleConfig)
+  override def scheduleBrokerAdd(brokersToAdd: java.util.Set[Integer]): Unit = { }
+
+  def verifyBalancerConfigs(enabledExpected: Boolean = ConfluentConfigs.BALANCER_ENABLE_DEFAULT,
+                            autoHealExpected: String = ConfluentConfigs.BALANCER_AUTO_HEAL_MODE_DEFAULT,
+                            throttleExpected: Long = ConfluentConfigs.BALANCER_THROTTLE_DEFAULT): Unit = {
+    assertEquals("enabled doesn't match", enabledExpected, enabledConfig)
+    assertEquals("auto heal mode doesn't match", autoHealExpected, autoHealModeConfig)
+    assertEquals("throttle doesn't match", throttleExpected, throttleConfig)
   }
 }
 

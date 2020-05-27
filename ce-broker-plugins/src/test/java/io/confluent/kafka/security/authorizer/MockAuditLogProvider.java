@@ -7,7 +7,9 @@ import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.provider.ConfluentAuthorizationEvent;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.server.audit.AuditEvent;
+import org.apache.kafka.server.audit.AuditEventType;
 import org.apache.kafka.server.audit.AuditLogProvider;
+import org.apache.kafka.server.audit.AuthenticationEvent;
 import org.apache.kafka.test.TestUtils;
 
 import java.util.ArrayList;
@@ -23,7 +25,8 @@ import java.util.function.UnaryOperator;
 public class MockAuditLogProvider implements AuditLogProvider {
 
   public static volatile MockAuditLogProvider instance;
-  public final List<ConfluentAuthorizationEvent> auditLog = new ArrayList<>();
+  public final List<ConfluentAuthorizationEvent> authorizationLog = new ArrayList<>();
+  public final List<AuthenticationEvent> authenticationLog = new ArrayList<>();
   private final ArrayList<String> states = new ArrayList<>();
   private boolean fail = false;
   private UnaryOperator<AuditEvent> santizer;
@@ -80,14 +83,28 @@ public class MockAuditLogProvider implements AuditLogProvider {
     if (santizer != null) {
       auditEvent = santizer.apply(auditEvent);
     }
-    ConfluentAuthorizationEvent authZEvent =  (ConfluentAuthorizationEvent) auditEvent;
 
     if (fail) {
       throw new RuntimeException("MockAuditLogProvider intentional failure");
     }
+
+    if (auditEvent.type() == AuditEventType.AUTHORIZATION) {
+      handleAuthorizationEvent((ConfluentAuthorizationEvent) auditEvent);
+    } else if (auditEvent.type() == AuditEventType.AUTHENTICATION) {
+      handleAuthenticationEvent((AuthenticationEvent) auditEvent);
+    } else {
+      throw new UnsupportedOperationException("Event type is not supported: " + auditEvent.type());
+    }
+  }
+
+  private void handleAuthenticationEvent(final AuthenticationEvent auditEvent) {
+    authenticationLog.add(auditEvent);
+  }
+
+  private void handleAuthorizationEvent(final ConfluentAuthorizationEvent authZEvent) {
     if (authZEvent.action().logIfAllowed() && authZEvent.authorizeResult() == AuthorizeResult.ALLOWED ||
         authZEvent.action().logIfDenied() && authZEvent.authorizeResult() == AuthorizeResult.DENIED) {
-      auditLog.add(authZEvent);
+      authorizationLog.add(authZEvent);
     }
   }
 
@@ -95,8 +112,12 @@ public class MockAuditLogProvider implements AuditLogProvider {
   public void close() {
   }
 
-  ConfluentAuthorizationEvent lastEntry() {
-    return auditLog.get(auditLog.size() - 1);
+  ConfluentAuthorizationEvent lastAuthorizationEntry() {
+    return authorizationLog.get(authorizationLog.size() - 1);
+  }
+
+  public AuthenticationEvent lastAuthenticationEntry() {
+    return authenticationLog.get(authenticationLog.size() - 1);
   }
 
   void ensureStarted() throws Exception {

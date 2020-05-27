@@ -20,12 +20,14 @@ import java.util.Properties
 
 import joptsimple.OptionException
 import kafka.utils.TestUtils
-import org.apache.kafka.clients.consumer.{ConsumerConfig, RoundRobinAssignor}
+import org.apache.kafka.clients.admin.{MemberAssignment, MemberDescription}
+import org.apache.kafka.clients.consumer.{ConsumerConfig, OffsetAndMetadata, RoundRobinAssignor}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.TimeoutException
 import org.junit.Assert._
 import org.junit.Test
 
+import scala.jdk.CollectionConverters._
 import scala.concurrent.ExecutionException
 import scala.util.Random
 
@@ -683,5 +685,96 @@ class DescribeConsumerGroupTest extends ConsumerGroupCommandTest {
     }, s"Expected a 'Stable' group status, rows and valid values for consumer id / client id / host columns in describe results for non-offset-committing group $group.")
   }
 
+  @Test
+  def testAssignmentsArePrefixedWhenGroupAndOffsetsArePrefixed(): Unit = {
+    testAssignments(
+      "lkc-8vgl6g2_console-consumer",
+      Set(
+        new TopicPartition("topic-1", 0),
+        new TopicPartition("lkc-8vgl6g2_topic-1", 1),
+      ),
+      Set(
+        new TopicPartition("lkc-8vgl6g2_topic-1", 0),
+        new TopicPartition("lkc-8vgl6g2_topic-1", 1)
+      ),
+      Set(
+        new TopicPartition("lkc-8vgl6g2_topic-1", 0),
+        new TopicPartition("lkc-8vgl6g2_topic-1", 1),
+      )
+    )
+  }
+
+  @Test
+  def testAssignmentsAreNotPrefixedWhenGroupAndOffsetsAreNotPrefixed(): Unit = {
+    testAssignments(
+      "console-consumer",
+      Set(
+        new TopicPartition("topic-1", 0),
+        new TopicPartition("lkc-8vgl6g2_topic-1", 1),
+      ),
+      Set(
+        new TopicPartition("topic-1", 0),
+        new TopicPartition("topic-1", 1)
+      ),
+      Set(
+        new TopicPartition("topic-1", 0),
+        new TopicPartition("lkc-8vgl6g2_topic-1", 1),
+      )
+    )
+  }
+
+  @Test
+  def testAssignmentsAreNotPrefixedWhenGroupIsPrefixedAndOffsetsAreNotPrefixed(): Unit = {
+    testAssignments(
+      "lkc-8vgl6g2_console-consumer",
+      Set(
+        new TopicPartition("topic-1", 0),
+        new TopicPartition("lkc-8vgl6g2_topic-1", 1),
+      ),
+      Set(
+        new TopicPartition("topic-1", 0),
+        new TopicPartition("lkc-8vgl6g2_topic-1", 1)
+      ),
+      Set(
+        new TopicPartition("topic-1", 0),
+        new TopicPartition("lkc-8vgl6g2_topic-1", 1),
+      )
+    )
+  }
+
+  @Test
+  def testAssignmentsAreNotPrefixedWhenGroupIsNotPrefixedAndOffsetsArePrefixed(): Unit = {
+    testAssignments(
+      "console-consumer",
+      Set(
+        new TopicPartition("topic-1", 0),
+        new TopicPartition("lkc-8vgl6g2_topic-1", 1),
+      ),
+      Set(
+        new TopicPartition("lkc-8vgl6g2_topic-1", 0),
+        new TopicPartition("lkc-8vgl6g2_topic-1", 1)
+      ),
+      Set(
+        new TopicPartition("topic-1", 0),
+        new TopicPartition("lkc-8vgl6g2_topic-1", 1),
+      )
+    )
+  }
+
+  def testAssignments(groupId: String,
+                      assignedTopicPartitions: Set[TopicPartition],
+                      committedOffsets: Set[TopicPartition],
+                      expectedAssignments: Set[TopicPartition]): Unit = {
+    val member = new MemberDescription("memberId", "clientId", "host",
+      new MemberAssignment(assignedTopicPartitions.asJava))
+
+    val cgcArgs = Array("--bootstrap-server", brokerList, "--describe", "--group", group)
+    val service = getConsumerGroupService(cgcArgs)
+
+    val getMemberAssignments = service.getMemberAssignmentsFunction(groupId,
+      committedOffsets.map(tp => tp -> new OffsetAndMetadata(1, "")).toMap)
+
+    assertEquals(expectedAssignments, getMemberAssignments(member))
+  }
 }
 

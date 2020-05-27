@@ -32,6 +32,9 @@ public class NoOpDataBalanceEngine implements DataBalanceEngine {
     public void updateThrottle(Long newThrottle) {  }
 
     @Override
+    public void setAutoHealMode(boolean shouldAutoHeal) { }
+
+    @Override
     public boolean isActive() {
         return false;
     }

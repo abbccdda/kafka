@@ -8,17 +8,18 @@ import com.google.protobuf.Struct;
 import com.google.protobuf.Value;
 import io.confluent.crn.ConfluentResourceName;
 import io.confluent.crn.ConfluentResourceName.Element;
+import io.confluent.crn.ConfluentServerCrnAuthority;
 import io.confluent.crn.CrnSyntaxException;
+import io.confluent.kafka.security.audit.event.ConfluentAuthenticationEvent;
 import io.confluent.security.authorizer.AclAccessRule;
-import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizePolicy;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.RequestContext;
+import io.confluent.security.authorizer.provider.ConfluentAuthorizationEvent;
 import io.confluent.security.rbac.RbacAccessRule;
 import io.confluent.security.rbac.RoleBinding;
 import org.apache.kafka.common.acl.AccessControlEntry;
 import org.apache.kafka.common.protocol.ApiKeys;
-import org.apache.kafka.server.audit.AuthenticationEvent;
 
 import java.util.Map;
 
@@ -58,14 +59,17 @@ public class AuditLogUtils {
     }
   }
 
-  public static AuditLogEntry authorizationEvent(String source, String subject,
-      RequestContext requestContext, Action action, AuthorizeResult authorizeResult,
-      AuthorizePolicy authorizePolicy) {
+  public static AuditLogEntry authorizationEvent(ConfluentAuthorizationEvent authorizationEvent,
+                                                 ConfluentServerCrnAuthority crnAuthority) throws CrnSyntaxException {
+
+    String source = crnAuthority.canonicalCrn(authorizationEvent.sourceScope()).toString();
+    String subject = crnAuthority.canonicalCrn(authorizationEvent.action().scope(), authorizationEvent.action().resourcePattern())
+        .toString();
 
     String requestName;
-    int requestType = requestContext.requestType();
+    int requestType = authorizationEvent.requestContext().requestType();
     if (requestType < 0) {
-      if (RequestContext.MDS.equals(requestContext.requestSource())) {
+      if (RequestContext.MDS.equals(authorizationEvent.requestContext().requestSource())) {
         requestName = "Authorize";
       } else {
         throw new RuntimeException("Got unexpected requestType not from MDS: " + requestType);
@@ -74,7 +78,7 @@ public class AuditLogUtils {
       ApiKeys requestKey = ApiKeys.forId(requestType);
       if (requestKey == ApiKeys.FETCH) {
         // Ideally, we'd use the mapping in AclMapper, but this doesn't depend on ce-broker-plugins
-        if ("ClusterAction".equals(action.operation().name())) {
+        if ("ClusterAction".equals(authorizationEvent.action().operation().name())) {
           requestName = "FetchFollower";
         } else {
           requestName = "FetchConsumer";
@@ -86,38 +90,38 @@ public class AuditLogUtils {
 
     AuditLogEntry.Builder builder = AuditLogEntry.newBuilder()
         .setServiceName(source)
-        .setMethodName(requestContext.requestSource() + "." + requestName)
+        .setMethodName(authorizationEvent.requestContext().requestSource() + "." + requestName)
         .setResourceName(subject);
 
-    String principal = requestContext.principal().getPrincipalType() + ":" +
-        requestContext.principal().getName();
+    String principal = authorizationEvent.requestContext().principal().getPrincipalType() + ":" +
+        authorizationEvent.requestContext().principal().getName();
     AuthenticationInfo.Builder authenticationBuilder = AuthenticationInfo.newBuilder()
         .setPrincipal(principal);
     builder.setAuthenticationInfo(authenticationBuilder);
 
     AuthorizationInfo.Builder authorizationBuilder = AuthorizationInfo.newBuilder()
-        .setGranted(authorizeResult == AuthorizeResult.ALLOWED)
-        .setOperation(action.operation().name())
-        .setResourceType(action.resourcePattern().resourceType().toString())
-        .setResourceName(action.resourcePattern().name())
-        .setPatternType(action.resourcePattern().patternType().toString());
+        .setGranted(authorizationEvent.authorizeResult() == AuthorizeResult.ALLOWED)
+        .setOperation(authorizationEvent.action().operation().name())
+        .setResourceType(authorizationEvent.action().resourcePattern().resourceType().toString())
+        .setResourceName(authorizationEvent.action().resourcePattern().name())
+        .setPatternType(authorizationEvent.action().resourcePattern().patternType().toString());
 
-    addAuthorizationInfo(authorizationBuilder, authorizePolicy);
+    addAuthorizationInfo(authorizationBuilder, authorizationEvent.authorizePolicy());
     builder.setAuthorizationInfo(authorizationBuilder);
 
     Struct.Builder requestBuilder = Struct.newBuilder()
         .putFields("correlation_id", Value.newBuilder()
-            .setStringValue(String.valueOf(requestContext.correlationId())).build());
-    if (requestContext.clientId() != null) {
+            .setStringValue(String.valueOf(authorizationEvent.requestContext().correlationId())).build());
+    if (authorizationEvent.requestContext().clientId() != null) {
       requestBuilder.putFields("client_id",
-          Value.newBuilder().setStringValue(requestContext.clientId()).build());
+          Value.newBuilder().setStringValue(authorizationEvent.requestContext().clientId()).build());
     }
     builder.setRequest(requestBuilder.build());
 
     Struct.Builder requestMetadataBuilder = Struct.newBuilder();
-    if (requestContext.clientAddress() != null) {
+    if (authorizationEvent.requestContext().clientAddress() != null) {
       requestMetadataBuilder.putFields("client_address", Value.newBuilder()
-          .setStringValue(requestContext.clientAddress().toString()).build());
+          .setStringValue(authorizationEvent.requestContext().clientAddress().toString()).build());
     }
     builder.setRequestMetadata(requestMetadataBuilder.build());
 
@@ -131,9 +135,13 @@ public class AuditLogUtils {
     return ConfluentResourceName.fromString(entry.getResourceName()).lastResourceElement();
   }
 
-  public static AuditLogEntry authenticationEvent(String source,
-                                                  AuthenticationEvent authenticationEvent) {
-    AuditLogEntry.Builder builder = AuditLogEntry.newBuilder().setServiceName(source);
+  public static AuditLogEntry authenticationEvent(ConfluentAuthenticationEvent authenticationEvent,
+                                                  ConfluentServerCrnAuthority crnAuthority) throws CrnSyntaxException {
+    String source = crnAuthority.canonicalCrn(authenticationEvent.getScope()).toString();
+    AuditLogEntry.Builder builder = AuditLogEntry.newBuilder()
+        .setServiceName(source)
+        .setMethodName("kafka.Authentication")
+        .setResourceName(source);
 
     //set authenticationInfo
     AuthenticationInfo.Builder authenticationBuilder = AuthenticationInfo.newBuilder();

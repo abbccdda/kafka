@@ -152,6 +152,7 @@
     <allow pkg="io.confluent.kafka.test" />
     <allow pkg="io.confluent.license" />
     <allow pkg="io.confluent.security.authorizer" />
+    <allow pkg="io.confluent.kafka.security.audit.event" />
     <allow pkg="io.confluent.security.minikdc" />
     <allow pkg="io.confluent.security.rbac" />
     <allow pkg="io.confluent.security.test" />
@@ -198,6 +199,7 @@
       <allow pkg="io.cloudevents" />
       <allow pkg="io.confluent.crn" />
       <allow pkg="io.confluent.security.audit" />
+      <allow pkg="io.confluent.kafka.multitenant" />
     </subpackage>
   </subpackage>
 

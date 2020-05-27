@@ -136,8 +136,14 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
 
     @Override
     public void updateThrottle(Long newThrottle) {
-        LOG.info("DataBalancer: Scheduling DataBalanceEngine throttle update");
+        LOG.info("DataBalancer: Scheduling DataBalanceEngine throttle update to {}", newThrottle);
         ccRunner.submit(() -> updateThrottleHelper(newThrottle));
+    }
+
+    @Override
+    public void setAutoHealMode(boolean shouldAutoHeal) {
+        LOG.info("DataBalancer: Scheduling DataBalanceEngine auto-heal update (setting to {})", shouldAutoHeal);
+        ccRunner.submit(() -> cruiseControl.setGoalViolationSelfHealing(shouldAutoHeal));
     }
 
     @Override
@@ -166,6 +172,18 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         if (cruiseControl != null) {
             LOG.info("Updating balancer throttle to {}", newThrottle);
             cruiseControl.updateThrottle(newThrottle);
+        }
+    }
+
+    /*
+     * Helper to actually set the auto-heal mode.
+     */
+    private void updateAutoHealHelper(boolean shouldAutoHeal) {
+        if (cruiseControl != null) {
+            LOG.info("Changing GOAL_VIOLATION anomaly self-healing actions to {}", shouldAutoHeal);
+            cruiseControl.setGoalViolationSelfHealing(shouldAutoHeal);
+        } else {
+            LOG.info("Attempt to update self-healing ({}) when no DataBalancer active.", shouldAutoHeal);
         }
     }
 
@@ -272,14 +290,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
 
         // Special overrides: zookeeper.connect, etc.
         ccConfigProps.putIfAbsent(KafkaCruiseControlConfig.ZOOKEEPER_CONNECT_CONFIG, config.get(KafkaConfig.ZkConnectProp()));
-        List<String> logDirs = JavaConverters.seqAsJavaList(config.logDirs());
-        if (logDirs == null || logDirs.size() == 0) {
-            throw new ConfigException("Broker configured with null or empty log directory");
-        }
-        if (logDirs.size() > 1) {
-            throw new ConfigException("SBK configured with multiple log directories");
-        }
-        ccConfigProps.put(BrokerCapacityResolver.LOG_DIRS_CONFIG, logDirs.get(0));
+        ccConfigProps.put(BrokerCapacityResolver.LOG_DIRS_CONFIG, getConfiguredLogDirs(config));
 
         // Adjust our goals list as needed -- if network capacities are not provided, remove them from the list
         List<String> goals = new LinkedList<>(KafkaCruiseControlConfig.DEFAULT_GOALS_LIST);
@@ -343,9 +354,6 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     }
 
     private static void configureCruiseControlSelfHealing(KafkaConfig config, Map<String, Object> cruiseControlProps) {
-        // The defaults for the various self-healing properties are annoyingly difficult to set in the SelfHealingNotifier
-        cruiseControlProps.putIfAbsent(KafkaCruiseControlConfig.SELF_HEALING_GOAL_VIOLATION_ENABLED_CONFIG, true);
-
         Long brokerFailureSelfHealingThreshold = config.getLong(ConfluentConfigs.BALANCER_BROKER_FAILURE_THRESHOLD_CONFIG);
         boolean brokerFailureSelfHealingEnabled = brokerFailureSelfHealingThreshold != ConfluentConfigs.BALANCER_BROKER_FAILURE_THRESHOLD_DISABLED;
         cruiseControlProps.putIfAbsent(KafkaCruiseControlConfig.SELF_HEALING_BROKER_FAILURE_ENABLED_CONFIG, brokerFailureSelfHealingEnabled);
@@ -353,6 +361,30 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
             cruiseControlProps.putIfAbsent(KafkaCruiseControlConfig.BROKER_FAILURE_SELF_HEALING_THRESHOLD_MS_CONFIG,
                     brokerFailureSelfHealingThreshold);
         }
+
+        if (config.getString(ConfluentConfigs.BALANCER_AUTO_HEAL_MODE_CONFIG).equals(ConfluentConfigs.BalancerSelfHealMode.ANY_UNEVEN_LOAD.toString())) {
+            cruiseControlProps.putIfAbsent(KafkaCruiseControlConfig.SELF_HEALING_GOAL_VIOLATION_ENABLED_CONFIG, true);
+        } else {
+            // Explicitly set this to false if not in ANY_UNEVEN_LOAD case.
+            cruiseControlProps.putIfAbsent(KafkaCruiseControlConfig.SELF_HEALING_GOAL_VIOLATION_ENABLED_CONFIG, false);
+        }
+
+    }
+
+    /**
+     * Get the log directories from the Kafka Config. For SBK, there can be only one.
+     * @param config
+     */
+    @SuppressWarnings("deprecation")
+    private static String getConfiguredLogDirs(KafkaConfig config) {
+        List<String> logDirs = JavaConverters.seqAsJavaList(config.logDirs());
+        if (logDirs == null || logDirs.size() == 0) {
+            throw new ConfigException("Broker configured with null or empty log directory");
+        }
+        if (logDirs.size() > 1) {
+            throw new ConfigException("SBK configured with multiple log directories");
+        }
+        return logDirs.get(0);
     }
 
     @SafeVarargs

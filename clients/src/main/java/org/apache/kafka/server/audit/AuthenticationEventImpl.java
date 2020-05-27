@@ -25,12 +25,19 @@ public class AuthenticationEventImpl implements AuthenticationEvent {
 
     public AuthenticationEventImpl(KafkaPrincipal principal,
                                    AuthenticationContext authenticationContext,
-                                   AuditEventStatus auditEventStatus) {
-        this.timestamp = Instant.now();
-        this.lazyUUID = new Lazy<>();
+                                   AuditEventStatus auditEventStatus,
+                                   Instant timestamp) {
         this.principal = Optional.of(principal);
         this.authenticationContext = authenticationContext;
         this.auditEventStatus = auditEventStatus;
+        this.timestamp = timestamp;
+        this.lazyUUID = new Lazy<>();
+    }
+
+    public AuthenticationEventImpl(KafkaPrincipal principal,
+                                   AuthenticationContext authenticationContext,
+                                   AuditEventStatus auditEventStatus) {
+        this(principal, authenticationContext, auditEventStatus, Instant.now());
     }
 
     @Override

@@ -135,6 +135,47 @@ public class KafkaDataBalanceManagerTest {
     }
 
     @Test
+    public void testUpdateConfigAutoHealMode() {
+        brokerProps.put(ConfluentConfigs.BALANCER_AUTO_HEAL_MODE_CONFIG, ConfluentConfigs.BalancerSelfHealMode.ANY_UNEVEN_LOAD.toString());
+        updatedConfig = new KafkaConfig(brokerProps);
+        dataBalancer = new KafkaDataBalanceManager(initConfig, mockDataBalanceEngineFactory, mockDbMetrics);
+        dataBalancer.onElection();
+        verify(mockActiveDataBalanceEngine).onActivation(initConfig);
+
+        dataBalancer.updateConfig(initConfig, updatedConfig);
+        verify(mockActiveDataBalanceEngine).setAutoHealMode(true);
+
+        dataBalancer.updateConfig(updatedConfig, initConfig);
+        verify(mockActiveDataBalanceEngine).setAutoHealMode(false);
+
+        dataBalancer.updateConfig(initConfig, initConfig);
+        verifyNoMoreInteractions(mockActiveDataBalanceEngine);
+    }
+
+    @Test
+    public void testUpdateConfigMultipleProperties() {
+        // Leave enabled the same but change all other dynamic properties to ensure they get updated as expected
+        brokerProps.put(ConfluentConfigs.BALANCER_AUTO_HEAL_MODE_CONFIG, ConfluentConfigs.BalancerSelfHealMode.ANY_UNEVEN_LOAD.toString());
+        brokerProps.put(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, 100L);
+
+        updatedConfig = new KafkaConfig(brokerProps);
+        dataBalancer = new KafkaDataBalanceManager(initConfig, mockDataBalanceEngineFactory, mockDbMetrics);
+        dataBalancer.onElection();
+        verify(mockActiveDataBalanceEngine).onActivation(initConfig);
+
+        dataBalancer.updateConfig(initConfig, updatedConfig);
+        verify(mockActiveDataBalanceEngine).setAutoHealMode(true);
+        verify(mockActiveDataBalanceEngine).updateThrottle(100L);
+
+        dataBalancer.updateConfig(updatedConfig, initConfig);
+        verify(mockActiveDataBalanceEngine).setAutoHealMode(false);
+        verify(mockActiveDataBalanceEngine).updateThrottle(200L);
+        
+        dataBalancer.updateConfig(initConfig, initConfig);
+        verifyNoMoreInteractions(mockActiveDataBalanceEngine);
+    }
+
+    @Test
     public void testUpdateConfigNoPropsUpdated() {
         updatedConfig = new KafkaConfig(brokerProps);
         dataBalancer = new KafkaDataBalanceManager(initConfig, mockDataBalanceEngineFactory, mockDbMetrics);
@@ -236,7 +277,7 @@ public class KafkaDataBalanceManagerTest {
         dataBalancer = new KafkaDataBalanceManager(initConfig,
                 new KafkaDataBalanceManager.DataBalanceEngineFactory(mockActiveDataBalanceEngine, mockInactiveDataBalanceEngine),
                 mockDbMetrics);
-        dataBalancer.removeBroker(2, Option.<Long>apply(25L));
+        dataBalancer.scheduleBrokerRemoval(2, Option.<Long>apply(25L));
     }
 
     /**
@@ -249,7 +290,7 @@ public class KafkaDataBalanceManagerTest {
                 mockDbMetrics);
         dataBalancer.onElection();
 
-        dataBalancer.removeBroker(1, Option.<Long>apply(15L));
+        dataBalancer.scheduleBrokerRemoval(1, Option.<Long>apply(15L));
         verify(mockActiveDataBalanceEngine).removeBroker(anyInt(), any());
     }
 
@@ -263,7 +304,7 @@ public class KafkaDataBalanceManagerTest {
                 mockDbMetrics);
         dataBalancer.onElection();
 
-        dataBalancer.removeBroker(1, Option.<Long>apply(null));
+        dataBalancer.scheduleBrokerRemoval(1, Option.<Long>apply(null));
         verify(mockActiveDataBalanceEngine).removeBroker(anyInt(), any());
     }
 }

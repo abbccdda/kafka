@@ -8,12 +8,16 @@ import static org.apache.kafka.common.resource.Resource.CLUSTER_NAME;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.mock;
 
+import io.confluent.kafka.multitenant.MultiTenantPrincipal;
+import io.confluent.kafka.multitenant.TenantMetadata;
 import io.confluent.kafka.multitenant.authorizer.MultiTenantAuditLogConfig;
 import io.confluent.kafka.multitenant.authorizer.MultiTenantAuthorizer;
 import io.confluent.kafka.multitenant.integration.cluster.LogicalCluster;
 import io.confluent.kafka.multitenant.integration.cluster.LogicalClusterUser;
 import io.confluent.kafka.multitenant.integration.cluster.PhysicalCluster;
+import io.confluent.kafka.security.audit.event.ConfluentAuthenticationEvent;
 import io.confluent.kafka.security.authorizer.MockAuditLogProvider;
 import io.confluent.kafka.test.cluster.EmbeddedKafka;
 import io.confluent.kafka.test.utils.SecurityTestUtils;
@@ -21,6 +25,8 @@ import io.confluent.security.authorizer.AclAccessRule;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.ConfluentAuthorizationEvent;
+
+import java.net.InetAddress;
 import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
@@ -32,12 +38,21 @@ import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.config.ConfigResource.Type;
 import org.apache.kafka.common.errors.ClusterAuthorizationException;
 import org.apache.kafka.common.resource.PatternType;
+import org.apache.kafka.common.security.auth.AuthenticationContext;
+import org.apache.kafka.common.security.auth.KafkaPrincipal;
+import org.apache.kafka.common.security.auth.SaslAuthenticationContext;
+import org.apache.kafka.common.security.auth.SecurityProtocol;
+import org.apache.kafka.server.audit.AuditEventStatus;
+import org.apache.kafka.server.audit.AuthenticationEvent;
+import org.apache.kafka.server.audit.AuthenticationEventImpl;
 import org.apache.kafka.test.IntegrationTest;
 import org.apache.kafka.test.TestUtils;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
+
+import javax.security.sasl.SaslServer;
 
 @Category(IntegrationTest.class)
 public class MultiTenantAuditLogTest {
@@ -96,7 +111,7 @@ public class MultiTenantAuditLogTest {
     addConsumerAcls(user2, topic, consumerGroup, PatternType.LITERAL);
     testHarness.produceConsume(user1, user2, topic, consumerGroup, 0);
 
-    assertTrue(MockAuditLogProvider.instance.auditLog.isEmpty());
+    assertTrue(MockAuditLogProvider.instance.authorizationLog.isEmpty());
   }
 
   @Test
@@ -109,12 +124,12 @@ public class MultiTenantAuditLogTest {
     testHarness.produceConsume(user1, user2, topic, consumerGroup, 0);
 
     // for debugging
-    List<ConfluentAuthorizationEvent> user1s = MockAuditLogProvider.instance.auditLog.stream()
+    List<ConfluentAuthorizationEvent> user1s = MockAuditLogProvider.instance.authorizationLog.stream()
         .filter(e -> e.requestContext().principal().toString().equals("User:1")
         ).collect(toList());
 
     // make sure we have an appropriate produce event
-    List<ConfluentAuthorizationEvent> produces = MockAuditLogProvider.instance.auditLog.stream()
+    List<ConfluentAuthorizationEvent> produces = MockAuditLogProvider.instance.authorizationLog.stream()
         .filter(e -> e.requestContext().principal().toString().equals("User:1") &&
             e.action().resourceName().equals(topic) &&
             e.action().operation().name().equals("Write") &&
@@ -125,7 +140,7 @@ public class MultiTenantAuditLogTest {
 
     // make sure we have at least one appropriate consume event (probably multiple because
     // message might not be delivered for the first)
-    List<ConfluentAuthorizationEvent> topicReads = MockAuditLogProvider.instance.auditLog.stream()
+    List<ConfluentAuthorizationEvent> topicReads = MockAuditLogProvider.instance.authorizationLog.stream()
         .filter(e -> e.requestContext().principal().toString().equals("User:2") &&
             e.action().resourceName().equals(topic) &&
             e.action().operation().name().equals("Read") &&
@@ -134,7 +149,7 @@ public class MultiTenantAuditLogTest {
         ).collect(toList());
     assertFalse(topicReads.isEmpty());
 
-    List<ConfluentAuthorizationEvent> groupReads = MockAuditLogProvider.instance.auditLog.stream()
+    List<ConfluentAuthorizationEvent> groupReads = MockAuditLogProvider.instance.authorizationLog.stream()
         .filter(e -> e.requestContext().principal().toString().equals("User:2") &&
             e.action().resourceName().equals(consumerGroup) &&
             e.action().operation().name().equals("Read") &&
@@ -145,18 +160,14 @@ public class MultiTenantAuditLogTest {
 
     // make sure we have no events that refer to TenantUsers
     assertFalse(
-        MockAuditLogProvider.instance.auditLog.stream()
+        MockAuditLogProvider.instance.authorizationLog.stream()
             .anyMatch(e -> e.requestContext().principal().toString().contains("TenantUser:")));
 
     // make sure that for all events for Tenant users, all of the other information is correct
-    List<ConfluentAuthorizationEvent> tenantUserEntries = MockAuditLogProvider.instance.auditLog.stream()
+    List<ConfluentAuthorizationEvent> tenantUserEntries = MockAuditLogProvider.instance.authorizationLog.stream()
         .filter(e -> e.requestContext().principal().toString().equals("User:1") ||
             e.requestContext().principal().toString().equals("User:2"))
         .collect(toList());
-
-    assertTrue(
-        tenantUserEntries.stream()
-            .allMatch(e -> e.sourceScope().equals(Scope.kafkaClusterScope(logicalClusterId))));
 
     assertTrue(
         tenantUserEntries.stream()
@@ -193,12 +204,12 @@ public class MultiTenantAuditLogTest {
     }
 
     // for debugging
-    List<ConfluentAuthorizationEvent> user1s = MockAuditLogProvider.instance.auditLog.stream()
+    List<ConfluentAuthorizationEvent> user1s = MockAuditLogProvider.instance.authorizationLog.stream()
         .filter(e -> e.requestContext().principal().toString().equals("User:1")
         ).collect(toList());
 
     // make sure we have an appropriate describe denial event
-    List<ConfluentAuthorizationEvent> describes = MockAuditLogProvider.instance.auditLog.stream()
+    List<ConfluentAuthorizationEvent> describes = MockAuditLogProvider.instance.authorizationLog.stream()
         .filter(e -> e.requestContext().principal().toString().equals("User:1") &&
             e.action().resourceName().equals(CLUSTER_NAME) &&
             e.action().operation().name().equals("DescribeConfigs") &&
@@ -231,4 +242,32 @@ public class MultiTenantAuditLogTest {
         patternType));
   }
 
+  @Test
+  public void testAuthenticationEvent() throws Throwable {
+    startTestHarness(brokerProps(true));
+    MockAuditLogProvider auditLogProvider = MockAuditLogProvider.instance;
+    MultiTenantPrincipal principal = new MultiTenantPrincipal("0",
+        new TenantMetadata("lkc-12345", "lkc-12345"));
+
+    assertEquals(MultiTenantPrincipal.TENANT_USER_TYPE, principal.getPrincipalType());
+    assertTrue(principal.toString().contains("tenantMetadata"));
+
+    SaslServer server = mock(SaslServer.class);
+    AuthenticationContext authenticationContext = new SaslAuthenticationContext(server,
+        SecurityProtocol.SASL_PLAINTEXT, InetAddress.getLocalHost(), SecurityProtocol.SASL_PLAINTEXT.name());
+
+    //generate a test event
+    Scope scope = Scope.kafkaClusterScope("ABC123");
+    AuthenticationEvent authenticationEvent = new AuthenticationEventImpl(principal, authenticationContext, AuditEventStatus.SUCCESS);
+    ConfluentAuthenticationEvent confluentAuthenticationEvent = new ConfluentAuthenticationEvent(authenticationEvent, scope);
+    auditLogProvider.logEvent(confluentAuthenticationEvent);
+
+    //Verify the sanitized event
+    ConfluentAuthenticationEvent sanitizedEvent = (ConfluentAuthenticationEvent) auditLogProvider.lastAuthenticationEntry();
+    assertEquals("User:0", sanitizedEvent.principal().get().toString());
+    assertEquals(KafkaPrincipal.USER_TYPE, sanitizedEvent.principal().get().getPrincipalType());
+    assertFalse(sanitizedEvent.principal().get().toString().contains("tenantMetadata"));
+    assertTrue(sanitizedEvent.getScope().toString().contains("kafka-cluster=lkc-12345"));
+    assertFalse(sanitizedEvent.getScope().toString().contains("ABC123"));
+  }
 }

@@ -210,6 +210,15 @@ public class ConfluentConfigs {
     public static final boolean BALANCER_ENABLE_DEFAULT = false;
     public static final String BALANCER_ENABLE_DOC = "This config controls whether the balancer is enabled";
 
+    public enum BalancerSelfHealMode {
+        EMPTY_BROKER,  // Self-healing only when brokers arrive
+        ANY_UNEVEN_LOAD  // Self-heal on any variation
+    }
+    public static final String BALANCER_AUTO_HEAL_MODE_BASE_CONFIG = "heal.uneven.load.trigger";
+    public static final String BALANCER_AUTO_HEAL_MODE_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_AUTO_HEAL_MODE_BASE_CONFIG;
+    public static final String  BALANCER_AUTO_HEAL_MODE_DEFAULT = BalancerSelfHealMode.EMPTY_BROKER.toString();
+    public static final String BALANCER_AUTO_HEAL_MODE_DOC = "Controls what causes the Confluent DataBalancer to start rebalance operations. "
+            + "Acceptable values are " + BalancerSelfHealMode.ANY_UNEVEN_LOAD.toString() + " and " + BalancerSelfHealMode.EMPTY_BROKER.toString();
     public static final String BALANCER_THROTTLE_BASE_CONFIG = "throttle.bytes.per.second";
     public static final String BALANCER_THROTTLE_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_THROTTLE_BASE_CONFIG;
     public static final Long BALANCER_THROTTLE_NO_THROTTLE = -1L;
@@ -311,6 +320,10 @@ public class ConfluentConfigs {
     public static final String AUDIT_LOGGER_ENABLE_CONFIG = AUDIT_EVENT_LOGGER_PREFIX + "enable";
     public static final String AUDIT_LOGGER_ENABLE_DEFAULT = "true";
     public static final String AUDIT_LOGGER_ENABLE_DOC = "Whether the event logger is enabled";
+
+    public static final String ENABLE_AUTHENTICATION_AUDIT_LOGS = AUDIT_EVENT_LOGGER_PREFIX + "authentication.enable";
+    public static final String ENABLE_AUTHENTICATION_AUDIT_LOGS_DEFAULT = "false";
+    public static final String ENABLE_AUTHENTICATION_AUDIT_LOGS_DOC = "Enable authentication audit logs";
 
     public static final String CLUSTER_REGISTRY_CONFIG = "confluent.metadata.server.cluster.registry.clusters";
     public static final String CLUSTER_REGISTRY_CONFIG_DEFAULT = "[]";

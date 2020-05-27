@@ -178,22 +178,22 @@ public class MockConfluentServerAuthorizerTest {
     assertEquals(AuthorizationResult.ALLOWED, authorizer.authorize(requestContext, Collections.singletonList(allowedWithLog)).get(0));
 
     MockAuditLogProvider auditLogProvider = MockAuditLogProvider.instance;
-    assertEquals(1, auditLogProvider.auditLog.size());
-    assertEquals("allowedWithLog", auditLogProvider.lastEntry().action().resourcePattern().name());
-    assertEquals(AuthorizeResult.ALLOWED, auditLogProvider.lastEntry().authorizeResult());
-    assertEquals(KafkaPrincipal.ANONYMOUS, auditLogProvider.lastEntry().requestContext().principal());
-    assertEquals(PolicyType.ALLOW_ACL, auditLogProvider.lastEntry().authorizePolicy().policyType());
-    auditLogProvider.auditLog.clear();
+    assertEquals(1, auditLogProvider.authorizationLog.size());
+    assertEquals("allowedWithLog", auditLogProvider.lastAuthorizationEntry().action().resourcePattern().name());
+    assertEquals(AuthorizeResult.ALLOWED, auditLogProvider.lastAuthorizationEntry().authorizeResult());
+    assertEquals(KafkaPrincipal.ANONYMOUS, auditLogProvider.lastAuthorizationEntry().requestContext().principal());
+    assertEquals(PolicyType.ALLOW_ACL, auditLogProvider.lastAuthorizationEntry().authorizePolicy().policyType());
+    auditLogProvider.authorizationLog.clear();
 
     assertEquals(AuthorizationResult.ALLOWED, authorizer.authorize(requestContext, Collections.singletonList(allowedNoLog)).get(0));
-    assertTrue(auditLogProvider.auditLog.isEmpty());
+    assertTrue(auditLogProvider.authorizationLog.isEmpty());
 
     assertEquals(AuthorizationResult.DENIED, authorizer.authorize(requestContext, Collections.singletonList(deniedWithLog)).get(0));
-    assertEquals(1, auditLogProvider.auditLog.size());
-    assertEquals("deniedWithLog", auditLogProvider.lastEntry().action().resourcePattern().name());
-    assertEquals(AuthorizeResult.DENIED, auditLogProvider.lastEntry().authorizeResult());
-    assertEquals(PolicyType.DENY_ON_NO_RULE, auditLogProvider.lastEntry().authorizePolicy().policyType());
-    auditLogProvider.auditLog.clear();
+    assertEquals(1, auditLogProvider.authorizationLog.size());
+    assertEquals("deniedWithLog", auditLogProvider.lastAuthorizationEntry().action().resourcePattern().name());
+    assertEquals(AuthorizeResult.DENIED, auditLogProvider.lastAuthorizationEntry().authorizeResult());
+    assertEquals(PolicyType.DENY_ON_NO_RULE, auditLogProvider.lastAuthorizationEntry().authorizePolicy().policyType());
+    auditLogProvider.authorizationLog.clear();
 
     assertEquals(AuthorizationResult.DENIED, authorizer.authorize(requestContext, Collections.singletonList(deniedNoLog)).get(0));
   }
@@ -234,7 +234,7 @@ public class MockConfluentServerAuthorizerTest {
         authorizer.authorize(requestContext, Collections.singletonList(allowedWithLog)).get(0));
 
     MockAuditLogProvider auditLogProvider = MockAuditLogProvider.instance;
-    assertTrue(auditLogProvider.auditLog.isEmpty());
+    assertTrue(auditLogProvider.authorizationLog.isEmpty());
   }
 
   private void startAuthorizer() {

@@ -264,14 +264,18 @@ public class ConfluentDataBalanceEngineTest  {
         List<String> actualDefaultGoalsConfig = ccConfig.getList(KafkaCruiseControlConfig.DEFAULT_GOALS_CONFIG);
         assertEquals("Goal config is not empty: " + actualGoalsConfig, Collections.emptyList(), actualDefaultGoalsConfig);
 
-        // Not all properties go into the KafkaCruiseControlConfig. Extract everything for validation.
+        // Default is EMPTY_BROKERS -> no automatic self-healing
+        assertEquals("Expected goal-violation self-healing to be disabled",
+                     ccConfig.getBoolean(KafkaCruiseControlConfig.SELF_HEALING_GOAL_VIOLATION_ENABLED_CONFIG),
+                     false);
+
+        // Not all required properties go into the KafkaCruiseControlConfig. Extract everything for validation.
         // Expect nothing to be present as no overrides were present in this config
         Map<String, Object> ccOriginals = ccConfig.originals();
         assertFalse("ConfluentMetricsReporterSampler.METRIC_REPORTER_TOPIC_PATTERN found in config",
                 ccOriginals.containsKey(ConfluentMetricsReporterSampler.METRIC_REPORTER_TOPIC_PATTERN));
         assertFalse("KafkaSampleStore.SAMPLE_STORE_TOPIC_REPLICATION_FACTOR_CONFIG found in config",
                 ccOriginals.containsKey(KafkaSampleStore.SAMPLE_STORE_TOPIC_REPLICATION_FACTOR_CONFIG));
-
     }
 
     @Test
@@ -346,11 +350,18 @@ public class ConfluentDataBalanceEngineTest  {
         brokerProps.put(ConfluentConfigs.CONFLUENT_BALANCER_PREFIX + KafkaCruiseControlConfig.ANOMALY_DETECTION_GOALS_CONFIG,
                 anomalyGoalsOverride);
 
+        // Disable generalized auto-healing
+        brokerProps.put(ConfluentConfigs.BALANCER_AUTO_HEAL_MODE_CONFIG, ConfluentConfigs.BalancerSelfHealMode.EMPTY_BROKER.toString());
+
         KafkaConfig config = new KafkaConfig(brokerProps);
         KafkaCruiseControlConfig ccConfig = ConfluentDataBalanceEngine.generateCruiseControlConfig(config);
         // Validate the non-default listener
-        assertTrue("KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG doesn't contian " + expectedBootstrapServers,
+        assertTrue("KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG doesn't contain " + expectedBootstrapServers,
                 ccConfig.getList(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG).contains(expectedBootstrapServers));
+
+        assertEquals("Expected goal-violation self-healing to be disabled",
+                     ccConfig.getBoolean(KafkaCruiseControlConfig.SELF_HEALING_GOAL_VIOLATION_ENABLED_CONFIG),
+                     false);
 
         // Not all properties go into the KafkaCruiseControlConfig. Extract everything for validation.
         Map<String, Object> ccOriginals = ccConfig.originals();
@@ -421,6 +432,18 @@ public class ConfluentDataBalanceEngineTest  {
         assertEquals(Collections.emptyList(), ccConfig.getList(KafkaCruiseControlConfig.DEFAULT_GOALS_CONFIG));
         assertEquals(expectedHardGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.HARD_GOALS_CONFIG));
         assertEquals(expectedAnomalyDetectionGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.ANOMALY_DETECTION_GOALS_CONFIG));
+    }
+
+    @Test
+    public void testInvalidSelfHealingConfig() {
+        // Add required properties
+        final String sampleZkString = "zookeeper-1-internal.pzkc-ldqwz.svc.cluster.local:2181,zookeeper-2-internal.pzkc-ldqwz.svc.cluster.local:2181/testKafkaCluster";
+
+        final String selfHealingDisabled = "disabled";
+        brokerProps.put(ConfluentConfigs.BALANCER_AUTO_HEAL_MODE_CONFIG, selfHealingDisabled);
+
+        assertThrows("Expected invalid self-healing config to throw ConfigException", ConfigException.class,
+                () -> new KafkaConfig(brokerProps));
     }
 
     @Test
@@ -649,6 +672,7 @@ public class ConfluentDataBalanceEngineTest  {
             KafkaConfig config = mock(KafkaConfig.class);
             List<String> logDirs = Collections.singletonList("/log_dir");
             when(config.logDirs()).thenReturn((Seq<String>) JavaConverters.asScalaBuffer(logDirs));
+            when(config.getString(ConfluentConfigs.BALANCER_AUTO_HEAL_MODE_CONFIG)).thenReturn(ConfluentConfigs.BalancerSelfHealMode.ANY_UNEVEN_LOAD.toString());
             when(config.originalsWithPrefix(Mockito.anyString())).thenReturn(
                     Collections.singletonMap(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG, "bootstrap_server"));
 
@@ -706,5 +730,15 @@ public class ConfluentDataBalanceEngineTest  {
         dbe.stopCruiseControl();
         dbe.updateThrottle(100L);
         verify(mockCruiseControl, never()).updateThrottle(anyLong());
+    }
+
+    @Test
+    public void testUpdateAutoHeal() {
+        ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
+        dbe.setAutoHealMode(true);
+        verify(mockCruiseControl).setGoalViolationSelfHealing(true);
+
+        dbe.setAutoHealMode(false);
+        verify(mockCruiseControl).setGoalViolationSelfHealing(false);
     }
 }

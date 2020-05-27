@@ -797,6 +797,7 @@ class KafkaConfigTest {
 
         // Audit Logs
         case KafkaConfig.AuditLogEnableProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_boolean", "0")
+        case KafkaConfig.AuthenticationAuditLogEnableProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_boolean", "0")
         case KafkaConfig.AuditLogRouterConfigProp =>
 
         // Cluster Registry
@@ -859,6 +860,7 @@ class KafkaConfigTest {
         case ConfluentConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG =>
         case ConfluentConfigs.BALANCER_CLASS_CONFIG =>
         case ConfluentConfigs.BALANCER_ENABLE_CONFIG =>
+        case ConfluentConfigs.BALANCER_AUTO_HEAL_MODE_CONFIG =>
         case ConfluentConfigs.BALANCER_THROTTLE_CONFIG =>
         case ConfluentConfigs.BALANCER_REPLICA_CAPACITY_CONFIG =>
         case ConfluentConfigs.BALANCER_DISK_CAPACITY_THRESHOLD_CONFIG =>

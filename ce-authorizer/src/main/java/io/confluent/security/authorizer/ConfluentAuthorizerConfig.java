@@ -34,6 +34,7 @@ import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.SecurityUtils;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.server.audit.AuditLogProvider;
 
 public class ConfluentAuthorizerConfig extends AbstractConfig {
 
@@ -131,7 +132,7 @@ public class ConfluentAuthorizerConfig extends AbstractConfig {
     }
   }
 
-  public final Providers createProviders(String clusterId) {
+  public final Providers createProviders(String clusterId, final AuditLogProvider auditLogProvider) {
     List<String> authProviderNames = getList(ACCESS_RULE_PROVIDERS_PROP);
     // Multitenant ACLs are included in the MultiTenantProvider, so include only the MultiTenantProvider
     if (authProviderNames.contains(AccessRuleProviders.ZK_ACL.name())
@@ -163,6 +164,9 @@ public class ConfluentAuthorizerConfig extends AbstractConfig {
           ((ClusterResourceListener) provider).onUpdate(clusterResource);
         }
       });
+      if (auditLogProvider instanceof ClusterResourceListener) {
+        ((ClusterResourceListener) auditLogProvider).onUpdate(clusterResource);
+      }
     }
     providers.forEach(provider -> provider.configure(originals()));
 

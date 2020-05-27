@@ -14,6 +14,7 @@ import com.linkedin.kafka.cruisecontrol.common.KafkaCruiseControlThreadFactory;
 import com.linkedin.kafka.cruisecontrol.common.MetadataClient;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.detector.AnomalyDetector;
+import com.linkedin.kafka.cruisecontrol.detector.notifier.AnomalyType;
 import com.linkedin.kafka.cruisecontrol.exception.KafkaCruiseControlException;
 import com.linkedin.kafka.cruisecontrol.executor.ExecutionProposal;
 import com.linkedin.kafka.cruisecontrol.executor.Executor;
@@ -907,6 +908,20 @@ public class KafkaCruiseControl {
       LOG.warn("Throttle was not updated. This could be either because the set throttle is" +
           "the same as the initially configured one or because the throttle in ZooKeeper" +
           "is equal to the requested throttle");
+    }
+  }
+
+  /**
+   * Enable or disable self healing for the GOAL_VIOLATION anomaly type.
+   *
+   * @param setSelfHealingEnabled #{@code True} if self healing should be enabled for the GOAL_VIOLATION anomaly type, #{@code false} otherwise.
+   * @return The old value of self healing for GOAL_VIOLATIONs.
+   */
+  public void setGoalViolationSelfHealing(boolean setSelfHealingEnabled) {
+    if  (_anomalyDetector.setSelfHealingFor(AnomalyType.GOAL_VIOLATION, setSelfHealingEnabled) != setSelfHealingEnabled) {
+      LOG.info("Goal Violation self-healing changed to {}", setSelfHealingEnabled ? "enabled" : "disabled");
+    } else {
+      LOG.info("Goal violation self-healing left %s (no change)", setSelfHealingEnabled ? "enabled" : "disabled");
     }
   }
 }

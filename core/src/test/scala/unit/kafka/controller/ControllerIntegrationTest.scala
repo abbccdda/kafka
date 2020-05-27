@@ -17,7 +17,7 @@
 
 package kafka.controller
 
-import java.util.Properties
+import java.util.{Collections, Properties}
 import java.util.concurrent.{CountDownLatch, LinkedBlockingQueue}
 
 import com.yammer.metrics.core.Timer
@@ -32,6 +32,7 @@ import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.{ControllerMovedException, StaleBrokerEpochException}
 import org.apache.log4j.Level
 import kafka.utils.LogCaptureAppender
+import org.mockito.{Mockito}
 import org.apache.kafka.common.metrics.KafkaMetric
 import org.scalatest.Assertions.fail
 
@@ -628,6 +629,65 @@ class ControllerIntegrationTest extends ZooKeeperTestHarness {
       otherBroker.replicaManager.metadataCache.getAllTopics().size == 1 &&
       otherBroker.replicaManager.metadataCache.getAliveBrokers.size == 2
     }, "Broker fail to initialize after restart")
+  }
+
+  @Test
+  def testDataBalanceManagerEmptyBrokerDetection(): Unit = {
+    servers = makeServers(3)
+    val controllerId = TestUtils.waitUntilControllerElected(zkClient)
+    val testBroker = servers.filter(e => e.config.brokerId != controllerId).head
+    val remainingBrokers = servers.filter(_.config.brokerId != testBroker.config.brokerId)
+    val controllerNode = getController()
+    val mockDataBalanceManager = Mockito.mock(classOf[DataBalanceManager])
+    controllerNode.kafkaController.dataBalancer = Some(mockDataBalanceManager)
+
+    // Shutdown the test broker now, when nothing is living on it
+    testBroker.shutdown()
+    testBroker.awaitShutdown()
+    TestUtils.waitUntilBrokerMetadataIsPropagated(remainingBrokers)
+
+    val topic = "topic1"
+
+    // Create topic on the live brokers
+    TestUtils.createTopic(zkClient, topic, 10, 2, remainingBrokers)
+
+    // Startup the broker
+    testBroker.startup()
+
+    val expectedBrokers = Set[java.lang.Integer](testBroker.config.brokerId).asJava
+    Mockito.verify(mockDataBalanceManager).scheduleBrokerAdd(expectedBrokers)
+  }
+
+  @Test
+  def testDataBalanceManagerNonEmptyBrokerNotMarkedForAdd(): Unit = {
+    servers = makeServers(3)
+    val controllerId = TestUtils.waitUntilControllerElected(zkClient)
+    val testBroker = servers.filter(e => e.config.brokerId != controllerId).head
+    val remainingBrokers = servers.filter(_.config.brokerId != testBroker.config.brokerId)
+    val controllerNode = getController()
+    val mockDataBalanceManager = Mockito.mock(classOf[DataBalanceManager])
+    controllerNode.kafkaController.dataBalancer = Some(mockDataBalanceManager)
+
+    val topic = "topic1"
+    // Make sure the test broker owns a partition (so it's not empty) but will not require any leadership change
+    // on shutdown
+    val assignment = Map(
+      0 -> Seq(remainingBrokers(0).config.brokerId, testBroker.config.brokerId),
+      1 -> remainingBrokers.map(_.config.brokerId))
+
+    // Create topic on the live brokers
+    TestUtils.createTopic(zkClient, topic, assignment, remainingBrokers)
+
+    // Shutdown the test broker now, when nothing is living on it
+    testBroker.shutdown()
+    testBroker.awaitShutdown()
+    TestUtils.waitUntilBrokerMetadataIsPropagated(remainingBrokers)
+
+    // Startup the broker
+    testBroker.startup()
+
+    // We should NOT be adding this broker
+    Mockito.verify(mockDataBalanceManager).scheduleBrokerAdd(Collections.emptySet())
   }
 
   private def testControllerMove(fun: () => Unit): Unit = {

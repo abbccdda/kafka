@@ -5,11 +5,15 @@
 package io.confluent.security.audit;
 
 import io.cloudevents.CloudEvent;
+import io.confluent.crn.ConfluentServerCrnAuthority;
+import io.confluent.crn.CrnSyntaxException;
 import io.confluent.events.CloudEventUtils;
 import io.confluent.events.EventLoggerConfig;
 import io.confluent.events.ProtobufEvent;
 import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 import io.confluent.kafka.multitenant.TenantMetadata;
+import io.confluent.kafka.security.audit.event.ConfluentAuthenticationEvent;
+import io.confluent.security.authorizer.Scope;
 import org.apache.kafka.common.security.auth.AuthenticationContext;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SaslAuthenticationContext;
@@ -31,7 +35,7 @@ import static org.mockito.Mockito.mock;
 public class AuthenticationEventTest {
 
   @Test
-  public void testAuthenticationEvent() throws IOException {
+  public void testAuthenticationEvent() throws IOException, CrnSyntaxException {
     String source = "crn://confluent.cloud/kafka=lkc-12345";
 
     KafkaPrincipal principal = new MultiTenantPrincipal("0",
@@ -51,7 +55,10 @@ public class AuthenticationEventTest {
         AuditEventStatus.UNAUTHENTICATED);
     authenticationEvent.setData(data);
 
-    AuditLogEntry auditLogEntry = AuditLogUtils.authenticationEvent(source, authenticationEvent);
+    ConfluentAuthenticationEvent confluentAuthenticationEvent =
+        new ConfluentAuthenticationEvent(authenticationEvent, Scope.ROOT_SCOPE);
+    AuditLogEntry auditLogEntry =
+        AuditLogUtils.authenticationEvent(confluentAuthenticationEvent, new ConfluentServerCrnAuthority());
 
     CloudEvent event = ProtobufEvent.newBuilder()
         .setType(AUTHENTICATION_MESSAGE_TYPE)

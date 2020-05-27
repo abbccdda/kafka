@@ -1013,6 +1013,7 @@ object DynamicBalancerConfig {
   val ReconfigurableConfigs = Set(
     ConfluentConfigs.BALANCER_ENABLE_CONFIG,
     ConfluentConfigs.BALANCER_THROTTLE_CONFIG,
+    ConfluentConfigs.BALANCER_AUTO_HEAL_MODE_CONFIG,
   )
 }
 
@@ -1021,7 +1022,7 @@ class DynamicBalancerConfig(server: KafkaServer) extends BrokerReconfigurable {
     DynamicBalancerConfig.ReconfigurableConfigs
   }
 
-  // The only validation that's needed is throttle values > AUTO_THROTTLE (BALANCER_THROTTLE_MIN), and that's validated by KafkaConfig creation.
+  // The only validation that's needed for balancer configs is already handled by the KafkaConfig definitions.
   override def validateReconfiguration(newConfig: KafkaConfig): Unit = { }
 
   override def reconfigure(oldConfig: KafkaConfig, newConfig: KafkaConfig): Unit = {

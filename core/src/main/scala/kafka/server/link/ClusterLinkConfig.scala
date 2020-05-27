@@ -29,6 +29,7 @@ object ClusterLinkConfigDefaults {
   val NumClusterLinkFetchers = 1
   val RetryBackoffMs = 100L
   val MetadataMaxAgeMs = 5 * 60 * 1000
+  val OffsetSyncMsDefault = 30000
   val RetryTimeoutMs = 5 * 60 * 1000
   val AclSyncMsDefault = 5000
   val TopicConfigSyncMsDefault = 5000
@@ -38,9 +39,13 @@ class ClusterLinkConfig(props: util.Map[_, _]) extends AbstractConfig(configDef,
 
   val log: Logger = LoggerFactory.getLogger(getClass())
 
+
   validate(props)
 
   val numClusterLinkFetchers = getInt(NumClusterLinkFetchersProp)
+  val consumerOffsetSyncEnable = getBoolean(ClusterLinkConfig.ConsumerOffsetSyncEnableProp)
+  val consumerOffsetSyncMs = getInt(ClusterLinkConfig.ConsumerOffsetSyncMsProp)
+  val consumerGroupFilters: Option[GroupFiltersJson] = GroupFilterJson.parse(getString(ConsumerOffsetGroupFiltersProp))
   val aclSyncEnable = getBoolean(AclSyncEnableProp)
   val aclFilters: Option[AclFiltersJson] = AclJson.parse(getString(AclFiltersProp))
   val aclSyncMs = getInt(AclSyncMsProp)
@@ -70,6 +75,15 @@ object ClusterLinkConfig {
   val NumClusterLinkFetchersProp = "num.cluster.link.fetchers"
   val NumClusterLinkFetchersDoc = "Number of fetcher threads used to replicate messages from source brokers in cluster links."
 
+  val ConsumerOffsetSyncEnableProp = "consumer.offset.sync.enable"
+  val ConsumerOffsetSyncEnableDoc = "Whether or not to migrate consumer offsets from the source cluster."
+
+  val ConsumerOffsetSyncMsProp = "consumer.offset.sync.ms"
+  val ConsumerOffsetSyncMsDoc = "How often to sync consumer offsets."
+
+  val ConsumerOffsetGroupFiltersProp = "consumer.offset.group.filters"
+  val ConsumerOffsetGroupFiltersDoc = "JSON to denote the list of consumer groups to be migrated."
+
   val RetryTimeoutMsProp = "cluster.link.retry.timeout.ms"
   val RetryTimeoutMsDoc = "The number of milliseconds after which failures are no longer retried and" +
     " partitions are marked as failed. If the source topic is deleted and recreated within this timeout," +
@@ -97,6 +111,9 @@ object ClusterLinkConfig {
 
   private val configDef = new ConfigDef()
     .define(NumClusterLinkFetchersProp, INT, NumClusterLinkFetchers, LOW, NumClusterLinkFetchersDoc)
+    .define(ConsumerOffsetSyncEnableProp, BOOLEAN, false, LOW, ConsumerOffsetSyncEnableDoc)
+    .define(ConsumerOffsetSyncMsProp, INT, OffsetSyncMsDefault, LOW, ConsumerOffsetSyncMsDoc)
+    .define(ConsumerOffsetGroupFiltersProp, STRING, "", GroupFilterJson.VALIDATOR, LOW, ConsumerOffsetGroupFiltersDoc)
     .define(RetryTimeoutMsProp, INT, RetryTimeoutMs, MEDIUM, RetryTimeoutMsDoc)
     .define(AclSyncEnableProp, BOOLEAN, false, LOW, AclSyncEnableDoc)
     .define(AclFiltersProp, STRING, "", AclJson.VALIDATOR, LOW, AclFiltersDoc)
