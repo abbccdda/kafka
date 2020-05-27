@@ -8,7 +8,7 @@ import java.util.concurrent.ExecutionException
 
 import joptsimple._
 import kafka.common.AdminCommandFailedException
-import kafka.server.link.{AclJson, ClusterLinkConfig}
+import kafka.server.link.{AclJson, ClusterLinkConfig, GroupFilterJson}
 import kafka.utils.{CommandDefaultOptions, CommandLineUtils, Logging}
 import org.apache.kafka.clients.admin._
 import org.apache.kafka.common.errors.{ClusterAuthorizationException, TimeoutException}
@@ -52,26 +52,50 @@ object ClusterLinkCommand extends Logging {
     }
 
     if (props.getProperty(ClusterLinkConfig.AclSyncEnableProp, "false").equals("true")) {
-      var jsonString = ""
+      var aclJsonString = ""
       if (opts.options.has(opts.aclFiltersJsonFileOpt)) {
-        jsonString = Utils.readFileAsString(opts.valueOf(opts.aclFiltersJsonFileOpt))
+        aclJsonString = Utils.readFileAsString(opts.valueOf(opts.aclFiltersJsonFileOpt))
       } else if (opts.options.has(opts.aclFiltersJsonOpt)) {
-        jsonString = opts.valueOf(opts.aclFiltersJsonOpt)
+        aclJsonString = opts.valueOf(opts.aclFiltersJsonOpt)
       }
-      if (jsonString.trim.isEmpty) {
+      if (aclJsonString.trim.isEmpty) {
         CommandLineUtils.printHelpAndExitIfNeeded(opts, s"${ClusterLinkConfig.AclSyncEnableProp}" +
           s" is set to true but the acl filters JSON is not passed in. Please pass in the path to" +
           s" the JSON file using the --acl-filters-json-file option and rerun the create link command.")
       }
-      val json = AclJson.parse(jsonString)
-      json match {
-        case Some(_) => props.put(ClusterLinkConfig.AclFiltersProp, jsonString)
+      val aclJson = AclJson.parse(aclJsonString)
+      aclJson match {
+        case Some(_) => props.put(ClusterLinkConfig.AclFiltersProp, aclJsonString)
         case None =>
           CommandLineUtils.printHelpAndExitIfNeeded(opts,
             s"${ClusterLinkConfig.AclSyncEnableProp} is set to true but the JSON file passed"
               + s" has invalid values. Please put valid values in the JSON file and rerun the" +
               s" create link command.")
       }
+
+      if (props.getProperty(ClusterLinkConfig.ConsumerOffsetSyncEnableProp, "false").equals("true")) {
+        var offsetJsonString = ""
+        if (opts.options.has(opts.consumerGroupFiltersJsonFileOpt)) {
+          offsetJsonString = Utils.readFileAsString(opts.valueOf(opts.consumerGroupFiltersJsonFileOpt))
+        } else if (opts.options.has(opts.consumerGroupFiltersJsonOpt)) {
+          offsetJsonString = opts.valueOf(opts.consumerGroupFiltersJsonOpt)
+        }
+        if (offsetJsonString.trim.isEmpty) {
+          CommandLineUtils.printHelpAndExitIfNeeded(opts, s"${ClusterLinkConfig.ConsumerOffsetSyncEnableProp}" +
+            s" is set to true but the consumer group filters JSON is not passed in. Please pass in the path to" +
+            s" the JSON file using the --consumer-group-filters-json-file option and rerun the create link command.")
+        }
+        val offsetJson = GroupFilterJson.parse(offsetJsonString)
+        offsetJson match {
+          case Some(_) => props.put(ClusterLinkConfig.ConsumerOffsetGroupFiltersProp, offsetJsonString)
+          case None =>
+            CommandLineUtils.printHelpAndExitIfNeeded(opts,
+              s"${ClusterLinkConfig.ConsumerOffsetSyncEnableProp} is set to true but the JSON file passed"
+                + s" has invalid values. Please put valid values in the JSON file and rerun the" +
+                s" create link command.")
+        }
+      }
+
     }
 
     props.asScala.toMap
@@ -181,6 +205,14 @@ private final class ClusterLinkCommandOptions(args: Array[String]) extends Comma
     .withRequiredArg
     .describedAs("JSON of ACL filters")
     .ofType(classOf[String])
+  val consumerGroupFiltersJsonFileOpt = parser.accepts("consumer-group-filters-json-file", ClusterLinkConfig.ConsumerOffsetGroupFiltersDoc)
+    .withRequiredArg
+    .describedAs("path to Consumer Group filters JSON file")
+    .ofType(classOf[String])
+  val consumerGroupFiltersJsonOpt = parser.accepts("consumer-group-filters-json", ClusterLinkConfig.ConsumerOffsetGroupFiltersDoc)
+    .withRequiredArg
+    .describedAs("JSON of Consumer Group filters")
+    .ofType(classOf[String])
   val configOpt = parser.accepts("config",
     "A cluster link configuration for the cluster link being created. The following is a list of valid configurations: " +
       nl + ClusterLinkConfig.configNames.map("\t" + _).mkString(nl) + nl +
@@ -248,6 +280,8 @@ private final class ClusterLinkCommandOptions(args: Array[String]) extends Comma
     CommandLineUtils.printHelpAndExitIfNeeded(this, "This tool creates, lists, and deletes cluster links.")
     CommandLineUtils.checkInvalidArgs(parser, options, aclFiltersJsonFileOpt, Set(listOpt, deleteOpt, forceOpt))
     CommandLineUtils.checkInvalidArgs(parser, options, aclFiltersJsonOpt, Set(listOpt, deleteOpt, forceOpt))
+    CommandLineUtils.checkInvalidArgs(parser, options, consumerGroupFiltersJsonFileOpt, Set(listOpt, deleteOpt, forceOpt))
+    CommandLineUtils.checkInvalidArgs(parser, options, consumerGroupFiltersJsonOpt, Set(listOpt, deleteOpt, forceOpt))
     try {
       verifyArgs()
     } catch {

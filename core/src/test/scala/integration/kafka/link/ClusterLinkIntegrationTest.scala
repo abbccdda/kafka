@@ -7,29 +7,29 @@ import java.io.File
 import java.nio.file.{Files, StandardCopyOption}
 import java.time.Duration
 import java.util
-import java.util.{Collections, Optional, Properties}
 import java.util.concurrent.{ExecutionException, TimeUnit}
+import java.util.{Collections, Optional, Properties}
 
 import com.yammer.metrics.core.{Gauge, Histogram, Meter, Metric}
 import kafka.api.{IntegrationTestHarness, KafkaSasl, SaslSetup}
 import kafka.log.LogConfig
 import kafka.metrics.KafkaYammerMetrics
-import kafka.server.{KafkaConfig, KafkaServer}
 import kafka.server.link.{ClusterLinkConfig, ClusterLinkTopicState}
+import kafka.server.{KafkaConfig, KafkaServer}
 import kafka.utils.Implicits._
 import kafka.utils.{JaasTestUtils, Logging, TestUtils}
 import kafka.zk.ConfigEntityChangeNotificationZNode
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.clients.admin._
-import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer}
+import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer, OffsetAndMetadata}
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, ProducerRecord}
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.config.{ConfigDef, ConfigResource, SaslConfigs, SslConfigs, TopicConfig}
+import org.apache.kafka.common.config.{Config => _, _}
 import org.apache.kafka.common.errors.{InvalidConfigurationException, InvalidPartitionsException, InvalidRequestException}
 import org.apache.kafka.common.requests.{AlterMirrorsRequest, NewClusterLink}
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.security.scram.ScramCredential
-import org.junit.Assert.{assertEquals, assertFalse, assertNotEquals, assertNotNull, assertTrue, fail}
+import org.junit.Assert._
 import org.junit.{After, Before, Test}
 import org.scalatest.Assertions.intercept
 
@@ -46,6 +46,36 @@ class ClusterLinkIntegrationTest extends Logging {
   val linkName = "testLink"
   val producedRecords = mutable.Buffer[ProducerRecord[Array[Byte], Array[Byte]]]()
   var nextProduceIndex: Int = 0
+  val offsetToCommit = 10L
+  val syncPeriod = 10000L
+  val consumerGroupFilter =
+    """
+      |{
+      |"groupFilters": [
+      |  {
+      |     "name": "testGroup",
+      |     "patternType": "literal",
+      |     "filterType": "whitelist"
+      |  }
+      |]}
+      |""".stripMargin
+  val multiConsumerGroupFilter =
+    """
+      |{
+      |"groupFilters": [
+      |  {
+      |     "name": "testGroup",
+      |     "patternType": "literal",
+      |     "filterType": "whitelist"
+      |  },
+      |  {
+      |     "name": "testGroup2",
+      |     "patternType": "literal",
+      |     "filterType": "whitelist"
+      |  }
+      |]}
+      |""".stripMargin
+
 
   @Before
   def setUp(): Unit = {
@@ -316,6 +346,78 @@ class ClusterLinkIntegrationTest extends Logging {
     verifyMirror(topic)
   }
 
+  /**
+   * Verifies offset migration for a for 2 consumer groups added progressively
+   */
+  @Test
+  def testOffsetMigrationWithAddedConsumerGroup(): Unit = {
+    val finalOffset = 20L
+    val additionalConsumerGroup = "testGroup2"
+
+    sourceCluster.createTopic(topic, numPartitions, replicationFactor = 2)
+
+    val linkProps = new Properties()
+    linkProps.setProperty(ClusterLinkConfig.ConsumerOffsetSyncEnableProp, "true")
+    linkProps.setProperty(ClusterLinkConfig.ConsumerOffsetGroupFiltersProp, consumerGroupFilter)
+    linkProps.setProperty(ClusterLinkConfig.ConsumerOffsetSyncMsProp, String.valueOf(syncPeriod))
+    destCluster.createClusterLink(linkName, sourceCluster, configOverrides = linkProps)
+    destCluster.linkTopic(topic, 2, linkName)
+
+    commitOffsets(sourceCluster, topic, offsetToCommit, consumerGroupFilter)
+
+    verifyOffsetMigration(topic, offsetToCommit, syncPeriod * 4, consumerGroupFilter)
+
+    val updatedProps = Map[String,String] (
+      ClusterLinkConfig.ConsumerOffsetSyncEnableProp -> "true",
+      ClusterLinkConfig.ConsumerOffsetGroupFiltersProp -> multiConsumerGroupFilter,
+      ClusterLinkConfig.ConsumerOffsetSyncMsProp -> String.valueOf(syncPeriod))
+    destCluster.alterClusterLink(linkName, updatedProps)
+
+    commitOffsets(sourceCluster, topic, finalOffset, consumerGroupFilter)
+    commitOffsets(sourceCluster, topic, finalOffset, additionalConsumerGroup)
+
+    verifyOffsetMigration(topic, finalOffset, syncPeriod * 4, consumerGroupFilter)
+    verifyOffsetMigration(topic, finalOffset, syncPeriod * 4, additionalConsumerGroup)
+
+    destCluster.unlinkTopic(topic, linkName)
+    destCluster.deleteClusterLink(linkName)
+  }
+
+  /**
+   * Verifies offset migration for 2 linked topics added progressively
+   */
+  @Test
+  def testOffsetMigrationWithAddedTopic(): Unit = {
+    val finalOffset = 20L
+    val additionalTopic = "linkedTopic2"
+
+    sourceCluster.createTopic(topic, numPartitions, replicationFactor = 2)
+    sourceCluster.createTopic(additionalTopic, numPartitions, replicationFactor = 2)
+
+    val linkProps = new Properties()
+    linkProps.setProperty(ClusterLinkConfig.ConsumerOffsetSyncEnableProp, "true")
+    linkProps.setProperty(ClusterLinkConfig.ConsumerOffsetGroupFiltersProp, consumerGroupFilter)
+    linkProps.setProperty(ClusterLinkConfig.ConsumerOffsetSyncMsProp, String.valueOf(syncPeriod))
+    destCluster.createClusterLink(linkName, sourceCluster, configOverrides = linkProps)
+    destCluster.linkTopic(topic, 2, linkName)
+
+    commitOffsets(sourceCluster, topic, offsetToCommit, consumerGroupFilter)
+
+    verifyOffsetMigration(topic, offsetToCommit, syncPeriod * 4, consumerGroupFilter)
+
+    destCluster.linkTopic(additionalTopic, 2, linkName)
+
+    commitOffsets(sourceCluster, topic, finalOffset, consumerGroupFilter)
+    commitOffsets(sourceCluster, additionalTopic, finalOffset, consumerGroupFilter)
+
+    verifyOffsetMigration(topic, finalOffset, syncPeriod * 4, consumerGroupFilter)
+    verifyOffsetMigration(additionalTopic, finalOffset, syncPeriod * 4, consumerGroupFilter)
+
+    destCluster.unlinkTopic(topic, linkName, false)
+    destCluster.unlinkTopic(additionalTopic, linkName)
+    destCluster.deleteClusterLink(linkName)
+  }
+
   @nowarn("cat=deprecation")
   @Test
   def testDestReadOnly(): Unit = {
@@ -390,6 +492,15 @@ class ClusterLinkIntegrationTest extends Logging {
     consume(destCluster, topic)
   }
 
+  private def verifyOffsetMigration(topic: String,offset:Long,timeout: Long, consumerGroup: String): Unit = {
+
+    destCluster.withAdmin((adminClient: ConfluentAdmin) => {
+      val (actualOffset, foundOffset) = TestUtils.computeUntilTrue(adminClient.listConsumerGroupOffsets(consumerGroup).partitionsToOffsetAndMetadata.get
+        .getOrDefault(new TopicPartition(topic, 0), new OffsetAndMetadata(0, "")).offset(), timeout)(_ != offset)
+      assertTrue("expected offset: " + offset + " and got offset: " + actualOffset + " for topic: " + topic + " and group " + consumerGroup, foundOffset)
+    })
+  }
+
   private def waitForMirror(topic: String, servers: Seq[KafkaServer] = destCluster.servers): Unit = {
     val offsetsByPartition = (0 until numPartitions).map { i =>
       i -> producedRecords.count(_.partition == i).toLong
@@ -435,6 +546,17 @@ class ClusterLinkIntegrationTest extends Logging {
     val consumer = cluster.createConsumer()
     consumer.assign(partitions.asJava)
     consumeRecords(consumer)
+    consumer.close()
+  }
+
+  def commitOffsets(cluster: ClusterLinkTestHarness, topic: String,offset: Long, consumerGroup: String): Unit = {
+    val consumerProps = new Properties()
+    consumerProps.setProperty(ConsumerConfig.GROUP_ID_CONFIG,consumerGroup)
+    val consumer = cluster.createConsumer(configOverrides = consumerProps)
+    val offsetEntries = Map[TopicPartition,OffsetAndMetadata](
+      new TopicPartition(topic,0) -> new OffsetAndMetadata(offset,Optional.empty(),"")
+    )
+    consumer.commitSync(offsetEntries.asJava)
     consumer.close()
   }
 
@@ -538,7 +660,8 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
   def createClusterLink(linkName: String,
                         sourceCluster: ClusterLinkTestHarness,
                         metadataMaxAgeMs: Long = 60000L,
-                        retryTimeoutMs: Long = 30000L): Unit = {
+                        retryTimeoutMs: Long = 30000L,
+                        configOverrides: Properties = new Properties): Unit = {
     val userName = s"user-$linkName"
     val password = s"secret-$linkName"
     val linkJaasConfig = "org.apache.kafka.common.security.scram.ScramLoginModule required username=\"%s\" password=\"%s\";"
@@ -551,6 +674,7 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
     props.put(ClusterLinkConfig.RetryTimeoutMsProp, retryTimeoutMs.toString)
     props ++= sourceCluster.clientSecurityProps(linkName)
     props.put(SaslConfigs.SASL_JAAS_CONFIG, linkJaasConfig)
+    props ++= configOverrides
     val linkConfigs = ConfigDef.convertToStringMapWithPasswordValues(props.asInstanceOf[util.Map[String, _]])
 
     val newLink = new NewClusterLink(linkName, null, linkConfigs)
@@ -619,7 +743,7 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
     })
   }
 
-  def unlinkTopic(topic: String, linkName: String): Unit = {
+  def unlinkTopic(topic: String, linkName: String, verifyShutdown: Boolean = true): Unit = {
     withAdmin((admin: ConfluentAdmin) => {
       val op = new AlterMirrorsRequest.StopTopicMirrorOp(topic)
       val options = new AlterMirrorsOptions().timeoutMs(adminTimeoutMs)
@@ -627,10 +751,12 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
         .all.get(waitTimeMs, TimeUnit.MILLISECONDS)
     })
 
-    servers.foreach { server =>
-      TestUtils.waitUntilTrue(() =>
-        server.clusterLinkManager.fetcherManager(linkName).forall(_.isEmpty),
-        s"Linked fetchers not stopped for $linkName on broker ${server.config.brokerId}")
+    if (verifyShutdown) {
+      servers.foreach { server =>
+        TestUtils.waitUntilTrue(() =>
+          server.clusterLinkManager.fetcherManager(linkName).forall(_.isEmpty),
+          s"Linked fetchers not stopped for $linkName on broker ${server.config.brokerId}")
+      }
     }
   }
 

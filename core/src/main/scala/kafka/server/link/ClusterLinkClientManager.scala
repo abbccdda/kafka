@@ -9,15 +9,14 @@ import java.util.concurrent.{CompletableFuture, ExecutionException}
 import kafka.controller.KafkaController
 import kafka.utils.{CoreUtils, Logging}
 import kafka.zk.{AdminZkClient, KafkaZkClient}
-import org.apache.kafka.clients.admin.{Config, ConfluentAdmin, DescribeConfigsOptions, DescribeTopicsOptions, TopicDescription}
+import org.apache.kafka.clients.admin._
 import org.apache.kafka.common.KafkaFuture
 import org.apache.kafka.common.config.ConfigResource
 import org.apache.kafka.common.requests.ApiError
 import org.apache.kafka.server.authorizer.Authorizer
 
+import scala.collection.{Set, mutable}
 import scala.jdk.CollectionConverters._
-import scala.collection.Set
-import scala.collection.mutable
 
 object ClusterLinkClientManager {
   case class TopicInfo(description: TopicDescription, config: Config)
@@ -36,11 +35,13 @@ class ClusterLinkClientManager(val linkName: String,
                                private var config: ClusterLinkConfig,
                                authorizer: Option[Authorizer],
                                controller: KafkaController,
-                               adminFactory: ClusterLinkConfig => ConfluentAdmin) extends Logging {
+                               linkAdminFactory: ClusterLinkConfig => ConfluentAdmin,
+                               destAdminFactory: () => Admin) extends Logging {
 
   @volatile private var admin: Option[ConfluentAdmin] = None
 
   private var clusterLinkSyncAcls: Option[ClusterLinkSyncAcls] = None
+  private var clusterLinkSyncOffsets: Option[ClusterLinkSyncOffsets] = None
   private var clusterLinkSyncTopicConfigs: ClusterLinkSyncTopicsConfigs = _
 
   // Protects `topics` and `config`.
@@ -53,7 +54,10 @@ class ClusterLinkClientManager(val linkName: String,
   val adminZkClient = new AdminZkClient(zkClient)
 
   def startup(): Unit = {
-    setAdmin(Some(adminFactory(config)))
+    setAdmin(Some(linkAdminFactory(config)))
+
+    clusterLinkSyncOffsets = Some(new ClusterLinkSyncOffsets(this, config, controller,destAdminFactory))
+    clusterLinkSyncOffsets.get.startup()
 
     clusterLinkSyncTopicConfigs = new ClusterLinkSyncTopicsConfigs(this, config.topicConfigSyncMs)
     clusterLinkSyncTopicConfigs.startup()
@@ -70,6 +74,7 @@ class ClusterLinkClientManager(val linkName: String,
   }
 
   def shutdown(): Unit = {
+    clusterLinkSyncOffsets.foreach(_.shutdown())
     clusterLinkSyncAcls.foreach(_.shutdown())
     setAdmin(None)
   }
@@ -77,7 +82,7 @@ class ClusterLinkClientManager(val linkName: String,
   def reconfigure(newConfig: ClusterLinkConfig): Unit = {
     lock synchronized {
       config = newConfig
-      setAdmin(Some(adminFactory(config)))
+      setAdmin(Some(linkAdminFactory(config)))
     }
   }
 

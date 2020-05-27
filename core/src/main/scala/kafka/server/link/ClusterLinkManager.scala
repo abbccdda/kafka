@@ -137,7 +137,8 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
       val clientInterceptor = clusterLinkProps.tenantPrefix.map(tenantInterceptor)
       val clientManager = new ClusterLinkClientManager(linkName, scheduler, zkClient, config,
         authorizer, controller,
-        (cfg: ClusterLinkConfig) => newSourceAdmin(linkName, cfg, clientInterceptor))
+        (cfg: ClusterLinkConfig) => newSourceAdmin(linkName, cfg, clientInterceptor),
+        () => getOrCreateDestAdmin())
       clientManager.startup()
 
       val fetcherManager = new ClusterLinkFetcherManager(

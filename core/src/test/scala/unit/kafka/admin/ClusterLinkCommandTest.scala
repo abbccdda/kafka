@@ -36,7 +36,7 @@ final class ClusterLinkCommandTest {
     val result: CreateClusterLinksResult = EasyMock.createNiceMock(classOf[CreateClusterLinksResult])
     EasyMock.expect(result.all()).andReturn(future.asInstanceOf[KafkaFuture[Void]]).once()
 
-    val json: String =
+    val aclJson: String =
       """{
         | "aclFilters": [{
         |  "resourceFilter": {
@@ -49,9 +49,23 @@ final class ClusterLinkCommandTest {
         |    }
         |  }]
         | }""".stripMargin
+    val offsetJson: String =
+      """{
+        |"groupFilters": [{
+        |     "name": "*",
+        |     "patternType": "LITERAL",
+        |     "filterType": "WHITELIST"
+        |  },
+        |  {
+        |     "name": "blackListed",
+        |     "patternType": "PREFIXED",
+        |     "filterType": "BLACKLIST"
+        |  }]
+        | }""".stripMargin
 
     val configs = Map("bootstrap.servers" -> "10.20.30.40:9092", "request.timeout.ms" -> "100000",
-      ClusterLinkConfig.AclSyncEnableProp -> "true", ClusterLinkConfig.AclFiltersProp -> json)
+      ClusterLinkConfig.AclSyncEnableProp -> "true", ClusterLinkConfig.AclFiltersProp -> aclJson,
+      ClusterLinkConfig.ConsumerOffsetSyncEnableProp -> "true", ClusterLinkConfig.ConsumerOffsetGroupFiltersProp -> offsetJson)
 
     val node = new Node(1, "localhost", 9092)
     val mockAdminClient = new TestAdminClient(node) {
@@ -70,7 +84,7 @@ final class ClusterLinkCommandTest {
 
     EasyMock.replay(result)
     val output = runCommand(Array("--create", "--link-name", linkName, "--cluster-id", clusterId,
-      "--acl-filters-json", json, "--config", configs.map(kv => kv._1 + "=" + kv._2).mkString(","))
+      "--acl-filters-json", aclJson, "--consumer-group-filters-json", offsetJson, "--config", configs.map(kv => kv._1 + "=" + kv._2).mkString(","))
       ++ args, mockAdminClient)
     assertTrue(issuedCommand)
     EasyMock.reset(result)
