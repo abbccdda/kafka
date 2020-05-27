@@ -945,8 +945,6 @@ class AdminManager(val config: KafkaConfig,
 
   private def filterTopicConfigs(configs: Map[String, Any], configNames: Option[Set[String]]): mutable.Buffer[(String, Any)] = {
     configs.filter { case (configName, _) =>
-      /* Only allow tier configs when confluent.tier.feature is enabled */
-      val tierFeatureCheck = config.tierFeature || !configName.startsWith(KafkaConfig.ConfluentTierPrefix)
       // Do not allow record interceptor classes since for now as we would only have built-in implementations
       val recordInterceptorCheck = !configName.equals(LogConfig.AppendRecordInterceptorClassesProp)
       // Do not allow schema registry URL since that is a broker-only config
@@ -958,7 +956,7 @@ class AdminManager(val config: KafkaConfig,
       val bearerAuthTokenCheck = !configName.equals(ConfluentConfigs.BEARER_AUTH_TOKEN_CONFIG)
       /* Always returns true if configNames is None */
       basicAuthCredentialsSourceCheck && userInfoCheck && bearerAuthCredentialsCheck && bearerAuthTokenCheck &&
-      tierFeatureCheck && recordInterceptorCheck && schemaRegistryUrlCheck && configNames.forall(_.contains(configName))
+      recordInterceptorCheck && schemaRegistryUrlCheck && configNames.forall(_.contains(configName))
     }.toBuffer
   }
 
