@@ -312,6 +312,10 @@ public class ConfluentConfigs {
     public static final String AUDIT_LOGGER_ENABLE_DEFAULT = "true";
     public static final String AUDIT_LOGGER_ENABLE_DOC = "Whether the event logger is enabled";
 
+    public static final String ENABLE_AUTHENTICATION_AUDIT_LOGS = AUDIT_EVENT_LOGGER_PREFIX + "authentication.enable";
+    public static final String ENABLE_AUTHENTICATION_AUDIT_LOGS_DEFAULT = "false";
+    public static final String ENABLE_AUTHENTICATION_AUDIT_LOGS_DOC = "Enable authentication audit logs";
+
     public static final String CLUSTER_REGISTRY_CONFIG = "confluent.metadata.server.cluster.registry.clusters";
     public static final String CLUSTER_REGISTRY_CONFIG_DEFAULT = "[]";
     public static final String CLUSTER_REGISTRY_CONFIG_DOC = "JSON defining the clusters in the Cluster Registry.";

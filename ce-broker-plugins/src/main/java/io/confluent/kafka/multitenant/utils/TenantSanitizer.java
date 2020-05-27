@@ -5,6 +5,7 @@ package io.confluent.kafka.multitenant.utils;
 
 import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 import io.confluent.kafka.multitenant.TenantMetadata;
+import io.confluent.kafka.security.audit.event.ConfluentAuthenticationEvent;
 import io.confluent.security.authorizer.AclAccessRule;
 import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizePolicy;
@@ -18,6 +19,8 @@ import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.SecurityUtils;
 import org.apache.kafka.server.audit.AuditEvent;
+import org.apache.kafka.server.audit.AuditEventType;
+import org.apache.kafka.server.audit.AuthenticationEventImpl;
 
 import java.net.InetAddress;
 
@@ -156,27 +159,48 @@ public class TenantSanitizer {
   }
 
   public static AuditEvent tenantAuditEvent(AuditEvent auditEvent) {
-    ConfluentAuthorizationEvent data =  (ConfluentAuthorizationEvent) auditEvent;
+    if (auditEvent.type() == AuditEventType.AUTHORIZATION) {
+      return handleAuthorizationEvent((ConfluentAuthorizationEvent) auditEvent);
+    } else if (auditEvent.type() == AuditEventType.AUTHENTICATION) {
+      return handleAuthenticationEvent((ConfluentAuthenticationEvent) auditEvent);
+    } else {
+      return auditEvent;
+    }
+  }
 
-    if (data.requestContext().principal() instanceof MultiTenantPrincipal) {
+  private static AuditEvent handleAuthorizationEvent(final ConfluentAuthorizationEvent auditEvent) {
+    if (auditEvent.requestContext().principal() instanceof MultiTenantPrincipal) {
       // Note that this will throw a NotTenantPrefixedException if a tenant attempts
       // to access a non-tenant resource. This exception will be caught and logged as
       // an error in the Authorizer
-      TenantMetadata metadata = ((MultiTenantPrincipal) data.requestContext().principal())
+      TenantMetadata metadata = ((MultiTenantPrincipal) auditEvent.requestContext().principal())
           .tenantMetadata();
-      RequestContext tenantRequestContext = tenantRequestContext(data.requestContext());
-      Scope tenantScope = tenantScope(data.action().scope(), metadata.clusterId);
-      Scope tenantSourceScope = tenantScope(data.sourceScope(), metadata.clusterId);
-      ResourcePattern tenantResourcePattern = tenantResourcePattern(data.action().resourcePattern(),
+      RequestContext tenantRequestContext = tenantRequestContext(auditEvent.requestContext());
+      Scope tenantScope = tenantScope(auditEvent.action().scope(), metadata.clusterId);
+      Scope tenantSourceScope = tenantScope(auditEvent.sourceScope(), metadata.clusterId);
+      ResourcePattern tenantResourcePattern = tenantResourcePattern(auditEvent.action().resourcePattern(),
           metadata.tenantPrefix());
       Action tenantAction = new Action(tenantScope, tenantResourcePattern,
-          data.action().operation(), data.action().resourceReferenceCount(),
-          data.action().logIfAllowed(), data.action().logIfDenied());
-      AuthorizePolicy tenantAuthorizePolicy = tenantAuthorizePolicy(data.authorizePolicy(),
+          auditEvent.action().operation(), auditEvent.action().resourceReferenceCount(),
+          auditEvent.action().logIfAllowed(), auditEvent.action().logIfDenied());
+      AuthorizePolicy tenantAuthorizePolicy = tenantAuthorizePolicy(auditEvent.authorizePolicy(),
           metadata.tenantPrefix());
 
       return new ConfluentAuthorizationEvent(tenantSourceScope, tenantRequestContext, tenantAction,
-          data.authorizeResult(), tenantAuthorizePolicy);
+          auditEvent.authorizeResult(), tenantAuthorizePolicy, auditEvent.timestamp());
+    } else {
+      return auditEvent;
+    }
+  }
+
+  private static AuditEvent handleAuthenticationEvent(final ConfluentAuthenticationEvent auditEvent) {
+    if (auditEvent.principal().orElse(null) instanceof MultiTenantPrincipal) {
+      TenantMetadata metadata = ((MultiTenantPrincipal) auditEvent.principal().get()).tenantMetadata();
+      Scope tenantScope = tenantScope(auditEvent.getScope(), metadata.clusterId);
+      KafkaPrincipal principal =  tenantPrincipal((MultiTenantPrincipal) auditEvent.principal().get());
+      return new ConfluentAuthenticationEvent(
+          new AuthenticationEventImpl(principal, auditEvent.authenticationContext(), auditEvent.status(), auditEvent.timestamp()),
+          tenantScope);
     } else {
       return auditEvent;
     }

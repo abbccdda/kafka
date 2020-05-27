@@ -17,6 +17,9 @@ import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_LO
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_LOGGER_ENABLE_DEFAULT;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_LOGGER_ENABLE_DOC;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_PREFIX;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.ENABLE_AUTHENTICATION_AUDIT_LOGS;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.ENABLE_AUTHENTICATION_AUDIT_LOGS_DEFAULT;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.ENABLE_AUTHENTICATION_AUDIT_LOGS_DOC;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.confluent.events.EventLoggerConfig;
@@ -175,6 +178,12 @@ public class AuditLogConfig extends AbstractConfig {
             DEFAULT_AUDIT_CLOUD_EVENT_ENCODING_CONFIG,
             ConfigDef.Importance.LOW,
             AUDIT_CLOUD_EVENT_ENCODING_DOC
+        ).define(
+            ENABLE_AUTHENTICATION_AUDIT_LOGS,
+            ConfigDef.Type.BOOLEAN,
+            ENABLE_AUTHENTICATION_AUDIT_LOGS_DEFAULT,
+            ConfigDef.Importance.HIGH,
+            ENABLE_AUTHENTICATION_AUDIT_LOGS_DOC
         );
   }
 

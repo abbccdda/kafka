@@ -2772,6 +2772,7 @@ project(':ce-audit') {
     compile project(':ce-resource-names')
     compile project(':clients')
     compile project(':ce-auth-providers')
+    compile project(':ce-broker-plugins')
     // Use the current version of the clients.
     compile(libs.cloudEventsKafka) {
       exclude module: 'kafka-clients'

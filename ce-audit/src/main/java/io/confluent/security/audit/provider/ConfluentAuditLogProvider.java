@@ -8,6 +8,7 @@ import static io.confluent.security.audit.AuditLogConfig.AUDIT_CLOUD_EVENT_ENCOD
 import static io.confluent.security.audit.AuditLogConfig.toEventLoggerConfig;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_LOGGER_ENABLE_CONFIG;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.ENABLE_AUTHENTICATION_AUDIT_LOGS;
 
 import io.cloudevents.CloudEvent;
 import io.confluent.crn.ConfluentServerCrnAuthority;
@@ -16,12 +17,16 @@ import io.confluent.crn.CrnSyntaxException;
 import io.confluent.events.CloudEventUtils;
 import io.confluent.events.EventLogger;
 import io.confluent.events.ProtobufEvent;
+import io.confluent.kafka.security.audit.event.ConfluentAuthenticationEvent;
 import io.confluent.security.audit.AuditLogConfig;
 import io.confluent.security.audit.AuditLogEntry;
 import io.confluent.security.audit.AuditLogUtils;
 import io.confluent.security.audit.router.AuditLogRouter;
 import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
+import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.ConfluentAuthorizationEvent;
+import org.apache.kafka.common.ClusterResource;
+import org.apache.kafka.common.ClusterResourceListener;
 import org.apache.kafka.server.audit.AuditEvent;
 import org.apache.kafka.server.audit.AuditEventType;
 import org.apache.kafka.server.audit.AuditLogProvider;
@@ -47,10 +52,11 @@ import org.apache.kafka.common.metrics.Sensor;
 import org.apache.kafka.common.metrics.stats.Rate;
 import org.apache.kafka.common.metrics.stats.WindowedCount;
 import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.server.audit.AuthenticationEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class ConfluentAuditLogProvider implements AuditLogProvider {
+public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResourceListener {
 
   public static final String AUTHORIZATION_MESSAGE_TYPE = "io.confluent.kafka.server/authorization";
   public static final String AUTHENTICATION_MESSAGE_TYPE = "io.confluent.kafka.server/authentication";
@@ -85,7 +91,13 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
   private ConfluentServerCrnAuthority crnAuthority;
 
   private volatile boolean eventLoggerReady;
-  private String clusterId;
+  private Scope scope;
+  private boolean enableAuthenticationAuditLogs;
+
+  @Override
+  public void onUpdate(final ClusterResource clusterResource) {
+    this.scope = Scope.kafkaClusterScope(clusterResource.clusterId());
+  }
 
   private AuditLogMetrics auditLogMetrics;
 
@@ -120,6 +132,8 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
       return;
     }
 
+    enableAuthenticationAuditLogs = auditLogConfig.getBoolean(ENABLE_AUTHENTICATION_AUDIT_LOGS);
+
     this.configuredState = new ConfiguredState(
         new EventLogger(),
         new AuditLogRouter(
@@ -150,7 +164,7 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
   }
 
   private void updateConfiguredState(Map<String, Object> loggerConfig, AuditLogRouter router,
-      AuditLogConfig config) {
+                                     AuditLogConfig config) {
     EventLogger oldLogger = configuredState != null ? configuredState.logger : null;
     EventLogger newLogger = new EventLogger();
     newLogger.configure(loggerConfig);
@@ -214,6 +228,8 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
   public void logEvent(final AuditEvent auditEvent) {
     if (auditEvent.type() == AuditEventType.AUTHORIZATION) {
       logAuthorization((ConfluentAuthorizationEvent) auditEvent);
+    } else if (auditEvent.type() == AuditEventType.AUTHENTICATION) {
+      logAuthentication((AuthenticationEvent) auditEvent);
     } else {
       log.error("Unknown event received {}", auditEvent);
     }
@@ -242,91 +258,126 @@ public class ConfluentAuditLogProvider implements AuditLogProvider {
     auditLogMetrics = new AuditLogMetrics(metrics);
   }
 
-  private void logAuthorization(ConfluentAuthorizationEvent authZEvent) {
-
-    // Should this event be sent to Kafka ?
-    boolean generateEvent;
-    switch (authZEvent.authorizeResult()) {
-      case ALLOWED:
-        generateEvent = authZEvent.action().logIfAllowed();
-        break;
-      case DENIED:
-        generateEvent = authZEvent.action().logIfDenied();
-        break;
-      default:
-        generateEvent = true;
-        break;
-    }
-
+  private void logAuthorization(ConfluentAuthorizationEvent authorizationEvent) {
     try {
-      String source = crnAuthority.canonicalCrn(authZEvent.sourceScope()).toString();
-      String subject = crnAuthority.canonicalCrn(authZEvent.action().scope(), authZEvent.action().resourcePattern())
-          .toString();
+      AuditLogEntry auditLogEntry = AuditLogUtils.authorizationEvent(authorizationEvent, crnAuthority);
 
       // use the config and event logger from a particular point in time
       ConfiguredState state = this.configuredState;
 
-      AuditLogEntry entry = AuditLogUtils
-          .authorizationEvent(source, subject, authZEvent.requestContext(), authZEvent.action(),
-              authZEvent.authorizeResult(), authZEvent.authorizePolicy());
-
-      // Figure out the topic.
-      Optional<String> route = state.router.topic(entry);
-
-      if (route.isPresent() && route.get().equalsIgnoreCase(AuditLogRouter.SUPPRESSED)) {
+      // Figure out the topic to route.
+      Optional<String> route = state.router.topic(auditLogEntry);
+      if (isSuppressed(route)) {
         return;
       }
 
       // at this point we've decided that we intend to log, so we calculate the content
       if (sanitizer != null) {
-        authZEvent = (ConfluentAuthorizationEvent) sanitizer.apply(authZEvent);
-        if (authZEvent == null) {
+        authorizationEvent = (ConfluentAuthorizationEvent) sanitizer.apply(authorizationEvent);
+        if (authorizationEvent == null) {
           return;
         }
 
-        // need to recalculate these with the transformed authZEvent
-        source = crnAuthority.canonicalCrn(authZEvent.sourceScope()).toString();
-        subject = crnAuthority.canonicalCrn(authZEvent.action().scope(), authZEvent.action().resourcePattern())
-            .toString();
-        entry = AuditLogUtils
-            .authorizationEvent(source, subject, authZEvent.requestContext(), authZEvent.action(),
-                authZEvent.authorizeResult(), authZEvent.authorizePolicy());
+        // need to recalculate these with the transformed authZEvent data
+        auditLogEntry = AuditLogUtils.authorizationEvent(authorizationEvent, crnAuthority);
       }
 
-      ProtobufEvent.Builder eventBuilder = ProtobufEvent.newBuilder()
-          .setId(authZEvent.uuid().toString())
-          .setTime(authZEvent.timestamp().atZone(ZoneOffset.UTC))
-          .setData(entry)
-          .setSource(source)
-          .setSubject(subject)
-          .setType(AUTHORIZATION_MESSAGE_TYPE)
-          .setEncoding(state.config.getString(AUDIT_CLOUD_EVENT_ENCODING_CONFIG));
-      if (!eventLoggerReady || !generateEvent) {
-        fallbackLog.info(CloudEventUtils.toJsonString(eventBuilder.build()));
-        auditLogMetrics.recordFallbackAuditlogMetrics();
-        return;
-      }
-
-      if (route.isPresent()) {
-        eventBuilder.setRoute(route.get());
-      } else {
-        fallbackLog.error("Empty topic for {}", CloudEventUtils.toJsonString(eventBuilder.build()));
-        return;
-      }
-
-      // Make sure Kafka exporter is ready to receive events.
-      CloudEvent event = eventBuilder.build();
-      boolean routeReady = state.logger.ready(event);
-      if (routeReady) {
-        state.logger.log(event);
-        auditLogMetrics.recordNormalAuditlogMetrics();
-      } else {
-        fallbackLog.info(CloudEventUtils.toJsonString(event));
-        auditLogMetrics.recordFallbackAuditlogMetrics();
-      }
-
+      ProtobufEvent.Builder eventBuilder = eventBuilder(auditLogEntry, state, authorizationEvent, AUTHORIZATION_MESSAGE_TYPE);
+      logEventToRoute(state, route, eventBuilder, !eventLoggerReady || !shouldSendToKafka(authorizationEvent));
     } catch (CrnSyntaxException e) {
       log.error("Couldn't create cloud event due to internally generated CRN syntax problem", e);
+    }
+  }
+
+  private boolean isSuppressed(Optional<String> route) {
+    return route.isPresent() && route.get().equalsIgnoreCase(AuditLogRouter.SUPPRESSED);
+  }
+
+  private void logEventToRoute(final ConfiguredState state, final Optional<String> route,
+                               final ProtobufEvent.Builder eventBuilder, final boolean fallback) {
+    if (fallback) {
+      fallbackLog.info(CloudEventUtils.toJsonString(eventBuilder.build()));
+      auditLogMetrics.recordFallbackAuditlogMetrics();
+      return;
+    }
+
+    if (route.isPresent()) {
+      eventBuilder.setRoute(route.get());
+    } else {
+      fallbackLog.error("Empty topic for {}", CloudEventUtils.toJsonString(eventBuilder.build()));
+      return;
+    }
+
+    // Make sure Kafka exporter is ready to receive events.
+    CloudEvent event = eventBuilder.build();
+    boolean routeReady = state.logger.ready(event);
+    if (routeReady) {
+      state.logger.log(event);
+      auditLogMetrics.recordNormalAuditlogMetrics();
+    } else {
+      fallbackLog.info(CloudEventUtils.toJsonString(event));
+      auditLogMetrics.recordFallbackAuditlogMetrics();
+    }
+  }
+
+  private ProtobufEvent.Builder eventBuilder(final AuditLogEntry entry, final ConfiguredState state,
+                                             final AuditEvent auditEvent,
+                                             final String messageType) {
+    return ProtobufEvent.newBuilder()
+        .setId(auditEvent.uuid().toString())
+        .setTime(auditEvent.timestamp().atZone(ZoneOffset.UTC))
+        .setData(entry)
+        .setSource(entry.getServiceName())
+        .setSubject(entry.getResourceName())
+        .setType(messageType)
+        .setEncoding(state.config.getString(AUDIT_CLOUD_EVENT_ENCODING_CONFIG));
+  }
+
+  /**
+   * Should authorization event be sent to Kafka ?
+   */
+  private boolean shouldSendToKafka(final ConfluentAuthorizationEvent authorizationEvent) {
+    switch (authorizationEvent.authorizeResult()) {
+      case ALLOWED:
+        return authorizationEvent.action().logIfAllowed();
+      case DENIED:
+        return authorizationEvent.action().logIfDenied();
+      default:
+        return true;
+    }
+  }
+
+  private void logAuthentication(AuthenticationEvent auditEvent) {
+    // check enable authentication flag
+    if (!enableAuthenticationAuditLogs) return;
+
+    try {
+      ConfluentAuthenticationEvent authenticationEvent = new ConfluentAuthenticationEvent(auditEvent, scope);
+      AuditLogEntry entry = AuditLogUtils.authenticationEvent(authenticationEvent, crnAuthority);
+
+      // use the config and event logger from a particular point in time
+      ConfiguredState state = this.configuredState;
+
+      // Figure out the topic to route.
+      Optional<String> route = state.router.topic(entry);
+      if (isSuppressed(route)) {
+        return;
+      }
+
+      // at this point we've decided that we intend to log, so we calculate the content
+      if (sanitizer != null) {
+        authenticationEvent = (ConfluentAuthenticationEvent) sanitizer.apply(authenticationEvent);
+        if (auditEvent == null) {
+          return;
+        }
+
+        entry = AuditLogUtils.authenticationEvent(authenticationEvent, crnAuthority);
+      }
+
+      ProtobufEvent.Builder eventBuilder = eventBuilder(entry, state, auditEvent, AUTHENTICATION_MESSAGE_TYPE);
+      logEventToRoute(state, route, eventBuilder, !eventLoggerReady);
+    } catch (Exception e) {
+      log.error("Error occurred while handling authentication event : {}", auditEvent, e);
     }
   }
 

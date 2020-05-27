@@ -92,7 +92,8 @@ public class EmbeddedAuthorizer implements Authorizer {
     this.interBrokerListener = serverInfo.interBrokerEndpoint().listenerName().get();
     this.authorizerMetrics = new AuthorizerMetrics(serverInfo.metrics());
 
-    ConfluentAuthorizerConfig.Providers providers = authorizerConfig.createProviders(clusterId);
+    ConfluentAuthorizerConfig.Providers providers =
+        authorizerConfig.createProviders(clusterId, serverInfo.auditLogProvider());
     providersCreated.addAll(providers.accessRuleProviders);
     if (providers.groupProvider != null)
       providersCreated.add(providers.groupProvider);

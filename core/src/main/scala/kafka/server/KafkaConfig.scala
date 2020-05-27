@@ -728,6 +728,7 @@ object KafkaConfig {
 
   /** ********* Audit Logs Configuration *********/
   val AuditLogEnableProp = ConfluentConfigs.AUDIT_LOGGER_ENABLE_CONFIG
+  val AuthenticationAuditLogEnableProp = ConfluentConfigs.ENABLE_AUTHENTICATION_AUDIT_LOGS
   val AuditLogRouterConfigProp = ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG
 
   /** ********* Cluster Registry Configuration *********/
@@ -1210,6 +1211,7 @@ object KafkaConfig {
   val ConfluentResourceNameAuthorityDoc = ConfluentConfigs.CRN_AUTHORITY_NAME_DOC
   /** ********* Audit Logs Configuration *********/
   val AuditLogEnableDoc = ConfluentConfigs.AUDIT_LOGGER_ENABLE_DOC
+  val AuthenticationAuditLogEnableDoc = ConfluentConfigs.ENABLE_AUTHENTICATION_AUDIT_LOGS_DOC
   val AuditLogRouterConfigDoc = ConfluentConfigs.AUDIT_EVENT_ROUTER_DOC
 
   private val configDef = {
@@ -1546,6 +1548,7 @@ object KafkaConfig {
 
       /** ********* Audit Logs Configuration *********/
       .define(AuditLogEnableProp, BOOLEAN, ConfluentConfigs.AUDIT_LOGGER_ENABLE_DEFAULT, HIGH, AuditLogEnableDoc)
+      .define(AuthenticationAuditLogEnableProp, BOOLEAN, ConfluentConfigs.ENABLE_AUTHENTICATION_AUDIT_LOGS_DEFAULT, HIGH, AuthenticationAuditLogEnableDoc)
       .define(AuditLogRouterConfigProp, STRING, ConfluentConfigs.AUDIT_EVENT_ROUTER_DEFAULT, LOW, AuditLogRouterConfigDoc)
 
       /** ********* Cluster Registry Configuration *********/
