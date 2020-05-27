@@ -426,7 +426,7 @@ public class RestServerTest {
         workerProps.put(WorkerConfig.RESPONSE_HTTP_HEADERS_CONFIG, headerConfig);
         WorkerConfig workerConfig = new DistributedConfig(workerProps);
 
-        EasyMock.expect(herder.kafkaClusterId()).andReturn(KAFKA_CLUSTER_ID);
+        EasyMock.expect(herder.kafkaClusterId()).andStubReturn(KAFKA_CLUSTER_ID);
         EasyMock.expect(herder.plugins()).andStubReturn(plugins);
         EasyMock.expect(plugins.newPlugins(Collections.emptyList(),
                 workerConfig,

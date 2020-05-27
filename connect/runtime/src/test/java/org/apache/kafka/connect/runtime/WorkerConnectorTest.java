@@ -364,6 +364,8 @@ public class WorkerConnectorTest extends EasyMockSupport {
 
     @Test
     public void testConnectorTaskMetrics() {
+        connector = sinkConnector;
+
         Long expectedRunning = 1L;
         Long expectedPaused = 2L;
         Long expectedFailed = 3L;
@@ -390,7 +392,7 @@ public class WorkerConnectorTest extends EasyMockSupport {
         connector.version();
         expectLastCall().andReturn(VERSION);
 
-        connector.initialize(EasyMock.notNull(ConnectorContext.class));
+        connector.initialize(EasyMock.notNull(SinkConnectorContext.class));
         expectLastCall();
 
         herder.connectorStatus(CONNECTOR);
