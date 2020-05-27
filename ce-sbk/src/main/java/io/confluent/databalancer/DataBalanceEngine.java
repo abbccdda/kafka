@@ -32,7 +32,20 @@ public interface DataBalanceEngine {
      */
     void shutdown() throws InterruptedException;
 
+    /**
+     * Update the replication throttles to be used during proposal execution.
+     * @param newThrottle -- new throttle in bytes/second.
+     */
     void updateThrottle(Long newThrottle);
+
+    /**
+     * Enable or disable auto-healing (automatic execution of rebalance plans) when an imbalanced
+     * cluster is detected and broker membership doesn't change. Setting this to false DOES NOT
+     * disable detection of newly-added (empty) brokers or user-initiated drain operations.
+     *
+     * @param shouldAutoHeal -- if auto-healing should be enabled when goal violations are detected.
+     */
+    void setAutoHealMode(boolean shouldAutoHeal);
 
     boolean isActive();
 

@@ -33,7 +33,7 @@ import kafka.utils.Implicits._
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.Reconfigurable
 import org.apache.kafka.common.config.SecurityConfig
-import org.apache.kafka.common.config.ConfigDef.{ConfigKey, ValidList}
+import org.apache.kafka.common.config.ConfigDef.{ConfigKey, ValidList, ValidString}
 import org.apache.kafka.common.config.internals.{BrokerSecurityConfigs, ConfluentConfigs}
 import org.apache.kafka.common.config.{AbstractConfig, ConfigDef, ConfigException, ConfluentTopicConfig, SaslConfigs, SslClientAuth, SslConfigs, TopicConfig}
 import org.apache.kafka.common.config.types.Password
@@ -1611,6 +1611,11 @@ object KafkaConfig {
       .define(ConfluentConfigs.BALANCER_ENABLE_CONFIG, BOOLEAN,
               ConfluentConfigs.BALANCER_ENABLE_DEFAULT,
               HIGH, ConfluentConfigs.BALANCER_ENABLE_DOC)
+      .define(ConfluentConfigs.BALANCER_AUTO_HEAL_MODE_CONFIG, STRING,
+              ConfluentConfigs.BALANCER_AUTO_HEAL_MODE_DEFAULT,
+              ValidString.in(ConfluentConfigs.BalancerSelfHealMode.ANY_UNEVEN_LOAD.toString,
+              ConfluentConfigs.BalancerSelfHealMode.EMPTY_BROKER.toString), HIGH,
+              ConfluentConfigs.BALANCER_AUTO_HEAL_MODE_DOC)
       .define(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, LONG,
               ConfluentConfigs.BALANCER_THROTTLE_DEFAULT, atLeast(ConfluentConfigs.BALANCER_THROTTLE_MIN), HIGH,
               ConfluentConfigs.BALANCER_THROTTLE_DOC)
@@ -1635,7 +1640,6 @@ object KafkaConfig {
       .define(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG, LIST,
               ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_DEFAULT, MEDIUM,
               ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_DOC)
-
       .defineInternal(ConfluentConfigs.APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS, BOOLEAN,
                       ConfluentConfigs.APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS_DEFAULT, HIGH,
                       ConfluentConfigs.APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS_DOC)
