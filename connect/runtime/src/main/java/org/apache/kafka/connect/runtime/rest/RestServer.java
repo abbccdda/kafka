@@ -289,11 +289,12 @@ public class RestServer {
             context.addFilter(filterHolder, "/*", EnumSet.of(DispatcherType.REQUEST));
         }
 
-        applyServletInitializers(context);
         String headerConfig = config.getString(WorkerConfig.RESPONSE_HTTP_HEADERS_CONFIG);
         if (headerConfig != null && !headerConfig.trim().isEmpty()) {
             configureHttpResponsHeaderFilter(context);
         }
+
+        applyServletInitializers(context);
 
         RequestLogHandler requestLogHandler = new RequestLogHandler();
         Slf4jRequestLogWriter slf4jRequestLogWriter = new Slf4jRequestLogWriter();
