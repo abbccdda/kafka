@@ -5,12 +5,11 @@
 package com.linkedin.kafka.cruisecontrol.detector;
 
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControl;
-import com.linkedin.kafka.cruisecontrol.async.progress.OperationProgress;
+import com.linkedin.kafka.cruisecontrol.PlanComputationOptions;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.detector.notifier.AnomalyType;
 import com.linkedin.kafka.cruisecontrol.exception.KafkaCruiseControlException;
 import com.linkedin.kafka.cruisecontrol.servlet.response.OptimizationResult;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -25,9 +24,7 @@ public class BrokerFailures extends KafkaAnomaly {
   private static final String ID_PREFIX = AnomalyType.BROKER_FAILURE.toString();
   private final KafkaCruiseControl _kafkaCruiseControl;
   private final Map<Integer, Long> _failedBrokers;
-  private final boolean _allowCapacityEstimation;
-  private final boolean _excludeRecentlyDemotedBrokers;
-  private final boolean _excludeRecentlyRemovedBrokers;
+  private final PlanComputationOptions opts;
   private final String _anomalyId;
   private final List<String> _selfHealingGoals;
   private final Long _replicationThrottle;
@@ -53,9 +50,11 @@ public class BrokerFailures extends KafkaAnomaly {
     if (_failedBrokers != null && _failedBrokers.isEmpty()) {
       throw new IllegalArgumentException("Missing broker ids for failed brokers.");
     }
-    _allowCapacityEstimation = allowCapacityEstimation;
-    _excludeRecentlyDemotedBrokers = excludeRecentlyDemotedBrokers;
-    _excludeRecentlyRemovedBrokers = excludeRecentlyRemovedBrokers;
+    this.opts = new PlanComputationOptions(
+        allowCapacityEstimation,
+        excludeRecentlyDemotedBrokers,
+        excludeRecentlyRemovedBrokers
+    );
     _anomalyId = String.format("%s-%s", ID_PREFIX, UUID.randomUUID().toString().substring(ID_PREFIX.length() + 1));
     _optimizationResult = null;
     _selfHealingGoals = selfHealingGoals;
@@ -82,23 +81,11 @@ public class BrokerFailures extends KafkaAnomaly {
   public boolean fix() throws KafkaCruiseControlException {
     // Fix the cluster by removing the failed brokers (mode: non-Kafka_assigner).
     if (_failedBrokers != null && !_failedBrokers.isEmpty()) {
-      _optimizationResult = new OptimizationResult(_kafkaCruiseControl.decommissionBrokers(_failedBrokers.keySet(),
-                                                                                           false,
-                                                                                           false,
+      _optimizationResult = new OptimizationResult(_kafkaCruiseControl.drainBrokers(_failedBrokers.keySet(),
                                                                                            _selfHealingGoals,
-                                                                                           null,
-                                                                                           new OperationProgress(),
-                                                                                           _allowCapacityEstimation,
-                                                                                           null,
-                                                                                           null,
-                                                                                           false,
-                                                                                           null,
-                                                                                           null,
                                                                                            _replicationThrottle,
                                                                                            _anomalyId,
-                                                                                           _excludeRecentlyDemotedBrokers,
-                                                                                           _excludeRecentlyRemovedBrokers,
-                                                                                           Collections.emptySet()),
+                                                                                           opts),
                                                    null);
       // Ensure that only the relevant response is cached to avoid memory pressure.
       _optimizationResult.discardIrrelevantAndCacheJsonAndPlaintext();

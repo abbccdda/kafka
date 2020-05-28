@@ -11,10 +11,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import kafka.common.BrokerRemovalStatus;
+import io.confluent.databalancer.operation.BrokerRemovalProgressListener;
+import io.confluent.databalancer.operation.BrokerRemovalStateTracker;
+import java.util.HashMap;
+import java.util.concurrent.atomic.AtomicReference;
 import kafka.controller.DataBalanceManager;
 import kafka.metrics.KafkaYammerMetrics;
 import kafka.server.KafkaConfig;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
+import org.apache.kafka.common.utils.SystemTime;
+import org.apache.kafka.common.utils.Time;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.Option;
@@ -26,15 +32,16 @@ import java.util.Set;
 public class KafkaDataBalanceManager implements DataBalanceManager {
     private static final Logger LOG = LoggerFactory.getLogger(KafkaDataBalanceManager.class);
     public static final String ACTIVE_BALANCER_COUNT_METRIC_NAME = "ActiveBalancerCount";
+    public static final String BROKER_REMOVAL_STATE_METRIC_NAME = "BrokerRemovalOperationState";
 
+    // package-private for testing
+    Map<Integer, BrokerRemovalStatus> brokerRemovalsStatus;
     private KafkaConfig kafkaConfig;
     private DataBalanceEngine balanceEngine;
 
     private final DataBalanceEngineFactory dbeFactory;
     private final DataBalancerMetricsRegistry dataBalancerMetricsRegistry;
-
-    // package-private for testing
-    Map<Integer, BrokerRemovalStatus> brokerRemovalsStatus;
+    private Time time;
 
     /**
      * Used to encapsulate which DataBalanceEngine is currently relevant for this broker
@@ -105,20 +112,20 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
 
     private KafkaDataBalanceManager(KafkaConfig kafkaConfig,
                                    DataBalancerMetricsRegistry dbMetricsRegistry) {
-        this(kafkaConfig, new DataBalanceEngineFactory(dbMetricsRegistry), dbMetricsRegistry);
+        this(kafkaConfig, new DataBalanceEngineFactory(dbMetricsRegistry), dbMetricsRegistry, new SystemTime());
     }
 
     /**
      * Visible for testing. cruiseControl expected to be a mock testing object
      */
     KafkaDataBalanceManager(KafkaConfig kafkaConfig, DataBalanceEngineFactory dbeFactory,
-                            DataBalancerMetricsRegistry metricsRegistry) {
+                            DataBalancerMetricsRegistry metricsRegistry, Time time) {
         this.kafkaConfig = Objects.requireNonNull(kafkaConfig, "KafkaConfig must be non-null");
         this.dbeFactory = Objects.requireNonNull(dbeFactory, "DataBalanceEngineFactory must be non-null");
         this.dataBalancerMetricsRegistry = Objects.requireNonNull(metricsRegistry, "MetricsRegistry must be non-null");
-
+        this.time = time;
+        this.brokerRemovalsStatus = new ConcurrentHashMap<>();
         this.balanceEngine = dbeFactory.getInactiveDataBalanceEngine();
-
         this.dataBalancerMetricsRegistry.newGauge(KafkaDataBalanceManager.class, "ActiveBalancerCount",
                 () -> balanceEngine.isActive() ? 1 : 0, false);
         this.brokerRemovalsStatus = new ConcurrentHashMap<>();
@@ -201,19 +208,6 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
     }
 
     @Override
-    public synchronized void scheduleBrokerRemoval(int brokerToRemove, Option<Long> brokerToRemoveEpoch) {
-        if (!balanceEngine.isActive()) {
-            String msg = String.format("Received request to remove broker %d while SBK is not started.", brokerToRemove);
-            LOG.error(msg);
-            throw new IllegalStateException(msg);
-        }
-
-        Optional<Long> brokerEpoch = brokerToRemoveEpoch.isEmpty() ? Optional.empty()
-                : Optional.of(brokerToRemoveEpoch.get());
-        balanceEngine.removeBroker(brokerToRemove, brokerEpoch);
-    }
-
-    @Override
     public void scheduleBrokerAdd(Set<Integer> brokersToAdd) {
         // CNKAF-730: No-op for now
     }
@@ -221,5 +215,55 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
     @Override
     public List<BrokerRemovalStatus> brokerRemovals() {
         return new ArrayList<>(brokerRemovalsStatus.values());
+    }
+
+    @Override
+    public synchronized void scheduleBrokerRemoval(int brokerToRemove, Option<Long> brokerToRemoveEpoch) {
+        if (!balanceEngine.isActive()) {
+            String msg = String.format("Received request to remove broker %d while SBK is not started.", brokerToRemove);
+            LOG.error(msg);
+            throw new IllegalStateException(msg);
+        }
+
+        Optional<Long> brokerEpochOpt = brokerToRemoveEpoch.isEmpty() ? Optional.empty()
+            : Optional.of(brokerToRemoveEpoch.get());
+        String uid = String.format("remove-broker-%d-%d", brokerToRemove, time.milliseconds());
+        AtomicReference<String> registerBrokerRemovalMetric = registerBrokerRemovalMetric(brokerToRemove);
+
+        // create listener to update the removal statuses on progress change
+        BrokerRemovalProgressListener listener = (shutdownStatus, partitionReassignmentsStatus, e) -> {
+            BrokerRemovalStatus removalStatus = new BrokerRemovalStatus(brokerToRemove,
+                shutdownStatus, partitionReassignmentsStatus, e);
+            LOG.info("Removal status for broker {} changed from {} to {}",
+                brokerToRemove, brokerRemovalsStatus.get(brokerToRemove), removalStatus);
+            brokerRemovalsStatus.put(brokerToRemove, removalStatus);
+        };
+
+        BrokerRemovalStateTracker stateTracker = BrokerRemovalStateTracker.initialize(brokerToRemove, listener,
+            registerBrokerRemovalMetric);
+
+        LOG.info("Submitting broker removal operation with UUID {} for broker {} (epoch {})", uid, brokerToRemove, brokerToRemoveEpoch);
+        balanceEngine.removeBroker(brokerToRemove, brokerEpochOpt, stateTracker, uid);
+    }
+
+    /**
+     * Register a Gauge metric to denote the current state of the broker removal operation
+     */
+    private AtomicReference<String> registerBrokerRemovalMetric(int brokerId) {
+        AtomicReference<String> stateReference = new AtomicReference<>("NOT_STARTED");
+
+        dataBalancerMetricsRegistry.newGauge(ConfluentDataBalanceEngine.class,
+            BROKER_REMOVAL_STATE_METRIC_NAME,
+            stateReference::get, true,
+            brokerIdMetricTag(brokerId));
+
+        return stateReference;
+    }
+
+    // package-private for testing
+    Map<String, String> brokerIdMetricTag(int brokerId) {
+        Map<String, String> brokerIdTag = new HashMap<>();
+        brokerIdTag.put("broker", String.valueOf(brokerId));
+        return brokerIdTag;
     }
 }

@@ -10,8 +10,10 @@ import com.linkedin.kafka.cruisecontrol.analyzer.OptimizerResult;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.Goal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.PreferredLeaderElectionGoal;
 import com.linkedin.kafka.cruisecontrol.async.progress.OperationProgress;
+import com.linkedin.kafka.cruisecontrol.client.BlockingSendClient;
 import com.linkedin.kafka.cruisecontrol.common.KafkaCruiseControlThreadFactory;
 import com.linkedin.kafka.cruisecontrol.common.MetadataClient;
+import com.linkedin.kafka.cruisecontrol.common.SbkAdminUtils;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.detector.AnomalyDetector;
 import com.linkedin.kafka.cruisecontrol.detector.notifier.AnomalyType;
@@ -28,8 +30,12 @@ import com.linkedin.kafka.cruisecontrol.monitor.LoadMonitor;
 import com.linkedin.kafka.cruisecontrol.monitor.ModelCompletenessRequirements;
 import com.linkedin.kafka.cruisecontrol.monitor.MonitorUtils;
 import com.linkedin.kafka.cruisecontrol.monitor.metricdefinition.KafkaMetricDef;
+import com.linkedin.kafka.cruisecontrol.server.BrokerShutdownManager;
 import com.linkedin.kafka.cruisecontrol.servlet.response.CruiseControlState;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
+import io.confluent.databalancer.operation.BrokerRemovalCallback;
+import io.confluent.databalancer.operation.BrokerRemovalCallback.BrokerRemovalEvent;
+import java.util.Optional;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.utils.SystemTime;
 import org.apache.kafka.common.utils.Time;
@@ -67,6 +73,9 @@ public class KafkaCruiseControl {
   protected final KafkaCruiseControlConfig _config;
   private final LoadMonitor _loadMonitor;
   private final GoalOptimizer _goalOptimizer;
+  private final PlanComputationOptions _defaultPlanComputationOptions;
+  private final Long _replicationThrottle;
+  private final BrokerShutdownManager _brokerShutdownManager;
   private final ExecutorService _goalOptimizerExecutor;
   private final Executor _executor;
   private final AnomalyDetector _anomalyDetector;
@@ -77,12 +86,14 @@ public class KafkaCruiseControl {
    *
    * @param config the configuration of Cruise Control.
    */
-  public KafkaCruiseControl(KafkaCruiseControlConfig config, DataBalancerMetricsRegistry metricRegistry) {
+  public KafkaCruiseControl(KafkaCruiseControlConfig config, DataBalancerMetricsRegistry metricRegistry,
+                            BlockingSendClient.Builder blockingSendClientBuilder) {
     _config = config;
     _time = new SystemTime();
     // initialize some of the static state of Kafka Cruise Control;
     ModelUtils.init(config);
     ModelParameters.init(config);
+    SbkAdminUtils adminUtils = new SbkAdminUtils(KafkaCruiseControlUtils.createAdmin(config.originals()), config);
 
     // Instantiate the components.
     _loadMonitor = new LoadMonitor(config, _time, metricRegistry, KafkaMetricDef.commonMetricDef());
@@ -92,22 +103,37 @@ public class KafkaCruiseControl {
     long removalHistoryRetentionTimeMs = config.getLong(KafkaCruiseControlConfig.REMOVAL_HISTORY_RETENTION_TIME_MS_CONFIG);
     _anomalyDetector = new AnomalyDetector(config, _loadMonitor, this, _time, metricRegistry);
     _executor = new Executor(config, _time, metricRegistry, demotionHistoryRetentionTimeMs,
-                             removalHistoryRetentionTimeMs, _anomalyDetector);
+        removalHistoryRetentionTimeMs, _anomalyDetector);
     _goalOptimizer = new GoalOptimizer(config, _loadMonitor, _time, metricRegistry, _executor);
+    _defaultPlanComputationOptions = new PlanComputationOptions(
+        config.getBoolean(KafkaCruiseControlConfig.ANOMALY_DETECTION_ALLOW_CAPACITY_ESTIMATION_CONFIG),
+        config.getBoolean(KafkaCruiseControlConfig.BROKER_FAILURE_EXCLUDE_RECENTLY_DEMOTED_BROKERS_CONFIG),
+        config.getBoolean(KafkaCruiseControlConfig.BROKER_FAILURE_EXCLUDE_RECENTLY_REMOVED_BROKERS_CONFIG)
+    );
+    _replicationThrottle = _config.getLong(KafkaCruiseControlConfig.DEFAULT_REPLICATION_THROTTLE_CONFIG);
+    _brokerShutdownManager = new BrokerShutdownManager(adminUtils, config, blockingSendClientBuilder, _time);
   }
 
   /**
    * Package private for unit test.
    */
   KafkaCruiseControl(
-          KafkaCruiseControlConfig config, LoadMonitor loadMonitor, GoalOptimizer goalOptimizer,
-          ExecutorService goalOptimizerExecutor, Executor executor, AnomalyDetector anomalyDetector, Time time) {
+      KafkaCruiseControlConfig config, LoadMonitor loadMonitor, GoalOptimizer goalOptimizer,
+      ExecutorService goalOptimizerExecutor, Executor executor, AnomalyDetector anomalyDetector,
+      BrokerShutdownManager shutdownManager, Time time) {
     this._config = config;
     this._loadMonitor = loadMonitor;
     this._goalOptimizer = goalOptimizer;
     this._goalOptimizerExecutor = goalOptimizerExecutor;
     this._executor = executor;
     this._anomalyDetector = anomalyDetector;
+    this._defaultPlanComputationOptions = new PlanComputationOptions(
+        config.getBoolean(KafkaCruiseControlConfig.ANOMALY_DETECTION_ALLOW_CAPACITY_ESTIMATION_CONFIG),
+        config.getBoolean(KafkaCruiseControlConfig.BROKER_FAILURE_EXCLUDE_RECENTLY_DEMOTED_BROKERS_CONFIG),
+        config.getBoolean(KafkaCruiseControlConfig.BROKER_FAILURE_EXCLUDE_RECENTLY_REMOVED_BROKERS_CONFIG)
+    );
+    this._replicationThrottle = _config.getLong(KafkaCruiseControlConfig.DEFAULT_REPLICATION_THROTTLE_CONFIG);
+    this._brokerShutdownManager = shutdownManager;
     this._time = time;
   }
 
@@ -145,78 +171,143 @@ public class KafkaCruiseControl {
   }
 
   /**
-   * Decommission a broker.
+   * Drain brokers #{@code removedBrokers} of all of their partition replicas,
+   * moving them to other brokers in the cluster.
    *
    * @param removedBrokers The brokers to decommission.
-   * @param dryRun Whether it is a dry run or not.
-   * @param throttleDecommissionedBroker Whether throttle the brokers that are being decommissioned.
    * @param goals The goal names (i.e. each matching {@link Goal#name()}) to be met when decommissioning the brokers.
    *              When empty all goals will be used.
-   * @param requirements The cluster model completeness requirements.
-   * @param operationProgress The progress to report.
-   * @param allowCapacityEstimation Allow capacity estimation in cluster model if the requested broker capacity is unavailable.
-   * @param concurrentInterBrokerPartitionMovements The maximum number of concurrent inter-broker partition movements per broker
-   *                                                (if null, use num.concurrent.partition.movements.per.broker).
-   * @param concurrentLeaderMovements The maximum number of concurrent leader movements
-   *                                  (if null, use num.concurrent.leader.movements).
-   * @param skipHardGoalCheck True if the provided {@code goals} do not have to contain all hard goals, false otherwise.
-   * @param excludedTopics Topics excluded from partition movement (if null, use topics.excluded.from.partition.movement)
-   * @param replicaMovementStrategy The strategy used to determine the execution order of generated replica movement tasks
-   *                                (if null, use default.replica.movement.strategies).
    * @param replicationThrottle The replication throttle (bytes/second) to apply to both leaders and followers
    *                            when decomissioning brokers (if null, no throttling is applied).
    * @param uuid UUID of the execution.
-   * @param excludeRecentlyDemotedBrokers Exclude recently demoted brokers from proposal generation for leadership transfer.
-   * @param excludeRecentlyRemovedBrokers Exclude recently removed brokers from proposal generation for replica transfer.
-   * @param requestedDestinationBrokerIds Explicitly requested destination broker Ids to limit the replica movement to
-   *                                      these brokers (if empty, no explicit filter is enforced -- cannot be null).
+   * @param opts the options to compute the plan with
    * @return The optimization result.
    *
    * @throws KafkaCruiseControlException When any exception occurred during the decommission process.
    */
-  public OptimizerResult decommissionBrokers(Set<Integer> removedBrokers,
-                                                           boolean dryRun,
-                                                           boolean throttleDecommissionedBroker,
-                                                           List<String> goals,
-                                                           ModelCompletenessRequirements requirements,
-                                                           OperationProgress operationProgress,
-                                                           boolean allowCapacityEstimation,
-                                                           Integer concurrentInterBrokerPartitionMovements,
-                                                           Integer concurrentLeaderMovements,
-                                                           boolean skipHardGoalCheck,
-                                                           Pattern excludedTopics,
-                                                           ReplicaMovementStrategy replicaMovementStrategy,
-                                                           Long replicationThrottle,
-                                                           String uuid,
-                                                           boolean excludeRecentlyDemotedBrokers,
-                                                           boolean excludeRecentlyRemovedBrokers,
-                                                           Set<Integer> requestedDestinationBrokerIds)
+  public OptimizerResult drainBrokers(Set<Integer> removedBrokers,
+                                      List<String> goals,
+                                      Long replicationThrottle,
+                                      String uuid,
+                                      PlanComputationOptions opts)
       throws KafkaCruiseControlException {
-    sanityCheckDryRun(dryRun);
-    sanityCheckHardGoalPresence(goals, skipHardGoalCheck);
-    List<Goal> goalsByPriority = goalsByPriority(goals);
-    ModelCompletenessRequirements modelCompletenessRequirements =
-        modelCompletenessRequirements(goalsByPriority).weaker(requirements);
-    try (AutoCloseable ignored = _loadMonitor.acquireForModelGeneration(operationProgress)) {
-      ClusterModel clusterModel = _loadMonitor.clusterModel(_time.milliseconds(), modelCompletenessRequirements,
-                                                            operationProgress);
-      sanityCheckBrokersHavingOfflineReplicasOnBadDisks(goals, clusterModel);
-      removedBrokers.forEach(id -> clusterModel.setBrokerState(id, Broker.State.DEAD));
-      OptimizerResult result = getProposals(clusterModel,
-                                            goalsByPriority,
-                                            operationProgress,
-                                            allowCapacityEstimation,
-                                            excludedTopics,
-                                            excludeRecentlyDemotedBrokers,
-                                            excludeRecentlyRemovedBrokers,
-                                            false,
-                                            requestedDestinationBrokerIds);
-      if (!dryRun) {
-        executeRemoval(result.goalProposals(), throttleDecommissionedBroker, removedBrokers, isKafkaAssignerMode(goals),
-                       concurrentInterBrokerPartitionMovements, concurrentLeaderMovements, replicaMovementStrategy,
-                       replicationThrottle, uuid);
+    OperationProgress operationProgress = new OperationProgress();
+    sanityCheckDryRun(false);
+    sanityCheckHardGoalPresence(goals, false);
+
+    OptimizerResult result = computeDrainBrokersPlan(removedBrokers, goals, operationProgress, opts);
+
+    executeRemoval(result.goalProposals(), removedBrokers, isKafkaAssignerMode(goals),
+        replicationThrottle, uuid, null);
+    return result;
+  }
+
+  /**
+   * A broker removal consists of 4 steps:
+   * 1. Pre-shutdown plan computation - validate that a plan can be computed successfully
+   * 2. Broker shutdown - shutdown the broker to be removed and wait for it to leave the cluster
+   * 3. Actual plan computation - compute the plan which we'll execute to drain the broker
+   * 4. Plan execution - execute the partition reassignments to move replicas away from the broker (drain)
+   *
+   * Broker removal is a critical operation and overrides any ongoing reassignments
+   *
+   * @param broker - the ID of the broker to remove
+   * @param brokerEpoch - the epoch of the broker to remove, needed for the shutdown request
+   * @param progressCallback - a callback utilized for tracking the progress of the remove broker call
+   * @param uuid - the unique ID of this operation
+   */
+  public void removeBroker(int broker, Optional<Long> brokerEpoch, BrokerRemovalCallback progressCallback, String uuid) throws KafkaCruiseControlException {
+    // TODO: Reserve Executor
+
+    LOG.info("Beginning the remove broker operation for broker {} (epoch {})", broker, brokerEpoch);
+    OperationProgress operationProgress = new OperationProgress();
+    Set<Integer> brokersToRemove = new HashSet<>();
+    brokersToRemove.add(broker);
+
+    // 1. Validate that a plan can be computed
+    try {
+      computeDrainBrokersPlan(brokersToRemove, Collections.emptyList(), operationProgress, _defaultPlanComputationOptions);
+      LOG.info("Successfully computed the remove broker plan for broker {}", broker);
+      progressCallback.registerEvent(BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS);
+    } catch (KafkaCruiseControlException e) {
+      progressCallback.registerEvent(BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_FAILURE, e);
+      LOG.error("Error while computing the initial remove broker plan for broker {} prior to shutdown.",
+          broker, e);
+      throw e;
+    }
+
+    // 2. Remove broker
+    try {
+      LOG.info("Attempting to shut down broker {} as part of broker removal operation", broker);
+      long start = _time.milliseconds();
+
+      boolean wasShutdown = _brokerShutdownManager.maybeShutdownBroker(broker, brokerEpoch);
+
+      long end = _time.milliseconds();
+      if (wasShutdown) {
+        LOG.info("Broker {} was shut down successfully in {} milliseconds", broker, end - start);
+      } else {
+        LOG.info("Broker {} was already shut down prior to broker removal - no shutdown request was sent.", broker);
       }
-      return result;
+
+      progressCallback.registerEvent(BrokerRemovalEvent.BROKER_SHUTDOWN_SUCCESS);
+    } catch (Exception e) {
+      progressCallback.registerEvent(BrokerRemovalEvent.BROKER_SHUTDOWN_FAILURE, e);
+
+      String errMsg = String.format("Error while executing broker shutdown for broker %d.", broker);
+      LOG.error(errMsg, e);
+      throw new KafkaCruiseControlException(errMsg, e);
+    }
+
+    OptimizerResult planToExecute;
+    LOG.info("Re-computing the remove broker plan for broker {}", broker);
+    // 3. Compute plan
+    try {
+      planToExecute = computeDrainBrokersPlan(brokersToRemove, Collections.emptyList(), operationProgress, _defaultPlanComputationOptions);
+      progressCallback.registerEvent(BrokerRemovalEvent.PLAN_COMPUTATION_SUCCESS);
+    } catch (KafkaCruiseControlException e) {
+      progressCallback.registerEvent(BrokerRemovalEvent.PLAN_COMPUTATION_FAILURE, e);
+      LOG.error(String.format("Error while computing broker removal plan for broker %d.", broker), e);
+      throw e;
+    }
+
+    LOG.info("Submitting the remove broker plan for broker {}", broker);
+    // 4. Submit the plan for execution
+    try {
+      executeRemoval(planToExecute.goalProposals(), brokersToRemove, false, _replicationThrottle, uuid, progressCallback);
+      LOG.info("Successfully submitted the broker removal plan for broker {} (epoch {})", broker, brokerEpoch);
+    } catch (Exception e) {
+      progressCallback.registerEvent(BrokerRemovalEvent.PLAN_EXECUTION_FAILURE, e);
+      LOG.error("Error while submitting the broker removal plan for broker {}.", broker, e);
+      throw new KafkaCruiseControlException(
+          String.format("Unexpected exception while submitting the broker removal plan for broker %d", broker),
+          e);
+    }
+  }
+
+  /**
+   * Computes a plan to drain all of the partition replicas off of #{@code removedBrokers}
+   */
+  private OptimizerResult computeDrainBrokersPlan(Set<Integer> removedBrokers, List<String> overriddenGoals,
+                                                  OperationProgress operationProgress, PlanComputationOptions options)
+      throws KafkaCruiseControlException {
+    List<Goal> goalsByPriority = goalsByPriority(overriddenGoals);
+
+    try (AutoCloseable ignored = _loadMonitor.acquireForModelGeneration(operationProgress)) {
+      ClusterModel clusterModel = _loadMonitor.clusterModel(_time.milliseconds(), modelCompletenessRequirements(goalsByPriority),
+          operationProgress);
+
+      sanityCheckBrokersHavingOfflineReplicasOnBadDisks(overriddenGoals, clusterModel);
+      removedBrokers.forEach(id -> clusterModel.setBrokerState(id, Broker.State.DEAD));
+      return getProposals(clusterModel,
+          goalsByPriority,
+          operationProgress,
+          options.toAllowCapacityEstimation(),
+          null,
+          options.toExcludeRecentlyDemotedBrokers(),
+          options.toExcludeRecentlyRemovedBrokers(),
+          false,
+          Collections.emptySet());
     } catch (KafkaCruiseControlException kcce) {
       throw kcce;
     } catch (Exception e) {
@@ -762,34 +853,31 @@ public class KafkaCruiseControl {
   /**
    * Execute the given balancing proposals for remove operations.
    * @param proposals the given balancing proposals
-   * @param throttleDecommissionedBroker Whether throttle the brokers that are being decommissioned.
    * @param removedBrokers Brokers to be removed, null if no brokers has been removed.
    * @param isKafkaAssignerMode True if kafka assigner mode, false otherwise.
-   * @param concurrentInterBrokerPartitionMovements The maximum number of concurrent inter-broker partition movements per broker
-   *                                                (if null, use num.concurrent.partition.movements.per.broker).
-   * @param concurrentLeaderMovements The maximum number of concurrent leader movements
-   *                                  (if null, use num.concurrent.leader.movements).
-   * @param replicaMovementStrategy The strategy used to determine the execution order of generated replica movement tasks
-   *                                (if null, use default.replica.movement.strategies).
    * @param replicationThrottle The replication throttle (bytes/second) to apply to both leaders and followers
    *                            when executing remove operations (if null, no throttling is applied).
    * @param uuid UUID of the execution.
+   * @param progressCallback the broker removal callback to help track the progress of the operation
    */
   private void executeRemoval(Set<ExecutionProposal> proposals,
-                              boolean throttleDecommissionedBroker,
                               Set<Integer> removedBrokers,
                               boolean isKafkaAssignerMode,
-                              Integer concurrentInterBrokerPartitionMovements,
-                              Integer concurrentLeaderMovements,
-                              ReplicaMovementStrategy replicaMovementStrategy,
                               Long replicationThrottle,
-                              String uuid) {
+                              String uuid,
+                              BrokerRemovalCallback progressCallback) {
     if (hasProposalsToExecute(proposals, uuid)) {
       // Set the execution mode, add execution proposals, and start execution.
       _executor.setExecutionMode(isKafkaAssignerMode);
-      _executor.executeProposals(proposals, throttleDecommissionedBroker ? Collections.emptySet() : removedBrokers,
-                                 removedBrokers, _loadMonitor, concurrentInterBrokerPartitionMovements, 0,
-                                 concurrentLeaderMovements, replicaMovementStrategy, replicationThrottle, uuid);
+      _executor.executeRemoveBrokerProposals(proposals, removedBrokers,
+          removedBrokers, _loadMonitor, null, 0,
+          null, null, replicationThrottle, uuid,
+          progressCallback
+      );
+    } else {
+      throw new IllegalStateException(
+          String.format("Cannot execute a removal for brokers %s when there are no proposals to execute!", removedBrokers)
+      );
     }
   }
 

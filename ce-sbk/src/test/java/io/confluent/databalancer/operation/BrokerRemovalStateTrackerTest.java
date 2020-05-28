@@ -4,6 +4,8 @@
 package io.confluent.databalancer.operation;
 
 import java.io.IOException;
+import java.util.concurrent.atomic.AtomicReference;
+import kafka.common.BrokerRemovalStatus;
 import org.apache.kafka.clients.admin.BrokerRemovalDescription;
 import org.apache.kafka.common.errors.ReassignmentInProgressException;
 import org.junit.Before;
@@ -60,18 +62,38 @@ import static org.junit.Assert.assertNull;
  *                                                                                          |   BSS=COMPLETE          |                  |    BSS=COMPLETE        |
  *                                                                                          +-------------------------+                  +------------------------+
  * Created via https://asciiflow.com/
+ *
+ * Tests that the #{@link BrokerRemovalStateTracker} and by extension #{@link BrokerRemovalStateMachine}
+ * both do state transitions and notifications correctly.
  */
-public class BrokerRemovalStateMachineTest {
+public class BrokerRemovalStateTrackerTest {
 
   private final int brokerId = 1;
   private BrokerRemovalStateMachine stateMachine;
+  private BrokerRemovalStateTracker stateTracker;
   private Exception brokerShutdownException = new IOException("Error while shutting down broker!");
   private Exception planExecutionException = new ReassignmentInProgressException("Error while reassigning partitions!");
   private Exception planComputationFailure = new Exception("Plan computation failed!");
+  private AtomicReference<String> stateRef = new AtomicReference<>("TEST");
+  class TestListener implements BrokerRemovalProgressListener {
+    private BrokerRemovalStatus status;
+
+    @Override
+    public void onProgressChanged(BrokerRemovalDescription.BrokerShutdownStatus shutdownStatus, BrokerRemovalDescription.PartitionReassignmentsStatus partitionReassignmentsStatus, Exception e) {
+      status = new BrokerRemovalStatus(brokerId, shutdownStatus, partitionReassignmentsStatus, e);
+    }
+
+    public BrokerRemovalStatus status() {
+      return status;
+    }
+  }
+
+  private TestListener listener = new TestListener();
 
   @Before
   public void setUp() {
     stateMachine = new BrokerRemovalStateMachine(brokerId);
+    stateTracker = new BrokerRemovalStateTracker(brokerId, stateMachine, listener, stateRef);
   }
 
   /**
@@ -81,19 +103,19 @@ public class BrokerRemovalStateMachineTest {
   public void testAdvanceStateReachesCompletion() {
     assertState(INITIAL_PLAN_COMPUTATION_INITIATED);
 
-    stateMachine.advanceState(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS, null);
+    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS);
 
     assertState(BROKER_SHUTDOWN_INITIATED);
 
-    stateMachine.advanceState(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_SUCCESS, null);
+    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_SUCCESS);
 
     assertState(PLAN_COMPUTATION_INITIATED);
 
-    stateMachine.advanceState(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_COMPUTATION_SUCCESS, null);
+    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_COMPUTATION_SUCCESS);
 
     assertState(PLAN_EXECUTION_INITIATED);
 
-    stateMachine.advanceState(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_EXECUTION_SUCCESS, null);
+    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_EXECUTION_SUCCESS);
 
     assertState(PLAN_EXECUTION_SUCCEEDED);
   }
@@ -110,16 +132,16 @@ public class BrokerRemovalStateMachineTest {
   public void testInvalidStateTransitionThrowsIllegalStateException() {
     assertState(INITIAL_PLAN_COMPUTATION_INITIATED);
     // we cannot move from INITIAL_PLAN to PLAN_SUCCESS, it must be INITIAL_PLAN_SUCCESS/FAILURE
-    stateMachine.advanceState(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_COMPUTATION_SUCCESS, null);
+    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_COMPUTATION_SUCCESS);
   }
 
   @Test(expected = IllegalStateException.class)
   public void testInvalidTerminalStateTransitionThrowsIllegalStateException() {
     assertState(INITIAL_PLAN_COMPUTATION_INITIATED);
-    stateMachine.advanceState(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_COMPUTATION_FAILURE, null);
+    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_COMPUTATION_FAILURE);
     assertState(INITIAL_PLAN_COMPUTATION_FAILED);
     // we cannot move from a terminal state to anything
-    stateMachine.advanceState(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS, null);
+    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS);
   }
 
   /**
@@ -127,11 +149,11 @@ public class BrokerRemovalStateMachineTest {
    */
   @Test
   public void testAdvanceStateTo_PlanExecutionCanceled() {
-    stateMachine.advanceState(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS, null);
-    stateMachine.advanceState(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_SUCCESS, null);
-    stateMachine.advanceState(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_COMPUTATION_SUCCESS, null);
+    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS);
+    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_SUCCESS);
+    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_COMPUTATION_SUCCESS);
     assertState(PLAN_EXECUTION_INITIATED);
-    stateMachine.advanceState(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_RESTARTED, null);
+    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_RESTARTED);
     assertState(PLAN_EXECUTION_CANCELED);
   }
 
@@ -140,11 +162,11 @@ public class BrokerRemovalStateMachineTest {
    */
   @Test
   public void testAdvanceStateTo_PlanExecutionFailed() {
-    stateMachine.advanceState(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS, null);
-    stateMachine.advanceState(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_SUCCESS, null);
-    stateMachine.advanceState(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_COMPUTATION_SUCCESS, null);
+    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS);
+    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_SUCCESS);
+    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_COMPUTATION_SUCCESS);
     assertState(PLAN_EXECUTION_INITIATED);
-    stateMachine.advanceState(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_EXECUTION_FAILURE, planExecutionException);
+    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_EXECUTION_FAILURE, planExecutionException);
     assertState(PLAN_EXECUTION_FAILED, planExecutionException);
   }
 
@@ -153,10 +175,10 @@ public class BrokerRemovalStateMachineTest {
    */
   @Test
   public void testAdvanceStateTo_PlanComputationCanceled() {
-    stateMachine.advanceState(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS, null);
-    stateMachine.advanceState(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_SUCCESS, null);
+    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS);
+    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_SUCCESS);
     assertState(PLAN_COMPUTATION_INITIATED);
-    stateMachine.advanceState(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_RESTARTED, null);
+    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_RESTARTED);
     assertState(PLAN_COMPUTATION_CANCELED);
   }
 
@@ -165,10 +187,10 @@ public class BrokerRemovalStateMachineTest {
    */
   @Test
   public void testAdvanceStateTo_PlanComputationFail() {
-    stateMachine.advanceState(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS, null);
-    stateMachine.advanceState(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_SUCCESS, null);
+    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS);
+    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_SUCCESS);
     assertState(PLAN_COMPUTATION_INITIATED);
-    stateMachine.advanceState(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_COMPUTATION_FAILURE, planComputationFailure);
+    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_COMPUTATION_FAILURE, planComputationFailure);
     assertState(PLAN_COMPUTATION_FAILED, planComputationFailure);
   }
 
@@ -177,9 +199,9 @@ public class BrokerRemovalStateMachineTest {
    */
   @Test
   public void testAdvanceStateTo_ShutdownFailure() {
-    stateMachine.advanceState(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS, null);
+    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS);
     assertState(BROKER_SHUTDOWN_INITIATED);
-    stateMachine.advanceState(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_FAILURE, brokerShutdownException);
+    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_FAILURE, brokerShutdownException);
     assertState(BROKER_SHUTDOWN_FAILED, brokerShutdownException);
   }
 
@@ -189,7 +211,7 @@ public class BrokerRemovalStateMachineTest {
   @Test
   public void testAdvanceStateTo_InitialPlanFailure() {
     assertState(INITIAL_PLAN_COMPUTATION_INITIATED);
-    stateMachine.advanceState(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_FAILURE, planComputationFailure);
+    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_FAILURE, planComputationFailure);
     assertState(INITIAL_PLAN_COMPUTATION_FAILED, planComputationFailure);
   }
 
@@ -202,96 +224,73 @@ public class BrokerRemovalStateMachineTest {
   }
 
   /**
-   * Asserts that the state machine is in the expected state/status for the given state
+   * Asserts that the state machine has notified us that it is in the expected state/status for the given state
    * @param state - the state to assert
    */
   private void assertState(BrokerRemovalStateMachine.BrokerRemovalState state, Exception exception) {
     switch (state) {
       case INITIAL_PLAN_COMPUTATION_INITIATED:
-        assertEquals(INITIAL_PLAN_COMPUTATION_INITIATED, stateMachine.currentState);
         assertEquals(BrokerRemovalDescription.BrokerShutdownStatus.PENDING,
-            stateMachine.brokerStatus().brokerShutdownStatus());
+            listener.status().brokerShutdownStatus());
         assertEquals(BrokerRemovalDescription.PartitionReassignmentsStatus.PENDING,
-            stateMachine.brokerStatus().partitionReassignmentsStatus());
+            listener.status().partitionReassignmentsStatus());
         break;
       case INITIAL_PLAN_COMPUTATION_FAILED:
-        assertEquals(INITIAL_PLAN_COMPUTATION_FAILED, stateMachine.currentState);
         assertEquals(BrokerRemovalDescription.BrokerShutdownStatus.CANCELED,
-            stateMachine.brokerStatus().brokerShutdownStatus());
+            listener.status().brokerShutdownStatus());
         assertEquals(BrokerRemovalDescription.PartitionReassignmentsStatus.FAILED,
-            stateMachine.brokerStatus().partitionReassignmentsStatus());
+            listener.status().partitionReassignmentsStatus());
         break;
       case BROKER_SHUTDOWN_INITIATED:
-        assertEquals(BROKER_SHUTDOWN_INITIATED, stateMachine.currentState);
         assertEquals(BrokerRemovalDescription.BrokerShutdownStatus.PENDING,
-            stateMachine.brokerStatus().brokerShutdownStatus());
+            listener.status().brokerShutdownStatus());
         assertEquals(BrokerRemovalDescription.PartitionReassignmentsStatus.IN_PROGRESS,
-            stateMachine.brokerStatus().partitionReassignmentsStatus());
+            listener.status().partitionReassignmentsStatus());
         break;
       case BROKER_SHUTDOWN_FAILED:
-        assertEquals(BROKER_SHUTDOWN_FAILED, stateMachine.currentState);
         assertEquals(BrokerRemovalDescription.BrokerShutdownStatus.FAILED,
-            stateMachine.brokerStatus().brokerShutdownStatus());
+            listener.status().brokerShutdownStatus());
         assertEquals(BrokerRemovalDescription.PartitionReassignmentsStatus.CANCELED,
-            stateMachine.brokerStatus().partitionReassignmentsStatus());
+            listener.status().partitionReassignmentsStatus());
         break;
       case PLAN_COMPUTATION_INITIATED:
-        assertEquals(PLAN_COMPUTATION_INITIATED, stateMachine.currentState);
+      case PLAN_EXECUTION_INITIATED:
         assertEquals(BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE,
-            stateMachine.brokerStatus().brokerShutdownStatus());
+            listener.status().brokerShutdownStatus());
         assertEquals(BrokerRemovalDescription.PartitionReassignmentsStatus.IN_PROGRESS,
-            stateMachine.brokerStatus().partitionReassignmentsStatus());
+            listener.status().partitionReassignmentsStatus());
         break;
       case PLAN_COMPUTATION_FAILED:
-        assertEquals(PLAN_COMPUTATION_FAILED, stateMachine.currentState);
+      case PLAN_EXECUTION_FAILED:
         assertEquals(BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE,
-            stateMachine.brokerStatus().brokerShutdownStatus());
+            listener.status().brokerShutdownStatus());
         assertEquals(BrokerRemovalDescription.PartitionReassignmentsStatus.FAILED,
-            stateMachine.brokerStatus().partitionReassignmentsStatus());
+            listener.status().partitionReassignmentsStatus());
         break;
       case PLAN_COMPUTATION_CANCELED:
-        assertEquals(PLAN_COMPUTATION_CANCELED, stateMachine.currentState);
-        assertEquals(BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE,
-            stateMachine.brokerStatus().brokerShutdownStatus());
-        assertEquals(BrokerRemovalDescription.PartitionReassignmentsStatus.CANCELED,
-            stateMachine.brokerStatus().partitionReassignmentsStatus());
-        break;
-      case PLAN_EXECUTION_INITIATED:
-        assertEquals(PLAN_EXECUTION_INITIATED, stateMachine.currentState);
-        assertEquals(BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE,
-            stateMachine.brokerStatus().brokerShutdownStatus());
-        assertEquals(BrokerRemovalDescription.PartitionReassignmentsStatus.IN_PROGRESS,
-            stateMachine.brokerStatus().partitionReassignmentsStatus());
-        break;
       case PLAN_EXECUTION_CANCELED:
-        assertEquals(PLAN_EXECUTION_CANCELED, stateMachine.currentState);
         assertEquals(BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE,
-            stateMachine.brokerStatus().brokerShutdownStatus());
+            listener.status().brokerShutdownStatus());
         assertEquals(BrokerRemovalDescription.PartitionReassignmentsStatus.CANCELED,
-            stateMachine.brokerStatus().partitionReassignmentsStatus());
-        break;
-      case PLAN_EXECUTION_FAILED:
-        assertEquals(PLAN_EXECUTION_FAILED, stateMachine.currentState);
-        assertEquals(BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE,
-            stateMachine.brokerStatus().brokerShutdownStatus());
-        assertEquals(BrokerRemovalDescription.PartitionReassignmentsStatus.FAILED,
-            stateMachine.brokerStatus().partitionReassignmentsStatus());
+            listener.status().partitionReassignmentsStatus());
         break;
       case PLAN_EXECUTION_SUCCEEDED:
-        assertEquals(PLAN_EXECUTION_SUCCEEDED, stateMachine.currentState);
         assertEquals(BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE,
-            stateMachine.brokerStatus().brokerShutdownStatus());
+            listener.status().brokerShutdownStatus());
         assertEquals(BrokerRemovalDescription.PartitionReassignmentsStatus.COMPLETE,
-            stateMachine.brokerStatus().partitionReassignmentsStatus());
+            listener.status().partitionReassignmentsStatus());
         break;
       default:
         throw new IllegalStateException("");
     }
+
+    assertEquals(state, stateMachine.currentState);
+    assertEquals(state.name(), stateRef.get());
     if (exception == null) {
       assertNull("Expected no exception to be populated",
-          stateMachine.brokerStatus().exception());
+          listener.status().exception());
     } else {
-      assertEquals(exception, stateMachine.brokerStatus().exception());
+      assertEquals(exception, listener.status().exception());
     }
   }
 }

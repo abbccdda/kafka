@@ -4,6 +4,7 @@
 
 package io.confluent.databalancer;
 
+import io.confluent.databalancer.operation.BrokerRemovalStateTracker;
 import kafka.server.KafkaConfig;
 
 import java.util.Optional;
@@ -49,5 +50,9 @@ public interface DataBalanceEngine {
 
     boolean isActive();
 
-    void removeBroker(int brokerToRemove, Optional<Long> brokerToRemoveEpoch);
+    /**
+     * Schedules the removal of a broker
+     */
+    void removeBroker(int brokerToRemove, Optional<Long> brokerToRemoveEpoch,
+                      BrokerRemovalStateTracker stateTracker, String uid);
 }

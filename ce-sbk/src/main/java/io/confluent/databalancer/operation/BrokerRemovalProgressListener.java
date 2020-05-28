@@ -1,38 +1,18 @@
-/*
- * Copyright (C) 2020 Confluent, Inc.
- */
 package io.confluent.databalancer.operation;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.kafka.clients.admin.BrokerRemovalDescription;
 
-public class BrokerRemovalProgressListener implements BrokerRemovalCallback {
-
-  private static final Logger LOG = LoggerFactory.getLogger(BrokerRemovalProgressListener.class);
-
-  private BrokerRemovalStateMachine stateMachine;
-
-  public BrokerRemovalProgressListener(BrokerRemovalStateMachine stateMachine) {
-    this.stateMachine = stateMachine;
-  }
-
-  @Override
-  public void registerEvent(BrokerRemovalEvent pe) {
-    registerEvent(pe, null);
-  }
-
-  @Override
-  public void registerEvent(BrokerRemovalEvent pe, Exception eventException) {
-    try {
-      stateMachine.advanceState(pe, eventException);
-    } catch (Exception exception) {
-      if (eventException != null) {
-        LOG.error("Unexpected exception while handling removal event {} (event exception: {})!",
-            pe, eventException, exception);
-      } else {
-        LOG.error("Unexpected exception while handling removal event {}!",
-            pe, exception);
-      }
-    }
-  }
+/**
+ * A listener for the progress of a broker removal operation
+ */
+public interface BrokerRemovalProgressListener {
+  /**
+   * Called whenever the state of the removal operation changes.
+   * @param shutdownStatus the new broker shutdown status of the operation
+   * @param partitionReassignmentsStatus the new partition reassignment shutdown status of the operation
+   * @param e - nullable, an exception that occurred during the broker removal op
+   */
+  void onProgressChanged(BrokerRemovalDescription.BrokerShutdownStatus shutdownStatus,
+                         BrokerRemovalDescription.PartitionReassignmentsStatus partitionReassignmentsStatus,
+                         Exception e);
 }

@@ -9,6 +9,10 @@ import com.yammer.metrics.core.Meter;
 import com.yammer.metrics.core.MetricName;
 import com.yammer.metrics.core.MetricsRegistry;
 import com.yammer.metrics.core.Timer;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+import org.apache.kafka.common.utils.Sanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -48,8 +52,16 @@ public class DataBalancerMetricsRegistry {
         return newGauge(klass, name, valueSupplier, true);
     }
 
+    public <T> Gauge<T> newGauge(Class<?> klass, String name, Supplier<T> valueSupplier, Map<String, String> tags) {
+        return newGauge(klass, name, valueSupplier, true, tags);
+    }
+
     public <T> Gauge<T> newGauge(Class<?> klass, String name, Supplier<T> valueSupplier, boolean isShortLivedMetric) {
-        MetricName metricName = metricName(GROUP, klass.getSimpleName(), name);
+        return newGauge(klass, name, valueSupplier, isShortLivedMetric, Collections.emptyMap());
+    }
+
+    public <T> Gauge<T> newGauge(Class<?> klass, String name, Supplier<T> valueSupplier, boolean isShortLivedMetric, Map<String, String> tags) {
+        MetricName metricName = metricName(GROUP, klass.getSimpleName(), name, tags);
         registerMetric(metricName, isShortLivedMetric);
         return metricsRegistry.newGauge(metricName, new Gauge<T>() {
             @Override
@@ -94,8 +106,25 @@ public class DataBalancerMetricsRegistry {
     }
 
     private static MetricName metricName(String group, String type, String name) {
+        return metricName(group, type, name, Collections.emptyMap());
+    }
+
+    private static MetricName metricName(String group, String type, String name, Map<String, String> tags) {
         String mbeanName = String.format("%s:type=%s,name=%s", group, type, name);
+        String tagsName = tagsToMBeanName(tags);
+        if (!tagsName.isEmpty()) {
+            mbeanName += "," + tagsName;
+        }
+
         return new MetricName(group, type, name, null, mbeanName);
+    }
+
+    private static String tagsToMBeanName(Map<String, String> tags) {
+        List<String> tagsList = tags.entrySet().stream()
+            .filter(x -> x.getValue() != null && !x.getValue().equals(""))
+            .map(kv -> String.format("%s=%s", kv.getKey(), Sanitizer.jmxSanitize(kv.getValue())))
+            .collect(Collectors.toList());
+        return String.join(",", tagsList);
     }
 
     public static class MetricsWhitelistBuilder {

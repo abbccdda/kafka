@@ -17,6 +17,8 @@ import com.linkedin.kafka.cruisecontrol.monitor.LoadMonitor;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.NoopSampler;
 import com.yammer.metrics.core.MetricsRegistry;
 import java.time.Duration;
+import io.confluent.databalancer.operation.BrokerRemovalCallback;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -28,6 +30,7 @@ import java.util.Set;
 import java.util.concurrent.ExecutionException;
 
 import java.util.concurrent.TimeoutException;
+import java.util.stream.Collectors;
 import kafka.server.ConfigType;
 import kafka.server.ConfigType$;
 import kafka.server.KafkaConfig;
@@ -43,6 +46,7 @@ import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.TopicPartitionInfo;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.SystemTime;
 import org.apache.kafka.common.utils.Time;
@@ -57,6 +61,8 @@ import org.junit.Test;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import org.mockito.Mockito;
+
 
 import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUnitTestUtils.configResourcesForBrokers;
 import static com.linkedin.kafka.cruisecontrol.common.TestConstants.TOPIC0;
@@ -448,7 +454,9 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
       deleteTopics(Collections.singletonList(TOPIC0));
 
       // Execute the proposal
-      executor.startExecution(loadMonitor, null, null, 1024L);
+      executor.startExecution(
+          executor.new ProposalExecutionRunnable(loadMonitor, null, null, 1024L)
+      );
 
       waitAndVerifyProposals(kafkaZkClient, executor, proposalsToCheck);
 
@@ -728,6 +736,68 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
   private void verifyThrottleInZk(KafkaZkClient kafkaZkClient, String entityType,
                                   String entityName, String expectedThrottle) {
     verifyThrottleInZk(kafkaZkClient, entityType, entityName, expectedThrottle, expectedThrottle);
+  }
+
+  @Test
+  public void testRemoveBroker() throws InterruptedException {
+    KafkaZkClient kafkaZkClient = KafkaCruiseControlUtils.createKafkaZkClient(zookeeper().connectionString(),
+        "ExecutorTestMetricGroup",
+        "RemoveBroker",
+        false);
+    try {
+      Map<String, TopicDescription> topicDescriptions = createTopics();
+      // remove broker 1
+      List<ExecutionProposal> removeBrokerProposals = new ArrayList<>();
+      for (Map.Entry<String, TopicDescription> topicDescriptionEntry : topicDescriptions.entrySet()) {
+        for (TopicPartitionInfo partitionInfo : topicDescriptionEntry.getValue().partitions()) {
+          removeBrokerProposals.add(new ExecutionProposal(
+              new TopicPartition(topicDescriptionEntry.getKey(), partitionInfo.partition()),
+              0,
+              new ReplicaPlacementInfo(partitionInfo.leader().id()),
+              partitionInfo.replicas().stream().map(node -> new ReplicaPlacementInfo(node.id())).collect(Collectors.toList()),
+              Collections.singletonList(new ReplicaPlacementInfo(0))
+          ));
+        }
+      }
+
+      BrokerRemovalCallback mockCallback = Mockito.mock(BrokerRemovalCallback.class);
+
+      Executor executor = executor();
+      executor.setExecutionMode(false);
+      executor.executeRemoveBrokerProposals(removeBrokerProposals, Collections.emptySet(), null, EasyMock.mock(LoadMonitor.class), null,
+          null, null, null,
+          NO_THROTTLE, RANDOM_UUID, mockCallback);
+
+      verifyProposals(executor, kafkaZkClient, removeBrokerProposals);
+      Mockito.verify(mockCallback).registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_EXECUTION_SUCCESS);
+    } finally {
+      KafkaCruiseControlUtils.closeKafkaZkClientWithTimeout(kafkaZkClient);
+    }
+  }
+
+  @Test
+  public void testBrokerRemovalProposalExecutionRunnableCallsCallbackWithException() {
+    Exception expectedException = new Exception("!!!");
+    AnomalyDetector mockAnomalyDetector = Mockito.mock(AnomalyDetector.class);
+    Mockito.doAnswer(invocation -> {
+      throw expectedException;
+    }).when(mockAnomalyDetector).markSelfHealingFinished(Mockito.any());
+
+    Executor executor = createExecutor(mockAnomalyDetector);
+    BrokerRemovalCallback callbackMock = Mockito.mock(BrokerRemovalCallback.class);
+    // pass in some nulls to trigger an NPE in the run() method,
+    // then have mockAnomalyDetector#markSelfHealingFinished throw as
+    // the first statement in ProposalExecutionRunnable's finally block
+    Executor.BrokerRemovalProposalExecutionRunnable runnable = executor.new BrokerRemovalProposalExecutionRunnable(null, null, null, null, callbackMock);
+    try {
+      runnable.run();
+      fail("Expected the BrokerRemovalProposalExecutionRunnable to throw an exception");
+    } catch (Exception e) {
+      // expected
+      Mockito.verify(callbackMock).registerEvent(
+          Mockito.eq(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_EXECUTION_FAILURE),
+          Mockito.isA(NullPointerException.class));
+    }
   }
 
   @Test
@@ -1093,33 +1163,29 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
                                          Executor executor) {
     executeProposals(executor, proposalsToExecute);
 
-    Map<TopicPartition, Integer> replicationFactors = new HashMap<>();
-    for (ExecutionProposal proposal : proposalsToCheck) {
-      TopicPartition tp = new TopicPartition(proposal.topic(), proposal.partitionId());
-      int replicationFactor = kafkaZkClient.getReplicasForPartition(tp).size();
-      replicationFactors.put(tp, replicationFactor);
-    }
+    verifyProposals(executor, kafkaZkClient, proposalsToCheck);
 
+    return executor;
+  }
+
+  private void verifyProposals(Executor executor, KafkaZkClient kafkaZkClient, Collection<ExecutionProposal> proposalsToCheck) {
     waitUntilExecutionFinishes(executor);
 
     for (ExecutionProposal proposal : proposalsToCheck) {
       TopicPartition tp = new TopicPartition(proposal.topic(), proposal.partitionId());
-      int expectedReplicationFactor = replicationFactors.get(tp);
+      int expectedReplicationFactor = proposal.newReplicas().size();
       assertEquals("Replication factor for partition " + tp + " should be " + expectedReplicationFactor,
-                   expectedReplicationFactor, kafkaZkClient.getReplicasForPartition(tp).size());
+          expectedReplicationFactor, kafkaZkClient.getReplicasForPartition(tp).size());
 
       if (proposal.hasReplicaAction()) {
         for (ReplicaPlacementInfo r : proposal.newReplicas()) {
           assertTrue("The partition should have moved for " + tp,
-                     kafkaZkClient.getReplicasForPartition(tp).contains(r.brokerId()));
+              kafkaZkClient.getReplicasForPartition(tp).contains(r.brokerId()));
         }
       }
       assertEquals("The leader should have moved for " + tp,
-                   proposal.newLeader().brokerId(), kafkaZkClient.getLeaderForPartition(tp).get());
-
+          proposal.newLeader().brokerId(), kafkaZkClient.getLeaderForPartition(tp).get());
     }
-
-    return executor;
   }
 
   /**
@@ -1195,10 +1261,14 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
   }
 
   private Executor createExecutor() {
+    return createExecutor(getMockAnomalyDetector(RANDOM_UUID));
+  }
+
+  private Executor createExecutor(AnomalyDetector mockAnomalyDetector) {
     KafkaCruiseControlConfig configs = new KafkaCruiseControlConfig(getExecutorProperties());
 
     Executor executor = new Executor(configs, new SystemTime(), KafkaCruiseControlUnitTestUtils.getMetricsRegistry(metricsRegistry),
-            null, 86400000L, 43200000L, null, getMockAnomalyDetector(RANDOM_UUID));
+        null, 86400000L, 43200000L, null, mockAnomalyDetector);
     executor.setExecutionMode(false);
 
     return executor;

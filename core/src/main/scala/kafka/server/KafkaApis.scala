@@ -2738,7 +2738,7 @@ class KafkaApis(val requestChannel: RequestChannel,
           }
         }.filter { partitions: Seq[PartitionInfo] =>
           partitions.exists { partitionInfo =>
-            partitionInfo.replicas.exists(_.id == brokerToRemove)
+            partitionInfo.replicas.exists(broker => broker != null && broker.id == brokerToRemove)
           }
         }
 
@@ -2751,7 +2751,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     if (metadataCache.getAliveBroker(brokerToRemove).isEmpty) {
       val partitionWithRemovedBroker = topicPartitionsList.filter { partitions: Seq[PartitionInfo] =>
         partitions.exists { partitionInfo =>
-          (partitionInfo.replicas ++ partitionInfo.observers).exists(broker => broker.id == brokerToRemove)
+          (partitionInfo.replicas ++ partitionInfo.observers).exists(broker => broker != null && broker.id == brokerToRemove)
         }
       }
       if (partitionWithRemovedBroker.isEmpty)

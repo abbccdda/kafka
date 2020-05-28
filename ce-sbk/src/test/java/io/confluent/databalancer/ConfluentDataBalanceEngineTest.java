@@ -19,20 +19,27 @@ import com.linkedin.kafka.cruisecontrol.analyzer.goals.ReplicaCapacityGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.ReplicaDistributionGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.TopicReplicaDistributionGoal;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
+import com.linkedin.kafka.cruisecontrol.exception.KafkaCruiseControlException;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore;
 import io.confluent.cruisecontrol.analyzer.goals.CrossRackMovementGoal;
 import io.confluent.cruisecontrol.analyzer.goals.SequentialReplicaMovementGoal;
 import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSampler;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
+import io.confluent.databalancer.operation.BrokerRemovalCallback;
+import io.confluent.databalancer.operation.BrokerRemovalStateTracker;
 import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
+import java.util.Optional;
 import kafka.server.KafkaConfig;
 import kafka.server.KafkaConfig$;
+import kafka.utils.MockTime;
 import kafka.utils.TestUtils$;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.common.Endpoint;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
+import org.apache.kafka.common.errors.InvalidRequestException;
+import org.apache.kafka.common.utils.Time;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mock;
@@ -64,6 +71,7 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -73,6 +81,8 @@ import static org.mockito.internal.verification.VerificationModeFactory.times;
 public class ConfluentDataBalanceEngineTest  {
     private Properties brokerProps;
     private KafkaConfig initConfig;
+
+    private Time mockTime = new MockTime();
 
     @Mock
     private KafkaCruiseControl mockCruiseControl;
@@ -129,7 +139,7 @@ public class ConfluentDataBalanceEngineTest  {
 
     private ConfluentDataBalanceEngine getTestDataBalanceEngine() {
         executorService = Mockito.spy(currentThreadExecutorService());
-        return new ConfluentDataBalanceEngine(mockMetricsRegistry, mockCruiseControl, executorService);
+        return new ConfluentDataBalanceEngine(mockMetricsRegistry, mockCruiseControl, executorService, mockTime);
     }
 
     @Test
@@ -614,7 +624,7 @@ public class ConfluentDataBalanceEngineTest  {
     @Test
     public void testStopCruiseControlNotInitialized() {
         // Don't use the regular getTestDataBalanceEngine as that has a defined CruiseControl, which we don't want.
-        ConfluentDataBalanceEngine dbe = new ConfluentDataBalanceEngine(mockMetricsRegistry, null, currentThreadExecutorService());
+        ConfluentDataBalanceEngine dbe = new ConfluentDataBalanceEngine(mockMetricsRegistry, null, currentThreadExecutorService(), mockTime);
         dbe.stopCruiseControl(); // should be a no-op
         verify(mockCruiseControl, never()).shutdown();
         verify(mockMetricsRegistry, never()).clearShortLivedMetrics();
@@ -677,7 +687,7 @@ public class ConfluentDataBalanceEngineTest  {
                     Collections.singletonMap(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG, "bootstrap_server"));
 
             ConfluentDataBalanceEngine dbe = new ConfluentDataBalanceEngine(
-                    mockMetricsRegistry, null, currentThreadExecutorService());
+                    mockMetricsRegistry, null, currentThreadExecutorService(), mockTime);
 
             dbe.startCruiseControl(config, kafkaconfig -> mockCruiseControl);
             verify(mockCruiseControl).startUp();
@@ -695,9 +705,11 @@ public class ConfluentDataBalanceEngineTest  {
             KafkaConfig config = mock(KafkaConfig.class);
 
             ConfluentDataBalanceEngine dbe = new ConfluentDataBalanceEngine(
-                    mockMetricsRegistry, null, currentThreadExecutorService());
+                    mockMetricsRegistry, null, currentThreadExecutorService(), mockTime);
 
-            dbe.startCruiseControl(config, kafkaconfig -> mockCruiseControl);
+            dbe.startCruiseControl(config, kafkaconfig -> {
+                throw new RuntimeException();
+            });
             verify(mockCruiseControl, never()).startUp();
         } finally {
             // Restore components
@@ -715,6 +727,34 @@ public class ConfluentDataBalanceEngineTest  {
         dbe.onActivation(config);
         verify(executorService).submit(Mockito.any(Runnable.class));
         assertTrue("DatabalanceEngine is not started", dbe.canAcceptRequests);
+    }
+
+    @Test
+    public void testRemoveBroker() throws KafkaCruiseControlException {
+        KafkaConfig config = mock(KafkaConfig.class);
+        ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
+        dbe.onActivation(config);
+
+        int brokerToRemove = 1;
+        Optional<Long> brokerEpoch = Optional.of(1L);
+        BrokerRemovalStateTracker mockTracker = mock(BrokerRemovalStateTracker.class);
+        dbe.removeBroker(brokerToRemove, brokerEpoch, mockTracker, "uid");
+
+        verify(executorService, times(2)).submit(Mockito.any(Runnable.class));
+        verify(mockCruiseControl).removeBroker(Mockito.eq(brokerToRemove), Mockito.eq(brokerEpoch),
+            Mockito.any(BrokerRemovalCallback.class), anyString());
+
+        assertTrue("DatabalanceEngine is not started", dbe.canAcceptRequests);
+    }
+
+    @Test(expected = InvalidRequestException.class)
+    public void testRemoveBrokerThrowsInvalidRequestExceptionIfNoActiveDatabalancer() {
+        ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
+        int brokerToRemove = 1;
+        Optional<Long> brokerEpoch = Optional.of(1L);
+        BrokerRemovalStateTracker mockTracker = mock(BrokerRemovalStateTracker.class);
+
+        dbe.removeBroker(brokerToRemove, brokerEpoch, mockTracker, "uid");
     }
 
     @Test

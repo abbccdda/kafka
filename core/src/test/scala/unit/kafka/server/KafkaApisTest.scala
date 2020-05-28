@@ -2181,6 +2181,33 @@ class KafkaApisTest {
     createKafkaApis().handleRemoveBrokersRequest(requestChannelRequest)
   }
 
+  @Test
+  def testRemoveBrokerHandlesNullReplicas(): Unit = {
+    // add unknown broker to metadata so that the replicas field contains null nodes
+    val nonExistentBrokerId = 10
+    val replicas = List(0.asInstanceOf[Integer], nonExistentBrokerId.asInstanceOf[Integer]).asJava
+    def createPartitionState(partition: Int) = new UpdateMetadataPartitionState()
+      .setTopicName("topic-10")
+      .setPartitionIndex(partition)
+      .setControllerEpoch(1)
+      .setLeader(0)
+      .setLeaderEpoch(1)
+      .setReplicas(replicas)
+      .setZkVersion(0)
+      .setReplicas(replicas)
+
+    EasyMock.expect(controller.isActive).andReturn(true)
+    EasyMock.replay(controller)
+
+    val updateMetadataRequest = createBasicMetadataRequest("topic-10", 5, 0, createPartitionState)
+    metadataCache.updateMetadata(correlationId = 0, updateMetadataRequest)
+
+    val brokerId = new BrokerId().setBrokerId(0)
+    val request = new RemoveBrokersRequest.Builder(Collections.singleton(brokerId)).build(0);
+    val requestChannelRequest = buildRequest(request)
+    createKafkaApis().handleRemoveBrokersRequest(requestChannelRequest)
+  }
+
   /**
    * Test that we can remove a dead broker hosting partitions.
    */
@@ -2390,6 +2417,11 @@ class KafkaApisTest {
       .setZkVersion(0)
       .setReplicas(replicas)
 
+    createBasicMetadataRequest(topic, numPartitions, brokerEpoch, createPartitionState)
+  }
+
+  private def createBasicMetadataRequest(topic: String, numPartitions: Int, brokerEpoch: Long,
+                                         createPartitionState: Int => UpdateMetadataPartitionState): UpdateMetadataRequest = {
     val plaintextListener = ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT)
     val broker = new UpdateMetadataBroker()
       .setId(0)

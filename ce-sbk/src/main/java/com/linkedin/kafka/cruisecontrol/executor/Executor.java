@@ -14,6 +14,7 @@ import com.linkedin.kafka.cruisecontrol.executor.strategy.ReplicaMovementStrateg
 import com.linkedin.kafka.cruisecontrol.model.ReplicaPlacementInfo;
 import com.linkedin.kafka.cruisecontrol.monitor.LoadMonitor;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
+import io.confluent.databalancer.operation.BrokerRemovalCallback;
 import java.util.HashMap;
 import java.util.Optional;
 import kafka.admin.PreferredReplicaLeaderElectionCommand;
@@ -421,6 +422,64 @@ public class Executor {
                                             ReplicaMovementStrategy replicaMovementStrategy,
                                             Long replicationThrottle,
                                             String uuid) {
+    doExecuteProposals(proposals, unthrottledBrokers, loadMonitor, requestedInterBrokerPartitionMovementConcurrency,
+        requestedIntraBrokerPartitionMovementConcurrency, requestedLeadershipMovementConcurrency,
+        replicaMovementStrategy, uuid,
+        new ProposalExecutionRunnable(loadMonitor, null, removedBrokers, replicationThrottle)
+    );
+  }
+
+
+  /**
+   * Initialize proposal execution and start execution.
+   *
+   * @param proposals Proposals to be executed.
+   * @param unthrottledBrokers Brokers that are not throttled in terms of the number of in/out replica movements.
+   * @param removedBrokers Removed brokers, null if no brokers has been removed.
+   * @param loadMonitor Load monitor.
+   * @param requestedInterBrokerPartitionMovementConcurrency The maximum number of concurrent inter-broker partition movements
+   *                                                         per broker(if null, use num.concurrent.partition.movements.per.broker).
+   * @param requestedIntraBrokerPartitionMovementConcurrency The maximum number of concurrent intra-broker partition movements
+   *                                                         (if null, use num.concurrent.intra.broker.partition.movements).
+   * @param requestedLeadershipMovementConcurrency The maximum number of concurrent leader movements
+   *                                               (if null, use num.concurrent.leader.movements).
+   * @param replicaMovementStrategy The strategy used to determine the execution order of generated replica movement tasks.
+   * @param replicationThrottle The replication throttle (bytes/second) to apply to both leaders and followers
+   *                            when executing a proposal (if null, no throttling is applied).
+   * @param uuid UUID of the execution.
+   * @param progressCallback nullable, the broker removal callback to help track the progress of the operation
+   */
+  public synchronized void executeRemoveBrokerProposals(Collection<ExecutionProposal> proposals,
+                                                        Set<Integer> unthrottledBrokers,
+                                                        Set<Integer> removedBrokers,
+                                                        LoadMonitor loadMonitor,
+                                                        Integer requestedInterBrokerPartitionMovementConcurrency,
+                                                        Integer requestedIntraBrokerPartitionMovementConcurrency,
+                                                        Integer requestedLeadershipMovementConcurrency,
+                                                        ReplicaMovementStrategy replicaMovementStrategy,
+                                                        Long replicationThrottle,
+                                                        String uuid,
+                                                        BrokerRemovalCallback progressCallback) {
+    doExecuteProposals(proposals, unthrottledBrokers, loadMonitor, requestedInterBrokerPartitionMovementConcurrency,
+        requestedIntraBrokerPartitionMovementConcurrency, requestedLeadershipMovementConcurrency,
+        replicaMovementStrategy, uuid,
+        new BrokerRemovalProposalExecutionRunnable(loadMonitor, null, removedBrokers, replicationThrottle, progressCallback)
+    );
+  }
+
+  /**
+   * see #{@link #executeProposals(Collection, Set, Set, LoadMonitor, Integer, Integer, Integer, ReplicaMovementStrategy, Long, String)} for additional information
+   * @param executionRunnable the proposal execution runnable to run
+   */
+  private synchronized void doExecuteProposals(Collection<ExecutionProposal> proposals,
+                                               Set<Integer> unthrottledBrokers,
+                                               LoadMonitor loadMonitor,
+                                               Integer requestedInterBrokerPartitionMovementConcurrency,
+                                               Integer requestedIntraBrokerPartitionMovementConcurrency,
+                                               Integer requestedLeadershipMovementConcurrency,
+                                               ReplicaMovementStrategy replicaMovementStrategy,
+                                               String uuid,
+                                               ProposalExecutionRunnable executionRunnable) {
     if (_hasOngoingExecution) {
       throw new IllegalStateException("Cannot execute new proposals while there is an ongoing execution.");
     }
@@ -437,7 +496,7 @@ public class Executor {
     initProposalExecution(proposals, unthrottledBrokers, requestedInterBrokerPartitionMovementConcurrency,
         requestedIntraBrokerPartitionMovementConcurrency, requestedLeadershipMovementConcurrency,
         replicaMovementStrategy, uuid);
-    startExecution(loadMonitor, null, removedBrokers, replicationThrottle);
+    startExecution(executionRunnable);
   }
 
   // Package private for testing
@@ -458,7 +517,6 @@ public class Executor {
   }
 
   /**
-   * Dynamically set the inter-broker partition movement concurrency per broker.
    *
    * @param requestedInterBrokerPartitionMovementConcurrency The maximum number of concurrent inter-broker partition movements
    *                                                         per broker.
@@ -496,18 +554,9 @@ public class Executor {
 
   /**
    * Pause the load monitor and kick off the execution.
-   *
-   * @param loadMonitor Load monitor.
-   * @param demotedBrokers Brokers to be demoted, null if no broker has been demoted.
-   * @param removedBrokers Brokers to be removed, null if no broker has been removed.
-   * @param replicationThrottle The replication throttle (bytes/second) to apply to both leaders and followers
-   *                            while moving partitions (if null, no throttling is applied).
    */
   // Package private for testing
-  void startExecution(LoadMonitor loadMonitor,
-                      Collection<Integer> demotedBrokers,
-                      Collection<Integer> removedBrokers,
-                      Long replicationThrottle) {
+  void startExecution(ProposalExecutionRunnable runnable) {
     _executionStoppedByUser.set(false);
     sanityCheckOngoingReplicaMovement();
     _hasOngoingExecution = true;
@@ -519,8 +568,7 @@ public class Executor {
     } else {
       _numExecutionStartedInNonKafkaAssignerMode.incrementAndGet();
     }
-    _proposalExecutor.submit(
-            new ProposalExecutionRunnable(loadMonitor, demotedBrokers, removedBrokers, replicationThrottle));
+    _proposalExecutor.submit(runnable);
   }
 
   /**
@@ -654,19 +702,74 @@ public class Executor {
   }
 
   /**
+   * An extension of #{@link ProposalExecutionRunnable} for broker removal operations
+   * that supports tracking the removal's progress.
+   *
+   * For more detail, see #{@link ProposalExecutionRunnable}
+   */
+  class BrokerRemovalProposalExecutionRunnable extends ProposalExecutionRunnable {
+    private final BrokerRemovalCallback progressCallback;
+    private final Collection<Integer> removedBrokers;
+
+    /**
+     * @param progressCallback nullable, the callback to help track the broker removal progress
+     */
+    BrokerRemovalProposalExecutionRunnable(LoadMonitor loadMonitor, Collection<Integer> demotedBrokers,
+                                           Collection<Integer> removedBrokers, Long replicationThrottle,
+                                           BrokerRemovalCallback progressCallback) {
+      super(loadMonitor, demotedBrokers, removedBrokers, replicationThrottle);
+      this.removedBrokers = removedBrokers;
+      this.progressCallback = progressCallback;
+    }
+
+    public void run() {
+      try {
+        LOG.info("Starting execution of balancing proposals.");
+        execute();
+        LOG.info("Execution finished.");
+      } finally {
+        if (progressCallback != null) {
+          if (this._executionException == null) {
+            progressCallback.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_EXECUTION_SUCCESS);
+            LOG.info("Successfully completed the broker removal operation for brokers {}", this.removedBrokers);
+          } else {
+            Exception exc;
+            if (this._executionException instanceof Exception) {
+              exc = (Exception) this._executionException;
+            } else {
+              exc = new Exception(this._executionException.getMessage());
+            }
+            progressCallback.registerEvent(
+                BrokerRemovalCallback.BrokerRemovalEvent.PLAN_EXECUTION_FAILURE,
+                exc
+            );
+
+            LOG.info("The broker removal operation for brokers {} failed due to an unexpected exception while executing the proposals.",
+                this.removedBrokers, this._executionException);
+          }
+        }
+      }
+    }
+  }
+
+  /**
    * This class is thread safe.
    *
    * Note that once the thread for {@link ProposalExecutionRunnable} is submitted for running, the variable
    * _executionTaskManager can only be written within this inner class, but not from the outer Executor class.
+   *
+   * package-private for testing
    */
-  private class ProposalExecutionRunnable implements Runnable {
+  class ProposalExecutionRunnable implements Runnable {
     private final LoadMonitor _loadMonitor;
     private ExecutorState.State _state;
     private Set<Integer> _recentlyDemotedBrokers;
     private Set<Integer> _recentlyRemovedBrokers;
     private final Long _replicationThrottle;
     private final long _executionStartMs;
-    private Throwable _executionException;
+
+    // an exception that is populated if there was an exception with the execution
+    protected Throwable _executionException;
 
     ProposalExecutionRunnable(LoadMonitor loadMonitor,
                               Collection<Integer> demotedBrokers,
@@ -695,7 +798,7 @@ public class Executor {
     }
 
     public void run() {
-      LOG.info("Starting executing balancing proposals.");
+      LOG.info("Starting execution of balancing proposals.");
       execute();
       LOG.info("Execution finished.");
     }
@@ -703,7 +806,7 @@ public class Executor {
     /**
      * Start the actual execution of the proposals in order: First move replicas, then transfer leadership.
      */
-    private void execute() {
+    protected void execute() {
       _state = ExecutorState.State.STARTING_EXECUTION;
       _executorState = ExecutorState.executionStarted(_uuid, _recentlyDemotedBrokers, _recentlyRemovedBrokers);
       OPERATION_LOG.info("Task [{}] execution starts.", _uuid);

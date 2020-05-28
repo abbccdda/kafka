@@ -3,10 +3,10 @@
  */
 package io.confluent.databalancer.operation;
 
-import kafka.common.BrokerRemovalStatus;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import javax.annotation.concurrent.Immutable;
 import javax.annotation.concurrent.ThreadSafe;
 import org.apache.kafka.clients.admin.BrokerRemovalDescription.BrokerShutdownStatus;
 import org.apache.kafka.clients.admin.BrokerRemovalDescription.PartitionReassignmentsStatus;
@@ -66,23 +66,20 @@ public class BrokerRemovalStateMachine {
 
   // package-private for testing
   BrokerRemovalState currentState;
-  private BrokerRemovalStatus currentStatus;
 
   public BrokerRemovalStateMachine(int brokerId) {
     this.brokerId = brokerId;
     this.currentState = BrokerRemovalState.INITIAL_PLAN_COMPUTATION_INITIATED;
-    this.currentStatus = new BrokerRemovalStatus(brokerId, currentState.brokerShutdownStatus(),
-        currentState.partitionReassignmentsStatus(), null);
   }
 
   /**
    * React to a #{@link BrokerRemovalCallback.BrokerRemovalEvent}
    * by advancing the state machine.
    * @param event - the newly-occurred event on the broker removal operation
-   * @param exception nullable, the exception that caused the event
    * @throws IllegalStateException if the state transition is invalid
+   * @return - the removal state after the advance
    */
-  public synchronized void advanceState(BrokerRemovalCallback.BrokerRemovalEvent event, Exception exception) {
+  public synchronized BrokerRemovalState advanceState(BrokerRemovalCallback.BrokerRemovalEvent event) {
     if (currentState.isTerminal()) {
       throw new IllegalStateException(String.format("Cannot advance the state as %s is a terminal state", currentState.name()));
     }
@@ -92,21 +89,16 @@ public class BrokerRemovalStateMachine {
       throw new IllegalStateException(String.format("Cannot handle a %s removal event when in state %s", event, currentState.name()));
     }
 
-    this.currentStatus = new BrokerRemovalStatus(brokerId, nextState.brokerShutdownStatus(),
-        nextState.partitionReassignmentsStatus(),
-        exception);
-    log.info("Broker removal state for broker {} transitioned from {} to {}. New status: {}",
-        brokerId, currentState, nextState, currentStatus);
+    log.info("Broker removal state for broker {} transitioned from {} to {}.",
+        brokerId, currentState, nextState);
     this.currentState = nextState;
-  }
-
-  public synchronized BrokerRemovalStatus brokerStatus() {
-    return currentStatus;
+    return currentState;
   }
 
   /**
    * All the valid removal states with links to valid state transitions
    */
+  @Immutable
   public enum BrokerRemovalState {
 
     /**
@@ -187,8 +179,8 @@ public class BrokerRemovalStateMachine {
      * Whether this state is terminal or not
      */
     private final boolean isTerminal;
-    private BrokerShutdownStatus shutdownStatus;
-    private PartitionReassignmentsStatus partitionReassignmentsStatus;
+    private final BrokerShutdownStatus shutdownStatus;
+    private final PartitionReassignmentsStatus partitionReassignmentsStatus;
     private final Map<BrokerRemovalCallback.BrokerRemovalEvent, BrokerRemovalState> stateTransitions;
 
     /**

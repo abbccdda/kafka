@@ -7,6 +7,7 @@ package io.confluent.databalancer.metrics;
 import com.yammer.metrics.core.Metric;
 import com.yammer.metrics.core.MetricName;
 import com.yammer.metrics.core.MetricsRegistry;
+import java.util.HashMap;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -45,6 +46,25 @@ public class DataBalancerMetricsRegistryTest {
         Map<MetricName, Metric> addedMetrics = metricsRegistry.allMetrics();
         assertEquals("Expected only one metric to be added to registry", 1, addedMetrics.size());
         assertTrue("Expected gauge to be present in registry", addedMetrics.containsValue(testGauge));
+    }
+
+    @Test
+    public void testAddGaugeWithTags() {
+        Map<String, String> tags = new HashMap<>();
+        tags.put("a", "b");
+        tags.put("b", "2");
+        tags.put("c", "3");
+        String expectedTags = "a=b,b=2,c=3";
+        String name = "test";
+        String expectedFullName = "kafka.databalancer:type=DataBalancerMetricsRegistryTest,name=" + name + "," + expectedTags;
+
+        Metric testGauge = dataBalancerMetricsRegistry.newGauge(this.getClass(), name, () -> true, true, tags);
+
+        Map<MetricName, Metric> addedMetrics = metricsRegistry.allMetrics();
+        assertEquals("Expected only one metric to be added to registry", 1, addedMetrics.size());
+        assertTrue("Expected gauge to be present in registry", addedMetrics.containsValue(testGauge));
+        MetricName metricName = addedMetrics.keySet().iterator().next();
+        assertEquals(expectedFullName, metricName.toString());
     }
 
     @Test

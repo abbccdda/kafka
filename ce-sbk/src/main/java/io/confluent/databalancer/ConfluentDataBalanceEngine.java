@@ -6,18 +6,25 @@ package io.confluent.databalancer;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControl;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkInboundCapacityGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkOutboundCapacityGoal;
+import com.linkedin.kafka.cruisecontrol.client.BlockingSendClient;
 import com.linkedin.kafka.cruisecontrol.common.KafkaCruiseControlThreadFactory;
 import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityResolver;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
+import com.linkedin.kafka.cruisecontrol.exception.KafkaCruiseControlException;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore;
 import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSampler;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
+import io.confluent.databalancer.operation.BrokerRemovalStateTracker;
 import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
 import kafka.server.KafkaConfig;
 import org.apache.kafka.common.Endpoint;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.errors.InvalidRequestException;
+import org.apache.kafka.common.metrics.Metrics;
+import org.apache.kafka.common.utils.LogContext;
+import org.apache.kafka.common.utils.SystemTime;
+import org.apache.kafka.common.utils.Time;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.collection.JavaConverters;
@@ -38,6 +45,11 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+/**
+ * A simple class for:
+ * - providing an API mapping from DataBalanceManager<->CruiseControl
+ * - managing synchronization and computation resources for CruiseControl and the methods exposed
+ */
 public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     private static final Logger LOG = LoggerFactory.getLogger(ConfluentDataBalanceEngine.class);
 
@@ -58,6 +70,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     // potentially removable goals
     private static final String NETWORK_IN_CAPACITY_GOAL = NetworkInboundCapacityGoal.class.getName();
     private static final String NETWORK_OUT_CAPACITY_GOAL = NetworkOutboundCapacityGoal.class.getName();
+    private static final String SHUTDOWN_MANAGER_CLIENT_ID = "SBK-broker-shutdown-manager";
 
     // ccRunner is used to control all access to the underlying CruiseControl object;
     // access is serialized through here (in particular for startup/shutdown).
@@ -67,6 +80,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     // Visible for testing
     volatile KafkaCruiseControl cruiseControl;
     private Semaphore abortStartupCheck  = new Semaphore(0);
+    private final Time time;
 
     /**
      * If we have following timeline:
@@ -95,14 +109,16 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         this(dataBalancerMetricsRegistry,
              null,
              Executors.newSingleThreadExecutor(
-                     new KafkaCruiseControlThreadFactory("DataBalanceEngine", true, LOG)));
+                     new KafkaCruiseControlThreadFactory("DataBalanceEngine", true, LOG)),
+            new SystemTime());
     }
 
     // Visible for testing
-    ConfluentDataBalanceEngine(DataBalancerMetricsRegistry dataBalancerMetricsRegistry, KafkaCruiseControl cc, ExecutorService executor) {
+    ConfluentDataBalanceEngine(DataBalancerMetricsRegistry dataBalancerMetricsRegistry, KafkaCruiseControl cc, ExecutorService executor, Time time) {
         this.dataBalancerMetricsRegistry = Objects.requireNonNull(dataBalancerMetricsRegistry, "DataBalancerMetricsRegistry must be non-null");
-        ccRunner = Objects.requireNonNull(executor, "ExecutorService must be non-null");
-        cruiseControl = cc;
+        this.ccRunner = Objects.requireNonNull(executor, "ExecutorService must be non-null");
+        this.cruiseControl = cc;
+        this.time = time;
     }
 
     @Override
@@ -147,15 +163,17 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     }
 
     @Override
-    public void removeBroker(int brokerToRemove, Optional<Long> brokerToRemoveEpoch) {
-        LOG.info("DataBalancer: Scheduling DataBalanceEngine broker removal: {}", brokerToRemove);
+    public void removeBroker(int brokerToRemove, Optional<Long> brokerToRemoveEpoch,
+                             BrokerRemovalStateTracker stateTracker, String uid) {
+        LOG.info("DataBalancer: Scheduling DataBalanceEngine broker removal: {} (uid: {})", brokerToRemove, uid);
         if (!canAcceptRequests) {
-            String msg = String.format("Received request to remove broker %d while SBK is not started.", brokerToRemove);
+            String msg = String.format("Received request to remove broker %d (uid %s) while SBK is not started.",
+                brokerToRemove, uid);
             LOG.error(msg);
             throw new InvalidRequestException(msg);
         }
 
-        // XXX: CNKAF-649: This will get handled in next PR. Return success for now without doing anything
+        ccRunner.submit(() -> doRemoveBroker(brokerToRemove, brokerToRemoveEpoch, stateTracker, uid));
     }
 
     /**
@@ -187,6 +205,22 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         }
     }
 
+    private void doRemoveBroker(int brokerToRemove, Optional<Long> brokerToRemoveEpoch,
+                                BrokerRemovalStateTracker stateTracker, String uid) {
+        if (cruiseControl != null) {
+            LOG.info("Initiating broker removal operation with UUID {} for broker {} (epoch {})", uid, brokerToRemove, brokerToRemoveEpoch);
+            try {
+                cruiseControl.removeBroker(brokerToRemove, brokerToRemoveEpoch, stateTracker, uid);
+            } catch (KafkaCruiseControlException kce) {
+                LOG.error("Broker removal operation with UUID {} failed due to {}", uid, kce);
+            }
+        } else {
+            // TODO: https://confluentinc.atlassian.net/browse/CNKAF-756 - catch this error condition earlier
+            LOG.error("Broker removal operation with UUID {} was not initiated" +
+                "due to the data balance engine not being initialized", uid);
+        }
+    }
+
     /**
      * Launch CruiseControl. Expected to run in a thread-safe context such as a SingleThreadExecutor.
      * This should be appropriately serialized with shutdown requests.
@@ -195,7 +229,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
      */
     // Visible for testing
     void startCruiseControl(KafkaConfig kafkaConfig,
-                            Function<KafkaCruiseControlConfig, KafkaCruiseControl> kafkaCruiseControlCreator) {
+                            Function<KafkaConfig, KafkaCruiseControl> kafkaCruiseControlCreator) {
         if (cruiseControl != null) {
             LOG.warn("DataBalanceEngine already running when startUp requested.");
             return;
@@ -203,9 +237,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
 
         LOG.info("DataBalancer: Instantiating DataBalanceEngine");
         try {
-            KafkaCruiseControlConfig config = generateCruiseControlConfig(kafkaConfig);
-            checkStartupComponentsReady(config);
-            KafkaCruiseControl newCruiseControl = kafkaCruiseControlCreator.apply(config);
+            KafkaCruiseControl newCruiseControl = kafkaCruiseControlCreator.apply(kafkaConfig);
             newCruiseControl.startUp();
             this.cruiseControl = newCruiseControl;
             LOG.info("DataBalancer: DataBalanceEngine started");
@@ -220,8 +252,18 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
 
     // This method abstracts "new" call so that unit test can mock this part out
     // and test startCruiseControl method
-    private KafkaCruiseControl createKafkaCruiseControl(KafkaCruiseControlConfig config) {
-        return new KafkaCruiseControl(config, dataBalancerMetricsRegistry);
+    private KafkaCruiseControl createKafkaCruiseControl(KafkaConfig kafkaConfig) {
+        BlockingSendClient.Builder blockingSendClientBuilder = new BlockingSendClient.Builder(kafkaConfig, new Metrics(), time,
+            SHUTDOWN_MANAGER_CLIENT_ID, new LogContext());
+
+        KafkaCruiseControlConfig config = generateCruiseControlConfig(kafkaConfig);
+        try {
+            checkStartupComponentsReady(config);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+
+        return new KafkaCruiseControl(config, dataBalancerMetricsRegistry, blockingSendClientBuilder);
     }
 
     /**
