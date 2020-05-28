@@ -15,6 +15,8 @@ import kafka.server.KafkaConfig;
 import kafka.server.KafkaConfig$;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.Endpoint;
 import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
@@ -39,6 +41,10 @@ public class KafkaStoreConfigTest {
     props.put("confluent.metadata.consumer.ssl.keystore.location", "reader.keystore.jks");
     props.put("confluent.metadata.producer.ssl.keystore.location", "writer.keystore.jks");
     props.put("confluent.metadata.coordinator.ssl.keystore.location", "coordinator.keystore.jks");
+    props.put("confluent.metadata.producer.interceptor.classes", "MyProducerInterceptor");
+    props.put("confluent.metadata.consumer.interceptor.classes", "MyConsumerInterceptor");
+    props.put("confluent.metadata.interceptor.classes", "MyMetadataInterceptor");
+    props.put("interceptor.classes", "MyInterceptor");
     KafkaStoreConfig config = new KafkaStoreConfig(serverInfo, props);
 
     Map<String, Object> readerConfigs = config.consumerConfigs("metadata-auth");
@@ -49,6 +55,7 @@ public class KafkaStoreConfigTest {
     assertFalse(readerConfigs.containsKey("topic.replication.factor"));
     assertNotEquals(readerConfigs.get(CommonClientConfigs.CLIENT_ID_CONFIG),
         config.consumerConfigs("another-topic").get(CommonClientConfigs.CLIENT_ID_CONFIG));
+    assertFalse(readerConfigs.containsKey(ConsumerConfig.INTERCEPTOR_CLASSES_CONFIG));
 
     Map<String, Object> writerConfigs = config.producerConfigs("metadata-auth");
     assertEquals(bootstrap, writerConfigs.get(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG));
@@ -58,6 +65,7 @@ public class KafkaStoreConfigTest {
     assertFalse(writerConfigs.containsKey("topic.replication.factor"));
     assertNotEquals(writerConfigs.get(CommonClientConfigs.CLIENT_ID_CONFIG),
         config.producerConfigs("another-topic").get(CommonClientConfigs.CLIENT_ID_CONFIG));
+    assertFalse(writerConfigs.containsKey(ProducerConfig.INTERCEPTOR_CLASSES_CONFIG));
 
     Map<String, Object> coordinatorConfigs = config.coordinatorConfigs();
     assertEquals(bootstrap, coordinatorConfigs.get(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG));
@@ -65,6 +73,7 @@ public class KafkaStoreConfigTest {
     assertEquals("coordinator.keystore.jks", coordinatorConfigs.get(SslConfigs.SSL_KEYSTORE_LOCATION_CONFIG));
     assertEquals("TLSv1.2", coordinatorConfigs.get(SslConfigs.SSL_PROTOCOL_CONFIG));
     assertFalse(coordinatorConfigs.containsKey("topic.replication.factor"));
+    assertFalse(coordinatorConfigs.containsKey(ConsumerConfig.INTERCEPTOR_CLASSES_CONFIG));
   }
 
   @Test

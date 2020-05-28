@@ -34,6 +34,7 @@ import io.confluent.security.rbac.InvalidRoleBindingException;
 import io.confluent.security.rbac.RbacRoles;
 import io.confluent.security.store.MetadataStoreStatus;
 import io.confluent.security.store.NotMasterWriterException;
+import io.confluent.security.store.kafka.clients.JsonSerde;
 import io.confluent.security.test.utils.RbacTestUtils;
 import java.net.URL;
 import java.util.ArrayList;
@@ -63,6 +64,9 @@ import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.errors.AuthenticationException;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.errors.NotLeaderForPartitionException;
+import org.apache.kafka.common.header.Headers;
+import org.apache.kafka.common.header.internals.RecordHeader;
+import org.apache.kafka.common.header.internals.RecordHeaders;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.MockTime;
@@ -280,6 +284,29 @@ public class KafkaAuthWriterTest {
     } finally {
       executorService.shutdownNow();
     }
+  }
+
+  /**
+   * Verifies that headers injected by tracing/monitoring frameworks don't cause any issues.
+   */
+  @Test
+  public void testHeaders() throws Exception {
+    RecordHeader header = new RecordHeader("TRACE", "test".getBytes("UTF-8"));
+    authStore.header = header;
+    authWriter.addClusterRoleBinding(alice, "ClusterAdmin", clusterA).toCompletableFuture().join();
+    assertEquals(Collections.emptySet(), rbacResources(alice, "ClusterAdmin", clusterA));
+
+    Headers headers = new RecordHeaders().add(header);
+    JsonSerde<RoleBindingKey> keySerde = JsonSerde.serde(RoleBindingKey.class, true);
+    RoleBindingKey key = new RoleBindingKey(new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice"),
+        "ClusterAdmin", clusterA);
+    assertEquals(key, keySerde.deserialize("topic1", keySerde.serialize("topic2", key)));
+    assertEquals(key, keySerde.deserialize("topic1", headers, keySerde.serialize("topic2", headers, key)));
+
+    JsonSerde<RoleBindingValue> valueSerde = JsonSerde.serde(RoleBindingValue.class, false);
+    RoleBindingValue value = new RoleBindingValue(Collections.emptySet());
+    assertEquals(value, valueSerde.deserialize("topic1", valueSerde.serialize("topic2", value)));
+    assertEquals(value, valueSerde.deserialize("topic1", headers, valueSerde.serialize("topic2", headers, value)));
   }
 
   @Test(expected = InvalidRequestException.class)

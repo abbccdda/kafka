@@ -92,6 +92,7 @@ public class KafkaStoreConfig extends AbstractConfig {
 
   public Map<String, Object> consumerConfigs(String topic) {
     Map<String, Object> configs = ConfluentConfigs.clientConfigs(this, PREFIX, ClientType.CONSUMER, topic, String.valueOf(brokerId));
+    configs.remove(ConsumerConfig.INTERCEPTOR_CLASSES_CONFIG);
 
     configs.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
     configs.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
@@ -101,6 +102,7 @@ public class KafkaStoreConfig extends AbstractConfig {
 
   public Map<String, Object> producerConfigs(String topic) {
     Map<String, Object> configs = ConfluentConfigs.clientConfigs(this, PREFIX, ClientType.PRODUCER, topic, String.valueOf(brokerId));
+    configs.remove(ProducerConfig.INTERCEPTOR_CLASSES_CONFIG);
 
     configs.put(ProducerConfig.ACKS_CONFIG, "all");
     configs.put(ProducerConfig.RETRIES_CONFIG, "0");
@@ -110,6 +112,7 @@ public class KafkaStoreConfig extends AbstractConfig {
 
   public Map<String, Object> coordinatorConfigs() {
     Map<String, Object> configs = ConfluentConfigs.clientConfigs(this, PREFIX, ClientType.COORDINATOR, TOPIC_PREFIX, String.valueOf(brokerId));
+    configs.remove(ConsumerConfig.INTERCEPTOR_CLASSES_CONFIG);
 
     configs.put(ConsumerConfig.GROUP_ID_CONFIG, TOPIC_PREFIX + "-coordinator-group");
     configs.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");

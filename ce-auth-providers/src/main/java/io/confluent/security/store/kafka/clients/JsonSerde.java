@@ -9,7 +9,6 @@ import java.util.Collections;
 import java.util.Map;
 import org.apache.kafka.common.Configurable;
 import org.apache.kafka.common.errors.SerializationException;
-import org.apache.kafka.common.header.Headers;
 import org.apache.kafka.common.serialization.Deserializer;
 import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.common.serialization.Serializer;
@@ -55,14 +54,6 @@ public class JsonSerde<T> implements Serde<T>, Serializer<T>, Deserializer<T>, C
   }
 
   @Override
-  public byte[] serialize(String topic, Headers headers, T data) {
-    if (headers.toArray().length > 0)
-      throw new IllegalArgumentException("Headers not supported");
-    else
-      return serialize(topic, data);
-  }
-
-  @Override
   public T deserialize(String topic, byte[] data) {
     if (data != null) {
       try {
@@ -73,14 +64,6 @@ public class JsonSerde<T> implements Serde<T>, Serializer<T>, Deserializer<T>, C
     } else {
       return null;
     }
-  }
-
-  @Override
-  public T deserialize(String topic, Headers headers, byte[] data) {
-    if (headers.toArray().length > 0)
-      throw new IllegalArgumentException("Headers not supported");
-    else
-      return deserialize(topic, data);
   }
 
   @Override

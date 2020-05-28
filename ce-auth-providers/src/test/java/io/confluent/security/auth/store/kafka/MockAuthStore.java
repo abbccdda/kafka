@@ -68,6 +68,7 @@ import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartitionInfo;
+import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.message.FindCoordinatorResponseData;
 import org.apache.kafka.common.message.JoinGroupResponseData;
 import org.apache.kafka.common.message.SyncGroupResponseData;
@@ -102,6 +103,7 @@ public class MockAuthStore extends KafkaAuthStore {
   private volatile long produceDelayMs;
   private volatile long consumeDelayMs;
   private volatile MockClient coordinatorClient;
+  volatile Header header;
 
   public MockAuthStore(RbacRoles roles,
                        Time time,
@@ -151,6 +153,8 @@ public class MockAuthStore extends KafkaAuthStore {
     producer = new MockProducer<AuthKey, AuthValue>(cluster, false, null, null, null) {
       @Override
       public synchronized Future<RecordMetadata> send(ProducerRecord<AuthKey, AuthValue> record, Callback callback) {
+        if (header != null)
+          record.headers().add(header);
         Future<RecordMetadata> future = super.send(record, callback);
         onSend(record, executor);
         return future;
