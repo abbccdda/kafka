@@ -25,6 +25,7 @@ import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.errors.CorruptRecordException;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
@@ -59,8 +60,8 @@ import java.util.concurrent.atomic.AtomicLong;
  *   <li>{@link #BROKER_METRIC_SAMPLE_STORE_TOPIC_CONFIG}: The config for the topic name of Kafka topic to store broker samples.</li>
  *   <li>{@link #NUM_SAMPLE_LOADING_THREADS_CONFIG}: The config for the number of Kafka sample store consumer threads, default value is
  *   set to {@link #DEFAULT_NUM_SAMPLE_LOADING_THREADS}.</li>
- *   <li>{@link #SAMPLE_STORE_TOPIC_REPLICATION_FACTOR_CONFIG}: The config for the replication factor of Kafka sample store topics,
- *   default value is set to {@link #DEFAULT_SAMPLE_STORE_TOPIC_REPLICATION_FACTOR}.</li>
+ *   <li>{@link ConfluentConfigs#BALANCER_TOPICS_REPLICATION_FACTOR_CONFIG}: The config for the replication factor of Kafka sample store topics,
+ *   default value is set to {@link ConfluentConfigs#BALANCER_TOPICS_REPLICATION_FACTOR_DEFAULT}.</li>
  *   <li>{@link #PARTITION_SAMPLE_STORE_TOPIC_PARTITION_COUNT_CONFIG}: The config for the number of partition for Kafka partition sample store
  *    topic, default value is set to {@link #DEFAULT_PARTITION_SAMPLE_STORE_TOPIC_PARTITION_COUNT}.</li>
  *   <li>{@link #BROKER_SAMPLE_STORE_TOPIC_PARTITION_COUNT_CONFIG}: The config for the number of partition for Kafka broker sample store topic,
@@ -84,7 +85,6 @@ public class KafkaSampleStore implements SampleStore {
   private static final String DEFAULT_PARTITION_SAMPLE_STORE_TOPIC = "_confluent_balancer_partition_samples";
   private static final String DEFAULT_BROKER_SAMPLE_STORE_TOPIC =  "_confluent_balancer_broker_samples";
   protected static final int DEFAULT_NUM_SAMPLE_LOADING_THREADS = 2;
-  protected static final int DEFAULT_SAMPLE_STORE_TOPIC_REPLICATION_FACTOR = 3;
   protected static final int DEFAULT_PARTITION_SAMPLE_STORE_TOPIC_PARTITION_COUNT = 32;
   protected static final int DEFAULT_BROKER_SAMPLE_STORE_TOPIC_PARTITION_COUNT = 32;
   protected static final long DEFAULT_MIN_PARTITION_SAMPLE_STORE_TOPIC_RETENTION_TIME_MS = 3600000L; // 1 hour
@@ -106,7 +106,6 @@ public class KafkaSampleStore implements SampleStore {
   public static final String PARTITION_METRIC_SAMPLE_STORE_TOPIC_CONFIG = "partition.metric.sample.store.topic";
   public static final String BROKER_METRIC_SAMPLE_STORE_TOPIC_CONFIG = "broker.metric.sample.store.topic";
   public static final String NUM_SAMPLE_LOADING_THREADS_CONFIG = "num.sample.loading.threads";
-  public static final String SAMPLE_STORE_TOPIC_REPLICATION_FACTOR_CONFIG = "sample.store.topic.replication.factor";
   public static final String PARTITION_SAMPLE_STORE_TOPIC_PARTITION_COUNT_CONFIG = "partition.sample.store.topic.partition.count";
   public static final String BROKER_SAMPLE_STORE_TOPIC_PARTITION_COUNT_CONFIG = "broker.sample.store.topic.partition.count";
   public static final String MIN_PARTITION_SAMPLE_STORE_TOPIC_RETENTION_TIME_MS_CONFIG = "min.partition.sample.store.topic.retention.time.ms";
@@ -220,8 +219,8 @@ public class KafkaSampleStore implements SampleStore {
     return new SbkTopicUtils.SbkTopicConfigBuilder()
             .setTopic(topic)
             .setReplicationFactor(config,
-                    SAMPLE_STORE_TOPIC_REPLICATION_FACTOR_CONFIG,
-                    DEFAULT_SAMPLE_STORE_TOPIC_REPLICATION_FACTOR)
+                    ConfluentConfigs.BALANCER_TOPICS_REPLICATION_FACTOR_CONFIG,
+                    ConfluentConfigs.BALANCER_TOPICS_REPLICATION_FACTOR_DEFAULT)
             .setCleanupPolicy(DEFAULT_CLEANUP_POLICY);
   }
 

@@ -220,6 +220,11 @@ public final class SbkTopicUtils {
             return this;
         }
 
+        public SbkTopicConfigBuilder setPartitionCount(int partitionCount) {
+            this.partitionCount = partitionCount;
+            return this;
+        }
+
         public SbkTopicConfigBuilder setCleanupPolicy(String cleanupPolicy) {
             this.cleanupPolicy = cleanupPolicy;
             return this;

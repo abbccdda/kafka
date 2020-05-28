@@ -1640,6 +1640,13 @@ object KafkaConfig {
       .define(ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG, LIST,
               ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_DEFAULT, MEDIUM,
               ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_DOC)
+
+      .defineInternal(ConfluentConfigs.BALANCER_API_STATE_TOPIC_CONFIG, STRING,
+                      ConfluentConfigs.BALANCER_API_STATE_TOPIC_DEFAULT, LOW,
+                      ConfluentConfigs.BALANCER_API_STATE_TOPIC_DOC)
+      .defineInternal(ConfluentConfigs.BALANCER_TOPICS_REPLICATION_FACTOR_CONFIG, SHORT,
+                      ConfluentConfigs.BALANCER_TOPICS_REPLICATION_FACTOR_DEFAULT, LOW,
+                      ConfluentConfigs.BALANCER_TOPIC_REPLICATION_FACTOR_DOC)
       .defineInternal(ConfluentConfigs.APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS, BOOLEAN,
                       ConfluentConfigs.APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS_DEFAULT, HIGH,
                       ConfluentConfigs.APPLY_CREATE_TOPIC_POLICY_TO_CREATE_PARTITIONS_DOC)

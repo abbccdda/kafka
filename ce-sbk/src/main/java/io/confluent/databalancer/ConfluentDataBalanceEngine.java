@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2020 Confluent Inc.
  */
 package io.confluent.databalancer;
@@ -15,6 +15,7 @@ import com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore;
 import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSampler;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import io.confluent.databalancer.operation.BrokerRemovalStateTracker;
+import io.confluent.databalancer.persistence.ApiStatePersistenceStore;
 import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
 import kafka.server.KafkaConfig;
 import org.apache.kafka.common.Endpoint;
@@ -61,6 +62,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     static {
         STARTUP_COMPONENTS.add(ConfluentMetricsReporterSampler::checkStartupCondition);
         STARTUP_COMPONENTS.add(KafkaSampleStore::checkStartupCondition);
+        STARTUP_COMPONENTS.add(ApiStatePersistenceStore::checkStartupCondition);
     }
 
     private static final int SHUTDOWN_TIMEOUT_MS = 15000;
@@ -383,9 +385,11 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         }
 
         String metricsReporterReplFactor = (String) kccProps.get(ConfluentMetricsReporterConfig.TOPIC_REPLICAS_CONFIG);
-        // The metrics reporter replication factor is the same RF we should use for the sample store topic.
+        // The metrics reporter replication factor is the same RF we should use for all databalancer topics like:
+        // 1. sample store topic.
+        // 2. api state persistence topic
         if (metricsReporterReplFactor != null && metricsReporterReplFactor.length() > 0) {
-            ccConfigProps.putIfAbsent(KafkaSampleStore.SAMPLE_STORE_TOPIC_REPLICATION_FACTOR_CONFIG,
+            ccConfigProps.putIfAbsent(ConfluentConfigs.BALANCER_TOPICS_REPLICATION_FACTOR_CONFIG,
                     metricsReporterReplFactor);
         }
 

@@ -20,7 +20,6 @@ import com.linkedin.kafka.cruisecontrol.analyzer.goals.ReplicaDistributionGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.TopicReplicaDistributionGoal;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.exception.KafkaCruiseControlException;
-import com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore;
 import io.confluent.cruisecontrol.analyzer.goals.CrossRackMovementGoal;
 import io.confluent.cruisecontrol.analyzer.goals.SequentialReplicaMovementGoal;
 import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSampler;
@@ -46,7 +45,6 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 import scala.collection.JavaConverters;
-import scala.collection.Seq;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -284,8 +282,8 @@ public class ConfluentDataBalanceEngineTest  {
         Map<String, Object> ccOriginals = ccConfig.originals();
         assertFalse("ConfluentMetricsReporterSampler.METRIC_REPORTER_TOPIC_PATTERN found in config",
                 ccOriginals.containsKey(ConfluentMetricsReporterSampler.METRIC_REPORTER_TOPIC_PATTERN));
-        assertFalse("KafkaSampleStore.SAMPLE_STORE_TOPIC_REPLICATION_FACTOR_CONFIG found in config",
-                ccOriginals.containsKey(KafkaSampleStore.SAMPLE_STORE_TOPIC_REPLICATION_FACTOR_CONFIG));
+        assertFalse("ConfluentConfigs.BALANCER_TOPICS_REPLICATION_FACTOR_CONFIG found in config",
+                ccOriginals.containsKey(ConfluentConfigs.BALANCER_TOPICS_REPLICATION_FACTOR_CONFIG));
     }
 
     @Test
@@ -379,7 +377,7 @@ public class ConfluentDataBalanceEngineTest  {
         Object actualMetricsTopic = ccOriginals.get(ConfluentMetricsReporterSampler.METRIC_REPORTER_TOPIC_PATTERN);
         assertEquals(actualMetricsTopic + " is not same as expected " + testMetricsTopic,
                 testMetricsTopic, actualMetricsTopic);
-        Object actualTopicRf = ccOriginals.get(KafkaSampleStore.SAMPLE_STORE_TOPIC_REPLICATION_FACTOR_CONFIG);
+        Object actualTopicRf = ccOriginals.get(ConfluentConfigs.BALANCER_TOPICS_REPLICATION_FACTOR_CONFIG);
         assertEquals(actualTopicRf + " is not same as expected " + testMetricsRfValue,
                 testMetricsRfValue, actualTopicRf);
 
@@ -447,8 +445,6 @@ public class ConfluentDataBalanceEngineTest  {
     @Test
     public void testInvalidSelfHealingConfig() {
         // Add required properties
-        final String sampleZkString = "zookeeper-1-internal.pzkc-ldqwz.svc.cluster.local:2181,zookeeper-2-internal.pzkc-ldqwz.svc.cluster.local:2181/testKafkaCluster";
-
         final String selfHealingDisabled = "disabled";
         brokerProps.put(ConfluentConfigs.BALANCER_AUTO_HEAL_MODE_CONFIG, selfHealingDisabled);
 
@@ -459,8 +455,6 @@ public class ConfluentDataBalanceEngineTest  {
     @Test
     public void testGenerateCruiseControlExclusionConfig() {
         // Add required properties
-        final String sampleZkString = "zookeeper-1-internal.pzkc-ldqwz.svc.cluster.local:2181,zookeeper-2-internal.pzkc-ldqwz.svc.cluster.local:2181/testKafkaCluster";
-
         // Set topic exclusions (same as above tests)
         String topicNames = "topic1, top.c2, test-topic";
         String topicPrefixes = "prefix1, pref*x2";
@@ -497,7 +491,7 @@ public class ConfluentDataBalanceEngineTest  {
         props.put(SslConfigs.SSL_PROTOCOL_CONFIG, "TLSv1.2");
         props.put(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG, "test.truststore.jks");
         props.put(SslConfigs.SSL_KEYSTORE_LOCATION_CONFIG, "test.keystore.jks");
-        props.put(SslConfigs.SSL_CIPHER_SUITES_CONFIG, Arrays.asList("TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA"));
+        props.put(SslConfigs.SSL_CIPHER_SUITES_CONFIG, Collections.singletonList("TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA"));
         props.put(SslConfigs.SSL_PROVIDER_CONFIG, "JVM");
         props.put("listener.name.internal.ssl.keystore.location", "listener.keystore.jks");
         props.put("inter.broker.listener.name", "INTERNAL");
@@ -512,7 +506,7 @@ public class ConfluentDataBalanceEngineTest  {
         assertEquals("test.truststore.jks", clientConfigs.get(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG));
         assertEquals("listener.keystore.jks", clientConfigs.get(SslConfigs.SSL_KEYSTORE_LOCATION_CONFIG));
         assertEquals("TLSv1.2", clientConfigs.get(SslConfigs.SSL_PROTOCOL_CONFIG));
-        assertEquals(Arrays.asList("TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA"), clientConfigs.get(SslConfigs.SSL_CIPHER_SUITES_CONFIG));
+        assertEquals(Collections.singletonList("TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA"), clientConfigs.get(SslConfigs.SSL_CIPHER_SUITES_CONFIG));
         assertEquals("JVM", clientConfigs.get(SslConfigs.SSL_PROVIDER_CONFIG));
     }
 
@@ -536,7 +530,7 @@ public class ConfluentDataBalanceEngineTest  {
     }
 
     @Test
-    public void testStartupComponentsReadySuccessful() throws Exception {
+    public void testStartupComponentsReadySuccessful() {
         List<BiConsumer<KafkaCruiseControlConfig, Semaphore>> startupComponents = ConfluentDataBalanceEngine.STARTUP_COMPONENTS;
         try {
             ConfluentDataBalanceEngine.STARTUP_COMPONENTS.clear();
@@ -681,7 +675,7 @@ public class ConfluentDataBalanceEngineTest  {
             ConfluentDataBalanceEngine.STARTUP_COMPONENTS.clear();
             KafkaConfig config = mock(KafkaConfig.class);
             List<String> logDirs = Collections.singletonList("/log_dir");
-            when(config.logDirs()).thenReturn((Seq<String>) JavaConverters.asScalaBuffer(logDirs));
+            when(config.logDirs()).thenReturn(JavaConverters.asScalaBuffer(logDirs));
             when(config.getString(ConfluentConfigs.BALANCER_AUTO_HEAL_MODE_CONFIG)).thenReturn(ConfluentConfigs.BalancerSelfHealMode.ANY_UNEVEN_LOAD.toString());
             when(config.originalsWithPrefix(Mockito.anyString())).thenReturn(
                     Collections.singletonMap(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG, "bootstrap_server"));

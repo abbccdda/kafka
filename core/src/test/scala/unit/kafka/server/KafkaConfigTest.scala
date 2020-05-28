@@ -869,6 +869,8 @@ class KafkaConfigTest {
         case ConfluentConfigs.BALANCER_BROKER_FAILURE_THRESHOLD_CONFIG =>
         case ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG =>
         case ConfluentConfigs.BALANCER_EXCLUDE_TOPIC_PREFIXES_CONFIG =>
+        case ConfluentConfigs.BALANCER_API_STATE_TOPIC_CONFIG =>
+        case ConfluentConfigs.BALANCER_TOPICS_REPLICATION_FACTOR_CONFIG =>
         case ConfluentConfigs.CLUSTER_LINK_ENABLE_CONFIG =>
         case ConfluentConfigs.NUM_CLUSTER_LINK_REPLICATION_QUOTAS_SAMPLES_CONFIG =>
         case ConfluentConfigs.CLUSTER_LINK_REPLICATION_QUOTA_WINDOW_SIZE_SECONDS_CONFIG =>

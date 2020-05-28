@@ -274,6 +274,20 @@ public class ConfluentConfigs {
             "exclude topics 'prefix1-suffix1', 'prefix1-suffix2', 'prefix2-suffix3', but not 'abc-prefix1-xyz'" +
             " and 'def-prefix2'";
 
+    public static final String BALANCER_API_STATE_TOPIC = "api.state.topic";
+    public static final String BALANCER_API_STATE_TOPIC_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_API_STATE_TOPIC;
+    public static final String BALANCER_API_STATE_TOPIC_DEFAULT = "_confluent_balancer_api_state";
+    public static final String BALANCER_API_STATE_TOPIC_DOC = "Name of topic to use to store state of Confluent Balancer API. The " +
+            "topic will be used to store progress/failure of the api and will be used in case of recovery to resume long running operations like " +
+            "remove or add broker.";
+
+    public static final String BALANCER_TOPICS_REPLICATION_FACTOR = "topic.replication.factor";
+    public static final String BALANCER_TOPICS_REPLICATION_FACTOR_CONFIG = CONFLUENT_BALANCER_PREFIX +
+            BALANCER_TOPICS_REPLICATION_FACTOR;
+    public static final Short BALANCER_TOPICS_REPLICATION_FACTOR_DEFAULT = 3;
+    public static final String BALANCER_TOPIC_REPLICATION_FACTOR_DOC =
+            "Replication factor for all topics that is created and need by Confluent Balancer. This includes Sample Store and API state topics.";
+
     public static final String MULTITENANT_LISTENER_NAMES_CONFIG = CONFLUENT_PREFIX + "multitenant.listener.names";
     public static final String MULTITENANT_LISTENER_NAMES_DEFAULT = null;
     public static final String MULTITENANT_LISTENER_NAMES_DOC =
