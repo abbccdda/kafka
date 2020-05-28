@@ -159,12 +159,24 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
     public static final String TELEMETRY_ENABLED_DOC = "True if telemetry data can to be reported to Confluent Cloud";
     public static final boolean TELEMETRY_ENABLED_DEFAULT = true;
 
+    public static final String TELEMETRY_PROXY_URL = PREFIX + HttpExporterConfig.PREFIX_PROXY + "url";
+    public static final String TELEMETRY_PROXY_URL_DOC = "The URL for an explicit (i.e. not transparent) forward HTTP proxy to send Telemetry data to Confluent Cloud";
+
+    public static final String TELEMETRY_PROXY_USERNAME = PREFIX + HttpExporterConfig.PREFIX_PROXY + "username";
+    public static final String TELEMETRY_PROXY_USERNAME_DOC = "The username credential for the forward HTTP proxy to send Telemetry data to Confluent Cloud";
+
+    public static final String TELEMETRY_PROXY_PASSWORD = PREFIX + HttpExporterConfig.PREFIX_PROXY + "password";
+    public static final String TELEMETRY_PROXY_PASSWORD_DOC = "The password credential for the forward HTTP proxy to send Telemetry data to Confluent Cloud";
+
     public static final Set<String> RECONFIGURABLES =
         ImmutableSet.of(
             WHITELIST_CONFIG,
             TELEMETRY_ENABLED_CONFIG,
             TELEMETRY_API_KEY,
-            TELEMETRY_API_SECRET
+            TELEMETRY_API_SECRET,
+            TELEMETRY_PROXY_URL,
+            TELEMETRY_PROXY_USERNAME,
+            TELEMETRY_PROXY_PASSWORD
         );
 
     // Internal map used to reconcile config parameters for default _confluent http exporter using the
@@ -174,13 +186,19 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
     //   confluent.telemetry.enabled => confluent.telemetry.exporter._confluent.enabled,
     //   confluent.telemetry.api.key => confluent.telemetry.exporter._confluent.api.key,
     //   confluent.telemetry.api.secret => confluent.telemetry.exporter._confluent.api.secret,
+    //   confluent.telemetry.proxy.url => confluent.telemetry.exporter._confluent.proxy.url
+    //   confluent.telemetry.proxy.username => confluent.telemetry.exporter._confluent.proxy.username
+    //   confluent.telemetry.proxy.password => confluent.telemetry.exporter._confluent.proxy.password
     //)
     private static final ImmutableMap<String, String> RECONCILABLE_CONFIG_MAP =
-        ImmutableMap.of(
-            TELEMETRY_ENABLED_CONFIG, exporterPrefixForName(EXPORTER_CONFLUENT_NAME) + ExporterConfig.ENABLED_CONFIG,
-            TELEMETRY_API_KEY, exporterPrefixForName(EXPORTER_CONFLUENT_NAME) + HttpExporterConfig.API_KEY,
-            TELEMETRY_API_SECRET, exporterPrefixForName(EXPORTER_CONFLUENT_NAME) + HttpExporterConfig.API_SECRET);
-
+        ImmutableMap.<String, String>builder()
+            .put(TELEMETRY_ENABLED_CONFIG, exporterPrefixForName(EXPORTER_CONFLUENT_NAME) + ExporterConfig.ENABLED_CONFIG)
+            .put(TELEMETRY_API_KEY, exporterPrefixForName(EXPORTER_CONFLUENT_NAME) + HttpExporterConfig.API_KEY)
+            .put(TELEMETRY_API_SECRET, exporterPrefixForName(EXPORTER_CONFLUENT_NAME) + HttpExporterConfig.API_SECRET)
+            .put(TELEMETRY_PROXY_URL, exporterPrefixForName(EXPORTER_CONFLUENT_NAME) + HttpExporterConfig.PROXY_URL)
+            .put(TELEMETRY_PROXY_USERNAME, exporterPrefixForName(EXPORTER_CONFLUENT_NAME) + HttpExporterConfig.PROXY_USERNAME)
+            .put(TELEMETRY_PROXY_PASSWORD, exporterPrefixForName(EXPORTER_CONFLUENT_NAME) + HttpExporterConfig.PROXY_PASSWORD)
+            .build();
 
     private static final ConfigDef CONFIG = new ConfigDef()
         .define(
@@ -235,6 +253,25 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
             TELEMETRY_ENABLED_DEFAULT,
             ConfigDef.Importance.MEDIUM,
             TELEMETRY_ENABLED_DOC
+        ).define(
+            TELEMETRY_PROXY_URL,
+            ConfigDef.Type.STRING,
+            null,
+            new HttpExporterConfig.URIValidator(),
+            ConfigDef.Importance.LOW,
+            TELEMETRY_PROXY_URL_DOC
+        ).define(
+            TELEMETRY_PROXY_USERNAME,
+            ConfigDef.Type.STRING,
+            null,
+            ConfigDef.Importance.LOW,
+            TELEMETRY_PROXY_USERNAME_DOC
+        ).define(
+            TELEMETRY_PROXY_PASSWORD,
+            ConfigDef.Type.STRING,
+            null,
+            ConfigDef.Importance.LOW,
+            TELEMETRY_PROXY_PASSWORD_DOC
         );
 
     public static final Predicate<MetricKey> ALWAYS_TRUE = metricKey -> true;

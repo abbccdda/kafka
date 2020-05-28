@@ -44,7 +44,6 @@ public class HttpExporterConfig extends ExporterConfig {
 
     public static final String API_SECRET = "api.secret";
     public static final String API_SECRET_DOC = "The API secret used to authenticate requests made by HttpExporter";
-    public static final Set<String> RECONFIGURABLE_CONFIGS = Utils.mkSet(API_KEY, API_SECRET);
 
     public static final String BUFFER_MAX_BATCH_DURATION_MS = PREFIX_BUFFER + "batch.duration.max.ms";
     public static final String BUFFER_MAX_BATCH_DURATION_MS_DOC = "The maximum duration (in millis) to buffer items before sending them upstream";
@@ -88,6 +87,8 @@ public class HttpExporterConfig extends ExporterConfig {
 
     public static final String PROXY_PASSWORD = PREFIX_PROXY + "password";
     public static final String PROXY_PASSWORD_DOC = "The password credential for the forward HTTP proxy";
+
+    public static final Set<String> RECONFIGURABLE_CONFIGS = Utils.mkSet(API_KEY, API_SECRET, PROXY_URL, PROXY_USERNAME, PROXY_PASSWORD);
 
     private static final ConfigDef CONFIG = new ConfigDef()
         .define(
@@ -257,7 +258,7 @@ public class HttpExporterConfig extends ExporterConfig {
         return false;
     }
 
-    private static class URIValidator implements Validator {
+    public static class URIValidator implements Validator {
 
         @Override
         public void ensureValid(String name, Object value) {

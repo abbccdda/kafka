@@ -8,11 +8,13 @@ import com.google.protobuf.Timestamp;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.net.URI;
 import java.nio.ByteBuffer;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
@@ -202,5 +204,10 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
             canEmitMetrics = false;
         }
         this.bufferingClient.updateCredentials(apiKey, apiSecretKey);
+
+        Optional.ofNullable(config.getString(HttpExporterConfig.PROXY_URL)).map(URI::create).ifPresent(this.bufferingClient::updateProxyUrl);
+        String username = config.getString(HttpExporterConfig.PROXY_USERNAME);
+        String password = config.getString(HttpExporterConfig.PROXY_PASSWORD);
+        this.bufferingClient.updateProxyCredentials(username, password);
     }
 }
