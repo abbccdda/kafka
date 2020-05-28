@@ -2,17 +2,15 @@
 
 package io.confluent.kafka.server.plugins.policy;
 
-import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.errors.PolicyViolationException;
 
 import java.util.Map;
-import java.util.Properties;
 
 import io.confluent.kafka.multitenant.MultiTenantConfigRestrictions;
 
-public class TopicPolicyConfig extends AbstractConfig {
+public class TopicPolicyConfig extends AbstractPolicyConfig {
 
   public static final String BASE_PREFIX = "confluent.plugins.";
   public static final String TOPIC_PREFIX = TopicPolicyConfig.BASE_PREFIX + "topic.policy.";
@@ -39,7 +37,6 @@ public class TopicPolicyConfig extends AbstractConfig {
   public static final String RETENTION_MS_MAX_CONFIG =
       TopicPolicyConfig.TOPIC_PREFIX + "retention.ms.max";
 
-  // allow max value until CCloud Pro can be special cased
   public static final long DEFAULT_RETENTION_MS_MAX = Long.MAX_VALUE;
   protected static final String RETENTION_MS_MAX_CONFIG_DOC =
       "The maximum allowed value for the retention.ms topic config property.";
@@ -51,8 +48,8 @@ public class TopicPolicyConfig extends AbstractConfig {
   protected static final String DELETE_RETENTION_MS_MAX_CONFIG_DOC =
       "The maximum allowed value for the delete.retention.ms topic config property.";
 
-  // CCloud public documentation says max message bytes is 6 MB, we are leaving this at 8
-  // because some customers have already been told to use 8
+  // Note that the limit should be 2 MB for multi tenant clusters, but we currently enforce
+  // the higher dedicated cluster limit uniformly
   public static final String MAX_MESSAGE_BYTES_MAX_CONFIG =
       TopicPolicyConfig.TOPIC_PREFIX + "max.message.bytes.max";
   public static final int DEFAULT_MAX_MESSAGE_BYTES_MAX = 8 * 1024 * 1024;
@@ -63,11 +60,6 @@ public class TopicPolicyConfig extends AbstractConfig {
       TopicPolicyConfig.TOPIC_PREFIX + "replication.factor";
   protected static final String REPLICATION_FACTOR_DOC =
       "The required replication factor for all topics if set.";
-
-  public static final String MIN_IN_SYNC_REPLICAS_CONFIG =
-      TopicPolicyConfig.TOPIC_PREFIX + "min.insync.replicas";
-  protected static final String MIN_IN_SYNC_REPLICAS_CONFIG_DOC =
-      "The required min.insync.replicas value if set.";
 
   public static final String MAX_PARTITIONS_PER_TENANT_CONFIG =
       TopicPolicyConfig.TOPIC_PREFIX + "max.partitions.per.tenant";
@@ -139,51 +131,8 @@ public class TopicPolicyConfig extends AbstractConfig {
     this.requiredRepFactor = getShort(TopicPolicyConfig.REPLICATION_FACTOR_CONFIG);
   }
 
-  public TopicPolicyConfig(Properties props) {
-    super(CONFIG, props);
-    this.requiredRepFactor = getShort(TopicPolicyConfig.REPLICATION_FACTOR_CONFIG);
-  }
-
   public static void main(String[] args) {
     System.out.println(CONFIG.toRst());
-  }
-
-  void validateConfigsAreUpdatable(Map<String, String> configs) {
-    for (Map.Entry<String, String> entry : configs.entrySet()) {
-      String configName = entry.getKey();
-      if (!MultiTenantConfigRestrictions.UPDATABLE_TOPIC_CONFIGS.contains(configName)) {
-        throw new PolicyViolationException(
-            String.format("Altering config property '%s' is disallowed.", configName));
-      }
-    }
-  }
-
-  private void checkPolicyMax(Map<String, String> configs,
-                              String maxPolicyConfigProperty,
-                              String configProperty) {
-    if (configs.containsKey(configProperty)) {
-      long configuredValue = Long.parseLong(configs.get(configProperty));
-      long policyMax = ((Number) get(maxPolicyConfigProperty)).longValue();
-      if (configuredValue > policyMax) {
-        throw new PolicyViolationException(
-            String.format("Config property '%s' with value '%d' exceeded max limit of %d.",
-                configProperty, configuredValue, policyMax));
-      }
-    }
-  }
-
-  private void checkPolicyMin(Map<String, String> configs,
-                              String minPolicyConfigProperty,
-                              String configProperty) {
-    if (configs.containsKey(configProperty)) {
-      long configuredValue = Long.parseLong(configs.get(configProperty));
-      long policyMin = ((Number) get(minPolicyConfigProperty)).longValue();
-      if (configuredValue < policyMin) {
-        throw new PolicyViolationException(
-            String.format("Config property '%s' with value '%d' exceeded min limit of %d.",
-                configProperty, configuredValue, policyMin));
-      }
-    }
   }
 
   void validateConfigsAreInRange(Map<String, String> configs) {
@@ -214,7 +163,8 @@ public class TopicPolicyConfig extends AbstractConfig {
     if (configs == null) {
       return;
     }
-    validateConfigsAreUpdatable(configs);
+    PolicyUtils.validateConfigsAreUpdatable(configs, configName ->
+        MultiTenantConfigRestrictions.UPDATABLE_TOPIC_CONFIGS.contains(configName));
     validateConfigsAreInRange(configs);
   }
 }

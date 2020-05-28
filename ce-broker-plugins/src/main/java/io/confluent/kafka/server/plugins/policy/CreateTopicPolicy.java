@@ -44,11 +44,9 @@ public class CreateTopicPolicy implements org.apache.kafka.server.policy.CreateT
   @Override
   public void registerMetrics(final Metrics metrics) {
     this.partitionsByTenantMetrics = new IntGaugeSuite<>(log, "partitions", metrics,
-        tenant -> {
-          return metrics.metricName("partitions", TenantMetrics.GROUP,
+        tenant -> metrics.metricName("partitions", TenantMetrics.GROUP,
               "The total number of partitions for this tenant.",
-              Collections.singletonMap(TenantMetrics.TENANT_TAG, tenant));
-        });
+              Collections.singletonMap(TenantMetrics.TENANT_TAG, tenant)));
   }
 
   @Override

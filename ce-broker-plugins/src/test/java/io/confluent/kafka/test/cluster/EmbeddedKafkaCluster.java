@@ -27,7 +27,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 import kafka.api.Request;
-import kafka.server.KafkaConfig$;
+import kafka.server.KafkaConfig;
 import kafka.server.KafkaServer;
 import kafka.utils.MockTime;
 import kafka.zk.EmbeddedZookeeper;
@@ -64,13 +64,13 @@ public class EmbeddedKafkaCluster {
     log.debug("ZooKeeper instance is running at {}", zkConnect());
   }
 
-  public void startBrokers(int numBrokers, Properties overrideProps) throws Exception {
+  public void startBrokers(int numBrokers, Properties overrideProps) {
     log.debug("Initiating embedded Kafka cluster startup with config {}", overrideProps);
 
-    int brokerIdStart = Integer.parseInt(overrideProps.getOrDefault(KafkaConfig$.MODULE$.BrokerIdProp(), "0").toString());
+    int brokerIdStart = Integer.parseInt(overrideProps.getOrDefault(KafkaConfig.BrokerIdProp(), "0").toString());
     for (int i = 0; i < numBrokers; i++) {
       Properties brokerConfig = createBrokerConfig(brokerIdStart + i, overrideProps);
-      log.debug("Starting a Kafka instance on port {} ...", brokerConfig.get(KafkaConfig$.MODULE$.PortProp()));
+      log.debug("Starting a Kafka instance on port {} ...", brokerConfig.get(KafkaConfig.PortProp()));
       EmbeddedKafka broker = new EmbeddedKafka.Builder(time).addConfigs(brokerConfig).build();
       brokers.add(broker);
 
@@ -78,21 +78,21 @@ public class EmbeddedKafkaCluster {
     }
   }
 
-  public Properties createBrokerConfig(int brokerId, Properties overrideProps) throws Exception {
+  public Properties createBrokerConfig(int brokerId, Properties overrideProps) {
     log.debug("Initiating embedded Kafka cluster startup with config {}", overrideProps);
 
     Properties brokerConfig = new Properties();
-    brokerConfig.put(KafkaConfig$.MODULE$.ZkConnectProp(), zkConnect());
-    brokerConfig.put(KafkaConfig$.MODULE$.PortProp(), DEFAULT_BROKER_PORT);
-    putIfAbsent(brokerConfig, KafkaConfig$.MODULE$.OffsetsTopicReplicationFactorProp(), (short) 1);
+    brokerConfig.put(KafkaConfig.ZkConnectProp(), zkConnect());
+    brokerConfig.put(KafkaConfig.PortProp(), DEFAULT_BROKER_PORT);
+    putIfAbsent(brokerConfig, KafkaConfig.OffsetsTopicReplicationFactorProp(), (short) 1);
     putIfAbsent(brokerConfig, LicenseConfig.REPLICATION_FACTOR_PROP, (short) 1);
     brokerConfig.putAll(overrideProps);
     // use delay of 0ms otherwise failed authentications never get a response due to MockTime
-    putIfAbsent(brokerConfig, KafkaConfig$.MODULE$.FailedAuthenticationDelayMsProp(), 0);
-    putIfAbsent(brokerConfig, KafkaConfig$.MODULE$.GroupInitialRebalanceDelayMsProp(), 0);
-    putIfAbsent(brokerConfig, KafkaConfig$.MODULE$.OffsetsTopicPartitionsProp(), 5);
-    putIfAbsent(brokerConfig, KafkaConfig$.MODULE$.AutoCreateTopicsEnableProp(), true);
-    brokerConfig.put(KafkaConfig$.MODULE$.BrokerIdProp(), brokerId);
+    putIfAbsent(brokerConfig, KafkaConfig.FailedAuthenticationDelayMsProp(), 0);
+    putIfAbsent(brokerConfig, KafkaConfig.GroupInitialRebalanceDelayMsProp(), 0);
+    putIfAbsent(brokerConfig, KafkaConfig.OffsetsTopicPartitionsProp(), 5);
+    putIfAbsent(brokerConfig, KafkaConfig.AutoCreateTopicsEnableProp(), true);
+    brokerConfig.put(KafkaConfig.BrokerIdProp(), brokerId);
     // By default, do not start a MetadataServer.
     putIfAbsent(brokerConfig, MetadataServerConfig.METADATA_SERVER_LISTENERS_PROP, "");
     return brokerConfig;
@@ -110,10 +110,10 @@ public class EmbeddedKafkaCluster {
     List<Future<EmbeddedKafka>> brokerFutures = new ArrayList<>(numBrokers);
     ExecutorService executorService = Executors.newFixedThreadPool(numBrokers);
     try {
-      for (int i = 0; i < numBrokers; i++) {
-        Properties brokerConfig = brokerConfigs.get(i);
+      for (Properties brokerConfig : brokerConfigs) {
         brokerFutures.add(executorService.submit(() -> {
-          log.debug("Starting a Kafka instance on port {} ...", brokerConfig.get(KafkaConfig$.MODULE$.PortProp()));
+          log.debug("Starting a Kafka instance on port {} ...",
+              brokerConfig.get(KafkaConfig.PortProp()));
           return new EmbeddedKafka.Builder(time).addConfigs(brokerConfig).build();
         }));
       }

@@ -18,7 +18,7 @@ import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import kafka.security.authorizer.AclAuthorizer$;
+import kafka.security.authorizer.AclAuthorizer;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.common.Configurable;
 import org.apache.kafka.common.config.internals.BrokerSecurityConfigs;
@@ -89,11 +89,11 @@ public class PhysicalCluster {
     this.overrideProps.put("physical.cluster.id", physicalClusterId);
   }
 
-  public synchronized void start() throws Exception {
+  public synchronized void start() {
     instances.put(physicalClusterId, this);
     kafkaCluster.startZooKeeper();
 
-    overrideProps.setProperty(AclAuthorizer$.MODULE$.SuperUsersProp(),
+    overrideProps.setProperty(AclAuthorizer.SuperUsersProp(),
         BROKER_PRINCIPAL.toString());
     kafkaCluster.startBrokers(numberOfBrokers, KafkaTestUtils.brokerConfig(overrideProps));
   }
@@ -118,7 +118,7 @@ public class PhysicalCluster {
   }
 
   public synchronized LogicalCluster createLogicalCluster(String clusterId, int adminUserId,
-      Integer... serviceIds) throws Exception {
+      Integer... serviceIds) {
     if (logicalClusters.containsKey(clusterId)) {
       throw new IllegalArgumentException("Logical cluster " + clusterId + " already exists");
     }

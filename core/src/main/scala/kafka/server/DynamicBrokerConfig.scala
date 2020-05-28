@@ -92,7 +92,8 @@ object DynamicBrokerConfig {
     Set(KafkaConfig.ClusterRegistryConfigProp) ++
     DynamicBalancerConfig.ReconfigurableConfigs ++
     LogManager.ReconfigurableConfigs ++
-    ReplicationQuotaManagerConfig.ReconfigurableConfigs
+    ReplicationQuotaManagerConfig.ReconfigurableConfigs ++
+    Set(KafkaConfig.AutoCreateTopicsEnableProp)
 
   private val ClusterLevelListenerConfigs = Set(KafkaConfig.MaxConnectionsProp)
   private val PerBrokerConfigs = (DynamicSecurityConfigs ++ DynamicListenerConfig.ReconfigurableConfigs).diff(

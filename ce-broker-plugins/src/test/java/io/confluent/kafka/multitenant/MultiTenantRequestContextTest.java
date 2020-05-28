@@ -2634,9 +2634,9 @@ public class MultiTenantRequestContextTest {
       resourceConfigs.put(new ConfigResource(ConfigResource.Type.TOPIC, "foo"),
           new AlterConfigsRequest.Config(configEntries));
       resourceConfigs.put(new ConfigResource(ConfigResource.Type.BROKER, "blah"), new AlterConfigsRequest.Config(
-          Collections.<AlterConfigsRequest.ConfigEntry>emptyList()));
+          Collections.emptyList()));
       resourceConfigs.put(new ConfigResource(ConfigResource.Type.TOPIC, "bar"), new AlterConfigsRequest.Config(
-          Collections.<AlterConfigsRequest.ConfigEntry>emptyList()));
+          Collections.emptyList()));
       AlterConfigsRequest inbound = new AlterConfigsRequest.Builder(resourceConfigs, false).build(ver);
       AlterConfigsRequest intercepted = (AlterConfigsRequest) parseRequest(context, inbound);
       assertEquals(mkSet(new ConfigResource(ConfigResource.Type.TOPIC, "tenant_foo"),

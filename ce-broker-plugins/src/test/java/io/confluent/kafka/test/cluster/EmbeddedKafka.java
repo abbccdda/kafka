@@ -28,7 +28,6 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import kafka.admin.RackAwareMode;
 import kafka.server.KafkaConfig;
-import kafka.server.KafkaConfig$;
 import kafka.server.KafkaServer;
 import kafka.utils.CoreUtils;
 import kafka.utils.TestUtils;
@@ -42,7 +41,6 @@ import org.junit.rules.TemporaryFolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.Option;
-import scala.Option$;
 
 /**
  * Runs an in-memory, "embedded" instance of a Kafka broker, which listens at `127.0.0.1:9092` by
@@ -58,7 +56,6 @@ public class EmbeddedKafka {
   private static final int DEFAULT_ZK_SESSION_TIMEOUT_MS = 10 * 1000;
   private static final int DEFAULT_ZK_CONNECTION_TIMEOUT_MS = 8 * 1000;
 
-  private final boolean loggingEnabled = true;
   private final File logDir;
   private final Properties effectiveConfig;
   public final TemporaryFolder tmpFolder;
@@ -74,17 +71,21 @@ public class EmbeddedKafka {
    *               setting currently.
    * @param time Instance of Time
    */
-  private EmbeddedKafka(final Properties config, final Time time) throws IOException {
+  private EmbeddedKafka(final Properties config, final Time time) {
     tmpFolder = new TemporaryFolder();
-    tmpFolder.create();
-    logDir = tmpFolder.newFolder();
-    effectiveConfig = brokerConfigs(config);
-    kafkaConfig = new KafkaConfig(effectiveConfig, loggingEnabled);
-    log.debug("Starting embedded Kafka broker (with log.dirs={} and ZK ensemble at {}) ...",
-        logDir, kafkaConfig.zkConnect());
-    kafka = TestUtils.createServer(kafkaConfig, time);
-    isShutdown = false;
-    log.debug("Startup of embedded Kafka broker completed: {}", this);
+    try {
+      tmpFolder.create();
+      logDir = tmpFolder.newFolder();
+      effectiveConfig = brokerConfigs(config);
+      kafkaConfig = new KafkaConfig(effectiveConfig, true);
+      log.debug("Starting embedded Kafka broker (with log.dirs={} and ZK ensemble at {}) ...",
+          logDir, kafkaConfig.zkConnect());
+      kafka = TestUtils.createServer(kafkaConfig, time);
+      isShutdown = false;
+      log.debug("Startup of embedded Kafka broker completed: {}", this);
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
   }
 
 
@@ -94,18 +95,18 @@ public class EmbeddedKafka {
    *
    * @param overrideProps Broker configuration settings that override the default config.
    */
-  private Properties brokerConfigs(Properties overrideProps) throws IOException {
+  private Properties brokerConfigs(Properties overrideProps) {
     final Properties brokerConfigs = new Properties();
-    brokerConfigs.put(KafkaConfig$.MODULE$.BrokerIdProp(), 0);
-    brokerConfigs.put(KafkaConfig$.MODULE$.HostNameProp(), "127.0.0.1");
-    brokerConfigs.put(KafkaConfig$.MODULE$.PortProp(), "9092");
-    brokerConfigs.put(KafkaConfig$.MODULE$.NumPartitionsProp(), 1);
-    brokerConfigs.put(KafkaConfig$.MODULE$.AutoCreateTopicsEnableProp(), true);
-    brokerConfigs.put(KafkaConfig$.MODULE$.MessageMaxBytesProp(), 1000000);
-    brokerConfigs.put(KafkaConfig$.MODULE$.ControlledShutdownEnableProp(), true);
+    brokerConfigs.put(KafkaConfig.BrokerIdProp(), 0);
+    brokerConfigs.put(KafkaConfig.HostNameProp(), "127.0.0.1");
+    brokerConfigs.put(KafkaConfig.PortProp(), "9092");
+    brokerConfigs.put(KafkaConfig.NumPartitionsProp(), 1);
+    brokerConfigs.put(KafkaConfig.AutoCreateTopicsEnableProp(), true);
+    brokerConfigs.put(KafkaConfig.MessageMaxBytesProp(), 1000000);
+    brokerConfigs.put(KafkaConfig.ControlledShutdownEnableProp(), true);
 
     brokerConfigs.putAll(overrideProps);
-    brokerConfigs.setProperty(KafkaConfig$.MODULE$.LogDirProp(), logDir.getAbsolutePath());
+    brokerConfigs.setProperty(KafkaConfig.LogDirProp(), logDir.getAbsolutePath());
     return brokerConfigs;
   }
 
@@ -136,7 +137,7 @@ public class EmbeddedKafka {
     List<String> logDirs = Collections.singletonList(logDir.getAbsolutePath());
     CoreUtils.delete(scala.collection.JavaConverters.asScalaBuffer(logDirs));
     tmpFolder.delete();
-    log.debug("Shutdown and cleanup of embedded Kafka broker completed %s.", this);
+    log.debug("Shutdown and cleanup of embedded Kafka broker completed {}.", this);
   }
 
   /**
@@ -144,15 +145,15 @@ public class EmbeddedKafka {
    */
   public void shutdown() {
     if (isShutdown) {
-      log.debug("Embedded Kafka broker %s was already shut down. Skipping shutdown", this);
+      log.debug("Embedded Kafka broker {} was already shut down. Skipping shutdown", this);
       return;
     }
-    log.debug("Shutting down embedded Kafka broker %s ...", this);
+    log.debug("Shutting down embedded Kafka broker {} ...", this);
     kafka.shutdown();
     kafka.awaitShutdown();
     kafka = null;
     isShutdown = true;
-    log.debug("Shutdown of embedded Kafka broker completed %s.", this);
+    log.debug("Shutdown of embedded Kafka broker completed {}.", this);
   }
 
   public void startBroker(final Time time) {
@@ -181,7 +182,7 @@ public class EmbeddedKafka {
     try (KafkaZkClient kafkaZkClient = createZkClient()) {
       AdminZkClient adminZkClient = new AdminZkClient(kafkaZkClient);
       adminZkClient.createTopic(topic, partitions, replication, topicConfig,
-              RackAwareMode.Enforced$.MODULE$, kafkaServer().config().tierFeature(), Option$.MODULE$.empty());
+              RackAwareMode.Enforced$.MODULE$, kafkaServer().config().tierFeature(), Option.empty());
     }
   }
 
@@ -196,7 +197,7 @@ public class EmbeddedKafka {
   }
 
   public EndPoint endPoint() {
-    Object listenerConfig = effectiveConfig.get(KafkaConfig$.MODULE$.InterBrokerListenerNameProp());
+    Object listenerConfig = effectiveConfig.get(KafkaConfig.InterBrokerListenerNameProp());
     SecurityProtocol securityProtocol = SecurityProtocol.PLAINTEXT;
     if (listenerConfig != null) {
       securityProtocol = SecurityProtocol.forName(listenerConfig.toString());
@@ -237,7 +238,7 @@ public class EmbeddedKafka {
       return this;
     }
 
-    public EmbeddedKafka build() throws IOException {
+    public EmbeddedKafka build() {
       return new EmbeddedKafka(config, time);
     }
   }

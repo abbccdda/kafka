@@ -16,7 +16,7 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
-import kafka.server.KafkaConfig$;
+import kafka.server.KafkaConfig;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -63,13 +63,13 @@ public class KafkaTestUtils {
       "license-",
       "authorizer-");
 
-  public static Properties brokerConfig(Properties overrideProps) throws Exception {
+  public static Properties brokerConfig(Properties overrideProps) {
     Properties serverConfig = new Properties();
-    serverConfig.setProperty(KafkaConfig$.MODULE$.ListenersProp(),
+    serverConfig.setProperty(KafkaConfig.ListenersProp(),
         "INTERNAL://localhost:0,EXTERNAL://localhost:0");
-    serverConfig.setProperty(KafkaConfig$.MODULE$.InterBrokerListenerNameProp(), "INTERNAL");
-    serverConfig.setProperty(KafkaConfig$.MODULE$.SaslEnabledMechanismsProp(), "SCRAM-SHA-256");
-    serverConfig.setProperty(KafkaConfig$.MODULE$.ListenerSecurityProtocolMapProp(),
+    serverConfig.setProperty(KafkaConfig.InterBrokerListenerNameProp(), "INTERNAL");
+    serverConfig.setProperty(KafkaConfig.SaslEnabledMechanismsProp(), "SCRAM-SHA-256");
+    serverConfig.setProperty(KafkaConfig.ListenerSecurityProtocolMapProp(),
         "INTERNAL:PLAINTEXT,EXTERNAL:SASL_PLAINTEXT");
     serverConfig.setProperty("listener.name.external.scram-sha-256.sasl.jaas.config",
         "org.apache.kafka.common.security.scram.ScramLoginModule required;");

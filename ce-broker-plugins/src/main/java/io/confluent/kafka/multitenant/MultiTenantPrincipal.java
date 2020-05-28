@@ -3,6 +3,7 @@
 package io.confluent.kafka.multitenant;
 
 import io.confluent.kafka.multitenant.schema.TenantContext;
+import java.util.Objects;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 
 public class MultiTenantPrincipal extends KafkaPrincipal {
@@ -42,8 +43,7 @@ public class MultiTenantPrincipal extends KafkaPrincipal {
     }
 
     MultiTenantPrincipal that = (MultiTenantPrincipal) o;
-    return tenantMetadata != null ? tenantMetadata.equals(that.tenantMetadata) :
-        that.tenantMetadata == null;
+    return Objects.equals(tenantMetadata, that.tenantMetadata);
   }
 
   @Override

@@ -128,7 +128,6 @@ public class MultiTenantClusterLinkTest {
     props.put(KafkaConfig$.MODULE$.AuthorizerClassNameProp(), MultiTenantAuthorizer.class.getName());
     props.put(AclAuthorizer$.MODULE$.AllowEveryoneIfNoAclIsFoundProp(), "true");
     props.put(TopicPolicyConfig.REPLICATION_FACTOR_CONFIG, "1");
-    props.put(TopicPolicyConfig.MIN_IN_SYNC_REPLICAS_CONFIG, "1");
     props.put(KafkaConfig$.MODULE$.AutoCreateTopicsEnableProp(), "false");
     props.put(KafkaConfig$.MODULE$.ClientQuotaCallbackClassProp(), TenantQuotaCallback.class.getName());
     props.put(KafkaConfig$.MODULE$.PasswordEncoderSecretProp(), "multi-tenant-cluster-link-secret");

@@ -34,29 +34,29 @@ public class IntegrationTestHarness {
     this.brokersInPhysicalCluster = brokersInPhysicalCluster;
   }
 
-  public PhysicalCluster start(Properties brokerOverrideProps) throws Exception {
+  public PhysicalCluster start(Properties brokerOverrideProps) {
     return start(brokerOverrideProps, Optional.empty());
   }
 
-  public PhysicalCluster start(Properties brokerOverrideProps, Optional<Time> time) throws Exception {
+  public PhysicalCluster start(Properties brokerOverrideProps, Optional<Time> time) {
     physicalCluster = new PhysicalCluster(brokersInPhysicalCluster, brokerOverrideProps, time);
     physicalCluster.start();
     return physicalCluster;
   }
 
-  public void shutdownBrokers() throws Exception {
+  public void shutdownBrokers() {
     if (physicalCluster != null) {
       physicalCluster.kafkaCluster().shutdownBrokers();
     }
   }
 
-  public void startBrokers() throws Exception {
+  public void startBrokers() {
     if (physicalCluster != null) {
       physicalCluster.kafkaCluster().startBrokersAfterShutdown();
     }
   }
 
-  public void shutdown() throws Exception {
+  public void shutdown() {
     producers.forEach(KafkaProducer::close);
     consumers.forEach(KafkaConsumer::close);
     adminClients.forEach(AdminClient::close);
