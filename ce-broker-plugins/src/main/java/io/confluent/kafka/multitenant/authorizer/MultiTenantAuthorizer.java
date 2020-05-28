@@ -2,6 +2,7 @@
 
 package io.confluent.kafka.multitenant.authorizer;
 
+import com.google.common.annotations.VisibleForTesting;
 import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 import io.confluent.kafka.multitenant.utils.TenantSanitizer;
 import io.confluent.kafka.security.authorizer.ConfluentServerAuthorizer;
@@ -10,6 +11,7 @@ import io.confluent.security.authorizer.provider.AccessRuleProvider;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders.AccessRuleProviders;
 import io.confluent.security.authorizer.provider.GroupProvider;
 import io.confluent.security.authorizer.provider.MetadataProvider;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -40,6 +42,24 @@ public class MultiTenantAuthorizer extends ConfluentServerAuthorizer {
   private boolean authorizationDisabled;
   private boolean auditLogEnabled;
 
+  @VisibleForTesting
+  public void configureAccessRuleProviders(Map<String, Object> configs) {
+    // If ACCESS_RULE_PROVIDERS_PROP is undefined, or does not contain MULTI_TENANT
+    // we assume that this is unconfigured, and set the access rule providers to
+    // *only* MULTI_TENANT. If it is defined to be MULTI_TENANT (and potentially
+    // something else, eg. CONFLUENT), we trust that the caller knows what they
+    // are doing and leave it alone
+    Object accessRuleProviders =
+            configs.get(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP);
+    if (!(accessRuleProviders instanceof String) ||
+            Arrays.stream(((String) accessRuleProviders).split(","))
+                    .noneMatch(provider ->
+                            AccessRuleProviders.MULTI_TENANT.name().equals(provider))) {
+      configs.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP,
+              AccessRuleProviders.MULTI_TENANT.name());
+    }
+  }
+
   @Override
   public void configure(Map<String, ?> configs) {
     Map<String, Object> authorizerConfigs = new HashMap<>(configs);
@@ -48,8 +68,7 @@ public class MultiTenantAuthorizer extends ConfluentServerAuthorizer {
         maxAcls != null ? Integer.parseInt(maxAcls) : DEFAULT_MAX_ACLS_PER_TENANT_PROP;
     authorizationDisabled = maxAclsPerTenant == ACLS_DISABLED;
 
-    authorizerConfigs.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP,
-        AccessRuleProviders.MULTI_TENANT.name());
+    configureAccessRuleProviders(authorizerConfigs);
 
     MultiTenantAuditLogConfig multiTenantAuditLogConfig =
         new MultiTenantAuditLogConfig(configs);
