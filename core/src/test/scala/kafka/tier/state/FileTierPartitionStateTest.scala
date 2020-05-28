@@ -1206,6 +1206,12 @@ class FileTierPartitionStateTest {
     channelErrorAfterFencing.read(stateErrorAfterFencing)
 
     assertEquals(stateMutableBeforeFencing, stateErrorAfterFencing)
+
+    // Check that the errorOffsetAndEpoch is deserialized properly.
+    state.close
+    val newState = factory.initState(dir, tp, logConfig, logDirFailureChannel).asInstanceOf[FileTierPartitionState]
+    assertEquals(newState.lastFlushedErrorOffsetAndEpoch(), errorOffsetAndEpoch)
+    newState.close
   }
 
   @Test
@@ -1280,6 +1286,12 @@ class FileTierPartitionStateTest {
     channelFlushedAfterFencing.close
 
     assertEquals(serializedStateMutableBeforeFencing, serializedStateFlushedAfterFencing)
+
+    // Check that the errorOffsetAndEpoch is deserialized properly.
+    state.close
+    val newState = factory.initState(dir, tp, logConfig, logDirFailureChannel).asInstanceOf[FileTierPartitionState]
+    assertEquals(newState.lastFlushedErrorOffsetAndEpoch(), errorOffsetAndEpoch)
+    newState.close
   }
 
   @Test

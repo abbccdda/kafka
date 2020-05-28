@@ -1160,6 +1160,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
             currentEpoch = header.tierEpoch();
             globalMaterializedOffsetAndEpoch = header.globalMaterializedOffsetAndEpoch();
             localMaterializedOffsetAndEpoch = header.localMaterializedOffsetAndEpoch();
+            errorOffsetAndEpoch = header.errorOffsetAndEpoch();
             status = header.status();
 
             log.info("Opened tier partition state for {} in status {}. topicIdPartition: {} tierEpoch: {} endOffset: {}",
