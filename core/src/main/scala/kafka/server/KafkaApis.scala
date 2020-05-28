@@ -29,6 +29,7 @@ import kafka.admin.{AdminUtils, RackAwareMode}
 import kafka.api.ElectLeadersRequestOps
 import kafka.api.{ApiVersion, KAFKA_0_11_0_IV0, KAFKA_2_3_IV0}
 import kafka.cluster.Partition
+import kafka.common.BrokerRemovalStatus
 import kafka.common.OffsetAndMetadata
 import kafka.controller.{KafkaController, ReplicaAssignment}
 import kafka.coordinator.group.{GroupCoordinator, JoinGroupResult, LeaveGroupResult, SyncGroupResult}
@@ -2642,13 +2643,43 @@ class KafkaApis(val requestChannel: RequestChannel,
   def handleDescribeBrokerRemovalsRequest(request: RequestChannel.Request): Unit = {
     authorizeClusterOperation(request, DESCRIBE)
 
-    sendResponseMaybeThrottle(request, throttleTimeMs =>
-      new DescribeBrokerRemovalsResponse(
-        new DescribeBrokerRemovalsResponseData()
-          .setThrottleTimeMs(throttleTimeMs)
-          .setErrorCode(Errors.UNSUPPORTED_VERSION.code()).setErrorMessage(Errors.UNSUPPORTED_VERSION.message())
+    if (!controller.isActive) {
+      throw new NotControllerException(s"Describe broker removals request can only be handled by the controller. " +
+        s"This broker ($brokerId) isn't the controller currently.");
+    }
+
+    def sendResponseCallback(result: Either[List[BrokerRemovalStatus], ApiError]): Unit = {
+      val responseData = result match {
+        case Left(removalStatuses) => {
+          val removalsResponses = removalStatuses.map { removalStatus =>
+            val data = new DescribeBrokerRemovalsResponseData.BrokerRemovalResponse()
+              .setBrokerId(removalStatus.brokerId())
+              .setBrokerShutdownStatus(removalStatus.brokerShutdownStatus().toString)
+              .setPartitionReassignmentsStatus(removalStatus.partitionReassignmentsStatus().toString)
+            if (removalStatus.exception() != null) {
+              data.setRemovalErrorCode(Errors.forException(removalStatus.exception()).code())
+              data.setRemovalErrorMessage(removalStatus.exception().getMessage)
+            }
+
+            data
+          }.asJava
+          new DescribeBrokerRemovalsResponseData().setRemovedBrokers(removalsResponses)
+        }
+
+        case Right(err) =>
+          new DescribeBrokerRemovalsResponseData()
+            .setErrorCode(err.error().code())
+            .setErrorMessage(err.message())
+      }
+
+      sendResponseMaybeThrottle(request, throttleTimeMs =>
+        new DescribeBrokerRemovalsResponse(
+          responseData.setThrottleTimeMs(throttleTimeMs)
+        )
       )
-    )
+    }
+
+    controller.describeBrokerRemovals(sendResponseCallback)
   }
 
   def handleRemoveBrokersRequest(request: RequestChannel.Request): Unit = {

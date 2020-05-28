@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2020 Confluent Inc.
  */
-package io.confluent.databalancer.model;
+package kafka.common;
 
 import org.apache.kafka.clients.admin.BrokerRemovalDescription;
 import org.junit.Test;

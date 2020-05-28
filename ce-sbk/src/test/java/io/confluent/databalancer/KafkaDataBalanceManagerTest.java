@@ -9,12 +9,16 @@ import com.yammer.metrics.core.Metric;
 import com.yammer.metrics.core.MetricName;
 import com.yammer.metrics.core.MetricsRegistry;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
+import java.util.Arrays;
+import java.util.Collections;
+import kafka.common.BrokerRemovalStatus;
 import kafka.controller.DataBalanceManager;
 import kafka.metrics.KafkaYammerMetrics;
 import kafka.server.KafkaConfig;
 import kafka.server.KafkaConfig$;
 import kafka.utils.TestUtils;
 import kafka.utils.TestUtils$;
+import org.apache.kafka.clients.admin.BrokerRemovalDescription;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.junit.Before;
 import org.junit.Test;
@@ -306,5 +310,29 @@ public class KafkaDataBalanceManagerTest {
 
         dataBalancer.scheduleBrokerRemoval(1, Option.<Long>apply(null));
         verify(mockActiveDataBalanceEngine).removeBroker(anyInt(), any());
+    }
+
+    @Test
+    public void testBrokerRemovals() {
+        KafkaDataBalanceManager dataBalancer = new KafkaDataBalanceManager(initConfig,
+            new KafkaDataBalanceManager.DataBalanceEngineFactory(mockActiveDataBalanceEngine, mockInactiveDataBalanceEngine),
+            mockDbMetrics);
+
+        assertEquals(Collections.emptyList(), dataBalancer.brokerRemovals());
+
+        BrokerRemovalStatus broker1Status = new BrokerRemovalStatus(1,
+            BrokerRemovalDescription.BrokerShutdownStatus.PENDING,
+            BrokerRemovalDescription.PartitionReassignmentsStatus.FAILED,
+            new Exception("Partition reassignment failed!")
+        );
+        dataBalancer.brokerRemovalsStatus.put(1, broker1Status);
+        BrokerRemovalStatus broker2Status = new BrokerRemovalStatus(2,
+            BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE,
+            BrokerRemovalDescription.PartitionReassignmentsStatus.COMPLETE,
+            null
+        );
+        dataBalancer.brokerRemovalsStatus.put(2, broker2Status);
+
+        assertEquals(Arrays.asList(broker1Status, broker2Status), dataBalancer.brokerRemovals());
     }
 }

@@ -1,7 +1,7 @@
 /**
  * Copyright (C) 2020 Confluent Inc.
  */
-package io.confluent.databalancer.model;
+package kafka.common;
 
 import java.util.Objects;
 import org.apache.kafka.clients.admin.BrokerRemovalDescription;
@@ -25,6 +25,10 @@ public class BrokerRemovalStatus {
         this.brokerShutdownStatus = brokerShutdownStatus;
         this.partitionReassignmentsStatus = partitionReassignmentsStatus;
         this.exception = e;
+    }
+
+    public int brokerId() {
+        return brokerId;
     }
 
     /**

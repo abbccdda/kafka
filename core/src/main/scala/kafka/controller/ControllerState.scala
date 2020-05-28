@@ -114,7 +114,7 @@ object ControllerState {
     def value = Byte.MaxValue
   }
 
-  case object RemoveBroker extends ControllerState {
+  case object DataBalanceManagerOperation extends ControllerState {
     def value: Byte = (Byte.MaxValue - 1).toByte
 
     override protected def hasRateAndTimeMetric: Boolean = false
@@ -124,5 +124,5 @@ object ControllerState {
     AlterPartitionReassignment, AutoLeaderBalance, ManualLeaderBalance, ControlledShutdown, IsrChange,
     LeaderAndIsrResponseReceived, LogDirChange, ControllerShutdown, UncleanLeaderElectionEnable,
     TopicUncleanLeaderElectionEnable, ListPartitionReassignment, UpdateMetadataResponseReceived,
-    CompleteTopicDeletion, RemoveBroker)
+    CompleteTopicDeletion, DataBalanceManagerOperation)
 }

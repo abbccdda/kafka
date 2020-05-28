@@ -4,6 +4,7 @@
 
 package kafka.controller
 
+import kafka.common.BrokerRemovalStatus
 import kafka.server.KafkaConfig
 import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.slf4j.{Logger, LoggerFactory}
@@ -30,6 +31,11 @@ trait DataBalanceManager {
   def scheduleBrokerRemoval(brokerToRemove: Int, brokerToRemoveEpoch: Option[java.lang.Long]): Unit
 
   def scheduleBrokerAdd(brokersToAdd: java.util.Set[Integer]): Unit
+
+  /**
+   * @return a list of the cluster's broker removals
+   */
+  def brokerRemovals(): java.util.List[BrokerRemovalStatus]
 }
 
 object DataBalanceManager {

@@ -23,6 +23,7 @@ import kafka.api._
 import kafka.common._
 import kafka.controller.KafkaController.{AlterReassignmentsCallback, ElectLeadersCallback, ListReassignmentsCallback, RemoveBrokerResultCallback}
 import kafka.cluster.Observer
+import kafka.controller.KafkaController.DescribeBrokerRemovalsResultCallback
 import kafka.log.LogConfig
 import kafka.metrics.{KafkaMetricsGroup, KafkaTimer}
 import kafka.server._
@@ -45,7 +46,7 @@ import org.apache.kafka.common.utils.Time
 import org.apache.zookeeper.KeeperException
 import org.apache.zookeeper.KeeperException.Code
 
-import scala.collection.{Map, Seq, Set, immutable, mutable}
+import scala.collection.{Set, mutable, Map, immutable, Seq}
 import scala.collection.mutable.ArrayBuffer
 import scala.jdk.CollectionConverters._
 import scala.util.{Failure, Try}
@@ -63,6 +64,7 @@ object KafkaController extends Logging {
   type ListReassignmentsCallback = Either[Map[TopicPartition, ReplicaAssignment], ApiError] => Unit
   type AlterReassignmentsCallback = Either[Map[TopicPartition, ApiError], ApiError] => Unit
   type RemoveBrokerResultCallback = Option[ApiError] => Unit
+  type DescribeBrokerRemovalsResultCallback = Either[List[BrokerRemovalStatus], ApiError] => Unit
 }
 
 class KafkaController(val config: KafkaConfig,
@@ -1888,24 +1890,30 @@ class KafkaController(val config: KafkaConfig,
     }
   }
 
-  private def processRemoveBroker(brokerToRemove: Int, callback: RemoveBrokerResultCallback): Unit = {
+  private def processDataBalanceManagerOperation(command: DataBalanceManagerCommand): Unit = {
     if (!isActive) {
-      callback(Some(new ApiError(Errors.NOT_CONTROLLER)))
+      command.completeExceptionally(new ApiError(Errors.NOT_CONTROLLER))
     } else {
-      val results = dataBalancer.map { db =>
+      dataBalancer.map { db =>
         try {
-          db.scheduleBrokerRemoval(brokerToRemove,
-            controllerContext.liveBrokerIdAndEpochs.get(brokerToRemove).map(java.lang.Long.valueOf))
-          None
+          command match {
+            case RemoveBroker(brokerToRemove: Int, removeCallback: RemoveBrokerResultCallback) =>
+              db.scheduleBrokerRemoval(brokerToRemove,
+                controllerContext.liveBrokerIdAndEpochs.get(brokerToRemove).map(java.lang.Long.valueOf))
+              removeCallback(None)
+
+            case DescribeBrokerRemovals(describeCallback: DescribeBrokerRemovalsResultCallback) =>
+              describeCallback(Left(db.brokerRemovals().asScala.toList))
+
+          }
         } catch {
-          case e: Throwable => Some(new ApiError(Errors.forException(e)))
+          case e: Throwable => command.completeExceptionally(new ApiError(Errors.forException(e)))
         }
       }.getOrElse {
-        error("Databalancer state is not setup correctly on controller.")
-        Some(new ApiError(Errors.UNKNOWN_SERVER_ERROR))
+        error(s"Failed DataBalanceManager operation $command because " +
+          "the DataBalanceManager state is not setup correctly on the controller.")
+        command.completeExceptionally(new ApiError(Errors.UNKNOWN_SERVER_ERROR))
       }
-
-      callback(results)
     }
   }
 
@@ -1975,7 +1983,11 @@ class KafkaController(val config: KafkaConfig,
   }
 
   def removeBroker(brokerToRemove: Int, callback: RemoveBrokerResultCallback): Unit = {
-    eventManager.put(RemoveBroker(brokerToRemove, callback))
+    eventManager.put(DataBalanceManagerAction(RemoveBroker(brokerToRemove, callback)))
+  }
+
+  def describeBrokerRemovals(callback: DescribeBrokerRemovalsResultCallback): Unit = {
+    eventManager.put(DataBalanceManagerAction(DescribeBrokerRemovals(callback)))
   }
 
   private def preemptReplicaLeaderElection(
@@ -2139,8 +2151,8 @@ class KafkaController(val config: KafkaConfig,
           processIsrChangeNotification()
         case Startup =>
           processStartup()
-        case RemoveBroker(brokerToRemove: Int, callback: RemoveBrokerResultCallback) =>
-          processRemoveBroker(brokerToRemove, callback)
+        case event: DataBalanceManagerAction =>
+          processDataBalanceManagerOperation(event.command)
         case CompleteTopicDeletion(topic) =>
           processCompleteTopicDeletion(topic)
       }
@@ -2401,9 +2413,24 @@ case class ListPartitionReassignments(partitionsOpt: Option[Set[TopicPartition]]
   override def state: ControllerState = ControllerState.ListPartitionReassignment
 }
 
+case class DataBalanceManagerAction(command: DataBalanceManagerCommand) extends ControllerEvent {
+  override def state: ControllerState = ControllerState.DataBalanceManagerOperation
+}
+
+trait DataBalanceManagerCommand {
+  // fail the given callback with an exception
+  def completeExceptionally(err: ApiError): Unit
+}
+
 case class RemoveBroker(brokerToRemove: Int,
-                        callback: RemoveBrokerResultCallback) extends ControllerEvent {
-  override def state: ControllerState = ControllerState.RemoveBroker
+                        callback: RemoveBrokerResultCallback) extends DataBalanceManagerCommand {
+  def completeExceptionally(err: ApiError): Unit =
+    callback(Some(err))
+}
+
+case class DescribeBrokerRemovals(callback: DescribeBrokerRemovalsResultCallback) extends DataBalanceManagerCommand {
+  def completeExceptionally(err: ApiError): Unit =
+    callback(Right(err))
 }
 
 // Used only in test cases

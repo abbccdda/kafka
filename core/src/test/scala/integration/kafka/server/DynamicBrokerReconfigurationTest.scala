@@ -31,7 +31,8 @@ import javax.management.ObjectName
 import com.yammer.metrics.core.MetricName
 import kafka.admin.ConfigCommand
 import kafka.api.{KafkaSasl, SaslSetup}
-import kafka.controller.{ControllerBrokerStateInfo, ControllerChannelManager, DataBalanceManager}
+import kafka.common.BrokerRemovalStatus
+import kafka.controller.{ControllerChannelManager, DataBalanceManager, ControllerBrokerStateInfo}
 import kafka.log.LogConfig
 import kafka.message.ProducerCompressionCodec
 import kafka.metrics.KafkaYammerMetrics
@@ -1945,6 +1946,8 @@ class TestDataBalancer extends DataBalanceManager {
     assertEquals("auto heal mode doesn't match", autoHealExpected, autoHealModeConfig)
     assertEquals("throttle doesn't match", throttleExpected, throttleConfig)
   }
+
+  override def brokerRemovals(): java.util.List[BrokerRemovalStatus] = List().asJava
 }
 
 class MockFileConfigProvider extends FileConfigProvider {

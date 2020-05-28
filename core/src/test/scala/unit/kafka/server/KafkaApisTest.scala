@@ -2049,6 +2049,28 @@ class KafkaApisTest {
   }
 
   @Test(expected = classOf[NotControllerException])
+  def testDescribeBrokerRemovalsNotController(): Unit = {
+    // Test that only the controller broker can handle this API call
+    val request = new DescribeBrokerRemovalsRequest.Builder().build(0);
+    val requestChannelRequest = buildRequest(request)
+    createKafkaApis().handleDescribeBrokerRemovalsRequest(requestChannelRequest)
+  }
+
+  @Test
+  def testDescribeBrokerRemovalsSuccess(): Unit = {
+    EasyMock.expect(controller.isActive).andReturn(true)
+    EasyMock.expect(controller.describeBrokerRemovals(anyObject()))
+    EasyMock.replay(controller)
+
+    val request = new DescribeBrokerRemovalsRequest.Builder().build(0);
+    val requestChannelRequest = buildRequest(request)
+
+    createKafkaApis().handleDescribeBrokerRemovalsRequest(requestChannelRequest)
+
+    EasyMock.verify(controller)
+  }
+
+  @Test(expected = classOf[NotControllerException])
   def testRemoveBrokerNotController(): Unit = {
     // Test only controller role can handle this api call
     val request = new RemoveBrokersRequest.Builder(Collections.emptySet()).build(0);
@@ -2096,7 +2118,6 @@ class KafkaApisTest {
   @Test(expected = classOf[InvalidRequestException])
   def testRemoveBrokerReplicationFactorException(): Unit = {
     EasyMock.expect(controller.isActive).andReturn(true)
-    EasyMock.expect(controller.removeBroker(anyObject(), anyObject()))
     EasyMock.replay(controller)
 
     setupBasicMetadataCache("topic-1", 5)
@@ -2113,8 +2134,8 @@ class KafkaApisTest {
    */
   @Test
   def testRemoveBrokerReplicationFactorSuccess(): Unit = {
-
     EasyMock.expect(controller.isActive).andReturn(true)
+    EasyMock.expect(controller.removeBroker(anyObject(), anyObject()))
 
     val nodes = (1 to 5).map(id => new Node(id, "host" + id, id))
     val replicas = nodes.slice(0, 3).toArray

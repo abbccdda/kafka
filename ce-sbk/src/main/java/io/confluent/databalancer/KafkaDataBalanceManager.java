@@ -6,6 +6,11 @@ package io.confluent.databalancer;
 
 import com.yammer.metrics.core.MetricName;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import kafka.common.BrokerRemovalStatus;
 import kafka.controller.DataBalanceManager;
 import kafka.metrics.KafkaYammerMetrics;
 import kafka.server.KafkaConfig;
@@ -27,6 +32,9 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
 
     private final DataBalanceEngineFactory dbeFactory;
     private final DataBalancerMetricsRegistry dataBalancerMetricsRegistry;
+
+    // package-private for testing
+    Map<Integer, BrokerRemovalStatus> brokerRemovalsStatus;
 
     /**
      * Used to encapsulate which DataBalanceEngine is currently relevant for this broker
@@ -113,6 +121,7 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
 
         this.dataBalancerMetricsRegistry.newGauge(KafkaDataBalanceManager.class, "ActiveBalancerCount",
                 () -> balanceEngine.isActive() ? 1 : 0, false);
+        this.brokerRemovalsStatus = new ConcurrentHashMap<>();
     }
 
     /**
@@ -207,5 +216,10 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
     @Override
     public void scheduleBrokerAdd(Set<Integer> brokersToAdd) {
         // CNKAF-730: No-op for now
+    }
+
+    @Override
+    public List<BrokerRemovalStatus> brokerRemovals() {
+        return new ArrayList<>(brokerRemovalsStatus.values());
     }
 }

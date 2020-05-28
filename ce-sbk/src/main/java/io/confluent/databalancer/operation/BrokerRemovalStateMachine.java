@@ -3,7 +3,7 @@
  */
 package io.confluent.databalancer.operation;
 
-import io.confluent.databalancer.model.BrokerRemovalStatus;
+import kafka.common.BrokerRemovalStatus;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
