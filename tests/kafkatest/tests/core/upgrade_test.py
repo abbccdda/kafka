@@ -27,6 +27,11 @@ from kafkatest.utils.tiered_storage import tier_set_configs, TierSupport, Tiered
 from kafkatest.services.kafka import config_property
 from kafkatest.services.kafka.util import java_version, new_jdk_not_supported
 
+def upgrade_required_first(from_tiered_storage, to_tiered_storage, from_kafka_version):
+    """Brokers running IBP 2.3 and below must be upgraded to a higher IBP
+       before enabling tiered storage for topic IDs to correctly take effect"""
+    return not from_tiered_storage and to_tiered_storage and from_kafka_version < LATEST_2_4
+
 class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
 
     PARTITIONS = 3
@@ -49,6 +54,7 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
             wait_until(lambda: len(self.kafka.isr_idx_list(self.topic, partition)) == self.replication_factor, timeout_sec=60,
                        backoff_sec=1, err_msg="Replicas did not rejoin the ISR in a reasonable amount of time")
 
+
     def perform_upgrade(self, from_kafka_version, to_message_format_version, hotset_bytes,
             from_tiered_storage, to_tiered_storage, backend):
         if to_tiered_storage:
@@ -60,7 +66,7 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
             wait_until(lambda: self.tiering_started(self.topic, range(0, self.partitions)),
                     timeout_sec=120, backoff_sec=2, err_msg="archive did not start within timeout")
 
-        if not from_tiered_storage and to_tiered_storage:
+        if not upgrade_required_first(from_tiered_storage, to_tiered_storage, from_kafka_version):
             tier_set_configs(self.kafka, backend, feature=to_tiered_storage, enable=to_tiered_storage,
                              hotset_bytes=hotset_bytes, hotset_ms=-1, metadata_replication_factor=3)
 
@@ -93,6 +99,16 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
 
             self.kafka.start_node(node)
             self.wait_until_rejoin()
+
+        if upgrade_required_first(from_tiered_storage, to_tiered_storage, from_kafka_version):
+            tier_set_configs(self.kafka, backend, feature=to_tiered_storage, enable=to_tiered_storage,
+                             hotset_bytes=hotset_bytes, hotset_ms=-1, metadata_replication_factor=3)
+
+            self.logger.info("Third pass roll to enable tiered storage due to IBP incompatibility")
+            for node in self.kafka.nodes:
+                self.kafka.stop_node(node)
+                self.kafka.start_node(node)
+                self.wait_until_rejoin()
 
     def add_tiered_storage_metrics(self):
         self.add_log_metrics(self.topic, partitions=range(0, self.PARTITIONS))
@@ -243,8 +259,9 @@ class TestUpgrade(ProduceConsumeValidateTest, TierSupport):
                 wait_until(lambda: self.tiering_started(self.topic, partitions=partitions),
                     timeout_sec=120, backoff_sec=2, err_msg="no evidence of archival within timeout")
             else:
+                archive_timeout_sec=360 if upgrade_required_first(from_tiered_storage, to_tiered_storage, from_kafka_version) else 120
                 wait_until(lambda: self.tiering_completed(self.topic, partitions=partitions),
-                    timeout_sec=120, backoff_sec=2, err_msg="archiving did not complete within timeout")
+                    timeout_sec=archive_timeout_sec, backoff_sec=2, err_msg="archiving did not complete within timeout")
 
             wait_until(lambda: self.check_cluster_state(),
                        timeout_sec=4, backoff_sec=1, err_msg="issue detected with cluster state metrics")

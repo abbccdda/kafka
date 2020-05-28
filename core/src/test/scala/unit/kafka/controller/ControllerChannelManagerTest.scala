@@ -98,7 +98,7 @@ class ControllerChannelManagerTest {
     val props = new Properties()
     props.put(KafkaConfig.BrokerIdProp, controllerId.toString)
     props.put(KafkaConfig.ZkConnectProp, "zkConnect")
-    props.put(KafkaConfig.InterBrokerProtocolVersionProp, KAFKA_2_4_IV0.version)
+    props.put(KafkaConfig.InterBrokerProtocolVersionProp, KAFKA_2_4_IV1.version)
     props.put(KafkaConfig.TierFeatureProp, "true")
     val config = KafkaConfig.fromProps(props)
 

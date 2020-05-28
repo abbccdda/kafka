@@ -118,6 +118,8 @@ object ApiVersion {
 
   val latestVersion: ApiVersion = allVersions.last
 
+  def minTierFeatureSupported: ApiVersion = KAFKA_2_4_IV1
+
   /**
    * Return the minimum `ApiVersion` that supports `RecordVersion`.
    */

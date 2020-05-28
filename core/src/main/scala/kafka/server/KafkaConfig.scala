@@ -2312,6 +2312,9 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
         s"Currently they both have the value ${controlPlaneListenerName.get}")
     }
 
+    require(!tierFeature || interBrokerProtocolVersion >= ApiVersion.minTierFeatureSupported,
+      s"confluent.tier.feature can only be true when inter.broker.protocol.version is set to ${ApiVersion.minTierFeatureSupported} or higher.")
+
     val recordVersion = logMessageFormatVersion.recordVersion
     require(interBrokerProtocolVersion.recordVersion.value >= recordVersion.value,
       s"log.message.format.version $logMessageFormatVersionString can only be used when inter.broker.protocol.version " +
