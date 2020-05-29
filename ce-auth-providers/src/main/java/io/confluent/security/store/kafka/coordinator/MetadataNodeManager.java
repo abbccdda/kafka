@@ -33,8 +33,10 @@ import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.errors.WakeupException;
 import org.apache.kafka.common.internals.ClusterResourceListeners;
 import org.apache.kafka.common.metrics.JmxReporter;
+import org.apache.kafka.common.metrics.KafkaMetricsContext;
 import org.apache.kafka.common.metrics.MetricConfig;
 import org.apache.kafka.common.metrics.Metrics;
+import org.apache.kafka.common.metrics.MetricsContext;
 import org.apache.kafka.common.metrics.MetricsReporter;
 import org.apache.kafka.common.network.Selector;
 import org.apache.kafka.common.utils.AppInfoParser;
@@ -287,7 +289,10 @@ public class MetadataNodeManager extends Thread implements MetadataServiceRebala
         CommonClientConfigs.METRIC_REPORTER_CLASSES_CONFIG,
         MetricsReporter.class
     );
-    reporters.add(new JmxReporter(JMX_PREFIX));
+    JmxReporter reporter = new JmxReporter();
+    final MetricsContext metricsContext = new KafkaMetricsContext(JMX_PREFIX);
+    reporter.contextChange(metricsContext);
+    reporters.add(reporter);
     Metrics metrics = new Metrics(metricConfig, reporters, time);
     AppInfoParser.registerAppInfo(JMX_PREFIX, clientId, metrics, time.milliseconds());
     return metrics;

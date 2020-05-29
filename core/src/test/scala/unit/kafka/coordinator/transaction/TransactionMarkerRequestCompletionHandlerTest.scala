@@ -21,7 +21,7 @@ import java.util.Arrays.asList
 
 import org.apache.kafka.clients.ClientResponse
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.metrics.{JmxReporter, Metrics, Sensor}
+import org.apache.kafka.common.metrics.{JmxReporter, KafkaMetricsContext, Metrics, Sensor}
 import org.apache.kafka.common.metrics.stats.Meter
 import org.apache.kafka.common.protocol.{ApiKeys, Errors}
 import org.apache.kafka.common.record.RecordBatch
@@ -288,7 +288,9 @@ class TransactionMarkerRequestCompletionHandlerTest {
   }
 
   private def setupStateErrorSensor(): Sensor = {
-    val reporter = new JmxReporter("kafka.server")
+    val reporter = new JmxReporter()
+    val metricsContext = new KafkaMetricsContext("kafka.server")
+    reporter.contextChange(metricsContext)
     metrics.addReporter(reporter)
 
     val sensor = metrics.sensor("TransactionStateErrors")

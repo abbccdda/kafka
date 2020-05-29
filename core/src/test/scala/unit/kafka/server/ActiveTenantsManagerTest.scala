@@ -7,7 +7,7 @@ package kafka.server
 import java.lang.management.ManagementFactory
 
 import javax.management.ObjectName
-import org.apache.kafka.common.metrics.{JmxReporter, Metrics}
+import org.apache.kafka.common.metrics.{JmxReporter, KafkaMetricsContext, Metrics}
 import org.apache.kafka.common.utils.MockTime
 import org.junit.Assert.{assertEquals, assertTrue}
 import org.junit.{After, Before, Test}
@@ -65,7 +65,9 @@ class ActiveTenantsManagerTest {
   def testRecordActiveTenantsMetric(): Unit = {
     val server = ManagementFactory.getPlatformMBeanServer
     val mBeanName = "kafka.server:type=multi-tenant-metrics"
-    val reporter = new JmxReporter("kafka.server")
+    val reporter = new JmxReporter()
+    val metricsContext = new KafkaMetricsContext("kafka.server")
+    reporter.contextChange(metricsContext)
     metrics.addReporter(reporter)
 
     val metricTags1 = metricTags("", "Client1")

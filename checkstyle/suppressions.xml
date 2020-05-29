@@ -102,10 +102,9 @@
     <suppress checks="ClassFanOutComplexity"
               files="DistributedHerder(|Test).java"/>
     <suppress checks="ClassFanOutComplexity"
-              files="Worker.java"/>
+              files="Worker(|Test).java"/>
     <suppress checks="MethodLength"
               files="(KafkaConfigBackingStore|RequestResponseTest|WorkerSinkTaskTest).java"/>
-
     <suppress checks="ParameterNumber"
               files="(WorkerSinkTask|WorkerSourceTask).java"/>
     <suppress checks="ParameterNumber"
