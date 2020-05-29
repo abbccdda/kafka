@@ -16,11 +16,11 @@ public class ContextTest {
         .withId("mockId")
         .build();
 
-    Context context = new Context(resource, false, false);
+    Context context = new Context(resource, "test-domain", false, false);
 
     assertThat(context.newMetricBuilder().getLabels()).isEmpty();
 
-    context = new Context(resource, false, true);
+    context = new Context(resource, "test-domain", false, true);
 
     assertThat(context.newMetricBuilder().getLabels())
         .isEqualTo(context.getResource().getLabelsMap());

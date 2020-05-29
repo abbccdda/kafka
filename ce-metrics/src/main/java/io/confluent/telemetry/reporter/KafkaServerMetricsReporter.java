@@ -103,7 +103,7 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
         config.getBrokerRack().ifPresent(value -> resourceBuilderFacade.withNamespacedLabel(LABEL_BROKER_RACK, value));
 
         Resource resource = resourceBuilderFacade.build();
-        this.ctx = new Context(resource, config.getBoolean(ConfluentTelemetryConfig.DEBUG_ENABLED), true);
+        this.ctx = new Context(resource, DOMAIN, config.getBoolean(ConfluentTelemetryConfig.DEBUG_ENABLED), true);
 
         initExporters();
         initCollectors();
@@ -176,7 +176,7 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
 
             // init exporter collectors
             if (newExporter instanceof MetricsCollectorProvider) {
-                MetricsCollector collector = ((MetricsCollectorProvider) newExporter).collector(this.whitelistPredicate, this.ctx, DOMAIN);
+                MetricsCollector collector = ((MetricsCollectorProvider) newExporter).collector(this.whitelistPredicate, this.ctx);
                 collectors.add(collector);
                 exporterCollectors.put(entry.getKey(), collector);
             }
@@ -280,7 +280,6 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
         collectors.add(
             KafkaMetricsCollector.newBuilder()
                 .setContext(ctx)
-                .setDomain(DOMAIN)
                 .setLedger(kafkaMetricsStateLedger)
                 .setMetricWhitelistFilter(whitelistPredicate)
                 .build()
@@ -288,7 +287,6 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
 
         collectors.add(
             CPUMetricsCollector.newBuilder()
-                .setDomain(DOMAIN)
                 .setContext(ctx)
                 .setMetricWhitelistFilter(whitelistPredicate)
                 .build()
@@ -297,7 +295,6 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
         collectors.add(
             VolumeMetricsCollector.newBuilder(config)
                 .setContext(ctx)
-                .setDomain(DOMAIN)
                 .setMetricWhitelistFilter(whitelistPredicate)
                 .build()
         );
@@ -305,7 +302,6 @@ public class KafkaServerMetricsReporter implements MetricsReporter, ClusterResou
         collectors.add(
             YammerMetricsCollector.newBuilder()
                 .setContext(ctx)
-                .setDomain(DOMAIN)
                 .setMetricsRegistry(KafkaYammerMetrics.defaultRegistry())
                 .setMetricWhitelistFilter(whitelistPredicate)
                 .build()

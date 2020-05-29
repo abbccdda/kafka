@@ -162,7 +162,7 @@ public class KafkaExporter implements Exporter, MetricsCollectorProvider {
     }
 
     @Override
-    public MetricsCollector collector(Predicate<MetricKey> whitelistPredicate, Context context, String domain) {
+    public MetricsCollector collector(Predicate<MetricKey> whitelistPredicate, Context context) {
         return new MetricsCollector() {
             private volatile Predicate<MetricKey> metricsWhitelistFilter = whitelistPredicate;
             long lastDroppedEventCount = 0;

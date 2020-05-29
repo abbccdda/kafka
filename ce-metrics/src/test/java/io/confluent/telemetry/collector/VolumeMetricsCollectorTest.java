@@ -21,14 +21,14 @@ public class VolumeMetricsCollectorTest {
       new ResourceBuilderFacade(KafkaServerMetricsReporter.RESOURCE_TYPE_KAFKA)
           .withVersion("mockVersion")
           .withId("mockId")
-          .build()
+          .build(),
+          "test"
   );
 
   @Test
   public void collectFilterTotalBytes() {
     VolumeMetricsCollector metrics = VolumeMetricsCollector.newBuilder()
         .setContext(context)
-        .setDomain("test")
         .setUpdatePeriodMs(100L)
         .setLogDirs(new String[] {System.getProperties().get("java.io.tmpdir").toString()})
         .setMetricWhitelistFilter(key -> !key.getName().contains("disk_total_bytes"))
@@ -47,7 +47,6 @@ public class VolumeMetricsCollectorTest {
   public void collectFilterUsableBytes() {
     VolumeMetricsCollector metrics = VolumeMetricsCollector.newBuilder()
         .setContext(context)
-        .setDomain("test")
         .setUpdatePeriodMs(100L)
         .setLogDirs(new String[] {System.getProperties().get("java.io.tmpdir").toString()})
         .setMetricWhitelistFilter(key -> !key.getName().contains("disk_usable_bytes"))
@@ -66,7 +65,6 @@ public class VolumeMetricsCollectorTest {
   public void collectCachedLabels() {
     VolumeMetricsCollector metrics = VolumeMetricsCollector.newBuilder()
         .setContext(context)
-        .setDomain("test")
         .setUpdatePeriodMs(100L)
         .setLogDirs(new String[] {System.getProperties().get("java.io.tmpdir").toString()})
         .setMetricWhitelistFilter(key -> !key.getName().contains("disk_usable_bytes"))
@@ -87,7 +85,6 @@ public class VolumeMetricsCollectorTest {
   public void collectFilterDynamicWhitelist() {
     VolumeMetricsCollector metrics = VolumeMetricsCollector.newBuilder()
         .setContext(context)
-        .setDomain("test")
         .setUpdatePeriodMs(100L)
         .setLogDirs(new String[] {System.getProperties().get("java.io.tmpdir").toString()})
         .setMetricWhitelistFilter(key -> true)

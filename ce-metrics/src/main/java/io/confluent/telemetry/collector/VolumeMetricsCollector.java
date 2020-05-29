@@ -119,9 +119,8 @@ public class VolumeMetricsCollector implements MetricsCollector {
         context = builder.context;
         metricWhitelistFilter = builder.metricWhitelistFilter;
 
-        String domain = builder.domain;
-        diskTotalBytesName = MetricsUtils.fullMetricName(domain, "volume", "disk_total_bytes");
-        diskUsableBytesName = MetricsUtils.fullMetricName(domain, "volume", "disk_usable_bytes");
+        diskTotalBytesName = MetricsUtils.fullMetricName(context.getDomain(), "volume", "disk_total_bytes");
+        diskUsableBytesName = MetricsUtils.fullMetricName(context.getDomain(), "volume", "disk_usable_bytes");
     }
 
     @Override
@@ -288,18 +287,12 @@ public class VolumeMetricsCollector implements MetricsCollector {
     }
 
     public static class Builder {
-        private String domain;
         private long updatePeriodMs;
         private String[] logDirs;
         private Context context;
         private Predicate<MetricKey> metricWhitelistFilter = s -> true;
 
         private Builder() {
-        }
-
-        public Builder setDomain(String domain) {
-            this.domain = domain;
-            return this;
         }
 
         public Builder setUpdatePeriodMs(long updatePeriodMs) {
@@ -323,7 +316,7 @@ public class VolumeMetricsCollector implements MetricsCollector {
 
         public VolumeMetricsCollector build() {
             Objects.requireNonNull(this.context);
-            Objects.requireNonNull(this.domain);
+            Objects.requireNonNull(this.context.getDomain());
             Objects.requireNonNull(this.logDirs);
 
             Verify.verify(this.updatePeriodMs > 0, "update interval cannot be less than 1");

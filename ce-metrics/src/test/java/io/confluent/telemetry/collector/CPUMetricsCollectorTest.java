@@ -21,12 +21,13 @@ public class CPUMetricsCollectorTest {
       new ResourceBuilderFacade(KafkaServerMetricsReporter.RESOURCE_TYPE_KAFKA)
           .withVersion("mockVersion")
           .withId("mockId")
-          .build()
+          .build(),
+          "test"
   );
 
   @Test
   public void collect() {
-    CPUMetricsCollector metrics = CPUMetricsCollector.newBuilder().setDomain("test").setContext(context).build();
+    CPUMetricsCollector metrics = CPUMetricsCollector.newBuilder().setContext(context).build();
 
     metrics.collect(exporter);
     Metric metric = Iterables.getOnlyElement(exporter.emittedMetrics());
@@ -37,7 +38,6 @@ public class CPUMetricsCollectorTest {
   public void collectFilteredOut() {
     CPUMetricsCollector metrics = CPUMetricsCollector.newBuilder()
         .setMetricWhitelistFilter(key -> !key.getName().contains("cpu_usage"))
-        .setDomain("empty")
         .setContext(context)
         .build();
     metrics.collect(exporter);
@@ -48,7 +48,6 @@ public class CPUMetricsCollectorTest {
   public void collectFilteredOutDynamicWhitelist() {
     CPUMetricsCollector metrics = CPUMetricsCollector.newBuilder()
         .setMetricWhitelistFilter(key -> true)
-        .setDomain("empty")
         .setContext(context)
         .build();
 

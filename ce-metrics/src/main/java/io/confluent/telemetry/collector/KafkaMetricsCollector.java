@@ -43,7 +43,6 @@ public class KafkaMetricsCollector implements MetricsCollector {
     private volatile Predicate<MetricKey> metricWhitelistFilter;
     private final Context context;
 
-    private final String domain;
     private final Clock clock;
 
 
@@ -58,10 +57,9 @@ public class KafkaMetricsCollector implements MetricsCollector {
         }
     }
 
-    public KafkaMetricsCollector(Predicate<MetricKey> metricWhitelistFilter, Context context, String domain, StateLedger ledger, Clock clock) {
+    public KafkaMetricsCollector(Predicate<MetricKey> metricWhitelistFilter, Context context, StateLedger ledger, Clock clock) {
         this.metricWhitelistFilter = metricWhitelistFilter;
         this.context = context;
-        this.domain = domain;
         this.clock = clock;
         this.ledger = ledger;
     }
@@ -231,7 +229,7 @@ public class KafkaMetricsCollector implements MetricsCollector {
     MetricKey toMetricKey(MetricName metricName) {
         String group = Strings.nullToEmpty(metricName.group());
         String rawName = Strings.nullToEmpty(metricName.name());
-        String name = MetricsUtils.fullMetricName(this.domain, group, rawName);
+        String name = MetricsUtils.fullMetricName(this.context.getDomain(), group, rawName);
 
         Map<String, String> labels = new HashMap<>();
         if (context.isDebugEnabled()) {
@@ -252,7 +250,6 @@ public class KafkaMetricsCollector implements MetricsCollector {
     public static class Builder {
         private Predicate<MetricKey> metricWhitelistFilter = s -> true;
         private Context context;
-        private String domain;
         private Clock clock = Clock.systemUTC();
         private StateLedger ledger = new StateLedger();
 
@@ -269,11 +266,6 @@ public class KafkaMetricsCollector implements MetricsCollector {
             return this;
         }
 
-        public Builder setDomain(String domain) {
-            this.domain = domain;
-            return this;
-        }
-
         public Builder setClock(Clock clock) {
             this.clock = Objects.requireNonNull(clock);
             return this;
@@ -285,9 +277,9 @@ public class KafkaMetricsCollector implements MetricsCollector {
         }
 
         public KafkaMetricsCollector build() {
-            Objects.requireNonNull(this.domain);
+            Objects.requireNonNull(this.context.getDomain());
 
-            return new KafkaMetricsCollector(this.metricWhitelistFilter, this.context, this.domain, this.ledger, this.clock);
+            return new KafkaMetricsCollector(this.metricWhitelistFilter, this.context, this.ledger, this.clock);
         }
     }
 

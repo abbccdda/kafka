@@ -46,7 +46,8 @@ public class KafkaMetricsCollectorTest {
       new ResourceBuilderFacade(KafkaServerMetricsReporter.RESOURCE_TYPE_KAFKA)
           .withVersion("mockVersion")
           .withId("mockId")
-          .build()
+          .build(),
+          "test-domain"
   );
 
   @Before
@@ -74,7 +75,6 @@ public class KafkaMetricsCollectorTest {
 
     KafkaMetricsCollector collector = KafkaMetricsCollector.newBuilder()
         .setContext(context)
-        .setDomain("test-domain")
         .setLedger(ledger)
         .build();
 
@@ -108,7 +108,6 @@ public class KafkaMetricsCollectorTest {
 
     KafkaMetricsCollector collector = KafkaMetricsCollector.newBuilder()
         .setContext(context)
-        .setDomain("test-domain")
         .setLedger(ledger)
         .build();
 
@@ -142,7 +141,6 @@ public class KafkaMetricsCollectorTest {
 
     KafkaMetricsCollector collector = KafkaMetricsCollector.newBuilder()
         .setContext(context)
-        .setDomain("test-domain")
         .setLedger(ledger)
         .build();
 
@@ -171,7 +169,6 @@ public class KafkaMetricsCollectorTest {
 
     KafkaMetricsCollector collector = KafkaMetricsCollector.newBuilder()
         .setContext(context)
-        .setDomain("test-domain")
         .setLedger(ledger)
         .build();
 
@@ -209,7 +206,6 @@ public class KafkaMetricsCollectorTest {
 
     KafkaMetricsCollector collector = KafkaMetricsCollector.newBuilder()
         .setContext(context)
-        .setDomain("test-domain")
         .setLedger(ledger)
         .build();
 
@@ -251,7 +247,6 @@ public class KafkaMetricsCollectorTest {
 
     KafkaMetricsCollector collector = KafkaMetricsCollector.newBuilder()
         .setContext(context)
-        .setDomain("test-domain")
         .setLedger(ledger)
         .setClock(clock)
         .build();
@@ -290,7 +285,6 @@ public class KafkaMetricsCollectorTest {
 
     KafkaMetricsCollector collector = KafkaMetricsCollector.newBuilder()
         .setContext(context)
-        .setDomain("test-domain")
         .setLedger(ledger)
         .setClock(clock)
         .build();
@@ -343,7 +337,6 @@ public class KafkaMetricsCollectorTest {
 
     KafkaMetricsCollector collector = KafkaMetricsCollector.newBuilder()
         .setContext(context)
-        .setDomain("test-domain")
         .setLedger(ledger)
         .setMetricWhitelistFilter(metric -> !metric.getName().endsWith("/count"))
         .build();
@@ -377,7 +370,6 @@ public class KafkaMetricsCollectorTest {
     metrics.addReporter(ledger);
     KafkaMetricsCollector collector = KafkaMetricsCollector.newBuilder()
         .setContext(context)
-        .setDomain("test-domain")
         .setLedger(ledger)
         .setMetricWhitelistFilter(key -> true)
         .build();
@@ -422,7 +414,6 @@ public class KafkaMetricsCollectorTest {
 
     KafkaMetricsCollector collector = KafkaMetricsCollector.newBuilder()
         .setContext(context)
-        .setDomain("test-domain")
         .setLedger(ledger)
         .build();
 
@@ -436,7 +427,6 @@ public class KafkaMetricsCollectorTest {
     exporter.reset();
     collector = KafkaMetricsCollector.newBuilder()
         .setContext(context)
-        .setDomain("test-domain")
         .setLedger(ledger)
         .setMetricWhitelistFilter(metric -> !metric.getName().endsWith("/count"))
         .build();
@@ -449,7 +439,6 @@ public class KafkaMetricsCollectorTest {
     exporter.reset();
     collector = KafkaMetricsCollector.newBuilder()
         .setContext(context)
-        .setDomain("test-domain")
         .setLedger(ledger)
         .setMetricWhitelistFilter(metric -> !metric.getName().endsWith("/non_measurable"))
         .build();
@@ -462,7 +451,6 @@ public class KafkaMetricsCollectorTest {
     exporter.reset();
     collector = KafkaMetricsCollector.newBuilder()
         .setContext(context)
-        .setDomain("test-domain")
         .setLedger(ledger)
         .setMetricWhitelistFilter(metric -> !metric.getName().endsWith("/delta"))
         .build();

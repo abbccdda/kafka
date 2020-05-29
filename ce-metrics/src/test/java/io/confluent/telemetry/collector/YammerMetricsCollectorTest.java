@@ -48,7 +48,8 @@ public class YammerMetricsCollectorTest {
       new ResourceBuilderFacade(KafkaServerMetricsReporter.RESOURCE_TYPE_KAFKA)
           .withVersion("mockVersion")
           .withId("mockId")
-          .build()
+          .build(),
+          "test-domain"
   );
 
   @Before
@@ -56,7 +57,6 @@ public class YammerMetricsCollectorTest {
     metricsRegistry = new MetricsRegistry();
     collectorBuilder = YammerMetricsCollector.newBuilder()
         .setContext(context)
-        .setDomain("test-domain")
         .setMetricsRegistry(metricsRegistry);
     metricName = new MetricName("group1", "type1", "name1", "scope1");
   }

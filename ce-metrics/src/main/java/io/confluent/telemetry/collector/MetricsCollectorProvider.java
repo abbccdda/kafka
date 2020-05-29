@@ -11,5 +11,5 @@ import java.util.function.Predicate;
  */
 public interface MetricsCollectorProvider {
 
-    MetricsCollector collector(Predicate<MetricKey> metricsWhitelistFilter, Context context, String domain);
+    MetricsCollector collector(Predicate<MetricKey> metricsWhitelistFilter, Context context);
 }

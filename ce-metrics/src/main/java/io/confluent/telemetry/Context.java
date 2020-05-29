@@ -21,6 +21,8 @@ public class Context {
 
     private final boolean debugEnabled;
 
+    private final String domain;
+
     /**
      * For backwards compatibility with downstream consumers (i.e. druid) the resource labels
      * may be duplicated as individual timeseries metric labels.
@@ -29,22 +31,23 @@ public class Context {
     private final boolean duplicateResourceLabelsOnTimeseries;
 
     @VisibleForTesting
-    public Context() {
-        this(Resource.getDefaultInstance());
+    public Context(String domain) {
+        this(Resource.getDefaultInstance(), domain);
     }
 
-    public Context(Resource resource) {
-        this(resource, false, false);
+    public Context(Resource resource, String domain) {
+        this(resource, domain, false, false);
     }
 
-    public Context(Resource resource, boolean debugEnabled) {
-        this(resource, debugEnabled, false);
+    public Context(Resource resource, String domain, boolean debugEnabled) {
+        this(resource, domain, debugEnabled, false);
     }
 
-    public Context(Resource resource, boolean debugEnabled, boolean duplicateResourceLabelsOnTimeseries) {
+    public Context(Resource resource, String domain, boolean debugEnabled, boolean duplicateResourceLabelsOnTimeseries) {
         this.resource = resource;
         this.debugEnabled = debugEnabled;
         this.duplicateResourceLabelsOnTimeseries = duplicateResourceLabelsOnTimeseries;
+        this.domain = domain;
     }
 
     /**
@@ -63,6 +66,9 @@ public class Context {
         return debugEnabled;
     }
 
+    public String getDomain() {
+        return this.domain;
+    }
     /**
      * Build a {@link Metric} associated with this context's {@link Resource} having a single
      * timeseries containing a single point.

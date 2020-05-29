@@ -46,7 +46,6 @@ public class YammerMetricsCollector implements MetricsCollector {
     static final String DEFAULT_UNIT = "1";
     static final String NS_UNIT = "ns";
 
-    private String domain;
     private MetricsRegistry metricsRegistry;
     private volatile Predicate<MetricKey> metricWhitelistFilter;
     private Context context;
@@ -56,8 +55,7 @@ public class YammerMetricsCollector implements MetricsCollector {
 
     private final Map<MetricKey, Instant> metricAdded = new ConcurrentHashMap<>();
 
-    public YammerMetricsCollector(String domain, MetricsRegistry metricsRegistry, Predicate<MetricKey> metricWhitelistFilter, Context context, LastValueTracker<Long> longDeltas, LastValueTracker<Double> doubleDeltas, Clock clock) {
-        this.domain = domain;
+    public YammerMetricsCollector(MetricsRegistry metricsRegistry, Predicate<MetricKey> metricWhitelistFilter, Context context, LastValueTracker<Long> longDeltas, LastValueTracker<Double> doubleDeltas, Clock clock) {
         this.metricsRegistry = metricsRegistry;
         this.metricWhitelistFilter = metricWhitelistFilter;
         this.context = context;
@@ -92,7 +90,7 @@ public class YammerMetricsCollector implements MetricsCollector {
 
     // package private for testing.
     MetricKey toMetricKey(com.yammer.metrics.core.MetricName metricName) {
-        String name = MetricsUtils.fullMetricName(this.domain, metricName.getType(), metricName.getName());
+        String name = MetricsUtils.fullMetricName(this.context.getDomain(), metricName.getType(), metricName.getName());
         String mbeanName = Strings.nullToEmpty(metricName.getMBeanName());
         Map<String, String> labels = new HashMap<>();
         if (context.isDebugEnabled()) {
@@ -368,7 +366,6 @@ public class YammerMetricsCollector implements MetricsCollector {
     }
 
     public static class Builder {
-        private String domain;
         private MetricsRegistry metricsRegistry;
         private Predicate<MetricKey> metricWhitelistFilter = s -> true;
         private Context context;
@@ -377,12 +374,6 @@ public class YammerMetricsCollector implements MetricsCollector {
         private LastValueTracker<Double> doubleDeltas = new LastValueTracker<>();
 
         private Builder() {
-        }
-
-
-        public Builder setDomain(String domain) {
-            this.domain = domain;
-            return this;
         }
 
         public Builder setMetricsRegistry(MetricsRegistry metricsRegistry) {
@@ -407,10 +398,10 @@ public class YammerMetricsCollector implements MetricsCollector {
 
         public YammerMetricsCollector build() {
             Objects.requireNonNull(this.context);
-            Objects.requireNonNull(this.domain);
+            Objects.requireNonNull(this.context.getDomain());
             Objects.requireNonNull(this.metricsRegistry);
 
-            return new YammerMetricsCollector(this.domain, this.metricsRegistry, this.metricWhitelistFilter, this.context, this.longDeltas, this.doubleDeltas, this.clock);
+            return new YammerMetricsCollector(this.metricsRegistry, this.metricWhitelistFilter, this.context, this.longDeltas, this.doubleDeltas, this.clock);
         }
 
         public Builder setLongDeltas(LastValueTracker<Long> longDeltas) {

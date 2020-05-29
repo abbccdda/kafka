@@ -24,15 +24,13 @@ public class CPUMetricsCollector implements MetricsCollector {
 
     private static final Logger log = LoggerFactory.getLogger(CPUMetricsCollector.class);
 
-    private final String domain;
     private final Context context;
     private volatile Predicate<MetricKey> metricWhitelistFilter;
     private final Optional<com.sun.management.OperatingSystemMXBean> osBean;
 
-    public CPUMetricsCollector(Context ctx, String domain,
+    public CPUMetricsCollector(Context ctx,
         Predicate<MetricKey> metricWhitelistFilter) {
         this.context = ctx;
-        this.domain = domain;
         this.metricWhitelistFilter = metricWhitelistFilter;
 
         OperatingSystemMXBean osBean = ManagementFactory.getOperatingSystemMXBean();
@@ -55,7 +53,7 @@ public class CPUMetricsCollector implements MetricsCollector {
             return;
         }
 
-        String name = MetricsUtils.fullMetricName(this.domain, "cpu", "cpu_usage");
+        String name = MetricsUtils.fullMetricName(this.context.getDomain(), "cpu", "cpu_usage");
 
         Map<String, String> labels = new HashMap<>();
         if (context.isDebugEnabled()) {
@@ -87,16 +85,10 @@ public class CPUMetricsCollector implements MetricsCollector {
     }
 
     public static class Builder {
-        private String domain;
         private Context context;
         private Predicate<MetricKey> metricWhitelistFilter = s -> true;
 
         private Builder() {
-        }
-
-        public Builder setDomain(String domain) {
-            this.domain = domain;
-            return this;
         }
 
         public Builder setContext(Context context) {
@@ -110,8 +102,8 @@ public class CPUMetricsCollector implements MetricsCollector {
 
         public CPUMetricsCollector build() {
             Objects.requireNonNull(this.context);
-            Objects.requireNonNull(this.domain);
-            return new CPUMetricsCollector(context, domain, metricWhitelistFilter);
+            Objects.requireNonNull(this.context.getDomain());
+            return new CPUMetricsCollector(context, metricWhitelistFilter);
         }
     }
 }

@@ -86,9 +86,9 @@ public class HttpExporterTest {
             .withId("mockId")
             .build();
 
-        Context context = new Context(resource, false, false);
+        Context context = new Context(resource, "io.confluent", false, false);
         MetricsCollector collector = exporter
-            .collector(key -> true, context, "io.confluent");
+            .collector(key -> true, context);
 
         TestExporter testExporter = new TestExporter();
         collector.collect(testExporter);

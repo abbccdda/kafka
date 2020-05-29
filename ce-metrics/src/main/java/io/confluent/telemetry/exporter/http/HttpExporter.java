@@ -106,7 +106,7 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
 
     @Override
     public MetricsCollector collector(
-        Predicate<MetricKey> whitelistPredicate, Context context, String domain) {
+        Predicate<MetricKey> whitelistPredicate, Context context) {
         return new MetricsCollector() {
 
             private volatile Predicate<MetricKey> metricWhitelistFilter = whitelistPredicate;
@@ -124,7 +124,7 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
                 }
 
                 // Three metrics for total batches: dropped, success, failed
-                String batchName = MetricsUtils.fullMetricName(domain, GROUP, "batches_total");
+                String batchName = MetricsUtils.fullMetricName(context.getDomain(), GROUP, "batches_total");
 
                 Map<String, Long> statusToBatchValue = ImmutableMap.of(
                     "dropped", stats.getTotalDroppedBatches(),
@@ -149,7 +149,7 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
                 });
 
                 // Two metrics for total items: success, failed. We don't have a "dropped items" metric.
-                String itemName = MetricsUtils.fullMetricName(domain, GROUP, "items_total");
+                String itemName = MetricsUtils.fullMetricName(context.getDomain(), GROUP, "items_total");
                 Map<String, Long> statusToItemValue = ImmutableMap.of(
                     "success", stats.getTotalSuccessfulItems(),
                     "failed", stats.getTotalFailedItems());
@@ -172,7 +172,7 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
 
                 // Timing metric. This is converted to seconds and sent as a Cumulative Double
                 String timingName = MetricsUtils
-                    .fullMetricName(domain, GROUP, "send_time_seconds");
+                    .fullMetricName(context.getDomain(), GROUP, "send_time_seconds");
                 if (metricWhitelistFilter.test(new MetricKey(timingName, labels))) {
                     exporter.emit(
                         context.metricWithSinglePointTimeseries(
