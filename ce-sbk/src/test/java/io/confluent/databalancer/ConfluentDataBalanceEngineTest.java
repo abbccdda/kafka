@@ -72,6 +72,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.internal.verification.VerificationModeFactory.times;
@@ -753,26 +754,45 @@ public class ConfluentDataBalanceEngineTest  {
 
     @Test
     public void testUpdateThrottleWhileRunning() {
-        ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
+        ConfluentDataBalanceEngine realDbe = getTestDataBalanceEngine();
+        ConfluentDataBalanceEngine dbe = spy(realDbe);
         dbe.updateThrottle(100L);
         verify(mockCruiseControl).updateThrottle(100L);
+        verify(dbe).updateThrottleHelper(100L);
     }
 
     @Test
     public void testUpdateThrottleWhileStopped() {
-        ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
+        ConfluentDataBalanceEngine realDbe = getTestDataBalanceEngine();
+        ConfluentDataBalanceEngine dbe = spy(realDbe);
         dbe.stopCruiseControl();
         dbe.updateThrottle(100L);
         verify(mockCruiseControl, never()).updateThrottle(anyLong());
+        // helper should be called even though CC isn't
+        verify(dbe).updateThrottleHelper(100L);
     }
 
     @Test
     public void testUpdateAutoHeal() {
-        ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
+        ConfluentDataBalanceEngine realDbe = getTestDataBalanceEngine();
+        ConfluentDataBalanceEngine dbe = spy(realDbe);
         dbe.setAutoHealMode(true);
         verify(mockCruiseControl).setGoalViolationSelfHealing(true);
+        verify(dbe).updateAutoHealHelper(true);
 
         dbe.setAutoHealMode(false);
         verify(mockCruiseControl).setGoalViolationSelfHealing(false);
+        verify(dbe).updateAutoHealHelper(false);
     }
+
+    @Test
+    public void testUpdateAutoHealWhenStopped() {
+        ConfluentDataBalanceEngine realDbe = getTestDataBalanceEngine();
+        ConfluentDataBalanceEngine dbe = spy(realDbe);
+        dbe.stopCruiseControl();
+        dbe.setAutoHealMode(true);
+        verify(mockCruiseControl, never()).setGoalViolationSelfHealing(true);
+        verify(dbe).updateAutoHealHelper(true);
+    }
+
 }

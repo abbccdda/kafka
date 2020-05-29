@@ -161,7 +161,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     @Override
     public void setAutoHealMode(boolean shouldAutoHeal) {
         LOG.info("DataBalancer: Scheduling DataBalanceEngine auto-heal update (setting to {})", shouldAutoHeal);
-        ccRunner.submit(() -> cruiseControl.setGoalViolationSelfHealing(shouldAutoHeal));
+        ccRunner.submit(() -> updateAutoHealHelper(shouldAutoHeal));
     }
 
     @Override
@@ -188,7 +188,8 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         return cruiseControl != null;
     }
 
-    private void updateThrottleHelper(Long newThrottle) {
+    // Package-private for testing
+    void updateThrottleHelper(Long newThrottle) {
         if (cruiseControl != null) {
             LOG.info("Updating balancer throttle to {}", newThrottle);
             cruiseControl.updateThrottle(newThrottle);
@@ -197,8 +198,9 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
 
     /*
      * Helper to actually set the auto-heal mode.
+     * Package-private for testing
      */
-    private void updateAutoHealHelper(boolean shouldAutoHeal) {
+     void updateAutoHealHelper(boolean shouldAutoHeal) {
         if (cruiseControl != null) {
             LOG.info("Changing GOAL_VIOLATION anomaly self-healing actions to {}", shouldAutoHeal);
             cruiseControl.setGoalViolationSelfHealing(shouldAutoHeal);
