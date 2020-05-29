@@ -33,13 +33,15 @@ import java.util.function.Supplier;
  */
 public class DataBalancerMetricsRegistry {
     private static final Logger LOG = LoggerFactory.getLogger(DataBalancerMetricsRegistry.class);
-    private static final String GROUP = "kafka.databalancer";
+    // Package-private for test access
+    static final String GROUP = "kafka.databalancer";
 
     // whitelist because registry does not manage lifetime of data balancer metrics
     private final Set<MetricName> longLivedMetricsWhitelist;
     private final MetricsRegistry metricsRegistry;
-    private final Set<MetricName> longLivedMetrics;
-    private final Set<MetricName> shortLivedMetrics;
+    // Package-private for testing
+    final Set<MetricName> longLivedMetrics;
+    final Set<MetricName> shortLivedMetrics;
 
     public DataBalancerMetricsRegistry(MetricsRegistry metricsRegistry, Set<MetricName> longLivedMetricsWhitelist) {
         this.metricsRegistry = metricsRegistry;
@@ -93,19 +95,31 @@ public class DataBalancerMetricsRegistry {
     private void registerMetric(MetricName metricName, boolean isShortLivedMetric) {
         Set<MetricName> addedMetrics = isShortLivedMetric ? shortLivedMetrics : longLivedMetrics;
         if (addedMetrics.contains(metricName)) {
-            throw new IllegalStateException("Attempt to add already-registered metric to DataBalancerMetricsRegistry");
+            // For integration tests, duplicate metrics arise. Don't throw, just ignore.
+            LOG.warn("Adding metric {} a second time is a no-op, ignoring", metricName);
+            return;
         }
         boolean allowMetric = isShortLivedMetric || longLivedMetricsWhitelist.contains(metricName);
         if (!allowMetric) {
             throw new IllegalStateException("Attempt to add non-whitelisted databalancer metric to DataBalancerMetricsRegistry");
         }
+        Set<MetricName> addedElsewhereMetrics = isShortLivedMetric ? longLivedMetrics : shortLivedMetrics;
+        if (addedElsewhereMetrics.contains(metricName)) {
+            // Adding a metric with the same name but different lifespan is a bad thing
+            throw new IllegalStateException(String.format("Attempt to add databalancer metric metric %s with different lifespan than current",
+                    metricName));
+        }
+
         if (metricsRegistry.allMetrics().containsKey(metricName)) {
-            throw new IllegalStateException("Attempt to add already-registered metric to metrics registry");
+            // For integration tests, duplicate metrics arise. Don't throw exceptions, just ignore the duplicate.
+            LOG.warn("Adding metric {} a second time is a no-op, ignoring", metricName);
+            return;
         }
         addedMetrics.add(metricName);
     }
 
-    private static MetricName metricName(String group, String type, String name) {
+    // Package-private for testing
+    static MetricName metricName(String group, String type, String name) {
         return metricName(group, type, name, Collections.emptyMap());
     }
 

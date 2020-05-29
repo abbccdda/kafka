@@ -16,7 +16,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
+import static io.confluent.databalancer.metrics.DataBalancerMetricsRegistry.metricName;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
@@ -24,28 +26,81 @@ public class DataBalancerMetricsRegistryTest {
     private DataBalancerMetricsRegistry dataBalancerMetricsRegistry;
     private MetricsRegistry metricsRegistry;
     private String whitelistMetricName = "whitelistGauge";
+    private String whitelistMetricName2 = "secondWhiteListGauge";
 
     @Before
     public void setup() {
         metricsRegistry = new MetricsRegistry();
         DataBalancerMetricsRegistry.MetricsWhitelistBuilder builder = new DataBalancerMetricsRegistry.MetricsWhitelistBuilder();
         builder.addMetric(this.getClass(), whitelistMetricName);
+        builder.addMetric(this.getClass(), whitelistMetricName2);
         dataBalancerMetricsRegistry = new DataBalancerMetricsRegistry(metricsRegistry, builder.buildWhitelist());
     }
 
+    boolean isShortLivedMetricRegistered(DataBalancerMetricsRegistry dmr, String metricName) {
+        MetricName mName = metricName(DataBalancerMetricsRegistry.GROUP, this.getClass().getSimpleName(), metricName);
+        return dmr.shortLivedMetrics.contains(mName);
+    }
+
+    boolean isLongLivedMetricRegistered(DataBalancerMetricsRegistry dmr, String metricName) {
+        MetricName mName = metricName(DataBalancerMetricsRegistry.GROUP, this.getClass().getSimpleName(), metricName);
+        return dmr.longLivedMetrics.contains(mName);
+    }
+
+    boolean isMetricRegistered(DataBalancerMetricsRegistry dmr, String metricName) {
+        return isLongLivedMetricRegistered(dmr, metricName) ||
+                isShortLivedMetricRegistered(dmr, metricName);
+    }
+
     @Test
-    public void testAddDuplicateMetricNameThrowsException() {
-        Metric testGauge = dataBalancerMetricsRegistry.newGauge(this.getClass(), "test", () -> true);
-        assertThrows("Expected adding duplicate metric name to throw exception", IllegalStateException.class,
-                () -> dataBalancerMetricsRegistry.newGauge(this.getClass(), "test", () -> true));
-        assertThrows("Expected adding duplicate metric name to throw exception", IllegalStateException.class,
-                () -> dataBalancerMetricsRegistry.newMeter(this.getClass(), "test", "", TimeUnit.SECONDS));
-        assertThrows("Expected adding duplicate metric name to throw exception", IllegalStateException.class,
-                () -> dataBalancerMetricsRegistry.newTimer(this.getClass(), "test"));
+    public void testAddDuplicateMetricName() {
+        // Duplicate metric names are expected to be ignored, but divergent types still fail.
+        // Initial gauge
+        final String testGaugeName = "test";
+        Metric testGauge = dataBalancerMetricsRegistry.newGauge(this.getClass(), testGaugeName, () -> true);
+        // Add a duplicate gauge
+        dataBalancerMetricsRegistry.newGauge(this.getClass(), testGaugeName, () -> true);
 
         Map<MetricName, Metric> addedMetrics = metricsRegistry.allMetrics();
         assertEquals("Expected only one metric to be added to registry", 1, addedMetrics.size());
+        assertTrue("expected gauge to be registered", isMetricRegistered(dataBalancerMetricsRegistry, testGaugeName));
+        assertTrue("expected short-lived gauge to be registered", isShortLivedMetricRegistered(dataBalancerMetricsRegistry, testGaugeName));
+        assertFalse("expected long-lived gauge to not be registered", isLongLivedMetricRegistered(dataBalancerMetricsRegistry, testGaugeName));
+
         assertTrue("Expected gauge to be present in registry", addedMetrics.containsValue(testGauge));
+    }
+
+    @Test
+    public void testAddDuplicateShortAndLongLivedMetrics() {
+        // Test adding gauges with the same name but different lifespans; this should be an Exceptional error
+        // and should not affect the metrics registry
+        final String shortLivedGaugeName = whitelistMetricName;
+        Metric testShortLivedGauge = dataBalancerMetricsRegistry.newGauge(this.getClass(), shortLivedGaugeName, () -> true, true);
+        // Add a long-lived duplicate
+        assertThrows("Expected a long-lived metric with same name as short-lived to throw", IllegalStateException.class,
+                () -> dataBalancerMetricsRegistry.newGauge(this.getClass(), shortLivedGaugeName, () -> true, false));
+
+        Map<MetricName, Metric> addedMetrics = metricsRegistry.allMetrics();
+        assertEquals("Expected only one metric to be in registry", 1, addedMetrics.size());
+        assertTrue("expected gauge to be registered", isMetricRegistered(dataBalancerMetricsRegistry, shortLivedGaugeName));
+        assertTrue("expected short-lived gauge to be registered", isShortLivedMetricRegistered(dataBalancerMetricsRegistry, shortLivedGaugeName));
+        assertFalse("expected long-lived gauge to not be registered", isLongLivedMetricRegistered(dataBalancerMetricsRegistry, shortLivedGaugeName));
+        assertTrue("Expected gauge to be present in registry", addedMetrics.containsValue(testShortLivedGauge));
+
+        // Add a different gauge
+        final String longLivedGaugeName = whitelistMetricName2;
+        Metric testLongLivedGauge = dataBalancerMetricsRegistry.newGauge(this.getClass(), longLivedGaugeName, () -> true, false);
+        // Add a long-lived duplicate
+        assertThrows("Expected a short-lived metric with same name as long-lived to throw", IllegalStateException.class,
+                () -> dataBalancerMetricsRegistry.newGauge(this.getClass(), longLivedGaugeName, () -> true, true));
+
+        addedMetrics = metricsRegistry.allMetrics();
+        assertEquals("Expected only two metrics in registry", 2, addedMetrics.size());
+        assertTrue("expected gauge to be registered", isMetricRegistered(dataBalancerMetricsRegistry, longLivedGaugeName));
+        assertFalse("expected short-lived gauge to not be registered", isShortLivedMetricRegistered(dataBalancerMetricsRegistry, longLivedGaugeName));
+        assertTrue("expected long-lived gauge to be registered", isLongLivedMetricRegistered(dataBalancerMetricsRegistry, longLivedGaugeName));
+
+        assertTrue("Expected gauge to be present in registry", addedMetrics.containsValue(testLongLivedGauge));
     }
 
     @Test
@@ -88,8 +143,8 @@ public class DataBalancerMetricsRegistryTest {
 
         assertEquals("Expected only one metric in registry after clearing", expectedMetrics.size(), registeredMetrics.size());
         assertTrue("Expected non-transient metric to be present after clearing", registeredMetrics.values().containsAll(expectedMetrics));
-        assertThrows("Expected adding duplicate metric name to throw exception", IllegalStateException.class,
-                () -> dataBalancerMetricsRegistry.newGauge(this.getClass(), whitelistMetricName, () -> true, false));
+        // Add a metric again. This should be silently swallowed but not bump the metric count.
+        dataBalancerMetricsRegistry.newGauge(this.getClass(), whitelistMetricName, () -> true, false);
 
         expectedMetrics.add(dataBalancerMetricsRegistry.newGauge(this.getClass(), "ccGauge", () -> true));
         expectedMetrics.add(dataBalancerMetricsRegistry.newMeter(this.getClass(), "testMeter", "", TimeUnit.SECONDS));
