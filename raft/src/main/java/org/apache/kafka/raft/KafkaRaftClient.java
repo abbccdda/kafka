@@ -1211,6 +1211,10 @@ public class KafkaRaftClient implements RaftClient {
         return gracefulShutdown == null || !gracefulShutdown.isFinished();
     }
 
+    public ConnectionState leaderConnection() {
+        return connections.getOrCreate(quorum.leaderId().orElse(-1));
+    }
+
     private void pollShutdown(GracefulShutdown shutdown) throws IOException {
         // Graceful shutdown allows a leader or candidate to resign its leadership without
         // awaiting expiration of the election timeout. During shutdown, we no longer update

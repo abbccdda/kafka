@@ -75,18 +75,44 @@ class RaftServer(val config: KafkaConfig) extends Logging {
     val metadataLog = buildMetadataLog(logDir)
     val networkChannel = buildNetworkChannel(raftConfig, logContext)
 
-    val requestHandler = new RaftRequestHandler(
-      networkChannel,
-      socketServer.dataPlaneRequestChannel,
-      time
+    val shutdown = new AtomicBoolean(false)
+
+    val counter = new ReplicatedCounter(config.brokerId, logContext, true, time)
+    val incrementThread = new Thread() {
+      override def run(): Unit = {
+        while (!shutdown.get()) {
+          if (counter.isLeader) {
+//            counter.increment()
+            Thread.sleep(10000)
+          }
+        }
+      }
+    }
+
+    val quorumState = new QuorumState(
+      config.brokerId,
+      raftConfig.bootstrapVoters,
+      new FileBasedStateStore(new File(logDir, "quorum-state")),
+      logContext
     )
 
     val raftClient = buildRaftClient(
       raftConfig,
+      quorumState,
       metadataLog,
       networkChannel,
       logContext,
       logDir
+    )
+
+    val requestHandler = new RaftRequestHandler(
+      networkChannel,
+      socketServer.dataPlaneRequestChannel,
+      time,
+      counter,
+      partition,
+      raftClient,
+      config
     )
 
     dataPlaneRequestHandlerPool = new KafkaRequestHandlerPool(
@@ -101,20 +127,7 @@ class RaftServer(val config: KafkaConfig) extends Logging {
 
     socketServer.startProcessingRequests(Map.empty)
 
-    val shutdown = new AtomicBoolean(false)
     try {
-      val counter = new ReplicatedCounter(config.brokerId, logContext, true)
-      val incrementThread = new Thread() {
-        override def run(): Unit = {
-          while (!shutdown.get()) {
-            if (counter.isLeader) {
-              counter.increment()
-              Thread.sleep(500)
-            }
-          }
-        }
-      }
-
       raftClient.initialize(counter)
       incrementThread.start()
 
@@ -127,8 +140,8 @@ class RaftServer(val config: KafkaConfig) extends Logging {
     }
   }
 
-  private def buildNetworkChannel(raftConfig: RaftConfig,
-                                  logContext: LogContext): KafkaNetworkChannel = {
+  def buildNetworkChannel(raftConfig: RaftConfig,
+                          logContext: LogContext): KafkaNetworkChannel = {
     val netClient = buildNetworkClient(raftConfig, logContext)
     val clientId = s"Raft-${config.brokerId}"
     new KafkaNetworkChannel(time, netClient, clientId,
@@ -167,17 +180,11 @@ class RaftServer(val config: KafkaConfig) extends Logging {
   }
 
   private def buildRaftClient(raftConfig: RaftConfig,
+                              quorumState: QuorumState,
                               metadataLog: KafkaMetadataLog,
                               networkChannel: KafkaNetworkChannel,
                               logContext: LogContext,
                               logDir: File): KafkaRaftClient = {
-    val quorumState = new QuorumState(
-      config.brokerId,
-      raftConfig.bootstrapVoters,
-      new FileBasedStateStore(new File(logDir, "quorum-state")),
-      logContext
-    )
-
     val purgatory = new KafkaFuturePurgatory(
       config.brokerId,
       new SystemTimer("raft-purgatory-reaper"),

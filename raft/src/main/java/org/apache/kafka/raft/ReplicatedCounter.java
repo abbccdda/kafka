@@ -24,6 +24,8 @@ import org.apache.kafka.common.record.RecordBatch;
 import org.apache.kafka.common.record.Records;
 import org.apache.kafka.common.record.SimpleRecord;
 import org.apache.kafka.common.utils.LogContext;
+import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.common.utils.Timer;
 import org.slf4j.Logger;
 
 import java.nio.ByteBuffer;
@@ -43,11 +45,13 @@ public class ReplicatedCounter implements ReplicatedStateMachine {
     private AtomicInteger uncommitted;
     private boolean isLeader = false;
     private RecordAppender appender = null;
+    private final Timer printFrequency;
 
-    public ReplicatedCounter(int nodeId, LogContext logContext, boolean verbose) {
+    public ReplicatedCounter(int nodeId, LogContext logContext, boolean verbose, Time time) {
         this.nodeId = nodeId;
         this.log = logContext.logger(ReplicatedCounter.class);
         this.verbose = verbose;
+        this.printFrequency = time.timer(10000);
     }
 
     @Override
@@ -86,8 +90,9 @@ public class ReplicatedCounter implements ReplicatedStateMachine {
                     log.trace("Applied counter update at offset {}: {} -> {}", record.offset(), committed.get(), value);
                     committed.set(value);
 
-                    if (verbose) {
-                        System.out.println(Integer.toString(value));
+                    if (verbose && printFrequency.isExpired()) {
+                        System.out.println(value);
+                        printFrequency.update();
                     }
                 }
             }

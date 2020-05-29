@@ -17,23 +17,34 @@
 
 package kafka.server
 
+import java.util.Collections
+
 import kafka.network.RequestChannel
 import kafka.raft.KafkaNetworkChannel
 import kafka.utils.Logging
+import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.internals.FatalExitError
+import org.apache.kafka.common.message.MetadataResponseData
+import org.apache.kafka.common.message.MetadataResponseData.{MetadataResponsePartition, MetadataResponseTopic}
 import org.apache.kafka.common.protocol.{ApiKeys, Errors}
-import org.apache.kafka.common.requests.{AbstractRequest, AbstractResponse}
+import org.apache.kafka.common.requests.{AbstractRequest, AbstractResponse, ApiVersionsResponse, MetadataResponse, ProduceRequest, ProduceResponse}
 import org.apache.kafka.common.utils.Time
+import org.apache.kafka.raft.{KafkaRaftClient, ReplicatedCounter}
 
 import scala.jdk.CollectionConverters._
 
 class RaftRequestHandler(networkChannel: KafkaNetworkChannel,
                          requestChannel: RequestChannel,
-                         time: Time)
+                         time: Time,
+                         counter: ReplicatedCounter,
+                         metadataPartition: TopicPartition,
+                         raftClient: KafkaRaftClient,
+                         config: KafkaConfig)
   extends ApiRequestHandler with Logging {
 
   override def handle(request: RequestChannel.Request): Unit = {
     try {
+      val connectionState = raftClient.leaderConnection()
       trace(s"Handling request:${request.requestDesc(true)} from connection ${request.context.connectionId};" +
         s"securityProtocol:${request.context.securityProtocol},principal:${request.context.principal}")
       request.header.apiKey match {
@@ -47,6 +58,47 @@ class RaftRequestHandler(networkChannel: KafkaNetworkChannel,
             request.header,
             requestBody,
             response => sendResponse(request, Some(response)))
+
+        case ApiKeys.API_VERSIONS =>
+          sendResponse(request, Option(ApiVersionsResponse.apiVersionsResponse(10, 2)))
+
+        case ApiKeys.METADATA =>
+          val topics = new MetadataResponseData.MetadataResponseTopicCollection
+          if (connectionState.hostInfo().isPresent) {
+            topics.add(new MetadataResponseTopic()
+              .setErrorCode(Errors.NONE.code)
+              .setName("__cluster_metadata")
+              .setIsInternal(true)
+              .setPartitions(Collections.singletonList(new MetadataResponsePartition()
+                .setErrorCode(Errors.NONE.code())
+                .setPartitionIndex(0)
+                .setLeaderId(connectionState.id().toInt))))
+          }
+
+          val brokers = new MetadataResponseData.MetadataResponseBrokerCollection
+
+          if (connectionState.hostInfo().isPresent) {
+            val socketAddress = connectionState.hostInfo().get().address
+            brokers.add(new MetadataResponseData.MetadataResponseBroker()
+              .setNodeId(connectionState.id().toInt)
+              .setHost(socketAddress.getHostName)
+              .setPort(socketAddress.getPort))
+          }
+
+          sendResponse(request, Option(new MetadataResponse(
+            new MetadataResponseData()
+              .setTopics(topics)
+              .setBrokers(brokers))))
+
+        case ApiKeys.PRODUCE =>
+
+          val produceRequest = request.body[ProduceRequest]
+          produceRequest.partitionRecordsOrFail()
+          counter.increment().whenComplete{ (_, _) =>
+            sendResponse(request, Option(new ProduceResponse(
+              Collections.singletonMap(metadataPartition, new ProduceResponse.PartitionResponse(
+                Errors.NONE)))))
+          }
 
         case _ => throw new IllegalArgumentException(s"Unsupported api key: ${request.header.apiKey}")
       }

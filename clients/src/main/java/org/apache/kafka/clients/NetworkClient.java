@@ -1053,6 +1053,7 @@ public class NetworkClient implements KafkaClient {
 
         @Override
         public void handleSuccessfulResponse(RequestHeader requestHeader, long now, MetadataResponse response) {
+            log.info("Handling successful response");
             // If any partition has leader with missing listeners, log up to ten of these partitions
             // for diagnosing broker configuration issues.
             // This could be a transient issue if listeners were added dynamically to brokers.

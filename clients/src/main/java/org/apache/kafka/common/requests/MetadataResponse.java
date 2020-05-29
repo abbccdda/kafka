@@ -134,7 +134,9 @@ public class MetadataResponse extends AbstractResponse {
         Set<String> internalTopics = new HashSet<>();
         List<PartitionInfo> partitions = new ArrayList<>();
 
+        System.out.println("Got topic metadata " + topicMetadata());
         for (TopicMetadata metadata : topicMetadata()) {
+            System.out.println("metadata " + metadata);
             if (metadata.error == Errors.NONE) {
                 if (metadata.isInternal)
                     internalTopics.add(metadata.topic);
@@ -371,7 +373,7 @@ public class MetadataResponse extends AbstractResponse {
         @Override
         public String toString() {
             return "PartitionMetadata(" +
-                    ", error=" + error +
+                    "error=" + error +
                     ", partition=" + topicPartition +
                     ", leader=" + leaderId +
                     ", leaderEpoch=" + leaderEpoch +
