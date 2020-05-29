@@ -30,8 +30,13 @@ public class TierTopicListenersTest {
                 objectId, new OffsetAndEpoch(30, Optional.of(1)));
         listeners.addTracked(metadata, result);
         assertEquals(1, listeners.numListeners());
-        LockSupport.parkNanos(1_000_000);
-        assertTrue(listeners.maxListenerTimeNanos().get() > 1_000_000);
+        long sleptTimeNs = 0L;
+        while (sleptTimeNs < 1_000_000) {
+            long timeNs = System.nanoTime();
+            LockSupport.parkNanos(1_000_000);
+            sleptTimeNs += System.nanoTime() - timeNs;
+        }
+        assertTrue(listeners.maxListenerTimeNanos().get() >= 1_000_000);
 
         Optional<CompletableFuture<TierPartitionState.AppendResult>> removedFutureOpt =
                 listeners.getAndRemoveTracked(metadata);
