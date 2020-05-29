@@ -391,10 +391,17 @@ class ReplicaFetcherThread(name: String,
 
   /**
    *  To avoid ISR thrashing, we only throttle a replica on the follower if it's in the throttled replica list,
-   *  the quota is exceeded and the replica is not in sync.
+   *  the quota is exceeded and the replica is not in sync, except when the broker is running low on disk,
+   *  then we'll throttle regardless of the ISR situation
    */
   private def shouldFollowerThrottle(quota: ReplicaQuota, fetchState: PartitionFetchState, topicPartition: TopicPartition): Boolean = {
-    !fetchState.isReplicaInSync && quota.isThrottled(topicPartition) && quota.isQuotaExceeded
+    val replicaShouldThrottle = quota match {
+      case r: ReplicationQuotaManager =>
+        DiskUsageBasedThrottler.diskThrottlingActive(r) || !fetchState.isReplicaInSync
+      case _ =>
+        !fetchState.isReplicaInSync
+    }
+    replicaShouldThrottle && quota.isThrottled(topicPartition) && quota.isQuotaExceeded
   }
 
 }

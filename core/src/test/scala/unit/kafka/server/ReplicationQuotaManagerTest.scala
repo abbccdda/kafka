@@ -16,20 +16,23 @@
   */
 package kafka.server
 
+import java.nio.file.FileStore
 import java.util.Collections
+import java.util.concurrent.atomic.AtomicLong
 
 import kafka.server.QuotaType._
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.metrics.{MetricConfig, Metrics, Quota}
-import org.apache.kafka.common.utils.MockTime
+import org.apache.kafka.common.utils.{MockTime, Time}
 import org.junit.Assert.{assertEquals, assertFalse, assertTrue}
 import org.junit.{After, Test}
+import org.mockito.Mockito.mock
 
 import scala.jdk.CollectionConverters._
 
 class ReplicationQuotaManagerTest {
-  private val time = new MockTime
-  private val metrics = new Metrics(new MetricConfig(), Collections.emptyList(), time)
+  private val mockTime = new MockTime
+  private val metrics = new Metrics(new MetricConfig(), Collections.emptyList(), mockTime)
 
   @After
   def tearDown(): Unit = {
@@ -38,13 +41,13 @@ class ReplicationQuotaManagerTest {
 
   @Test
   def shouldSetConfiguredQuotaRate(): Unit = {
-    val quotaManager = new ReplicationQuotaManager(ReplicationQuotaManagerConfig(quotaBytesPerSecond = 111), metrics, LeaderReplication, time)
+    val quotaManager = new ReplicationQuotaManager(ReplicationQuotaManagerConfig(quotaBytesPerSecond = 111), metrics, LeaderReplication, mockTime)
     assertEquals(111, quotaManager.upperBound())
   }
 
   @Test
   def shouldThrottleAllReplicasWhenBrokerLevelConfigSet(): Unit = {
-    val quota = new ReplicationQuotaManager(ReplicationQuotaManagerConfig(allReplicasThrottled = true), metrics, QuotaType.Fetch, time)
+    val quota = new ReplicationQuotaManager(ReplicationQuotaManagerConfig(allReplicasThrottled = true), metrics, QuotaType.Fetch, mockTime)
 
     assertTrue(quota.isThrottled(tp1(1)))
     assertTrue(quota.isThrottled(tp1(2)))
@@ -63,7 +66,7 @@ class ReplicationQuotaManagerTest {
 
   @Test
   def shouldThrottleOnlyDefinedReplicas(): Unit = {
-    val quota = new ReplicationQuotaManager(ReplicationQuotaManagerConfig(), metrics, QuotaType.Fetch, time)
+    val quota = new ReplicationQuotaManager(ReplicationQuotaManagerConfig(), metrics, QuotaType.Fetch, mockTime)
     quota.markThrottled("topic1", Seq(1, 2, 3))
 
     assertTrue(quota.isThrottled(tp1(1)))
@@ -74,7 +77,7 @@ class ReplicationQuotaManagerTest {
 
   @Test
   def shouldExceedQuotaThenReturnBackBelowBoundAsTimePasses(): Unit = {
-    val quota = new ReplicationQuotaManager(ReplicationQuotaManagerConfig(numQuotaSamples = 10, quotaWindowSizeSeconds = 1), metrics, LeaderReplication, time)
+    val quota = new ReplicationQuotaManager(ReplicationQuotaManagerConfig(numQuotaSamples = 10, quotaWindowSizeSeconds = 1), metrics, LeaderReplication, mockTime)
 
     //Given
     quota.updateQuota(new Quota(100, true))
@@ -83,10 +86,10 @@ class ReplicationQuotaManagerTest {
     assertFalse(quota.isQuotaExceeded)
 
     //First window is fixed, so we'll skip it
-    time.sleep(1000)
+    mockTime.sleep(1000)
 
     //When we record up to the quota value after half a window
-    time.sleep(500)
+    mockTime.sleep(500)
     quota.record(1)
 
     //Then it should not break the quota
@@ -104,14 +107,14 @@ class ReplicationQuotaManagerTest {
     assertTrue(quota.isQuotaExceeded)
 
     //When we sleep for the remaining half the window
-    time.sleep(500) //151B, 2s
+    mockTime.sleep(500) //151B, 2s
 
     //Then Our rate should have halved (i.e back down below the quota)
     assertFalse(quota.isQuotaExceeded)
     assertEquals(151d / 2, rate(metrics), 0.1) //151B, 2s
 
     //When we sleep for another half a window (now half way through second window)
-    time.sleep(500)
+    mockTime.sleep(500)
     quota.record(99) //250B, 2.5s
 
     //Then the rate should be exceeded again
@@ -122,7 +125,7 @@ class ReplicationQuotaManagerTest {
     assertEquals(251 / 2.5, rate(metrics), 0)
 
     //Sleep for 2 more window
-    time.sleep(2 * 1000) //so now at 3.5s
+    mockTime.sleep(2 * 1000) //so now at 3.5s
     assertFalse(quota.isQuotaExceeded)
     assertEquals(251d / 4.5, rate(metrics), 0)
   }
@@ -135,7 +138,7 @@ class ReplicationQuotaManagerTest {
 
   @Test
   def shouldSupportWildcardThrottledReplicas(): Unit = {
-    val quota = new ReplicationQuotaManager(ReplicationQuotaManagerConfig(), metrics, LeaderReplication, time)
+    val quota = new ReplicationQuotaManager(ReplicationQuotaManagerConfig(), metrics, LeaderReplication, mockTime)
 
     //When
     quota.markThrottled("MyTopic", Constants.AllReplicas)
@@ -147,7 +150,7 @@ class ReplicationQuotaManagerTest {
 
   @Test
   def shouldSupportNoneThrottledReplicasAndOverrideBrokerThrottles(): Unit = {
-    val quota = new ReplicationQuotaManager(ReplicationQuotaManagerConfig(allReplicasThrottled = true), metrics, LeaderReplication, time)
+    val quota = new ReplicationQuotaManager(ReplicationQuotaManagerConfig(allReplicasThrottled = true), metrics, LeaderReplication, mockTime)
 
     //When
     quota.markThrottled("MyTopic", Constants.NoReplicas)
@@ -159,7 +162,7 @@ class ReplicationQuotaManagerTest {
 
   @Test
   def shouldSupportOverrideBrokerThrottleWhenSomeReplicasExplicitlyThrottled(): Unit = {
-    val quota = new ReplicationQuotaManager(ReplicationQuotaManagerConfig(allReplicasThrottled = true), metrics, LeaderReplication, time)
+    val quota = new ReplicationQuotaManager(ReplicationQuotaManagerConfig(allReplicasThrottled = true), metrics, LeaderReplication, mockTime)
 
     //When
     val tp0 = new TopicPartition("MyTopic", 0)
@@ -173,7 +176,7 @@ class ReplicationQuotaManagerTest {
 
   @Test
   def shouldSupportBrokerThrottledReplicas(): Unit = {
-    val quota = new ReplicationQuotaManager(ReplicationQuotaManagerConfig(), metrics, LeaderReplication, time)
+    val quota = new ReplicationQuotaManager(ReplicationQuotaManagerConfig(), metrics, LeaderReplication, mockTime)
 
     //When
     quota.markBrokerThrottled()
@@ -196,7 +199,7 @@ class ReplicationQuotaManagerTest {
 
   @Test
   def shouldResetBrokerThrottledReplicas(): Unit = {
-    val quota = new ReplicationQuotaManager(ReplicationQuotaManagerConfig(allReplicasThrottled = true), metrics, LeaderReplication, time)
+    val quota = new ReplicationQuotaManager(ReplicationQuotaManagerConfig(allReplicasThrottled = true), metrics, LeaderReplication, mockTime)
 
     //When
     quota.removeBrokerThrottle(false)
@@ -215,6 +218,69 @@ class ReplicationQuotaManagerTest {
       quota.isThrottled(new TopicPartition("MyTopic", 0)))
     assertTrue("Should have reset broker replication throttle",
       quota.isThrottled(new TopicPartition("MyOtherTopic", 0)))
+  }
+
+  @Test
+  def testBrokerIsThrottledOnLowDiskAvailability(): Unit = {
+    val diskThreshold = DiskUsageBasedThrottlingConfig.MinDiskThresholdBytes
+    val throttledLimit: Long = DiskUsageBasedThrottlingConfig.MinThroughputBytesPerSec
+    val freeDiskRemaining = new AtomicLong(0L)
+    val throttlingConfig = DiskUsageBasedThrottlingConfig(
+      freeDiskThresholdBytes = diskThreshold,
+      throttledProduceThroughput = throttledLimit,
+      logDirs = Seq(mock(classOf[FileStore])),
+      enableDiskBasedThrottling = true,
+      diskCheckFrequencyMs = 500L,
+      freeDiskThresholdBytesRecoveryFactor = 1.5)
+    val throttler = new DiskUsageBasedThrottler {
+      override protected[server] def diskThrottlingConfig: DiskUsageBasedThrottlingConfig = throttlingConfig
+
+      override protected[server] def minDiskUsableBytes: Long = freeDiskRemaining.get()
+
+      override protected def time: Time = mockTime
+    }
+    val config = ReplicationQuotaManagerConfig()
+    val quotaManager = new ReplicationQuotaManager(config, metrics, FollowerReplication, mockTime)
+    DiskUsageBasedThrottler.registerListener(quotaManager)
+
+    // when
+    freeDiskRemaining.set(diskThreshold)
+    mockTime.sleep(501)
+    throttler.checkAndUpdateQuotaOnDiskUsage(mockTime.milliseconds())
+
+    // then
+    assertFalse("Throttling shouldn't happen with high disk availability", quotaManager.isThrottled(tp1(0)))
+    assertEquals(config.quotaBytesPerSecond, quotaManager.upperBound())
+
+    // when
+    freeDiskRemaining.set(diskThreshold - 1L)
+    mockTime.sleep(501)
+    throttler.checkAndUpdateQuotaOnDiskUsage(mockTime.milliseconds())
+
+    // then
+    assertTrue("Throttling should happen with low disk availability", quotaManager.isThrottled(tp1(0)))
+    assertEquals(2 * throttledLimit, quotaManager.upperBound())
+
+    // when
+    freeDiskRemaining.set(diskThreshold + 1L)
+    mockTime.sleep(501)
+    throttler.checkAndUpdateQuotaOnDiskUsage(mockTime.milliseconds())
+
+    // then
+    assertTrue("Throttling should still continue", quotaManager.isThrottled(tp1(0)))
+    assertEquals(2 * throttledLimit, quotaManager.upperBound())
+
+    // when
+    freeDiskRemaining.set((diskThreshold * 1.5).toLong)
+    mockTime.sleep(501)
+    throttler.checkAndUpdateQuotaOnDiskUsage(mockTime.milliseconds())
+
+    // then
+    assertFalse("Throttling should have stopped with high disk availability", quotaManager.isThrottled(tp1(0)))
+    assertEquals(config.quotaBytesPerSecond, quotaManager.upperBound())
+
+    // finally
+    DiskUsageBasedThrottler.deRegisterListener(quotaManager)
   }
 
 

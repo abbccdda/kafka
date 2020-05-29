@@ -17,6 +17,7 @@
 package kafka.server
 
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.atomic.AtomicReference
 import java.util.{Collections, Optional}
 
 import kafka.cluster.{BrokerEndPoint, Partition}
@@ -351,6 +352,59 @@ class ReplicaFetcherThreadTest {
     thread.doWork()
     assertEquals(1, mockNetwork.epochFetchCount)
     assertEquals(1, mockNetwork.fetchCount)
+  }
+
+  @Test
+  def testFollowerIsThrottledOnLowDisk(): Unit = {
+    val config = KafkaConfig.fromProps(TestUtils.createBrokerConfig(1, "localhost:1234"))
+
+    // Setup all dependencies
+    val logManager: LogManager = createMock(classOf[LogManager])
+    val replicaAlterLogDirsManager: ReplicaAlterLogDirsManager = createMock(classOf[ReplicaAlterLogDirsManager])
+    val log: AbstractLog = createNiceMock(classOf[AbstractLog])
+    val partition: Partition = createMock(classOf[Partition])
+    val replicaManager: ReplicaManager = createMock(classOf[ReplicaManager])
+
+    val leaderEpoch = 5
+
+    // Stubs
+    expect(replicaManager.logManager).andReturn(logManager).anyTimes()
+    expect(replicaManager.replicaAlterLogDirsManager).andReturn(replicaAlterLogDirsManager).anyTimes()
+    expect(replicaManager.brokerTopicStats).andReturn(mock(classOf[BrokerTopicStats]))
+    expect(replicaManager.markFollowerReplicaThrottle()).andVoid().times(4)
+    stub(partition, replicaManager, log)
+
+    // Expectations
+    expect(partition.truncateTo(anyLong(), anyBoolean())).times(2)
+
+    val quotaManager: ReplicationQuotaManager = createMock(classOf[ReplicationQuotaManager])
+    expect(quotaManager.isQuotaExceeded).andReturn(true).anyTimes()
+    expect(quotaManager.isThrottled(anyObject(classOf[TopicPartition]))).andReturn(true).anyTimes()
+    expect(quotaManager.lastSignalledQuotaOptRef).andReturn(new AtomicReference[Option[Long]](Some(42))).times(2)
+
+    replay(replicaManager, logManager, partition, log, quotaManager)
+
+    // Define the offsets for the OffsetsForLeaderEpochResponse
+    val offsets = Map(t1p0 -> new EpochEndOffset(leaderEpoch, 100), t1p1 -> new EpochEndOffset(leaderEpoch, 1)).asJava
+
+    // Create the fetcher thread
+    val mockNetwork = new ReplicaFetcherMockBlockingSend(offsets, brokerEndPoint, new SystemTime())
+    val thread = createReplicaFetcherThread("audi", 0, brokerEndPoint, config, failedPartitions, replicaManager,
+      new Metrics, new SystemTime, quotaManager, None, Some(mockNetwork))
+    val partitionMap = Map(t1p0 -> PartitionFetchState(0L, Some(0), leaderEpoch, Fetching),
+      t1p1 -> PartitionFetchState(0L, None, leaderEpoch, Fetching))
+
+    // First we try to build fetch request without disk throttling enabled, this would result in only t1p1 getting throttled
+    thread.buildFetch(partitionMap)
+
+    // Next, with disk throttling turned on, both t1p1 and t1p2 will be throttled
+    DiskUsageBasedThrottler.registerListener(quotaManager)
+    thread.buildFetch(partitionMap)
+
+    // Finally with disk throttling turned off, only t1p1 will be throttled
+    DiskUsageBasedThrottler.deRegisterListener(quotaManager)
+    thread.buildFetch(partitionMap)
+    verify(quotaManager, replicaManager)
   }
 
   @Test

@@ -839,6 +839,10 @@ class KafkaConfigTest {
         case ConfluentConfigs.BACKPRESSURE_REQUEST_MIN_BROKER_LIMIT_CONFIG => // ignore
         case ConfluentConfigs.BACKPRESSURE_REQUEST_QUEUE_SIZE_PERCENTILE_CONFIG => // ignore
         case ConfluentConfigs.MULTITENANT_LISTENER_NAMES_CONFIG => // ignore
+        case ConfluentConfigs.BACKPRESSURE_DISK_THRESHOLD_BYTES_CONFIG => // ignore
+        case ConfluentConfigs.BACKPRESSURE_PRODUCE_THROUGHPUT_CONFIG => // ignore
+        case ConfluentConfigs.BACKPRESSURE_DISK_RECOVERY_FACTOR_CONFIG => // ignore
+        case ConfluentConfigs.BACKPRESSURE_DISK_ENABLE_CONFIG => assertPropertyInvalid(getBaseProperties(), name, "not_a_boolean")
 
         case ConfluentConfigs.SCHEMA_REGISTRY_URL_CONFIG =>
         case ConfluentConfigs.MAX_CACHE_SIZE_CONFIG =>

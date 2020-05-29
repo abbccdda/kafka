@@ -29,7 +29,7 @@ import scala.jdk.CollectionConverters._
 
 class ClientRequestQuotaManager(private val config: ClientQuotaManagerConfig,
                                 private val metrics: Metrics,
-                                private val time: Time,
+                                time: Time,
                                 threadNamePrefix: String,
                                 quotaCallback: Option[ClientQuotaCallback],
                                 activeTenantsManager: Option[ActiveTenantsManager])
@@ -190,7 +190,7 @@ class ClientRequestQuotaManager(private val config: ClientQuotaManagerConfig,
     *    Once request queues stop building up, broker request quota limit is lifted up again back to (1) estimate based
     *    thread capacity and current thread usage.
     */
-  override protected[server] def updateBrokerQuotaLimit(): Unit = {
+  override protected[server] def updateBrokerQuotaLimit(timeMs: Long): Unit = {
 
     // this method is used to calculate the upper limit for non-exempt request usage of a threadpool
     // max(maxAvailableCapacity - exempt usage, minLimit), where

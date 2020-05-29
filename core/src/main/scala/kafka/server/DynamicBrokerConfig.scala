@@ -982,7 +982,11 @@ object DynamicBackpressure {
   val ReconfigurableConfigs = Set(
     ConfluentConfigs.BACKPRESSURE_TYPES_CONFIG,
     ConfluentConfigs.BACKPRESSURE_REQUEST_MIN_BROKER_LIMIT_CONFIG,
-    ConfluentConfigs.BACKPRESSURE_REQUEST_QUEUE_SIZE_PERCENTILE_CONFIG
+    ConfluentConfigs.BACKPRESSURE_REQUEST_QUEUE_SIZE_PERCENTILE_CONFIG,
+    ConfluentConfigs.BACKPRESSURE_DISK_THRESHOLD_BYTES_CONFIG,
+    ConfluentConfigs.BACKPRESSURE_PRODUCE_THROUGHPUT_CONFIG,
+    ConfluentConfigs.BACKPRESSURE_DISK_RECOVERY_FACTOR_CONFIG,
+    ConfluentConfigs.BACKPRESSURE_DISK_ENABLE_CONFIG
   )
 }
 
@@ -1007,6 +1011,7 @@ class DynamicBackpressure(server: KafkaServer) extends BrokerReconfigurable {
   override def reconfigure(oldConfig: KafkaConfig, newConfig: KafkaConfig): Unit = {
     server.quotaManagers.fetch.updateBackpressureConfig(QuotaFactory.brokerBackpressureConfig(newConfig, Fetch))
     server.quotaManagers.produce.updateBackpressureConfig(QuotaFactory.brokerBackpressureConfig(newConfig, Produce))
+    server.quotaManagers.produce.updateDiskThrottlingConfig(QuotaFactory.diskThrottleConfig(newConfig))
     server.quotaManagers.request.updateBackpressureConfig(QuotaFactory.brokerBackpressureConfig(newConfig, Request))
   }
 }

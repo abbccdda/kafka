@@ -26,7 +26,7 @@ import org.apache.kafka.test.{TestUtils => JTestUtils}
 import org.easymock.EasyMock._
 import org.junit.Assert._
 import org.easymock.EasyMock.{anyObject, expect, mock, replay}
-import org.junit.Test
+import org.junit.{Ignore, Test}
 
 class ClusterLinkFetcherThreadTest extends ReplicaFetcherThreadTest {
 
@@ -194,4 +194,8 @@ class ClusterLinkFetcherThreadTest extends ReplicaFetcherThreadTest {
       Map(tp -> OffsetTruncationState(10, truncationCompleted = true)))
     assertFalse("State not reset after truncation", offsetsPending)
   }
+
+  @Ignore("Disk throttle is not applied")
+  @Test
+  override def testFollowerIsThrottledOnLowDisk(): Unit = super.testFollowerIsThrottledOnLowDisk()
 }

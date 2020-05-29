@@ -197,6 +197,29 @@ public class ConfluentConfigs {
                     + " the backpressure mechanism starts reducing the total broker request quota."
                     + " Accepted values: `p90`, `p95`, `p98`, `p99`. Setting an invalid value will default to `p95`.";
 
+    public static final String BACKPRESSURE_PRODUCE_THROUGHPUT_CONFIG = CONFLUENT_PREFIX + "backpressure.disk.produce.bytes.per.second";
+    public static final long BACKPRESSURE_PRODUCE_THROUGHPUT_DEFAULT = 128 * 1024;
+    public static final String BACKPRESSURE_PRODUCE_THROUGHPUT_DOC =
+            "The cumulative bandwidth (in Bytes/s) available to all the producers in the broker";
+
+    public static final String BACKPRESSURE_DISK_ENABLE_CONFIG = CONFLUENT_PREFIX + "backpressure.disk.enable";
+    public static final boolean BACKPRESSURE_DISK_ENABLE_DEFAULT = false;
+    public static final String BACKPRESSURE_DISK_ENABLE_DOC = "This flag will be used to turn on the disk based backpressure";
+
+    public static final String BACKPRESSURE_DISK_THRESHOLD_BYTES_CONFIG = CONFLUENT_PREFIX + "backpressure.disk.free.threshold.bytes";
+    public static final long BACKPRESSURE_DISK_THRESHOLD_BYTES_DEFAULT = 20 * 1024 * 1024 * 1024L;
+    public static final String BACKPRESSURE_DISK_THRESHOLD_BYTES_DOC =
+            "The disk space available (in bytes) considered as the minimum across all the log dirs, " +
+                    "below which the broker will limit aggregate produce bandwidth from all clients to the bandwidth " +
+                    "specified in " + BACKPRESSURE_PRODUCE_THROUGHPUT_CONFIG;
+
+    public static final String BACKPRESSURE_DISK_RECOVERY_FACTOR_CONFIG =
+            CONFLUENT_PREFIX + "backpressure.disk.threshold.recovery.factor";
+    public static final double BACKPRESSURE_DISK_RECOVERY_FACTOR_DEFAULT = 1.5;
+    public static final String BACKPRESSURE_DISK_RECOVERY_FACTOR_DOC =
+            "The multiplier for the free disk threshold (specified via " + BACKPRESSURE_DISK_THRESHOLD_BYTES_CONFIG
+                    + ") above which the throttling would be deactivated";
+
     // Confluent DataBalancer Configs
     public static final String CONFLUENT_BALANCER_PREFIX = CONFLUENT_PREFIX + "balancer.";
 

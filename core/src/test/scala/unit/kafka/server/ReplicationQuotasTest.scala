@@ -18,15 +18,18 @@
 package kafka.server
 
 import java.util.Properties
+import java.util.concurrent.atomic.AtomicReference
 
+import kafka.server.DynamicConfig.Broker.{ClusterLinkIoMaxBytesPerSecondProp, ReplicaAlterLogDirsIoMaxBytesPerSecondProp}
 import kafka.server.KafkaConfig.fromProps
 import kafka.server.QuotaType._
 import kafka.utils.TestUtils._
 import kafka.utils.CoreUtils._
-import kafka.utils.TestUtils
+import kafka.utils.{CoreUtils, TestUtils}
 import kafka.zk.ZooKeeperTestHarness
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.junit.Assert._
 import org.junit.{After, Test}
 
@@ -51,7 +54,7 @@ class ReplicationQuotasTest extends ZooKeeperTestHarness {
 
   @After
   override def tearDown(): Unit = {
-    producer.close()
+    Option(producer).foreach(_.close())
     shutdownServers(brokers)
     super.tearDown()
   }
@@ -283,6 +286,83 @@ class ReplicationQuotasTest extends ZooKeeperTestHarness {
       throttledTook > expectedDuration * 1000 * 0.9)
     assertTrue(s"Throttled replication of ${throttledTook}ms should be < ${expectedDuration * 1500}ms",
       throttledTook < expectedDuration * 1000 * 1.5)
+  }
+
+  @Test
+  def testFollowerIsThrottledOnStartup(): Unit = {
+    // Write 2MB and throttle follower at 500KB/s
+    val msg = msg100KB
+    val msgCount: Int = 20
+    val expectedDuration = 4
+    // this sets the throttle value at 250KB/s since the the replication follower throttle is set to 2x the produce throttle
+    val throttle: Long = msg.length * msgCount / (2 * expectedDuration)
+
+    brokers = Seq(createBrokerWithDiskUsageBasedThrottlingMaybe(100, None))
+
+    TestUtils.createTopic(zkClient, topic, Map(0 -> Seq(100, 101)), brokers)
+
+    addData(msgCount, msg)
+
+    //Start the new broker (and hence start replicating)
+    brokers = brokers :+ createBrokerWithDiskUsageBasedThrottlingMaybe(101, Some(throttle))
+    val start = System.currentTimeMillis()
+
+    waitForOffsetsToMatch(msgCount, 0, 101)
+
+    val throttledTook = System.currentTimeMillis() - start
+
+    assertTrue(s"Throttled replication of ${throttledTook}ms should be > ${expectedDuration * 1000 * 0.9}ms",
+      throttledTook > expectedDuration * 1000 * 0.9)
+    assertTrue(s"Throttled replication of ${throttledTook}ms should be < ${expectedDuration * 1500}ms",
+      throttledTook < expectedDuration * 1000 * 1.5)
+  }
+
+  @Test
+  def testFollowerConfigIsUnchangedOnActiveDiskThrottling(): Unit = {
+    val throttle = ConfluentConfigs.BACKPRESSURE_PRODUCE_THROUGHPUT_DEFAULT
+    val throttledBroker = createBrokerWithDiskUsageBasedThrottlingMaybe(100, Some(throttle))
+    brokers = Seq(throttledBroker)
+    val lastUpdatedThrottleOptRef = new AtomicReference[Option[Long]](None)
+
+    CoreUtils.swallow(throttledBroker.dynamicConfigManager.shutdown(), this)
+    throttledBroker.dynamicConfigHandlers = throttledBroker.dynamicConfigHandlers ++ Seq((ConfigType.Broker,
+      new BrokerConfigHandler(throttledBroker.config, throttledBroker.quotaManagers) {
+        override def processConfigChanges(brokerId: String, properties: Properties): Unit = {
+          super.processConfigChanges(brokerId, properties)
+          lastUpdatedThrottleOptRef.set(quotaManagers.follower.lastSignalledQuotaOptRef.get)
+        }
+      })).toMap
+    throttledBroker.dynamicConfigManager = new DynamicConfigManager(throttledBroker.zkClient, throttledBroker.dynamicConfigHandlers)
+    throttledBroker.dynamicConfigManager.startup()
+
+    waitUntilTrue(() => throttledBroker.quotaManagers.follower.lastSignalledQuotaOptRef.get.get == throttle,
+      "Follower throttle couldn't be applied within timeout")
+
+    lastUpdatedThrottleOptRef.set(None)
+    adminZkClient.changeBrokerConfig(Seq(100), propsWith((KafkaConfig.FollowerReplicationThrottledRateProp, (throttle + 1).toString),
+      (KafkaConfig.FollowerReplicationThrottledReplicasProp, "*"),
+      (KafkaConfig.LeaderReplicationThrottledRateProp, "1000"),
+      (ReplicaAlterLogDirsIoMaxBytesPerSecondProp, "1001"),
+      (ClusterLinkIoMaxBytesPerSecondProp, "1002")))
+
+    waitUntilTrue(() => lastUpdatedThrottleOptRef.get.isDefined, s"updateReplicationConfig() incomplete for ${KafkaConfig.FollowerReplicationThrottledRateProp}")
+    assertEquals(throttle, lastUpdatedThrottleOptRef.get.get)
+
+    waitUntilTrue(() => brokers.head.quotaManagers.leader.upperBound() == 1000, "Leader replication not updated")
+    waitUntilTrue(() => brokers.head.quotaManagers.alterLogDirs.upperBound() == 1001, "alterLogDirs not updated")
+    waitUntilTrue(() => brokers.head.quotaManagers.clusterLink.upperBound() == 1002, "clusterLink not updated")
+  }
+
+  def createBrokerWithDiskUsageBasedThrottlingMaybe(brokerId: Int, throttleOpt: Option[Long]): KafkaServer = {
+    val config = createBrokerConfig(brokerId, zkConnect)
+    config.put("log.segment.bytes", (1024 * 1024).toString)
+    throttleOpt.foreach { throttle =>
+      config.setProperty(KafkaConfig.ReplicaFetchMaxBytesProp, "16384")
+      config.setProperty(ConfluentConfigs.BACKPRESSURE_DISK_ENABLE_CONFIG, true.toString)
+      config.setProperty(ConfluentConfigs.BACKPRESSURE_PRODUCE_THROUGHPUT_CONFIG, throttle.toString)
+      config.setProperty(ConfluentConfigs.BACKPRESSURE_DISK_THRESHOLD_BYTES_CONFIG, Long.MaxValue.toString)
+    }
+    createServer(fromProps(config))
   }
 
   def addData(msgCount: Int, msg: Array[Byte]): Unit = {

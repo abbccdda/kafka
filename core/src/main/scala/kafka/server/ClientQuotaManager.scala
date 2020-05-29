@@ -46,19 +46,19 @@ case class ClientSensors(metricTags: Map[String, String], quotaSensor: Sensor, t
 
 /**
  * Configuration settings for quota management
- * @param quotaBytesPerSecondDefault The default bytes per second quota allocated to any client-id if
- *        dynamic defaults or user quotas are not set
- * @param numQuotaSamples The number of samples to retain in memory
- * @param quotaWindowSizeSeconds The time span of each sample
  *
+ * @param quotaBytesPerSecondDefault The default bytes per second quota allocated to any client-id if
+ *                                   dynamic defaults or user quotas are not set
+ * @param numQuotaSamples            The number of samples to retain in memory
+ * @param quotaWindowSizeSeconds     The time span of each sample
+ * @param backpressureConfig         Backpressure config object
+ * @param diskThrottlingConfig       Disk based throttling config
  */
-case class ClientQuotaManagerConfig(quotaBytesPerSecondDefault: Long =
-                                        Defaults.QuotaBytesPerSecond,
-                                    numQuotaSamples: Int =
-                                        Defaults.DefaultNumQuotaSamples,
-                                    quotaWindowSizeSeconds: Int =
-                                        Defaults.DefaultQuotaWindowSizeSeconds,
-                                    backpressureConfig: BrokerBackpressureConfig = BrokerBackpressureConfig())
+case class ClientQuotaManagerConfig(quotaBytesPerSecondDefault: Long = Defaults.QuotaBytesPerSecond,
+                                    numQuotaSamples: Int = Defaults.DefaultNumQuotaSamples,
+                                    quotaWindowSizeSeconds: Int = Defaults.DefaultQuotaWindowSizeSeconds,
+                                    backpressureConfig: BrokerBackpressureConfig = BrokerBackpressureConfig(),
+                                    diskThrottlingConfig: DiskUsageBasedThrottlingConfig = DiskUsageBasedThrottlingConfig())
 
 object ClientQuotaManagerConfig {
   // Purge sensors after 1 hour of inactivity
@@ -157,11 +157,12 @@ object ClientQuotaManager {
  */
 class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
                          private val metrics: Metrics,
-                         private val quotaType: QuotaType,
-                         private val time: Time,
+                         protected[server] val quotaType: QuotaType,
+                         protected val time: Time,
                          threadNamePrefix: String,
                          clientQuotaCallback: Option[ClientQuotaCallback] = None,
-                         activeTenantsManager: Option[ActiveTenantsManager] = None) extends Logging {
+                         activeTenantsManager: Option[ActiveTenantsManager] = None)
+  extends Logging with DiskUsageBasedThrottler with DiskUsageBasedThrottleListener {
   private val staticConfigClientIdQuota = Quota.upperBound(config.quotaBytesPerSecondDefault.toDouble)
   private val clientQuotaType = quotaTypeToClientQuotaType(quotaType)
   @volatile private var quotaTypesEnabled = clientQuotaCallback match {
@@ -179,7 +180,9 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
   private val lastBackpressureCheckTimeMs = new AtomicLong(time.milliseconds())
 
   @volatile protected var dynamicBackpressureConfig = config.backpressureConfig
+  override protected lazy val diskThrottlingConfig: DiskUsageBasedThrottlingConfig = config.diskThrottlingConfig
 
+  // This brokerQuotaLimit is the broker-wide limit on produce throughput in Bytes/s
   private var brokerQuotaLimit: Double = Long.MaxValue
 
   private val delayQueueSensor = metrics.sensor(quotaType.toString + "-delayQueue")
@@ -466,8 +469,26 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
 
   def getBrokerQuotaLimit: Double = brokerQuotaLimit
 
-  protected[server] def updateBrokerQuotaLimit(): Unit = {
-    // broker quota limit is dynamically estimated for total request quotas only
+  protected[server] def updateBrokerQuotaLimit(timeMs: Long): Unit = {
+    if (quotaType == QuotaType.Produce && backpressureEnabled) {
+      checkAndUpdateQuotaOnDiskUsage(timeMs)
+    }
+  }
+
+  override def handleDiskSpaceLow(cappedQuotaInBytesPerSec: Long): Unit = {
+    if (quotaType == QuotaType.Produce && backpressureEnabled) {
+      // Currently we are updating the broker-wide produce quota on disk-full scenarios
+      logger.info("Updating Produce quota (due to low disk) to: {}", cappedQuotaInBytesPerSec)
+      setBrokerQuotaLimit(cappedQuotaInBytesPerSec.toDouble)
+    }
+  }
+
+  override def handleDiskSpaceRecovered(): Unit = {
+    if (quotaType == QuotaType.Produce && backpressureEnabled) {
+      val resetQuota = config.quotaBytesPerSecondDefault
+      logger.info("Resetting Produce quota (due to low disk) to: {}", resetQuota)
+      setBrokerQuotaLimit(resetQuota.toDouble)
+    }
   }
 
   def maybeTrackTenantsAndAutoTuneQuota(clientSensors: ClientSensors, timeMs: Long): Unit = {
@@ -480,7 +501,7 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
       // quota limit as a metric
       if (lastCheck + dynamicBackpressureConfig.backpressureCheckFrequencyMs < timeMs) {
         if (lastBackpressureCheckTimeMs.compareAndSet(lastCheck, timeMs)) {
-          updateBrokerQuotaLimit()
+          updateBrokerQuotaLimit(timeMs)
           if (backpressureEnabled) {
             maybeAutoTuneQuota(tenantsManager, timeMs)
           }

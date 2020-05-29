@@ -16,6 +16,8 @@
   */
 package kafka.server
 
+import java.nio.file.{Files, Paths}
+
 import kafka.server.QuotaType._
 import kafka.utils.CoreUtils.parseCsvList
 import kafka.utils.{CoreUtils, Logging}
@@ -57,6 +59,8 @@ object QuotaFactory extends Logging {
       produce.shutdown
       request.shutdown
       clientQuotaCallback.foreach(_.close())
+      DiskUsageBasedThrottler.deRegisterListener(produce)
+      DiskUsageBasedThrottler.deRegisterListener(follower)
     }
   }
 
@@ -68,12 +72,22 @@ object QuotaFactory extends Logging {
         Option(new ActiveTenantsManager(metrics, time, BrokerBackpressureConfig.DefaultActiveWindowMs))
       else
         None
+    val produceQuotaManager = new ClientQuotaManager(clientProduceConfig(cfg), metrics, Produce, time, threadNamePrefix,
+      clientQuotaCallback, activeTenantsManager)
+    val followerQuotaManager = new ReplicationQuotaManager(replicationConfig(cfg, FollowerReplication), metrics, FollowerReplication, time)
+    // We would only want to throttle the incoming requests to the broker if we are running out of disk,
+    // hence we are only adding the produce and follower quota managers for capping quota based on disk usage
+    DiskUsageBasedThrottler.registerListener(produceQuotaManager)
+    DiskUsageBasedThrottler.registerListener(followerQuotaManager)
+    // Please make sure to invoke initThrottler after all the quotaManagers have been created
+    // This is necessary to enforce re-throttling in case the broker has been restarted while being throttled
+    produceQuotaManager.initThrottler()
     QuotaManagers(
       new ClientQuotaManager(clientFetchConfig(cfg), metrics, Fetch, time, threadNamePrefix, clientQuotaCallback, activeTenantsManager),
-      new ClientQuotaManager(clientProduceConfig(cfg), metrics, Produce, time, threadNamePrefix, clientQuotaCallback, activeTenantsManager),
+      produceQuotaManager,
       new ClientRequestQuotaManager(clientRequestConfig(cfg), metrics, time, threadNamePrefix, clientQuotaCallback, activeTenantsManager),
       new ReplicationQuotaManager(replicationConfig(cfg, LeaderReplication), metrics, LeaderReplication, time),
-      new ReplicationQuotaManager(replicationConfig(cfg, FollowerReplication), metrics, FollowerReplication, time),
+      followerQuotaManager,
       new ReplicationQuotaManager(alterLogDirsReplicationConfig(cfg), metrics, AlterLogDirsReplication, time),
       new ReplicationQuotaManager(alterLogDirsReplicationConfig(cfg), metrics, ClusterLinkReplication, time),
       clientQuotaCallback
@@ -87,7 +101,23 @@ object QuotaFactory extends Logging {
       quotaBytesPerSecondDefault = cfg.producerQuotaBytesPerSecondDefault,
       numQuotaSamples = cfg.numQuotaSamples,
       quotaWindowSizeSeconds = cfg.quotaWindowSizeSeconds,
-      backpressureConfig = brokerBackpressureConfig(cfg, Produce)
+      backpressureConfig = brokerBackpressureConfig(cfg, Produce),
+      diskThrottlingConfig = diskThrottleConfig(cfg)
+    )
+  }
+
+  def diskThrottleConfig(cfg: KafkaConfig): DiskUsageBasedThrottlingConfig = {
+    val fileStores = cfg.logDirs.map(logDir => Files.getFileStore(Paths.get(logDir)))
+    val freeDiskThresholdBytes = cfg.getLong(ConfluentConfigs.BACKPRESSURE_DISK_THRESHOLD_BYTES_CONFIG)
+    val throttledProduceThroughput = cfg.getLong(ConfluentConfigs.BACKPRESSURE_PRODUCE_THROUGHPUT_CONFIG)
+    val enableDiskThrottling = cfg.getBoolean(ConfluentConfigs.BACKPRESSURE_DISK_ENABLE_CONFIG)
+    val recoveryFactor = cfg.getDouble(ConfluentConfigs.BACKPRESSURE_DISK_RECOVERY_FACTOR_CONFIG)
+    DiskUsageBasedThrottlingConfig(
+      freeDiskThresholdBytes = freeDiskThresholdBytes,
+      throttledProduceThroughput = throttledProduceThroughput,
+      logDirs = fileStores,
+      enableDiskBasedThrottling = enableDiskThrottling,
+      freeDiskThresholdBytesRecoveryFactor = recoveryFactor
     )
   }
 

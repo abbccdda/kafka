@@ -274,7 +274,7 @@ class ClientRequestQuotaManagerTest {
     assertNetworkThreadUsageMetricValue(s"request-network-time", None, 0.01)
     assertNetworkThreadUsageMetricValue(s"request-non-exempt-network-time", None, 0.01)
 
-    requestQuotaManager.updateBrokerQuotaLimit()
+    requestQuotaManager.updateBrokerQuotaLimit(time.milliseconds())
     assertBackpressureMetricValue("non-exempt-request-time-capacity", None, 0.01)
 
     time.sleep(2) // 2 milliseconds
@@ -285,7 +285,7 @@ class ClientRequestQuotaManagerTest {
     assertNetworkThreadUsageMetricValue(s"request-network-time", Some(0.2), 0.01)
     assertNetworkThreadUsageMetricValue(s"request-non-exempt-network-time", None, 0.01)
 
-    requestQuotaManager.updateBrokerQuotaLimit()
+    requestQuotaManager.updateBrokerQuotaLimit(time.milliseconds())
     assertBackpressureMetricValue("non-exempt-request-time-capacity", None, 0.01)
   }
 
@@ -302,7 +302,7 @@ class ClientRequestQuotaManagerTest {
     assertNetworkThreadUsageMetricValue(s"request-network-time", None, 0.01)
     assertNetworkThreadUsageMetricValue(s"request-non-exempt-network-time", None, 0.01)
 
-    requestQuotaManager.updateBrokerQuotaLimit()
+    requestQuotaManager.updateBrokerQuotaLimit(time.milliseconds())
     val expectedBrokerQuotaLimit = totalCapacity * BrokerBackpressureConfig.DefaultMaxResourceUtilization - 0.2
     assertBackpressureMetricValue("non-exempt-request-time-capacity", Some(expectedBrokerQuotaLimit), 0.01)
 
@@ -315,7 +315,7 @@ class ClientRequestQuotaManagerTest {
     assertNetworkThreadUsageMetricValue(s"request-non-exempt-network-time", None, 0.01)
 
     // account for extra exempt time on network threads
-    requestQuotaManager.updateBrokerQuotaLimit()
+    requestQuotaManager.updateBrokerQuotaLimit(time.milliseconds())
     val updatedBrokerLimit = expectedBrokerQuotaLimit - 0.1
     assertBackpressureMetricValue("non-exempt-request-time-capacity", Some(updatedBrokerLimit), 0.01)
   }
@@ -332,7 +332,7 @@ class ClientRequestQuotaManagerTest {
     assertNetworkThreadUsageMetricValue(s"request-network-time", None, 0.01)
     assertNetworkThreadUsageMetricValue(s"request-non-exempt-network-time", None, 0.01)
 
-    requestQuotaManager.updateBrokerQuotaLimit()
+    requestQuotaManager.updateBrokerQuotaLimit(time.milliseconds())
     val expectedBrokerQuotaLimit = totalCapacity * BrokerBackpressureConfig.DefaultMaxResourceUtilization
     assertBackpressureMetricValue("non-exempt-request-time-capacity", Some(expectedBrokerQuotaLimit), 0.01)
 
@@ -345,7 +345,7 @@ class ClientRequestQuotaManagerTest {
     assertNetworkThreadUsageMetricValue(s"request-non-exempt-network-time",  Some(0.1), 0.01)
 
     // broker quota limit should not change since extra non-exempt network usage is tiny
-    requestQuotaManager.updateBrokerQuotaLimit()
+    requestQuotaManager.updateBrokerQuotaLimit(time.milliseconds())
     assertBackpressureMetricValue("non-exempt-request-time-capacity", Some(expectedBrokerQuotaLimit), 0.01)
   }
 
@@ -373,7 +373,7 @@ class ClientRequestQuotaManagerTest {
     assertNetworkThreadUsageMetricValue(s"request-network-time", Some(0.4), 0.01)
     assertNetworkThreadUsageMetricValue(s"request-non-exempt-network-time", Some(0.4), 0.01)
 
-    requestQuotaManager.updateBrokerQuotaLimit()
+    requestQuotaManager.updateBrokerQuotaLimit(time.milliseconds())
     val expectedLimit = ioThreadpoolCapacity * BrokerBackpressureConfig.DefaultMaxResourceUtilization + 0.4
     assertBackpressureMetricValue("non-exempt-request-time-capacity", Some(expectedLimit), 1)
   }
@@ -401,7 +401,7 @@ class ClientRequestQuotaManagerTest {
     // all usage came from non-exempt requests
     assertNetworkThreadUsageMetricValue(s"request-non-exempt-network-time", Some(expectedNetworkThreadpoolUsage), 1)
 
-    requestQuotaManager.updateBrokerQuotaLimit()
+    requestQuotaManager.updateBrokerQuotaLimit(time.milliseconds())
     val expectedLimit = networkThreadpoolCapacity * BrokerBackpressureConfig.DefaultMaxResourceUtilization + 8.0
     assertBackpressureMetricValue("non-exempt-request-time-capacity", Some(expectedLimit), 1)
   }
@@ -427,7 +427,7 @@ class ClientRequestQuotaManagerTest {
     assertNetworkThreadUsageMetricValue(s"request-network-time", Some(expectedNetworkThreadpoolUsage), 1)
     assertNetworkThreadUsageMetricValue(s"request-non-exempt-network-time", None, 0.01)
 
-    requestQuotaManager.updateBrokerQuotaLimit()
+    requestQuotaManager.updateBrokerQuotaLimit(time.milliseconds())
     val expectedLimit = totalCapacity * BrokerBackpressureConfig.DefaultMinNonExemptRequestUtilization
     assertBackpressureMetricValue("non-exempt-request-time-capacity", Some(expectedLimit), 1)
   }
@@ -454,7 +454,7 @@ class ClientRequestQuotaManagerTest {
     assertNetworkThreadUsageMetricValue(s"request-network-time", None, 1)
     assertNetworkThreadUsageMetricValue(s"request-non-exempt-network-time", None, 1)
 
-    requestQuotaManager.updateBrokerQuotaLimit()
+    requestQuotaManager.updateBrokerQuotaLimit(time.milliseconds())
     val expectedLimit = totalCapacity * BrokerBackpressureConfig.DefaultMaxResourceUtilization
     assertBackpressureMetricValue("non-exempt-request-time-capacity", Some(expectedLimit), 1)
   }
@@ -530,7 +530,7 @@ class ClientRequestQuotaManagerTest {
     assertIoThreadUsageMetricValue("request-io-time", Some(50), 0.01)
     assertIoThreadUsageMetricValue("request-non-exempt-io-time", Some(50), 0.01)
 
-    requestQuotaManager.updateBrokerQuotaLimit()
+    requestQuotaManager.updateBrokerQuotaLimit(time.milliseconds())
     val expectedBrokerQuotaLimit = totalCapacity * BrokerBackpressureConfig.DefaultMaxResourceUtilization
     assertBackpressureMetricValue("non-exempt-request-time-capacity", Some(expectedBrokerQuotaLimit), 0.01)
 
@@ -540,7 +540,7 @@ class ClientRequestQuotaManagerTest {
     assertNetworkThreadUsageMetricValue(s"request-non-exempt-network-time",  Some(1), 0.01)
 
     // broker quota limit should not change since extra non-exempt network usage is tiny
-    requestQuotaManager.updateBrokerQuotaLimit()
+    requestQuotaManager.updateBrokerQuotaLimit(time.milliseconds())
     assertBackpressureMetricValue("non-exempt-request-time-capacity", Some(expectedBrokerQuotaLimit), 0.01)
 
     // simulate request overload
@@ -553,13 +553,13 @@ class ClientRequestQuotaManagerTest {
       queueSizeSensor.record(config.backpressureConfig.queueSizeCap + 1)
     }
     assertBackpressureMetricValue("non-exempt-request-time-capacity", Some(expectedBrokerQuotaLimit), 0.01)
-    requestQuotaManager.updateBrokerQuotaLimit()
+    requestQuotaManager.updateBrokerQuotaLimit(time.milliseconds())
     assertBackpressureMetricValue("non-exempt-request-time-capacity",
       Some(expectedBrokerQuotaLimit - BrokerBackpressureConfig.DefaultRequestQuotaAdjustment), 0.01)
 
     // once request queues are not overloaded, request limit is lifted up
     time.sleep(100000)
-    requestQuotaManager.updateBrokerQuotaLimit()
+    requestQuotaManager.updateBrokerQuotaLimit(time.milliseconds())
     assertBackpressureMetricValue("non-exempt-request-time-capacity", Some(expectedBrokerQuotaLimit), 0.01)
   }
 
@@ -573,7 +573,7 @@ class ClientRequestQuotaManagerTest {
     request.recordNetworkThreadTimeCallback.foreach(record => record(10000000))
 
     val expectedBrokerQuotaLimit = totalCapacity * BrokerBackpressureConfig.DefaultMaxResourceUtilization
-    requestQuotaManager.updateBrokerQuotaLimit()
+    requestQuotaManager.updateBrokerQuotaLimit(time.milliseconds())
     assertBackpressureMetricValue("non-exempt-request-time-capacity", Some(expectedBrokerQuotaLimit), 0.01)
 
     // simulate request overload
@@ -587,7 +587,7 @@ class ClientRequestQuotaManagerTest {
     }
     // make sure that limit does not fall below the minimum
     for (i <- 0 until 1000) {
-      requestQuotaManager.updateBrokerQuotaLimit()
+      requestQuotaManager.updateBrokerQuotaLimit(time.milliseconds())
     }
     assertBackpressureMetricValue("non-exempt-request-time-capacity",
       Some(config.backpressureConfig.minBrokerRequestQuota), 0.01)
@@ -615,7 +615,7 @@ class ClientRequestQuotaManagerTest {
     assertNetworkThreadUsageMetricValue("request-non-exempt-network-time", testListener.value, None, 0.01)
     assertNetworkThreadUsageMetricValue("request-non-exempt-network-time", secondListener.value, None, 0.01)
 
-    requestQuotaManager.updateBrokerQuotaLimit()
+    requestQuotaManager.updateBrokerQuotaLimit(time.milliseconds())
     // there are two network threadpools in this test
     val threadsCapacity = ioThreadpoolCapacity + networkThreadpoolCapacity + networkThreadpoolCapacity
     val expectedBrokerQuotaLimit = threadsCapacity * BrokerBackpressureConfig.DefaultMaxResourceUtilization
@@ -642,7 +642,7 @@ class ClientRequestQuotaManagerTest {
                  0.01)
 
     // broker quota limit should not change since extra non-exempt network usage is tiny
-    requestQuotaManager.updateBrokerQuotaLimit()
+    requestQuotaManager.updateBrokerQuotaLimit(time.milliseconds())
     assertBackpressureMetricValue("non-exempt-request-time-capacity", Some(expectedBrokerQuotaLimit), 0.01)
   }
 

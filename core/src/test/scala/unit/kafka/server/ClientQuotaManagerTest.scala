@@ -17,6 +17,7 @@
 package kafka.server
 
 import java.net.InetAddress
+import java.nio.file.Files
 import java.util
 import java.util.Collections
 
@@ -33,7 +34,7 @@ import org.apache.kafka.common.requests.{AbstractRequest, FetchRequest, RequestC
 import org.apache.kafka.common.security.auth.{KafkaPrincipal, SecurityProtocol}
 import org.apache.kafka.common.utils.{MockTime, Sanitizer}
 import org.easymock.EasyMock
-import org.junit.Assert.{assertEquals, assertTrue}
+import org.junit.Assert.{assertEquals, assertTrue, assertFalse}
 import org.junit.{After, Test}
 
 class ClientQuotaManagerTest {
@@ -817,6 +818,51 @@ class ClientQuotaManagerTest {
       quotaManager.shutdown()
       metrics.close()
     }
+  }
+
+  @Test
+  def testProducerIsThrottledWhenDiskSpaceIsLow(): Unit = {
+    val tempLogDir = Files.createTempDirectory("some-dir")
+    val tempFileStore = Files.getFileStore(tempLogDir)
+    // we are setting the threshold to current usable bytes plus 1, to ensure that throttling kicks in
+    val diskThreshold = tempFileStore.getUsableSpace + 1L
+
+    val metrics = newMetrics
+    val throttledBandwidth = 300
+    val diskThrottlingConfig = DiskUsageBasedThrottlingConfig(
+      freeDiskThresholdBytes = diskThreshold,
+      throttledProduceThroughput = throttledBandwidth,
+      logDirs = Seq(tempFileStore),
+      enableDiskBasedThrottling = true,
+      diskCheckFrequencyMs = 1000
+    ).copy(throttledProduceThroughput = 300L)
+    val configWithBackpressure = ClientQuotaManagerConfig(
+      quotaBytesPerSecondDefault = 1000,
+      numQuotaSamples = 2,
+      backpressureConfig = BrokerBackpressureConfig(
+        backpressureEnabledInConfig = true,
+        backpressureCheckFrequencyMs = 1000,
+        tenantEndpointListenerNames = Seq.empty,
+      ),
+      diskThrottlingConfig = diskThrottlingConfig
+    )
+    // first we are verifying that the active quota is unlimited
+    val activeTenantsManager = new ActiveTenantsManager(metrics, time, 1)
+    val quotaManager = new ClientQuotaManager(configWithBackpressure, metrics, Produce, time, "",
+      activeTenantsManager = Some(activeTenantsManager))
+    DiskUsageBasedThrottler.registerListener(quotaManager)
+    assertEquals(Long.MaxValue, quotaManager.getBrokerQuotaLimit, 0)
+    assertFalse(DiskUsageBasedThrottler.diskThrottlingActive(quotaManager))
+    assertEquals(0, maybeRecord(quotaManager, "ANONYMOUS", "client1", 400))
+
+    // next, we invoke updateBrokerQuotaLimit to reflect the actual throttled quotaLimit
+    time.sleep(Math.max(configWithBackpressure.backpressureConfig.backpressureCheckFrequencyMs,
+      quotaManager.getCurrentConfig.diskCheckFrequencyMs) + 1000)
+    assertEquals(0, maybeRecord(quotaManager, "ANONYMOUS", "client1", 400))
+    assertEquals(throttledBandwidth.toDouble, quotaManager.getBrokerQuotaLimit, 0)
+    assertTrue(DiskUsageBasedThrottler.diskThrottlingActive(quotaManager))
+    assertEquals(throttledBandwidth, quotaManager.lastSignalledQuotaOptRef.get.get)
+    DiskUsageBasedThrottler.deRegisterListener(quotaManager)
   }
 
   def millisToPercent(millis: Double): Double = millis * 1000 * 1000 * ClientQuotaManagerConfig.NanosToPercentagePerSecond

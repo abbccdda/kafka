@@ -190,7 +190,7 @@ class UserConfigHandler(private val quotaManagers: QuotaManagers, val credential
   * This implementation reports the overrides to the respective ReplicationQuotaManager objects
   */
 class BrokerConfigHandler(private val brokerConfig: KafkaConfig,
-                          private val quotaManagers: QuotaManagers) extends ConfigHandler with Logging {
+                          protected val quotaManagers: QuotaManagers) extends ConfigHandler with Logging {
 
   def processConfigChanges(brokerId: String, properties: Properties): Unit = {
     if (brokerId == ConfigEntityName.Default)
@@ -231,13 +231,21 @@ class BrokerConfigHandler(private val brokerConfig: KafkaConfig,
           quotaManager.removeBrokerThrottle(resetThrottle = true)
       }
     }
+
+    // we do not let override follower replication throttle when broker is currently low on disk
+    if (DiskUsageBasedThrottler.diskThrottlingActive(quotaManagers.follower)) {
+      info(s"Broker is currently running low on disk and ${KafkaConfig.FollowerReplicationThrottledRateProp} " +
+        s"is set to ${quotaManagers.follower.lastSignalledQuotaOptRef.get.get} Bytes/s. Can't override follower replication throttle!")
+    } else {
+      quotaManagers.follower.updateQuota(upperBound(getOrDefaultRate(KafkaConfig.FollowerReplicationThrottledRateProp, quotaManagers.follower.config).toDouble))
+      setBrokerReplicationThrottledReplicas(KafkaConfig.FollowerReplicationThrottledReplicasProp, quotaManagers.follower)
+    }
+
     quotaManagers.leader.updateQuota(upperBound(getOrDefaultRate(KafkaConfig.LeaderReplicationThrottledRateProp, quotaManagers.leader.config).toDouble))
-    quotaManagers.follower.updateQuota(upperBound(getOrDefaultRate(KafkaConfig.FollowerReplicationThrottledRateProp, quotaManagers.follower.config).toDouble))
     quotaManagers.alterLogDirs.updateQuota(upperBound(getOrDefaultRate(ReplicaAlterLogDirsIoMaxBytesPerSecondProp, quotaManagers.alterLogDirs.config).toDouble))
     quotaManagers.clusterLink.updateQuota(upperBound(getOrDefaultRate(ClusterLinkIoMaxBytesPerSecondProp, quotaManagers.clusterLink.config).toDouble))
 
     setBrokerReplicationThrottledReplicas(KafkaConfig.LeaderReplicationThrottledReplicasProp, quotaManagers.leader)
-    setBrokerReplicationThrottledReplicas(KafkaConfig.FollowerReplicationThrottledReplicasProp, quotaManagers.follower)
   }
 }
 

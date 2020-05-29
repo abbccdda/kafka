@@ -1603,6 +1603,14 @@ object KafkaConfig {
                       ConfluentConfigs.MULTITENANT_LISTENER_NAMES_DEFAULT, LOW, ConfluentConfigs.MULTITENANT_LISTENER_NAMES_DOC)
       .defineInternal(ConfluentConfigs.REQUEST_LOG_FILTER_CLASS_CONFIG, CLASS,
         ConfluentConfigs.REQUEST_LOG_FILTER_DEFAULT, LOW, ConfluentConfigs.REQUEST_LOG_FILTER_CLASS_DOC)
+      .defineInternal(ConfluentConfigs.BACKPRESSURE_DISK_ENABLE_CONFIG, BOOLEAN,
+        ConfluentConfigs.BACKPRESSURE_DISK_ENABLE_DEFAULT, LOW, ConfluentConfigs.BACKPRESSURE_DISK_ENABLE_DOC)
+      .defineInternal(ConfluentConfigs.BACKPRESSURE_DISK_THRESHOLD_BYTES_CONFIG, LONG,
+        ConfluentConfigs.BACKPRESSURE_DISK_THRESHOLD_BYTES_DEFAULT, LOW, ConfluentConfigs.BACKPRESSURE_DISK_THRESHOLD_BYTES_DOC)
+      .defineInternal(ConfluentConfigs.BACKPRESSURE_PRODUCE_THROUGHPUT_CONFIG, LONG,
+        ConfluentConfigs.BACKPRESSURE_PRODUCE_THROUGHPUT_DEFAULT, LOW, ConfluentConfigs.BACKPRESSURE_PRODUCE_THROUGHPUT_DOC)
+      .defineInternal(ConfluentConfigs.BACKPRESSURE_DISK_RECOVERY_FACTOR_CONFIG, DOUBLE,
+        ConfluentConfigs.BACKPRESSURE_DISK_RECOVERY_FACTOR_DEFAULT, LOW, ConfluentConfigs.BACKPRESSURE_DISK_RECOVERY_FACTOR_DOC)
 
       /** *********** Confluent balancer configuration *****************/
       .defineInternal(ConfluentConfigs.BALANCER_CLASS_CONFIG, STRING,

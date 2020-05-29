@@ -2,6 +2,9 @@
 package io.confluent.kafka.multitenant.integration.test;
 
 import kafka.server.BrokerBackpressureConfig;
+import kafka.server.ClientQuotaManager;
+import kafka.server.DiskUsageBasedThrottlingConfig;
+import kafka.server.DiskUsageBasedThrottlingConfig$;
 import org.apache.kafka.clients.admin.AlterConfigOp;
 import org.apache.kafka.clients.admin.AlterConfigsOptions;
 import org.apache.kafka.clients.admin.ConfigEntry;
@@ -10,12 +13,17 @@ import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.test.IntegrationTest;
 import org.apache.kafka.clients.admin.AdminClient;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.FileStore;
+import java.nio.file.Files;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ExecutionException;
+import java.util.stream.Collectors;
 
 import io.confluent.kafka.multitenant.integration.cluster.PhysicalCluster;
 import io.confluent.kafka.multitenant.quota.TenantQuotaCallback;
@@ -428,6 +436,75 @@ public class BrokerBackpressureTest {
           () -> !broker.quotaManagers().request().backpressureEnabled(),
           "Expected request backpressure to be disabled on broker " + broker.config().brokerId());
     }
+  }
+
+  @SuppressWarnings("deprecation")
+  @Test
+  public void testDynamicDiskThrottlingConfig() throws Exception {
+    Properties props = brokerPropsWithTenantQuotas();
+    final PhysicalCluster physicalCluster = testHarness.start(props);
+
+    KafkaServer broker = physicalCluster.kafkaCluster().brokers().get(0);
+    final ClientQuotaManager quotaManager = broker.quotaManagers().produce();
+
+    final List<File> logDirs = JavaConverters.seqAsJavaList(broker.logManager().liveLogDirs());
+    final List<FileStore> fileStores = logDirs.stream().map(dir -> {
+      try {
+        return Files.getFileStore(dir.toPath());
+      } catch (IOException e) {
+        e.printStackTrace();
+        return null;
+      }
+    }).collect(Collectors.toList());
+    final DiskUsageBasedThrottlingConfig defaultConfig = DiskUsageBasedThrottlingConfig$.MODULE$.apply(
+            ConfluentConfigs.BACKPRESSURE_DISK_THRESHOLD_BYTES_DEFAULT,
+            ConfluentConfigs.BACKPRESSURE_PRODUCE_THROUGHPUT_DEFAULT,
+            JavaConverters.asScalaBuffer(fileStores).toSeq(),
+            ConfluentConfigs.BACKPRESSURE_DISK_ENABLE_DEFAULT,
+            DiskUsageBasedThrottlingConfig$.MODULE$.DefaultDiskCheckFrequencyMs(),
+            ConfluentConfigs.BACKPRESSURE_DISK_RECOVERY_FACTOR_DEFAULT
+    );
+    assertEquals(defaultConfig, quotaManager.getCurrentConfig());
+
+    final long diskThreshold = 100 * 1024 * 1024 * 1024L;
+    final long throughput = 64 * 1024L;
+    final double recoveryFactor = 1.5;
+
+    AdminClient adminClient = physicalCluster.superAdminClient();
+    adminClient.incrementalAlterConfigs(
+            backpressureConfig(ConfluentConfigs.BACKPRESSURE_DISK_ENABLE_CONFIG, "true"), configsOptions).all().get();
+
+    TestUtils.waitForCondition(
+            () -> quotaManager.getCurrentConfig().enableDiskBasedThrottling(),
+            "Expected " + ConfluentConfigs.BACKPRESSURE_DISK_ENABLE_CONFIG + " to be set as true on " + broker.config().brokerId());
+
+    TestUtils.waitForCondition(
+            () -> quotaManager.diskThrottlingEnabledInConfig(quotaManager.getCurrentConfig()),
+            "Expected diskThrottling() to be enabled on " + broker.config().brokerId());
+
+    adminClient.incrementalAlterConfigs(
+            backpressureConfig(ConfluentConfigs.BACKPRESSURE_DISK_THRESHOLD_BYTES_CONFIG, String.valueOf(diskThreshold)), configsOptions).all().get();
+
+    TestUtils.waitForCondition(
+            () -> quotaManager.getCurrentConfig().freeDiskThresholdBytes() == diskThreshold,
+            "Expected " + ConfluentConfigs.BACKPRESSURE_DISK_THRESHOLD_BYTES_CONFIG +
+                    " to be set as " + diskThreshold + " on " + broker.config().brokerId());
+
+    adminClient.incrementalAlterConfigs(
+            backpressureConfig(ConfluentConfigs.BACKPRESSURE_PRODUCE_THROUGHPUT_CONFIG, String.valueOf(throughput)), configsOptions).all().get();
+
+    TestUtils.waitForCondition(
+            () -> quotaManager.getCurrentConfig().throttledProduceThroughput() == throughput,
+            "Expected {} " + ConfluentConfigs.BACKPRESSURE_PRODUCE_THROUGHPUT_CONFIG +
+                    " to be set as " + throughput + " on " + broker.config().brokerId());
+
+    adminClient.incrementalAlterConfigs(
+            backpressureConfig(ConfluentConfigs.BACKPRESSURE_DISK_RECOVERY_FACTOR_CONFIG, String.valueOf(recoveryFactor)), configsOptions).all().get();
+
+    TestUtils.waitForCondition(
+            () -> quotaManager.getCurrentConfig().freeDiskThresholdBytesRecoveryFactor() == recoveryFactor,
+            "Expected {} " + ConfluentConfigs.BACKPRESSURE_DISK_RECOVERY_FACTOR_CONFIG +
+                    " to be set as " + recoveryFactor + " on " + broker.config().brokerId());
   }
 
   @Test(expected = ExecutionException.class)
