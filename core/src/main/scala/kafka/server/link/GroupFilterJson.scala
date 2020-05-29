@@ -71,12 +71,7 @@ object GroupFilterJson {
 
         for (groupFilter <- groupFilterJson.groupFilters) {
           val filterType = groupFilter.filterType
-          if ( filterType == null) {
-            throw new IllegalArgumentException("filterType field may not be null.")
-          }
-          if (filterType.isEmpty) {
-            throw new IllegalArgumentException("filterType field may not be empty.")
-          }
+
           if (FilterType.fromString(filterType).isEmpty) {
             throw new IllegalArgumentException(s"Unknown filterType: $filterType")
           }

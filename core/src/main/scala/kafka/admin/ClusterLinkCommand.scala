@@ -72,30 +72,29 @@ object ClusterLinkCommand extends Logging {
               + s" has invalid values. Please put valid values in the JSON file and rerun the" +
               s" create link command.")
       }
+    }
 
-      if (props.getProperty(ClusterLinkConfig.ConsumerOffsetSyncEnableProp, "false").equals("true")) {
-        var offsetJsonString = ""
-        if (opts.options.has(opts.consumerGroupFiltersJsonFileOpt)) {
-          offsetJsonString = Utils.readFileAsString(opts.valueOf(opts.consumerGroupFiltersJsonFileOpt))
-        } else if (opts.options.has(opts.consumerGroupFiltersJsonOpt)) {
-          offsetJsonString = opts.valueOf(opts.consumerGroupFiltersJsonOpt)
-        }
-        if (offsetJsonString.trim.isEmpty) {
-          CommandLineUtils.printHelpAndExitIfNeeded(opts, s"${ClusterLinkConfig.ConsumerOffsetSyncEnableProp}" +
-            s" is set to true but the consumer group filters JSON is not passed in. Please pass in the path to" +
-            s" the JSON file using the --consumer-group-filters-json-file option and rerun the create link command.")
-        }
-        val offsetJson = GroupFilterJson.parse(offsetJsonString)
-        offsetJson match {
-          case Some(_) => props.put(ClusterLinkConfig.ConsumerOffsetGroupFiltersProp, offsetJsonString)
-          case None =>
-            CommandLineUtils.printHelpAndExitIfNeeded(opts,
-              s"${ClusterLinkConfig.ConsumerOffsetSyncEnableProp} is set to true but the JSON file passed"
-                + s" has invalid values. Please put valid values in the JSON file and rerun the" +
-                s" create link command.")
-        }
+    if (props.getProperty(ClusterLinkConfig.ConsumerOffsetSyncEnableProp, "false").equals("true")) {
+      var offsetJsonString = ""
+      if (opts.options.has(opts.consumerGroupFiltersJsonFileOpt)) {
+        offsetJsonString = Utils.readFileAsString(opts.valueOf(opts.consumerGroupFiltersJsonFileOpt))
+      } else if (opts.options.has(opts.consumerGroupFiltersJsonOpt)) {
+        offsetJsonString = opts.valueOf(opts.consumerGroupFiltersJsonOpt)
       }
-
+      if (offsetJsonString.trim.isEmpty) {
+        CommandLineUtils.printHelpAndExitIfNeeded(opts, s"${ClusterLinkConfig.ConsumerOffsetSyncEnableProp}" +
+          s" is set to true but the consumer group filters JSON is not passed in. Please pass in the path to" +
+          s" the JSON file using the --consumer-group-filters-json-file option and rerun the create link command.")
+      }
+      val offsetJson = GroupFilterJson.parse(offsetJsonString)
+      offsetJson match {
+        case Some(_) => props.put(ClusterLinkConfig.ConsumerOffsetGroupFiltersProp, offsetJsonString)
+        case None =>
+          CommandLineUtils.printHelpAndExitIfNeeded(opts,
+            s"${ClusterLinkConfig.ConsumerOffsetSyncEnableProp} is set to true but the JSON file passed"
+              + s" has invalid values. Please put valid values in the JSON file and rerun the" +
+              s" create link command.")
+      }
     }
 
     props.asScala.toMap

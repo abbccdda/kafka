@@ -21,11 +21,40 @@ final class ClusterLinkCommandTest {
   val completed = "successfully completed"
   val validated = "successfully validated"
 
+  val offsetJson: String =
+    """{
+      |"groupFilters": [{
+      |     "name": "*",
+      |     "patternType": "LITERAL",
+      |     "filterType": "WHITELIST"
+      |  },
+      |  {
+      |     "name": "blackListed",
+      |     "patternType": "PREFIXED",
+      |     "filterType": "BLACKLIST"
+      |  }]
+      | }""".stripMargin
+
+  val aclJson: String =
+    """{
+      | "aclFilters": [{
+      |  "resourceFilter": {
+      |      "resourceType": "any",
+      |      "patternType": "any"
+      |    },
+      |  "accessFilter": {
+      |     "operation": "any",
+      |     "permissionType": "any"
+      |    }
+      |  }]
+      | }""".stripMargin
+
   private def runCommand(args: Array[String], mockAdminClient: TestAdminClient): String = {
     TestUtils.grabConsoleOutput(ClusterLinkCommand.run(Array("--bootstrap-server", "localhost:9092") ++ args, Some(mockAdminClient)))
   }
 
-  private def createClusterLinks(args: Array[String], expectValidateOnly: Boolean = false, expectValidateLink: Boolean = true): Unit = {
+  private def createClusterLinks(args: Array[String], expectValidateOnly: Boolean = false, expectValidateLink: Boolean = true,
+                                 additionalConfigs: Map[String,String] = Map.empty, expectedConfigs: Map[String,String] = Map.empty): Unit = {
     val linkName = "test-link"
     val clusterId = "test-cluster-id"
     var issuedCommand = false
@@ -36,36 +65,7 @@ final class ClusterLinkCommandTest {
     val result: CreateClusterLinksResult = EasyMock.createNiceMock(classOf[CreateClusterLinksResult])
     EasyMock.expect(result.all()).andReturn(future.asInstanceOf[KafkaFuture[Void]]).once()
 
-    val aclJson: String =
-      """{
-        | "aclFilters": [{
-        |  "resourceFilter": {
-        |      "resourceType": "any",
-        |      "patternType": "any"
-        |    },
-        |  "accessFilter": {
-        |     "operation": "any",
-        |     "permissionType": "any"
-        |    }
-        |  }]
-        | }""".stripMargin
-    val offsetJson: String =
-      """{
-        |"groupFilters": [{
-        |     "name": "*",
-        |     "patternType": "LITERAL",
-        |     "filterType": "WHITELIST"
-        |  },
-        |  {
-        |     "name": "blackListed",
-        |     "patternType": "PREFIXED",
-        |     "filterType": "BLACKLIST"
-        |  }]
-        | }""".stripMargin
-
-    val configs = Map("bootstrap.servers" -> "10.20.30.40:9092", "request.timeout.ms" -> "100000",
-      ClusterLinkConfig.AclSyncEnableProp -> "true", ClusterLinkConfig.AclFiltersProp -> aclJson,
-      ClusterLinkConfig.ConsumerOffsetSyncEnableProp -> "true", ClusterLinkConfig.ConsumerOffsetGroupFiltersProp -> offsetJson)
+    val configs = Map("bootstrap.servers" -> "10.20.30.40:9092", "request.timeout.ms" -> "100000") ++ additionalConfigs
 
     val node = new Node(1, "localhost", 9092)
     val mockAdminClient = new TestAdminClient(node) {
@@ -75,7 +75,7 @@ final class ClusterLinkCommandTest {
         val newClusterLink = clusterLinks.iterator.next
         assertEquals(linkName, newClusterLink.linkName)
         assertEquals(clusterId, newClusterLink.clusterId)
-        assertEquals(configs.asJava, newClusterLink.configs)
+        assertEquals((configs ++ expectedConfigs).asJava, newClusterLink.configs)
         assertEquals(expectValidateOnly, options.validateOnly)
         assertEquals(expectValidateLink, options.validateLink)
         result
@@ -84,13 +84,67 @@ final class ClusterLinkCommandTest {
 
     EasyMock.replay(result)
     val output = runCommand(Array("--create", "--link-name", linkName, "--cluster-id", clusterId,
-      "--acl-filters-json", aclJson, "--consumer-group-filters-json", offsetJson, "--config", configs.map(kv => kv._1 + "=" + kv._2).mkString(","))
+      "--config", configs.map(kv => kv._1 + "=" + kv._2).mkString(","))
       ++ args, mockAdminClient)
     assertTrue(issuedCommand)
     EasyMock.reset(result)
 
     val expectedOutput = if (expectValidateOnly) validated else completed
     assertTrue(output.contains(expectedOutput))
+  }
+
+  @Test
+  def testCreateClusterLinksWithOffsetSyncConfigs(): Unit = {
+    createClusterLinks(args = Array("--consumer-group-filters-json",offsetJson),
+      additionalConfigs = Map(ClusterLinkConfig.ConsumerOffsetSyncEnableProp -> "true"),
+      expectedConfigs = Map(ClusterLinkConfig.ConsumerOffsetGroupFiltersProp -> offsetJson)
+    )
+    createClusterLinks(args = Array("--consumer-group-filters-json",offsetJson,"--validate-only"),
+      additionalConfigs = Map(ClusterLinkConfig.ConsumerOffsetSyncEnableProp -> "true"),
+      expectedConfigs = Map(ClusterLinkConfig.ConsumerOffsetGroupFiltersProp -> offsetJson),
+      expectValidateOnly = true
+    )
+    createClusterLinks(args = Array("--consumer-group-filters-json",offsetJson,"--exclude-validate-link"),
+      additionalConfigs = Map(ClusterLinkConfig.ConsumerOffsetSyncEnableProp -> "true"),
+      expectedConfigs = Map(ClusterLinkConfig.ConsumerOffsetGroupFiltersProp -> offsetJson),
+      expectValidateLink = false
+    )
+  }
+
+  @Test
+  def testCreateClusterLinksWithAclSyncConfigs(): Unit = {
+    createClusterLinks(args = Array("--acl-filters-json", aclJson),
+      additionalConfigs = Map(ClusterLinkConfig.AclSyncEnableProp -> "true"),
+      expectedConfigs = Map(ClusterLinkConfig.AclFiltersProp -> aclJson)
+    )
+    createClusterLinks(args = Array("--acl-filters-json", aclJson,"--validate-only"),
+      additionalConfigs = Map(ClusterLinkConfig.AclSyncEnableProp -> "true"),
+      expectedConfigs = Map(ClusterLinkConfig.AclFiltersProp -> aclJson),
+      expectValidateOnly = true
+    )
+    createClusterLinks(args = Array("--acl-filters-json", aclJson,"--exclude-validate-link"),
+      additionalConfigs = Map(ClusterLinkConfig.AclSyncEnableProp -> "true"),
+      expectedConfigs = Map(ClusterLinkConfig.AclFiltersProp -> aclJson),
+      expectValidateLink = false
+    )
+  }
+
+  @Test
+  def testCreateClusterLinksWithOffsetAndAclSyncConfigs(): Unit = {
+    createClusterLinks(args = Array("--acl-filters-json", aclJson,"--consumer-group-filters-json",offsetJson),
+      additionalConfigs = Map(ClusterLinkConfig.AclSyncEnableProp -> "true",ClusterLinkConfig.ConsumerOffsetSyncEnableProp -> "true"),
+      expectedConfigs = Map(ClusterLinkConfig.AclFiltersProp -> aclJson,ClusterLinkConfig.ConsumerOffsetGroupFiltersProp -> offsetJson)
+    )
+    createClusterLinks(args = Array("--acl-filters-json", aclJson,"--consumer-group-filters-json",offsetJson,"--validate-only"),
+      additionalConfigs = Map(ClusterLinkConfig.AclSyncEnableProp -> "true",ClusterLinkConfig.ConsumerOffsetSyncEnableProp -> "true"),
+      expectedConfigs = Map(ClusterLinkConfig.AclFiltersProp -> aclJson,ClusterLinkConfig.ConsumerOffsetGroupFiltersProp -> offsetJson),
+      expectValidateOnly = true
+    )
+    createClusterLinks(args = Array("--acl-filters-json", aclJson,"--consumer-group-filters-json",offsetJson,"--exclude-validate-link"),
+      additionalConfigs = Map(ClusterLinkConfig.AclSyncEnableProp -> "true",ClusterLinkConfig.ConsumerOffsetSyncEnableProp -> "true"),
+      expectedConfigs = Map(ClusterLinkConfig.AclFiltersProp -> aclJson,ClusterLinkConfig.ConsumerOffsetGroupFiltersProp -> offsetJson),
+      expectValidateLink = false
+    )
   }
 
   @Test
