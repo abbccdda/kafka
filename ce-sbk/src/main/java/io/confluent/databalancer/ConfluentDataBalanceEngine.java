@@ -403,7 +403,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
 
     private static void configureCruiseControlSelfHealing(KafkaConfig config, Map<String, Object> cruiseControlProps) {
         Long brokerFailureSelfHealingThreshold = config.getLong(ConfluentConfigs.BALANCER_BROKER_FAILURE_THRESHOLD_CONFIG);
-        boolean brokerFailureSelfHealingEnabled = brokerFailureSelfHealingThreshold != ConfluentConfigs.BALANCER_BROKER_FAILURE_THRESHOLD_DISABLED;
+        boolean brokerFailureSelfHealingEnabled = !brokerFailureSelfHealingThreshold.equals(ConfluentConfigs.BALANCER_BROKER_FAILURE_THRESHOLD_DISABLED);
         cruiseControlProps.putIfAbsent(KafkaCruiseControlConfig.SELF_HEALING_BROKER_FAILURE_ENABLED_CONFIG, brokerFailureSelfHealingEnabled);
         if (brokerFailureSelfHealingEnabled) {
             cruiseControlProps.putIfAbsent(KafkaCruiseControlConfig.BROKER_FAILURE_SELF_HEALING_THRESHOLD_MS_CONFIG,
