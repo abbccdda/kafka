@@ -90,7 +90,8 @@ abstract class AbstractLogCleanerIntegrationTest {
                   segmentSize: Int = defaultSegmentSize,
                   maxCompactionLagMs: Long = defaultMaxCompactionLagMs,
                   cleanerIoBufferSize: Option[Int] = None,
-                  propertyOverrides: Properties = new Properties()): LogCleaner = {
+                  propertyOverrides: Properties = new Properties(),
+                  logDeletionMaxSegmentsPerRun: Int = Int.MaxValue): LogCleaner = {
 
     val logMap = new Pool[TopicPartition, AbstractLog]()
     for (partition <- partitions) {
@@ -122,7 +123,8 @@ abstract class AbstractLogCleanerIntegrationTest {
       numThreads = numThreads,
       ioBufferSize = cleanerIoBufferSize.getOrElse(maxMessageSize / 2),
       maxMessageSize = maxMessageSize,
-      backOffMs = backOffMs)
+      backOffMs = backOffMs,
+      logDeletionMaxSegmentsPerRun = logDeletionMaxSegmentsPerRun)
     new LogCleaner(cleanerConfig,
       logDirs = Array(logDir),
       logs = logMap,

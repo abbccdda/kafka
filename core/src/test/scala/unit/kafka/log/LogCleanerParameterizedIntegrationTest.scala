@@ -235,6 +235,13 @@ class  LogCleanerParameterizedIntegrationTest(compressionCodec: String) extends 
     logProps.put(LogConfig.RetentionMsProp, retentionMs: Integer)
     logProps.put(LogConfig.CleanupPolicyProp, "compact,delete")
 
+    // Initialize the cleaner disallowing segment deletion
+    cleaner = makeCleaner(partitions = topicPartitions.take(1),
+      propertyOverrides = logProps,
+      backOffMs = 100L,
+      logDeletionMaxSegmentsPerRun = 0)
+    val log = cleaner.logs.get(topicPartitions(0))
+
     def reconfigureMaxSegmentDeletedPerRun(logDeletionMaxSegmentsPerRun: Int): Unit = {
       val oldConfig = kafkaConfigWithCleanerConfig(cleaner.currentConfig)
       val newConfig = kafkaConfigWithCleanerConfig(CleanerConfig(numThreads = cleaner.currentConfig.numThreads,
@@ -249,18 +256,13 @@ class  LogCleanerParameterizedIntegrationTest(compressionCodec: String) extends 
       cleaner.reconfigure(oldConfig, newConfig)
     }
 
-    def runCleanerAndCheckCompacted(logDeletionMaxSegmentsPerRun: Int): (AbstractLog, Seq[(Int, String, Long)]) = {
-      cleaner = makeCleaner(partitions = topicPartitions.take(1), propertyOverrides = logProps, backOffMs = 100L)
-      reconfigureMaxSegmentDeletedPerRun(logDeletionMaxSegmentsPerRun = logDeletionMaxSegmentsPerRun)
-      val log = cleaner.logs.get(topicPartitions(0))
-
-      val messages = writeDups(numKeys = 100, numDups = 3, log = log, codec = codec)
-      val startSize = log.size
-
+    def startCleanerAndCheckCompactionProgress(): Unit = {
+      writeDups(numKeys = 100, numDups = 3, log = log, codec = codec)
       log.updateHighWatermark(log.logEndOffset)
       // Set the last modified time to an old value to force deletion of old segments
       log.localLogSegments.foreach(_.lastModified = time.milliseconds - (2 * retentionMs))
 
+      val startSize = log.size
       val firstDirty = log.activeSegment.baseOffset
       cleaner.startup()
 
@@ -268,11 +270,10 @@ class  LogCleanerParameterizedIntegrationTest(compressionCodec: String) extends 
       checkLastCleaned("log", 0, firstDirty)
       val compactedSize = log.localLogSegments.map(_.size).sum
       assertTrue(s"log should have been compacted: startSize=$startSize compactedSize=$compactedSize", startSize > compactedSize)
-
-      (log, messages)
     }
 
-    val (log, _) = runCleanerAndCheckCompacted(0)
+    startCleanerAndCheckCompactionProgress()
+
     assertFalse(log.logStartOffset == log.logEndOffset)
     val endOffset = log.logEndOffset
 
