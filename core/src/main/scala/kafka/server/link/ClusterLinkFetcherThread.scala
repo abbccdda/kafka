@@ -162,7 +162,12 @@ class ClusterLinkFetcherThread(name: String,
   }
 
   override def processPartitionData(tp: TopicPartition, fetchOffset: Long, partitionData: FetchData): Option[LogAppendInfo] = {
-    fetcherManager.clearPartitionLinkFailure(tp, s"New data fetched from $tp offset $fetchOffset")
+    clearPartitionLinkFailure(tp, fetchOffset)
     super.processPartitionData(tp, fetchOffset, partitionData)
+  }
+
+  // Visibility for jmh benchmark
+  protected def clearPartitionLinkFailure(tp: TopicPartition, fetchOffset: Long): Unit = {
+    fetcherManager.clearPartitionLinkFailure(tp, s"New data fetched from $tp offset $fetchOffset")
   }
 }

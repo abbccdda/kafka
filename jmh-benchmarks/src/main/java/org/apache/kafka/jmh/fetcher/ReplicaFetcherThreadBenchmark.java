@@ -100,11 +100,11 @@ public class ReplicaFetcherThreadBenchmark {
     @Param({"100", "500", "1000", "5000"})
     private int partitionCount;
 
-    private ReplicaFetcherBenchThread fetcher;
+    private ReplicaFetcherThread fetcher;
     private LogManager logManager;
     private File logDir = new File(System.getProperty("java.io.tmpdir"), UUID.randomUUID().toString());
     private KafkaScheduler scheduler = new KafkaScheduler(1, "scheduler", true);
-    private Pool<TopicPartition, Partition> pool = new Pool<TopicPartition, Partition>(Option.empty());
+    protected Pool<TopicPartition, Partition> pool = new Pool<TopicPartition, Partition>(Option.empty());
 
     @Setup(Level.Trial)
     public void setup() throws IOException {
@@ -186,7 +186,7 @@ public class ReplicaFetcherThreadBenchmark {
 
         ReplicaManager replicaManager = Mockito.mock(ReplicaManager.class);
         Mockito.when(replicaManager.brokerTopicStats()).thenReturn(brokerTopicStats);
-        fetcher = new ReplicaFetcherBenchThread(config, replicaManager, pool);
+        fetcher = createFetcherThread(config, replicaManager, pool);
         fetcher.addPartitions(offsetAndEpochs);
         // force a pass to move partitions to fetching state. We do this in the setup phase
         // so that we do not measure this time as part of the steady state work
@@ -206,6 +206,12 @@ public class ReplicaFetcherThreadBenchmark {
     public long testFetcher() {
         fetcher.doWork();
         return fetcher.fetcherStats().requestRate().count();
+    }
+
+    protected ReplicaFetcherThread createFetcherThread(KafkaConfig config,
+                                                       ReplicaManager replicaManager,
+                                                       Pool<TopicPartition, Partition> pool) {
+        return new ReplicaFetcherBenchThread(config, replicaManager, pool);
     }
 
     // avoid mocked DelayedOperations to avoid mocked class affecting benchmark results

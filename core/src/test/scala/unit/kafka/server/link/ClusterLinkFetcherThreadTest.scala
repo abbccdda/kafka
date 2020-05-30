@@ -47,7 +47,6 @@ class ClusterLinkFetcherThreadTest extends ReplicaFetcherThreadTest {
                                                     logContextOpt: Option[LogContext]): ReplicaFetcherThread = {
     val fetcherManager: ClusterLinkFetcherManager = mock(classOf[ClusterLinkFetcherManager])
     expect(fetcherManager.partition(anyObject(classOf[TopicPartition]))).andReturn(None).anyTimes()
-    expect(fetcherManager.clearPartitionLinkFailure(anyObject(classOf[TopicPartition]), anyString())).anyTimes()
     replay(fetcherManager)
     new ClusterLinkFetcherThread(
       name,
@@ -64,7 +63,10 @@ class ClusterLinkFetcherThreadTest extends ReplicaFetcherThreadTest {
       new SystemTime,
       tierStateFetcher = None,
       mock(classOf[ClusterLinkNetworkClient]),
-      if (leaderEndpointBlockingSend.isDefined) leaderEndpointBlockingSend.get else mock(classOf[BlockingSend]))
+      if (leaderEndpointBlockingSend.isDefined) leaderEndpointBlockingSend.get else mock(classOf[BlockingSend])) {
+
+      override def clearPartitionLinkFailure(tp: TopicPartition, fetchOffset: Long): Unit = {}
+    }
   }
 
   override def cleanup(): Unit = {

@@ -213,9 +213,8 @@ class ClusterLinkFetcherManager(linkName: String,
           if (oldEpoch > newEpoch) {
             // Epoch has gone backwards, mark as failure since topic may have been deleted and recreated in source
             failedLinks += tp -> s"Source epoch has gone backwards from $oldEpoch to $newEpoch"
-          } else if (newEpoch >= oldEpoch && partitionAndState.failureStartMs.get() > 0) {
-            debug(s"Clearing link failure for $tp since newEpoch=$newEpoch is not less than than oldEpoch=$oldEpoch")
-            partitionAndState.clearLinkFailure()
+          } else if (newEpoch >= oldEpoch && partitionAndState.clearLinkFailure()) {
+            info(s"Clearing link failure for partition $tp since newEpoch=$newEpoch is not less than oldEpoch=$oldEpoch")
           }
         }
       }
@@ -301,11 +300,10 @@ class ClusterLinkFetcherManager(linkName: String,
       debug(s"Ignoring partition link failure since $topicPartition is not an active link destination any more")
   }
 
-  private[link] def clearPartitionLinkFailure(topicPartition: TopicPartition, reason: String): Unit = {
-    info(s"Clearing cluster link failure for partition $topicPartition due to: $reason")
+  private[link] def clearPartitionLinkFailure(topicPartition: TopicPartition, reason: => String): Unit = {
     val partitionAndState = linkedPartitions.get(topicPartition)
-    if (partitionAndState != null) {
-      partitionAndState.clearLinkFailure()
+    if (partitionAndState != null && partitionAndState.clearLinkFailure()) {
+      info(s"Clearing cluster link failure for partition $topicPartition due to: $reason")
     }
   }
 
@@ -378,7 +376,7 @@ class PartitionAndState(val partition: Partition) {
     failureStartMs.get + retryTimeoutMs - now
   }
 
-  def clearLinkFailure(): Unit = {
-    failureStartMs.set(0L)
+  def clearLinkFailure(): Boolean = {
+    failureStartMs.getAndSet(0L) != 0
   }
 }
