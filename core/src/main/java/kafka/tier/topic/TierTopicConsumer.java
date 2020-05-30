@@ -29,6 +29,7 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.metrics.MetricConfig;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.utils.KafkaThread;
+import org.apache.kafka.common.utils.Time;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -58,7 +59,8 @@ public class TierTopicConsumer implements Runnable {
 
     private final TierTopicManagerConfig config;
     private final Optional<Metrics> metrics;
-    private final TierTopicListeners resultListeners = new TierTopicListeners();
+    private final Time time;
+    private final TierTopicListeners resultListeners;
 
     /**
      * Map of {TopicIdPartition -> ClientCtx}, where each ClientCtx status can be any of the available
@@ -110,7 +112,7 @@ public class TierTopicConsumer implements Runnable {
     private final Thread consumerThread = new KafkaThread("TierTopicConsumer", this, false);
     private final Supplier<Consumer<byte[], byte[]>> primaryConsumerSupplier;
     private final TierTopicManagerCommitter committer;
-    private final AtomicLong lastHeartbeatMs = new AtomicLong(System.currentTimeMillis());
+    private final AtomicLong lastHeartbeatMs;
     private final MetricName heartbeatMetricName = new MetricName("HeartbeatMs",
             "TierTopicConsumer",
             "Time since last heartbeat in milliseconds.",
@@ -156,13 +158,15 @@ public class TierTopicConsumer implements Runnable {
     public TierTopicConsumer(TierTopicManagerConfig config,
                              LogDirFailureChannel logDirFailureChannel,
                              TierStateFetcher tierStateFetcher,
-                             Metrics metrics) {
+                             Metrics metrics,
+                             Time time) {
         this(config,
                 new TierTopicConsumerSupplier(config, "primary"),
                 new TierTopicConsumerSupplier(config, "catchup"),
                 new TierTopicManagerCommitter(config, logDirFailureChannel),
                 tierStateFetcher,
-                Optional.of(metrics));
+                Optional.of(metrics),
+                time);
     }
 
     // used for testing
@@ -171,13 +175,17 @@ public class TierTopicConsumer implements Runnable {
                              Supplier<Consumer<byte[], byte[]>> catchupConsumerSupplier,
                              TierTopicManagerCommitter committer,
                              TierStateFetcher tierStateFetcher,
-                             Optional<Metrics> metrics) {
+                             Optional<Metrics> metrics,
+                             Time time) {
         this.config = config;
         this.committer = committer;
         this.primaryConsumerSupplier = primaryConsumerSupplier;
         this.catchupConsumer = new TierCatchupConsumer(catchupConsumerSupplier);
         this.tierStateFetcher = tierStateFetcher;
         this.metrics = metrics;
+        this.time = time;
+        this.resultListeners = new TierTopicListeners(time);
+        lastHeartbeatMs = new AtomicLong(time.milliseconds());
         setupMetrics();
     }
 
@@ -327,7 +335,7 @@ public class TierTopicConsumer implements Runnable {
 
     // visible for testing
     public void doWork() {
-        lastHeartbeatMs.set(System.currentTimeMillis());
+        lastHeartbeatMs.set(time.milliseconds());
         if (catchupConsumer.tryComplete(primaryConsumer)) {
             completeCatchup();
         }

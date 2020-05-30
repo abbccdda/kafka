@@ -402,7 +402,8 @@ class TierIntegrationTest {
       consumerSupplier,
       new TierTopicManagerCommitter(tierTopicManagerConfig, EasyMock.mock(classOf[LogDirFailureChannel])),
       tierStateFetcher,
-      Optional.empty())
+      Optional.empty(),
+      mockTime)
 
     tierTopicManager = new TierTopicManager(tierTopicManagerConfig,
       tierTopicConsumer,

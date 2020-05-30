@@ -15,6 +15,7 @@ import kafka.utils.TestUtils
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.utils.MockTime
 import org.junit.Assert._
 import org.junit.{Before, Test}
 import org.mockito.ArgumentMatchers.any
@@ -65,7 +66,8 @@ class TierTopicConsumerTest {
     catchupConsumerSupplier,
     tierTopicManagerCommitter,
     tierStateFetcher,
-    Optional.empty())
+    Optional.empty(),
+    new MockTime())
 
   @Before
   def setup(): Unit = {

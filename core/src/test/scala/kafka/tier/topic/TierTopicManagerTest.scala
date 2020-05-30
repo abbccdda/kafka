@@ -34,7 +34,7 @@ import kafka.zk.AdminZkClient
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.errors.{TimeoutException, TopicExistsException}
-import org.apache.kafka.common.utils.Utils
+import org.apache.kafka.common.utils.{MockTime, Utils}
 import org.junit.Assert._
 import org.junit.{After, Test}
 import org.mockito.ArgumentMatchers
@@ -658,7 +658,8 @@ class TierTopicManagerTest {
       catchupConsumerSupplier,
       new TierTopicManagerCommitter(tierTopicManagerConfig, new LogDirFailureChannel(1)),
       tierStateFetcher,
-      Optional.empty())
+      Optional.empty(),
+      new MockTime())
 
     val tierReplicaManager = new TierReplicaManager()
     val tierTopicManager = new TierTopicManager(tierTopicManagerConfig,

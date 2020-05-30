@@ -10,6 +10,7 @@ import kafka.tier.domain.TierRecordType;
 import kafka.tier.exceptions.TierMetadataFatalException;
 import kafka.tier.state.TierPartitionState;
 import kafka.utils.CoreUtils;
+import org.apache.kafka.common.utils.Time;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -29,6 +30,11 @@ import java.util.concurrent.TimeUnit;
 class TierTopicListeners {
     private final Map<TopicIdPartition, Map<MaterializationKey,
             CompletableFuture<TierPartitionState.AppendResult>>> results = new HashMap<>();
+    private final Time time;
+
+    TierTopicListeners(Time time) {
+        this.time = time;
+    }
 
     /**
      * Checks whether a given tier index entry is being tracked. If so,
@@ -77,7 +83,7 @@ class TierTopicListeners {
         Map<MaterializationKey, CompletableFuture<TierPartitionState.AppendResult>> entries =
                 results.get(metadata.topicIdPartition());
 
-        MaterializationKey key = new MaterializationKey(metadata.type(), metadata.messageId(), System.nanoTime());
+        MaterializationKey key = new MaterializationKey(metadata.type(), metadata.messageId(), time.nanoseconds());
         CompletableFuture<TierPartitionState.AppendResult> previous = entries.put(key, future);
         if (previous != null)
             previous.completeExceptionally(new TierMetadataFatalException(
@@ -94,7 +100,7 @@ class TierTopicListeners {
                 .filter(Optional::isPresent)
                 .map(Optional::get)
                 .min(Long::compare)
-                .map(t -> System.nanoTime() - t);
+                .map(t -> time.nanoseconds() - t);
     }
 
     /**
@@ -125,7 +131,7 @@ class TierTopicListeners {
      * will not complete a future for a later metadata with the same messageId.
      * This is necessary as we do not use the idempotent producer
      */
-    private static class MaterializationKey {
+    private class MaterializationKey {
         TierRecordType type;
         UUID messageId;
         // startTimeNs is included for metrics purposes, and is
@@ -160,7 +166,7 @@ class TierTopicListeners {
 
         @Override
         public String toString() {
-            long ageMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startTimeNs);
+            long ageMs = TimeUnit.NANOSECONDS.toMillis(time.nanoseconds() - startTimeNs);
             return "MaterializationKey: type(" + type + ") uuid(" + messageId + ") uuidAsBase64("
                     + CoreUtils.uuidToBase64(messageId) + ") ageMs(" + ageMs + ")";
         }

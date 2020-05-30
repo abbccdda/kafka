@@ -36,7 +36,7 @@ import kafka.zk.AdminZkClient
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.errors.TopicExistsException
-import org.apache.kafka.common.utils.Utils
+import org.apache.kafka.common.utils.{MockTime, Utils}
 import org.junit.{After, Before, Test}
 import org.junit.Assert.{assertEquals, assertTrue}
 import org.mockito.Mockito._
@@ -224,7 +224,8 @@ class TierPartitionStateFencingTriggerTest extends IntegrationTestHarness {
       new TierTopicConsumerSupplier(config, "catchup"),
       new TierTopicManagerCommitter(config, logDirFailureChannel),
       tierStateFetcher,
-      Optional.empty())
+      Optional.empty(),
+      new MockTime())
     tpidsToBeFenced.foreach(tpid => addReplica(tpid, tierTopicConsumer))
     tierTopicConsumer.startConsume(true, tierTopic)
     TestUtils.waitUntilTrue(() => {
