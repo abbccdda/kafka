@@ -156,13 +156,13 @@ public final class SbkTopicUtils {
     public static final class SbkTopicConfig {
 
         public final long minRetentionTimeMs;
-        public final int replicationFactor;
+        public final short replicationFactor;
         public final String topic;
         public final int partitionCount;
         public final String cleanupPolicy;
 
         public SbkTopicConfig(long minRetentionTimeMs,
-                              int replicationFactor,
+                              short replicationFactor,
                               String topic,
                               int partitionCount,
                               String cleanupPolicy) {
@@ -177,7 +177,7 @@ public final class SbkTopicUtils {
     public static final class SbkTopicConfigBuilder {
 
         private long minRetentionTimeMs;
-        private int replicationFactor;
+        private short replicationFactor;
         private String topic;
         private int partitionCount;
         private String cleanupPolicy;
@@ -197,11 +197,11 @@ public final class SbkTopicUtils {
 
         public SbkTopicConfigBuilder setReplicationFactor(Map<String, ?> config,
                                                           String replicationFactorConfig,
-                                                          int defaultReplicationFactor) {
+                                                          short defaultReplicationFactor) {
             String replicationFactor = (String) config.get(replicationFactorConfig);
             this.replicationFactor = replicationFactor == null || replicationFactor.isEmpty()
                     ? defaultReplicationFactor
-                    : Integer.parseInt(replicationFactor);
+                    : Short.parseShort(replicationFactor);
             return this;
         }
 

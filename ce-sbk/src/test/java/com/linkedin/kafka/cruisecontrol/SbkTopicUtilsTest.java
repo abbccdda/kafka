@@ -22,7 +22,7 @@ public class SbkTopicUtilsTest {
         String expectedTopic = "test-topic";
         long expectedMinRetentionTimeMs = 20_0000;
         String expectedCleanupPolicy = "test";
-        int defaultReplicationFactor = 5;
+        short defaultReplicationFactor = (short) 5;
         int defaultPartitionCount = 50;
 
         Map<String, Object> config = new HashMap<>();
@@ -49,7 +49,7 @@ public class SbkTopicUtilsTest {
         String expectedTopic = "test-topic";
         long expectedMinRetentionTimeMs = 20_0000;
         String expectedCleanupPolicy = "test";
-        int defaultReplicationFactor = 5;
+        short defaultReplicationFactor = (short) 5;
         int expectedReplicationFactor = 3;
         int defaultPartitionCount = 50;
         int expectedPartitionCount = 30;

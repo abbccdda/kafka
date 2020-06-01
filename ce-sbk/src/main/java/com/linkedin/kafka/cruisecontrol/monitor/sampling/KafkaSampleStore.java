@@ -288,7 +288,7 @@ public class KafkaSampleStore implements SampleStore {
       return partitionMetricTopicExists && brokerMetricTopicExists;
     } catch (Exception ex) {
       LOG.error("Error when checking for sample store topics: {}", ex.getMessage());
-      LOG.debug("Error: ", ex);
+      LOG.error("Error: ", ex);
       return false;
     }
   }

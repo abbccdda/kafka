@@ -1,9 +1,8 @@
-/**
+/*
  * Copyright (C) 2020 Confluent Inc.
  */
 package kafka.common;
 
-import java.util.Objects;
 import org.apache.kafka.clients.admin.BrokerRemovalDescription;
 
 /**
@@ -16,6 +15,12 @@ public class BrokerRemovalStatus {
     private final Exception exception;
     private final BrokerRemovalDescription.BrokerShutdownStatus brokerShutdownStatus;
     private final BrokerRemovalDescription.PartitionReassignmentsStatus partitionReassignmentsStatus;
+
+    // Time at which remove broker api request was acknowledged. After this time, client can use
+    // DescribeBrokersRemoval api to enquire about status of broker removal.
+    private long startTime;
+    // Time at which status was last updated
+    private long lastUpdateTime;
 
     public BrokerRemovalStatus(int brokerId,
                                BrokerRemovalDescription.BrokerShutdownStatus brokerShutdownStatus,
@@ -46,6 +51,22 @@ public class BrokerRemovalStatus {
         return brokerShutdownStatus;
     }
 
+    public long getStartTime() {
+        return startTime;
+    }
+
+    public void setStartTime(long startTime) {
+        this.startTime = startTime;
+    }
+
+    public long getLastUpdateTime() {
+        return lastUpdateTime;
+    }
+
+    public void setLastUpdateTime(long lastUpdateTime) {
+        this.lastUpdateTime = lastUpdateTime;
+    }
+
     @Override
     public String toString() {
         return "BrokerRemovalStatus{" +
@@ -53,6 +74,8 @@ public class BrokerRemovalStatus {
             ", brokerShutdownStatus=" + brokerShutdownStatus.name() +
             ", partitionReassignmentsStatus=" + partitionReassignmentsStatus.name() +
             ", exception=" + exception +
+            ", startTime=" + startTime +
+            ", lastUpdateTime=" + lastUpdateTime +
             '}';
     }
 
@@ -61,14 +84,11 @@ public class BrokerRemovalStatus {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         BrokerRemovalStatus that = (BrokerRemovalStatus) o;
-        return brokerId == that.brokerId &&
-            brokerShutdownStatus == that.brokerShutdownStatus &&
-            partitionReassignmentsStatus == that.partitionReassignmentsStatus &&
-            Objects.equals(exception, that.exception);
+        return brokerId == that.brokerId;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(brokerId, brokerShutdownStatus, partitionReassignmentsStatus, exception);
+        return brokerId;
     }
 }

@@ -1,0 +1,29 @@
+syntax = "proto3";
+package databalancer;
+
+option java_package = "io.confluent.databalancer.record";
+
+enum BrokerShutdownStatus {
+  bss_failed = 0;
+  bss_canceled = 1;
+  bss_pending = 2;
+  bss_complete = 3;
+}
+
+enum PartitionReassignmentsStatus {
+  par_canceled = 0;
+  par_failed = 1;
+  par_pending = 2;
+  par_in_progress = 3;
+  par_complete = 4;
+}
+
+message RemoveBrokerStatus {
+  int32 version = 1;  // Version to allow change in exception serialization if needed.
+  int32 brokerId = 2;
+  string error = 3;  // exception serialized as Base64 string
+  BrokerShutdownStatus bss_status = 4;
+  PartitionReassignmentsStatus par_status = 5;
+  int64 startTime = 6;
+  int64 lastUpdateTime = 7;
+}

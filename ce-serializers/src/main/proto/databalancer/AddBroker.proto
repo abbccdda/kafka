@@ -1,0 +1,12 @@
+syntax = "proto3";
+package databalancer;
+
+option java_package = "io.confluent.databalancer.record";
+
+message AddBrokerStatus {
+  int32 version = 1;  // Version to allow change in exception serialization if needed.
+  int32 brokerId = 2;
+  string error = 3;  // exception serialized as Base64 string
+  int64 startTime = 4;
+  int64 lastUpdateTime = 5;
+}

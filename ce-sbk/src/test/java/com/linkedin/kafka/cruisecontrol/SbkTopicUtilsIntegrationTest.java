@@ -59,7 +59,7 @@ public class SbkTopicUtilsIntegrationTest extends CCKafkaIntegrationTestHarness 
                     .setCleanupPolicy(LogConfig.Delete())
                     .setMinRetentionTimeMs(60_000)
                     // These configs don't exist, so defaults will get used.
-                    .setReplicationFactor(configMap, "ReplicationFactorConfig", 3)
+                    .setReplicationFactor(configMap, "ReplicationFactorConfig", (short) 3)
                     .setPartitionCount(configMap, "PartitionCountConfig", 5)
                     .build();
 

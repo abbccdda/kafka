@@ -1,0 +1,25 @@
+syntax = "proto3";
+package databalancer;
+
+
+import "databalancer/AddBroker.proto";
+import "databalancer/RemoveBroker.proto";
+
+option java_package = "io.confluent.databalancer.record";
+
+enum ApiType {
+  REMOVE_BROKER = 0;
+  ADD_BROKER = 1;
+}
+
+message ApiStatusKey {
+  ApiType configType = 1;
+  int32 brokerId = 2;
+}
+
+message ApiStatusMessage {
+  oneof databalancer {
+    RemoveBrokerStatus removeBrokerStatus = 1;
+    AddBrokerStatus addBrokerStatus = 2;
+  }
+}
