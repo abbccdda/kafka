@@ -5,11 +5,10 @@ import static org.junit.Assert.assertTrue;
 
 import io.cloudevents.CloudEvent;
 import io.confluent.crn.ConfluentServerCrnAuthority;
-import io.confluent.events.CloudEventUtils;
-import io.confluent.events.EventLoggerConfig;
-import io.confluent.events.ProtobufEvent;
+import io.cloudevents.v03.AttributesImpl;
 import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 import io.confluent.kafka.multitenant.TenantMetadata;
+import io.confluent.telemetry.events.serde.Protobuf;
 import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizePolicy;
 import io.confluent.security.authorizer.AuthorizeResult;
@@ -18,6 +17,7 @@ import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.ConfluentAuthorizationEvent;
 import io.confluent.security.authorizer.utils.AuthorizerUtils;
+import io.confluent.telemetry.events.Event;
 import java.net.InetAddress;
 import org.apache.kafka.common.network.ClientInformation;
 import org.apache.kafka.common.network.ListenerName;
@@ -48,15 +48,15 @@ public class AuthorizationEventTest {
         AuthorizeResult.ALLOWED,
         AuthorizePolicy.ALLOW_ON_NO_RULE);
     AuditLogEntry ale = AuditLogUtils.authorizationEvent(authorizationEvent, new ConfluentServerCrnAuthority());
-    CloudEvent event = ProtobufEvent.newBuilder()
+    CloudEvent<AttributesImpl, AuditLogEntry> event = Event.<AuditLogEntry>newBuilder()
         .setType(AUTHORIZATION_MESSAGE_TYPE)
         .setSource(source)
         .setSubject(subject)
-        .setEncoding(EventLoggerConfig.DEFAULT_CLOUD_EVENT_ENCODING_CONFIG)
+        .setDataContentType(Protobuf.APPLICATION_JSON)
         .setData(ale)
         .build();
 
-    assertTrue(CloudEventUtils.toJsonString(event)
+    assertTrue(Protobuf.<AuditLogEntry>structuredSerializer().toString(event)
         .contains("\"authenticationInfo\":{\"principal\":\"TenantUser:lkc-12345_0\"}"));
   }
 

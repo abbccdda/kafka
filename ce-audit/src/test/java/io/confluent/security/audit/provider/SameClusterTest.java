@@ -3,7 +3,7 @@
  */
 package io.confluent.security.audit.provider;
 
-import static io.confluent.events.EventLoggerConfig.KAFKA_EXPORTER_PREFIX;
+import static io.confluent.security.audit.telemetry.exporter.NonBlockingKafkaExporterConfig.KAFKA_EXPORTER_PREFIX;
 import static io.confluent.security.audit.router.AuditLogRouterJsonConfig.DEFAULT_TOPIC;
 import static io.confluent.security.audit.router.AuditLogRouterJsonConfig.TOPIC_PREFIX;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_PREFIX;

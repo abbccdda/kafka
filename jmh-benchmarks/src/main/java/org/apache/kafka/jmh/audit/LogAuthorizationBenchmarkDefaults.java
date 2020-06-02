@@ -3,6 +3,7 @@ package org.apache.kafka.jmh.audit;
 import io.confluent.security.audit.AuditLogConfig;
 import io.confluent.security.audit.provider.ConfluentAuditLogProvider;
 import org.apache.kafka.clients.CommonClientConfigs;
+import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.protocol.ApiKeys;
 
 import java.util.ArrayList;
@@ -210,6 +211,7 @@ public class LogAuthorizationBenchmarkDefaults {
       configs.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
       configs.put(AuditLogConfig.EVENT_EXPORTER_CLASS_CONFIG, CountExporter.class.getName());
       provider.configure(configs);
+      provider.setMetrics(new Metrics());
       CompletableFuture<Void> startFuture = provider.start(configs)
           .toCompletableFuture();
       startFuture.get(10_000, TimeUnit.MILLISECONDS);

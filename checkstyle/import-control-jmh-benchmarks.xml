@@ -76,6 +76,7 @@
         <allow class="org.apache.kafka.clients.CommonClientConfigs" />
         <allow class="org.apache.kafka.server.authorizer.AuthorizerServerInfo" />
         <allow class="io.confluent.kafka.multitenant.authorizer.MultiTenantAuditLogProvider" />
+        <allow class="com.google.protobuf.MessageLite" />
     </subpackage>
 
     <subpackage name="audit">

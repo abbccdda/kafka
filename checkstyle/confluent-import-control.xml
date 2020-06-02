@@ -85,6 +85,8 @@
     <allow pkg="org.apache.kafka.clients" />
     <allow pkg="org.apache.kafka.common" />
     <allow pkg="org.apache.kafka.test" />
+    <allow pkg="io.cloudevents" />
+    <allow pkg="org.apache.log4j" />
   </subpackage>
 
   <subpackage name="monitoring">
@@ -195,7 +197,7 @@
 
 
     <subpackage name="audit">
-      <allow pkg="io.confluent.events" />
+      <allow pkg="io.confluent.telemetry" />
       <allow pkg="io.cloudevents" />
       <allow pkg="io.confluent.crn" />
       <allow pkg="io.confluent.security.audit" />

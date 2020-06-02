@@ -7,13 +7,13 @@ package io.confluent.security.audit;
 import io.cloudevents.CloudEvent;
 import io.confluent.crn.ConfluentServerCrnAuthority;
 import io.confluent.crn.CrnSyntaxException;
-import io.confluent.events.CloudEventUtils;
-import io.confluent.events.EventLoggerConfig;
-import io.confluent.events.ProtobufEvent;
+import io.cloudevents.v03.AttributesImpl;
 import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 import io.confluent.kafka.multitenant.TenantMetadata;
 import io.confluent.kafka.security.audit.event.ConfluentAuthenticationEvent;
 import io.confluent.security.authorizer.Scope;
+import io.confluent.telemetry.events.serde.Protobuf;
+import io.confluent.telemetry.events.Event;
 import org.apache.kafka.common.security.auth.AuthenticationContext;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SaslAuthenticationContext;
@@ -29,6 +29,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import static io.confluent.security.audit.provider.ConfluentAuditLogProvider.AUTHENTICATION_MESSAGE_TYPE;
+import static io.confluent.telemetry.events.EventLoggerConfig.DEFAULT_CLOUD_EVENT_ENCODING_CONFIG;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
 
@@ -60,15 +61,15 @@ public class AuthenticationEventTest {
     AuditLogEntry auditLogEntry =
         AuditLogUtils.authenticationEvent(confluentAuthenticationEvent, new ConfluentServerCrnAuthority());
 
-    CloudEvent event = ProtobufEvent.newBuilder()
+    CloudEvent<AttributesImpl, AuditLogEntry> event = Event.<AuditLogEntry>newBuilder()
         .setType(AUTHENTICATION_MESSAGE_TYPE)
         .setSource(source)
         .setSubject(source)
-        .setEncoding(EventLoggerConfig.DEFAULT_CLOUD_EVENT_ENCODING_CONFIG)
+        .setDataContentType(DEFAULT_CLOUD_EVENT_ENCODING_CONFIG)
         .setData(auditLogEntry)
         .build();
 
-    String jsonString = CloudEventUtils.toJsonString(event);
+    String jsonString = Protobuf.<AuditLogEntry>structuredSerializer().toString(event);
 
     assertTrue(jsonString.contains("io.confluent.kafka.server/authentication"));
     assertTrue(jsonString.contains("\"metadata\":{\"mechanism\":\"mechanism1\",\"identifier\":\"identifier1\"}"));

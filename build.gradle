@@ -402,7 +402,7 @@ subprojects {
       exceptionFormat = testExceptionFormat
     }
     logTestStdout.rehydrate(delegate, owner, this)()
-    
+
     // The suites are for running sets of tests in IDEs.
     // Gradle will run each test class, so we exclude the suites to avoid redundantly running the tests twice.
     exclude '**/*Suite.class'
@@ -1037,6 +1037,8 @@ project(':core') {
     from(project(':ce-resource-names').configurations.runtime) { into("libs/") }
     from(project(':ce-sbk').jar) { into("libs/") }
     from(project(':ce-sbk').configurations.runtime) { into("libs/") }
+    from(project(':ce-events').jar) { into("libs/") }
+    from(project(':ce-events').configurations.runtime) { into("libs/") }
     exclude('confluent-serializers*')
     exclude('confluent-licensing*')
     exclude('bc*jdk15on*jar')
@@ -1745,6 +1747,7 @@ project(':jmh-benchmarks') {
     compile project(':ce-authorizer')
     compile project(':ce-audit')
     compile project(':ce-metrics')
+    compile project(':ce-events')
     compile project(':ce-broker-plugins')
     compile libs.cloudEventsKafka
     compile libs.metrics
@@ -2191,6 +2194,10 @@ project(':ce-metrics') {
       // only used by OrderedKeyProtoSerde, which we don't need.
       exclude(group:'javax.xml.bind')
     }
+
+    compile project(':ce-events')
+
+
     // Mark runtime dependencies that aren't part of the uber/shadowed jar as 'shadow'—doing so
     // adds them to the confluent-metrics pom as `runtime` dependencies. Note that these are also on
     // the compile/test classpaths.
@@ -2202,10 +2209,11 @@ project(':ce-metrics') {
     testCompile libs.junit
     testCompile libs.mockitoCore
     testCompile libs.assertjCore
-    testRuntime libs.slf4jlog4j
     testCompile project(':clients').sourceSets.test.output
     testCompile project(':core')
     testCompile project(':core').sourceSets.test.output
+    testCompile project(':ce-serializers').sourceSets.test.output
+
   }
 
   tasks.create(name: "copyDependantLibs", type: Copy) {
@@ -2235,6 +2243,10 @@ project(':ce-metrics') {
 
     // used by io.confluent.telemetry.serde.ProtoToFlatJson
     relocate('com.fasterxml.jackson', 'io.confluent.shaded.com.fasterxml.jackson')
+    // relocate all packages that use Jackson in ce-events.
+    relocate('io.confluent.telemetry.events.serde', 'io.confluent.shaded.io.confluent.telemetry.events.serde')
+    relocate('io.cloudevents.json', 'io.confluent.shaded.io.cloudevents.json')
+    relocate('com.hubspot.jackson', 'io.confluent.shaded.com.hubspot.jackson')
 
     // note that we exclude slf4j-api, lz4, and zstd-jni from the build. These
     // are provided at runtime by kafka-clients transitive dependencies.
@@ -2271,6 +2283,78 @@ project(':ce-metrics') {
   checkstyleTest {
     configProperties = checkstyleConfigProperties("confluent-import-control.xml")
   }
+}
+
+project(':ce-events') {
+  apply plugin: 'com.google.protobuf'
+  group = "io.confluent"
+  archivesBaseName = "telemetry-events"
+
+  dependencies {
+    compile libs.guava
+    compile libs.protobuf
+    compile libs.slf4jApi
+    compile(libs.cloudEventsKafka) {
+      exclude module: 'kafka-clients'
+    }
+    compile libs.jacksonProtobufDatatype
+
+    compileOnly project(':core')
+
+    testCompile libs.junit
+    testCompile libs.assertjCore
+    testCompile libs.slf4jlog4j
+    testCompile project(':core')
+    // Needed for gradle integrationTest target
+    testCompile project(':clients').sourceSets.test.output
+
+    testRuntime libs.slf4jlog4j
+  }
+
+  tasks.create(name: "copyDependantLibs", type: Copy) {
+    from (configurations.testRuntime) {
+      include('slf4j-log4j12*')
+      include('log4j*jar')
+    }
+    from (configurations.runtime) {
+    }
+    into "$buildDir/dependant-libs"
+    duplicatesStrategy 'exclude'
+  }
+
+  protobuf {
+    protoc {
+      // Download the protoc executable from repositories.
+      artifact = "com.google.protobuf:protoc:${versions.protobuf}"
+    }
+  }
+
+  jar {
+    dependsOn 'copyDependantLibs'
+    // Move '.proto' files to 'proto/' directory to match layout in 5.2.x
+    eachFile { file ->
+      if (file.path.endsWith('.proto')) {
+        file.path = "proto/$file.path"
+      }
+    }
+  }
+
+  checkstyle {
+    configProperties = checkstyleConfigProperties("confluent-import-control.xml")
+  }
+
+  sourceSets {
+    main {
+      proto {
+        srcDir 'src/main/resources/protobuf'
+      }
+      java {
+        srcDirs "src/main/java", "${protobuf.generatedFilesBaseDir}/main/java"
+      }
+    }
+  }
+
+  compileJava.dependsOn 'generateProto'
 }
 
 project(':ce-serializers') {
@@ -2776,11 +2860,8 @@ project(':ce-audit') {
     compile project(':clients')
     compile project(':ce-auth-providers')
     compile project(':ce-broker-plugins')
-    // Use the current version of the clients.
-    compile(libs.cloudEventsKafka) {
-      exclude module: 'kafka-clients'
-    }
-    compile libs.jacksonProtobufDatatype
+    compile project(':ce-events')
+
     testCompile libs.junit
     testCompile project(':clients').sourceSets.test.output
     testCompile project(':core')
@@ -2790,8 +2871,8 @@ project(':ce-audit') {
     testCompile project(':ce-auth-providers').sourceSets.test.output
     testCompile project(':ce-licensing')
     testCompile project(':ce-licensing').sourceSets.test.output
+    testCompile project(':ce-events')
     testCompile libs.slf4jlog4j
-    testRuntime libs.slf4jlog4j
 
     testCompile libs.apachedaLdapCodec
     testCompile libs.apachedsCoreApi

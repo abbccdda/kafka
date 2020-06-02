@@ -3,10 +3,10 @@
  */
 package io.confluent.security.audit;
 
-import static io.confluent.events.EventLoggerConfig.CLOUD_EVENT_ENCODING_DOC;
-import static io.confluent.events.EventLoggerConfig.CLOUD_EVENT_STRUCTURED_ENCODING;
-import static io.confluent.events.EventLoggerConfig.KAFKA_EXPORTER_PREFIX;
-import static io.confluent.events.EventLoggerConfig.TOPIC_CONFIG;
+import static io.confluent.telemetry.events.EventLoggerConfig.CLOUD_EVENT_ENCODING_DOC;
+import static io.confluent.telemetry.events.EventLoggerConfig.CLOUD_EVENT_STRUCTURED_ENCODING;
+import static io.confluent.security.audit.telemetry.exporter.NonBlockingKafkaExporterConfig.KAFKA_EXPORTER_PREFIX;
+import static io.confluent.security.audit.telemetry.exporter.NonBlockingKafkaExporterConfig.TOPIC_CONFIG;
 import static org.apache.kafka.clients.admin.AdminClientConfig.METRIC_REPORTER_CLASSES_CONFIG;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_LOGGER_PREFIX;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG;
@@ -22,9 +22,10 @@ import static org.apache.kafka.common.config.internals.ConfluentConfigs.ENABLE_A
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.ENABLE_AUTHENTICATION_AUDIT_LOGS_DOC;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.confluent.events.EventLoggerConfig;
-import io.confluent.events.exporter.kafka.KafkaExporter;
-import io.confluent.events.exporter.kafka.TopicSpec;
+import io.confluent.telemetry.events.EventLoggerConfig;
+import io.confluent.security.audit.telemetry.exporter.NonBlockingKafkaExporter;
+import io.confluent.security.audit.telemetry.exporter.NonBlockingKafkaExporterConfig;
+import io.confluent.security.audit.telemetry.exporter.TopicSpec;
 import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -56,34 +57,34 @@ public class AuditLogConfig extends AbstractConfig {
 
   public static final String EVENT_EXPORTER_CLASS_CONFIG =
       AUDIT_PREFIX + EventLoggerConfig.EVENT_EXPORTER_CLASS_CONFIG;
-  public static final String DEFAULT_EVENT_EXPORTER_CLASS_CONFIG = KafkaExporter.class
+  public static final String DEFAULT_EVENT_EXPORTER_CLASS_CONFIG = NonBlockingKafkaExporter.class
       .getCanonicalName();
 
   public static final String BOOTSTRAP_SERVERS_CONFIG =
-      AUDIT_PREFIX + EventLoggerConfig.BOOTSTRAP_SERVERS_CONFIG;
+      AUDIT_PREFIX + NonBlockingKafkaExporterConfig.BOOTSTRAP_SERVERS_CONFIG;
 
   public static final String TOPIC_CREATE_CONFIG =
-      AUDIT_PREFIX + EventLoggerConfig.TOPIC_CREATE_CONFIG;
+      AUDIT_PREFIX + NonBlockingKafkaExporterConfig.TOPIC_CREATE_CONFIG;
   public static final boolean DEFAULT_TOPIC_CREATE_CONFIG = true;
 
   public static final String TOPIC_PARTITIONS_CONFIG =
-      AUDIT_PREFIX + EventLoggerConfig.TOPIC_PARTITIONS_CONFIG;
+      AUDIT_PREFIX + NonBlockingKafkaExporterConfig.TOPIC_PARTITIONS_CONFIG;
   public static final int DEFAULT_TOPIC_PARTITIONS_CONFIG = 12;
 
   public static final String TOPIC_REPLICAS_CONFIG =
-      AUDIT_PREFIX + EventLoggerConfig.TOPIC_REPLICAS_CONFIG;
+      AUDIT_PREFIX + NonBlockingKafkaExporterConfig.TOPIC_REPLICAS_CONFIG;
   public static final int DEFAULT_TOPIC_REPLICAS_CONFIG = 1;
 
   public static final String TOPIC_RETENTION_MS_CONFIG =
-      AUDIT_PREFIX + EventLoggerConfig.TOPIC_RETENTION_MS_CONFIG;
+      AUDIT_PREFIX + NonBlockingKafkaExporterConfig.TOPIC_RETENTION_MS_CONFIG;
   public static final long DEFAULT_TOPIC_RETENTION_MS_CONFIG = TimeUnit.DAYS.toMillis(30);
 
   public static final String TOPIC_RETENTION_BYTES_CONFIG =
-      AUDIT_PREFIX + EventLoggerConfig.TOPIC_RETENTION_BYTES_CONFIG;
+      AUDIT_PREFIX + NonBlockingKafkaExporterConfig.TOPIC_RETENTION_BYTES_CONFIG;
   public static final long DEFAULT_TOPIC_RETENTION_BYTES_CONFIG = -1L;
 
   public static final String TOPIC_ROLL_MS_CONFIG =
-      AUDIT_PREFIX + EventLoggerConfig.TOPIC_ROLL_MS_CONFIG;
+      AUDIT_PREFIX + NonBlockingKafkaExporterConfig.TOPIC_ROLL_MS_CONFIG;
   public static final long DEFAULT_TOPIC_ROLL_MS_CONFIG = TimeUnit.HOURS.toMillis(4);
 
   // Producer defaults
@@ -129,37 +130,37 @@ public class AuditLogConfig extends AbstractConfig {
             ConfigDef.Type.BOOLEAN,
             DEFAULT_TOPIC_CREATE_CONFIG,
             ConfigDef.Importance.LOW,
-            EventLoggerConfig.TOPIC_CREATE_DOC
+            NonBlockingKafkaExporterConfig.TOPIC_CREATE_DOC
         ).define(
             TOPIC_PARTITIONS_CONFIG,
             ConfigDef.Type.INT,
             DEFAULT_TOPIC_PARTITIONS_CONFIG,
             ConfigDef.Importance.LOW,
-            EventLoggerConfig.TOPIC_PARTITIONS_DOC
+            NonBlockingKafkaExporterConfig.TOPIC_PARTITIONS_DOC
         ).define(
             TOPIC_REPLICAS_CONFIG,
             ConfigDef.Type.INT,
             DEFAULT_TOPIC_REPLICAS_CONFIG,
             ConfigDef.Importance.LOW,
-            EventLoggerConfig.TOPIC_REPLICAS_DOC
+            NonBlockingKafkaExporterConfig.TOPIC_REPLICAS_DOC
         ).define(
             TOPIC_RETENTION_MS_CONFIG,
             ConfigDef.Type.LONG,
             DEFAULT_TOPIC_RETENTION_MS_CONFIG,
             ConfigDef.Importance.LOW,
-            EventLoggerConfig.TOPIC_RETENTION_MS_DOC
+            NonBlockingKafkaExporterConfig.TOPIC_RETENTION_MS_DOC
         ).define(
             TOPIC_RETENTION_BYTES_CONFIG,
             ConfigDef.Type.LONG,
             DEFAULT_TOPIC_RETENTION_BYTES_CONFIG,
             ConfigDef.Importance.LOW,
-            EventLoggerConfig.TOPIC_RETENTION_BYTES_DOC
+            NonBlockingKafkaExporterConfig.TOPIC_RETENTION_BYTES_DOC
         ).define(
             TOPIC_ROLL_MS_CONFIG,
             ConfigDef.Type.LONG,
             DEFAULT_TOPIC_ROLL_MS_CONFIG,
             ConfigDef.Importance.LOW,
-            EventLoggerConfig.TOPIC_ROLL_MS_DOC
+            NonBlockingKafkaExporterConfig.TOPIC_ROLL_MS_DOC
         ).define(
             AUDIT_EVENT_ROUTER_CONFIG,
             ConfigDef.Type.STRING,
@@ -293,10 +294,10 @@ public class AuditLogConfig extends AbstractConfig {
 
     // 5. Bootstrap servers from Router JSON
     if (aljc.bootstrapServers() != null && !aljc.bootstrapServers().isEmpty()) {
-      eventLoggerConfig.put(EventLoggerConfig.BOOTSTRAP_SERVERS_CONFIG, aljc.bootstrapServers());
+      eventLoggerConfig.put(NonBlockingKafkaExporterConfig.BOOTSTRAP_SERVERS_CONFIG, aljc.bootstrapServers());
     }
 
-    if (!eventLoggerConfig.containsKey(EventLoggerConfig.BOOTSTRAP_SERVERS_CONFIG)) {
+    if (!eventLoggerConfig.containsKey(NonBlockingKafkaExporterConfig.BOOTSTRAP_SERVERS_CONFIG)) {
       // we must have bootstrap servers from one of these sources. If this fails, keep logging to file.
       throw new ConfigException(
           "Missing required property " + BOOTSTRAP_SERVERS_CONFIG + ". Either specify " +
@@ -341,7 +342,7 @@ public class AuditLogConfig extends AbstractConfig {
       eventLoggerConfig.put(TOPIC_CONFIG, mapper.writeValueAsString(topics));
 
       // 7.  Always set the event logger blocking behavior to false.
-      eventLoggerConfig.put(EventLoggerConfig.EVENT_LOGGER_LOG_BLOCKING_CONFIG, false);
+      eventLoggerConfig.put(NonBlockingKafkaExporterConfig.EVENT_LOGGER_LOG_BLOCKING_CONFIG, false);
 
     } catch (IllegalArgumentException | IOException e) {
       throw new ConfigException("Invalid router config", e);

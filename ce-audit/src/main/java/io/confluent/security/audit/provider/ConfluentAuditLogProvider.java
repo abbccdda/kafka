@@ -11,13 +11,14 @@ import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_LO
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.ENABLE_AUTHENTICATION_AUDIT_LOGS;
 
 import io.cloudevents.CloudEvent;
+import io.cloudevents.v03.AttributesImpl;
 import io.confluent.crn.ConfluentServerCrnAuthority;
 import io.confluent.crn.CrnAuthorityConfig;
 import io.confluent.crn.CrnSyntaxException;
-import io.confluent.events.CloudEventUtils;
-import io.confluent.events.EventLogger;
-import io.confluent.events.ProtobufEvent;
 import io.confluent.kafka.security.audit.event.ConfluentAuthenticationEvent;
+import io.confluent.telemetry.events.serde.Protobuf;
+import io.confluent.telemetry.events.EventLogger;
+import io.confluent.telemetry.events.Event;
 import io.confluent.security.audit.AuditLogConfig;
 import io.confluent.security.audit.AuditLogEntry;
 import io.confluent.security.audit.AuditLogUtils;
@@ -25,6 +26,7 @@ import io.confluent.security.audit.router.AuditLogRouter;
 import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.ConfluentAuthorizationEvent;
+import io.confluent.telemetry.events.serde.Serializer;
 import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.ClusterResourceListener;
 import org.apache.kafka.server.audit.AuditEvent;
@@ -62,6 +64,7 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
   public static final String AUTHENTICATION_MESSAGE_TYPE = "io.confluent.kafka.server/authentication";
 
   protected static final Logger log = LoggerFactory.getLogger(ConfluentAuditLogProvider.class);
+  protected final Serializer<AuditLogEntry> cloudEventSerializer = Protobuf.structuredSerializer();
   private static final String FALLBACK_LOGGER = "io.confluent.security.audit.log.fallback";
   private static final Duration CLOSE_TIMEOUT = Duration.ofSeconds(30);
   // Fallback logger that is used if audit logging to Kafka topic fails or if events are not generated
@@ -106,11 +109,11 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
   // These should always be updated together
   private class ConfiguredState {
 
-    final EventLogger logger;
+    final EventLogger<AuditLogEntry> logger;
     final AuditLogRouter router;
     final AuditLogConfig config;
 
-    private ConfiguredState(EventLogger logger, AuditLogRouter router, AuditLogConfig config) {
+    private ConfiguredState(EventLogger<AuditLogEntry>  logger, AuditLogRouter router, AuditLogConfig config) {
       this.logger = logger;
       this.router = router;
       this.config = config;
@@ -119,7 +122,7 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
 
   /**
    * The provider is configured and started during {@link #start(Map)} to get access to the
-   * interbroker properties..
+   * interbroker properties.
    */
 
   @Override
@@ -135,7 +138,7 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
     enableAuthenticationAuditLogs = auditLogConfig.getBoolean(ENABLE_AUTHENTICATION_AUDIT_LOGS);
 
     this.configuredState = new ConfiguredState(
-        new EventLogger(),
+        new EventLogger<AuditLogEntry>(),
         new AuditLogRouter(
             auditLogConfig.routerJsonConfig(),
             auditLogConfig.getInt(AuditLogConfig.ROUTER_CACHE_ENTRIES_CONFIG)),
@@ -165,8 +168,8 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
 
   private void updateConfiguredState(Map<String, Object> loggerConfig, AuditLogRouter router,
                                      AuditLogConfig config) {
-    EventLogger oldLogger = configuredState != null ? configuredState.logger : null;
-    EventLogger newLogger = new EventLogger();
+    EventLogger<AuditLogEntry> oldLogger = configuredState != null ? configuredState.logger : null;
+    EventLogger<AuditLogEntry> newLogger = new EventLogger<AuditLogEntry>();
     newLogger.configure(loggerConfig);
     configuredState = new ConfiguredState(newLogger, router, config);
     if (oldLogger != null) {
@@ -282,7 +285,7 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
         auditLogEntry = AuditLogUtils.authorizationEvent(authorizationEvent, crnAuthority);
       }
 
-      ProtobufEvent.Builder eventBuilder = eventBuilder(auditLogEntry, state, authorizationEvent, AUTHORIZATION_MESSAGE_TYPE);
+      Event.Builder<AuditLogEntry> eventBuilder = eventBuilder(auditLogEntry, state, authorizationEvent, AUTHORIZATION_MESSAGE_TYPE);
       logEventToRoute(state, route, eventBuilder, !eventLoggerReady || !shouldSendToKafka(authorizationEvent));
     } catch (CrnSyntaxException e) {
       log.error("Couldn't create cloud event due to internally generated CRN syntax problem", e);
@@ -294,9 +297,9 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
   }
 
   private void logEventToRoute(final ConfiguredState state, final Optional<String> route,
-                               final ProtobufEvent.Builder eventBuilder, final boolean fallback) {
+                               final Event.Builder<AuditLogEntry> eventBuilder, final boolean fallback) {
     if (fallback) {
-      fallbackLog.info(CloudEventUtils.toJsonString(eventBuilder.build()));
+      fallbackLog.info(cloudEventSerializer.toString(eventBuilder.build()));
       auditLogMetrics.recordFallbackAuditlogMetrics();
       return;
     }
@@ -304,33 +307,32 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
     if (route.isPresent()) {
       eventBuilder.setRoute(route.get());
     } else {
-      fallbackLog.error("Empty topic for {}", CloudEventUtils.toJsonString(eventBuilder.build()));
+      fallbackLog.error("Empty topic for {}", cloudEventSerializer.toString(eventBuilder.build()));
       return;
     }
 
     // Make sure Kafka exporter is ready to receive events.
-    CloudEvent event = eventBuilder.build();
+    CloudEvent<AttributesImpl, AuditLogEntry> event = eventBuilder.build();
     boolean routeReady = state.logger.ready(event);
     if (routeReady) {
       state.logger.log(event);
       auditLogMetrics.recordNormalAuditlogMetrics();
     } else {
-      fallbackLog.info(CloudEventUtils.toJsonString(event));
+      fallbackLog.info(cloudEventSerializer.toString(event));
       auditLogMetrics.recordFallbackAuditlogMetrics();
     }
   }
-
-  private ProtobufEvent.Builder eventBuilder(final AuditLogEntry entry, final ConfiguredState state,
+  private Event.Builder<AuditLogEntry> eventBuilder(final AuditLogEntry entry, final ConfiguredState state,
                                              final AuditEvent auditEvent,
                                              final String messageType) {
-    return ProtobufEvent.newBuilder()
+    return Event.<AuditLogEntry>newBuilder()
         .setId(auditEvent.uuid().toString())
         .setTime(auditEvent.timestamp().atZone(ZoneOffset.UTC))
         .setData(entry)
         .setSource(entry.getServiceName())
         .setSubject(entry.getResourceName())
         .setType(messageType)
-        .setEncoding(state.config.getString(AUDIT_CLOUD_EVENT_ENCODING_CONFIG));
+        .setDataContentType(Protobuf.contentType(state.config.getString(AUDIT_CLOUD_EVENT_ENCODING_CONFIG)));
   }
 
   /**
@@ -374,7 +376,7 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
         entry = AuditLogUtils.authenticationEvent(authenticationEvent, crnAuthority);
       }
 
-      ProtobufEvent.Builder eventBuilder = eventBuilder(entry, state, auditEvent, AUTHENTICATION_MESSAGE_TYPE);
+      Event.Builder<AuditLogEntry> eventBuilder = eventBuilder(entry, state, auditEvent, AUTHENTICATION_MESSAGE_TYPE);
       logEventToRoute(state, route, eventBuilder, !eventLoggerReady);
     } catch (Exception e) {
       log.error("Error occurred while handling authentication event : {}", auditEvent, e);
@@ -401,7 +403,7 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
   }
 
   // Visibility for testing
-  public EventLogger getEventLogger() {
+  public EventLogger<AuditLogEntry> getEventLogger() {
     return configuredState.logger;
   }
 

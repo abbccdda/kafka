@@ -4,18 +4,19 @@
 package io.confluent.security.audit.provider;
 
 import io.cloudevents.CloudEvent;
-import io.confluent.events.exporter.Exporter;
+import io.cloudevents.v03.AttributesImpl;
+import io.confluent.telemetry.events.exporter.Exporter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 import org.apache.kafka.common.config.ConfigException;
 
-public class MockExporter implements Exporter {
+public class MockExporter<T> implements Exporter<T> {
 
   public RuntimeException configureException;
   public boolean routeReady = true;
-  public final ArrayList<CloudEvent> events = new ArrayList<>();
+  public final ArrayList<CloudEvent<AttributesImpl, T>> events = new ArrayList<>();
 
   public MockExporter() {
   }
@@ -28,12 +29,12 @@ public class MockExporter implements Exporter {
   }
 
   @Override
-  public void append(CloudEvent event) throws RuntimeException {
+  public void append(CloudEvent<AttributesImpl, T> event) throws RuntimeException {
     events.add(event);
   }
 
   @Override
-  public boolean routeReady(CloudEvent event) {
+  public boolean routeReady(CloudEvent<AttributesImpl, T> event) {
     return routeReady;
   }
 

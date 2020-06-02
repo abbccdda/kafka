@@ -5,6 +5,7 @@
 package io.confluent.security.audit;
 
 import static io.confluent.security.audit.provider.ConfluentAuditLogProvider.AUTHENTICATION_MESSAGE_TYPE;
+import static io.confluent.telemetry.events.EventLoggerConfig.DEFAULT_CLOUD_EVENT_ENCODING_CONFIG;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
@@ -18,99 +19,101 @@ import com.hubspot.jackson.datatype.protobuf.ProtobufModule;
 import io.cloudevents.CloudEvent;
 import io.cloudevents.json.ZonedDateTimeDeserializer;
 import io.cloudevents.json.ZonedDateTimeSerializer;
-import io.confluent.events.CloudEventUtils;
-import io.confluent.events.EventLoggerConfig;
-import io.confluent.events.ProtobufEvent;
-import io.confluent.events.ProtobufEvent.Builder;
+import io.cloudevents.v03.AttributesImpl;
+import io.confluent.telemetry.events.serde.Protobuf;
+import io.confluent.telemetry.events.Event;
+import io.confluent.telemetry.events.Event.Builder;
+import io.confluent.telemetry.events.serde.Serializer;
 import java.time.ZonedDateTime;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.junit.Test;
 
 public class AuditLogProtobufToJsonTest {
+  private static final Serializer<AuditLogEntry> JSON_SERIALIZER = Protobuf.structuredSerializer();
 
-  private Builder simpleEventBuilder = ProtobufEvent.newBuilder()
+  private final Builder<AuditLogEntry> simpleEventBuilder = Event.<AuditLogEntry>newBuilder()
       .setType("io.confluent.kafka.server/authorization")
       .setSource("crn://confluent.cloud/kafka=lkc-ld9rz")
       .setSubject("crn://confluent.cloud/kafka=lkc-ld9rz/topic=my_new_topic")
       .setId("e7872058-f971-496c-8a14-e6b0196c7ce")
-      .setEncoding(EventLoggerConfig.DEFAULT_CLOUD_EVENT_ENCODING_CONFIG)
+      .setDataContentType(Protobuf.APPLICATION_JSON)
       .setData(AuditLogEntry.newBuilder().build());
 
-  private Pattern timestampPattern = Pattern.compile("\"(2020.*?)\"");
+  private final Pattern timestampPattern = Pattern.compile("\"(2020.*?)\"");
 
   @Test
   public void testTimePrecisionNone() {
-    CloudEvent message = simpleEventBuilder
+    CloudEvent<AttributesImpl, AuditLogEntry> message = simpleEventBuilder
         .setTime(ZonedDateTime.parse("2020-04-05T17:31:00Z"))
         .build();
-    Matcher matcher = timestampPattern.matcher(CloudEventUtils.toJsonString(message));
+    Matcher matcher = timestampPattern.matcher(JSON_SERIALIZER.toString(message));
     assertTrue(matcher.find());
     assertEquals("2020-04-05T17:31:00.000Z", matcher.group(1));
   }
 
   @Test
   public void testTimePrecision000() {
-    CloudEvent message = simpleEventBuilder
+    CloudEvent<AttributesImpl, AuditLogEntry> message = simpleEventBuilder
         .setTime(ZonedDateTime.parse("2020-04-05T17:31:00.000Z"))
         .build();
-    Matcher matcher = timestampPattern.matcher(CloudEventUtils.toJsonString(message));
+    Matcher matcher = timestampPattern.matcher(JSON_SERIALIZER.toString(message));
     assertTrue(matcher.find());
     assertEquals("2020-04-05T17:31:00.000Z", matcher.group(1));
   }
 
   @Test
   public void testTimePrecision1() {
-    CloudEvent message = simpleEventBuilder
+    CloudEvent<AttributesImpl, AuditLogEntry> message = simpleEventBuilder
         .setTime(ZonedDateTime.parse("2020-04-05T17:31:00.1Z"))
         .build();
-    Matcher matcher = timestampPattern.matcher(CloudEventUtils.toJsonString(message));
+    Matcher matcher = timestampPattern.matcher(JSON_SERIALIZER.toString(message));
     assertTrue(matcher.find());
     assertEquals("2020-04-05T17:31:00.100Z", matcher.group(1));
   }
 
   @Test
   public void testTimePrecision100() {
-    CloudEvent message = simpleEventBuilder
+    CloudEvent<AttributesImpl, AuditLogEntry> message = simpleEventBuilder
         .setTime(ZonedDateTime.parse("2020-04-05T17:31:00.100Z"))
         .build();
-    Matcher matcher = timestampPattern.matcher(CloudEventUtils.toJsonString(message));
+    Matcher matcher = timestampPattern.matcher(JSON_SERIALIZER.toString(message));
     assertTrue(matcher.find());
     assertEquals("2020-04-05T17:31:00.100Z", matcher.group(1));
   }
 
   @Test
   public void testTimePrecision001() {
-    CloudEvent message = simpleEventBuilder
+    CloudEvent<AttributesImpl, AuditLogEntry> message = simpleEventBuilder
         .setTime(ZonedDateTime.parse("2020-04-05T17:31:00.001Z"))
         .build();
-    Matcher matcher = timestampPattern.matcher(CloudEventUtils.toJsonString(message));
+    Matcher matcher = timestampPattern.matcher(JSON_SERIALIZER.toString(message));
     assertTrue(matcher.find());
     assertEquals("2020-04-05T17:31:00.001Z", matcher.group(1));
   }
 
   @Test
   public void testTimePrecisionTruncates() {
-    CloudEvent message = simpleEventBuilder
+    CloudEvent<AttributesImpl, AuditLogEntry> message = simpleEventBuilder
         .setTime(ZonedDateTime.parse("2020-04-05T17:31:00.00123Z"))
         .build();
-    Matcher matcher = timestampPattern.matcher(CloudEventUtils.toJsonString(message));
+    Matcher matcher = timestampPattern.matcher(JSON_SERIALIZER.toString(message));
     assertTrue(matcher.find());
     assertEquals("2020-04-05T17:31:00.001Z", matcher.group(1));
   }
 
   @Test
   public void testTimePrecisionTruncatesDown() {
-    CloudEvent message = simpleEventBuilder
+    CloudEvent<AttributesImpl, AuditLogEntry> message = simpleEventBuilder
         .setTime(ZonedDateTime.parse("2020-04-05T17:31:00.001999999Z"))
         .build();
-    Matcher matcher = timestampPattern.matcher(CloudEventUtils.toJsonString(message));
+    Matcher matcher = timestampPattern.matcher(JSON_SERIALIZER.toString(message));
     assertTrue(matcher.find());
     assertEquals("2020-04-05T17:31:00.001Z", matcher.group(1));
   }
 
   @Test
-  public void testCloudTopicCreateToJSON() throws Exception {
+  public void testCloudTopicCreateToJSON() {
 
     AuditLogEntry ale = AuditLogEntry.newBuilder()
         .setServiceName("crn://confluent.cloud/kafka=lkc-ld9rz")
@@ -152,17 +155,17 @@ public class AuditLogProtobufToJsonTest {
             .build())
         .build();
 
-    CloudEvent message = ProtobufEvent.newBuilder()
+    CloudEvent<AttributesImpl, AuditLogEntry> message = Event.<AuditLogEntry>newBuilder()
         .setType("io.confluent.kafka.server/authorization")
         .setSource("crn://confluent.cloud/kafka=lkc-ld9rz")
         .setSubject("crn://confluent.cloud/kafka=lkc-ld9rz/topic=my_new_topic")
         .setId("e7872058-f971-496c-8a14-e6b0196c7ce")
         .setTime(ZonedDateTime.parse("2020-04-05T17:31:00Z"))
-        .setEncoding(EventLoggerConfig.DEFAULT_CLOUD_EVENT_ENCODING_CONFIG)
+        .setDataContentType(Protobuf.APPLICATION_JSON)
         .setData(ale)
         .build();
 
-    String jsonString = CloudEventUtils.toJsonString(message);
+    String jsonString = JSON_SERIALIZER.toString(message);
 
     /*
 {
@@ -213,7 +216,7 @@ public class AuditLogProtobufToJsonTest {
   }
 
   @Test
-  public void testOnpremTopicCreateToJSON() throws Exception {
+  public void testOnpremTopicCreateToJSON() {
 
     AuditLogEntry ale = AuditLogEntry.newBuilder()
         .setServiceName("crn://mds.example.com/kafka=vPeOCWypqUOSepEvx0cbog")
@@ -261,17 +264,17 @@ public class AuditLogProtobufToJsonTest {
             .build())
         .build();
 
-    CloudEvent message = ProtobufEvent.newBuilder()
+    CloudEvent<AttributesImpl, AuditLogEntry> message = Event.<AuditLogEntry>newBuilder()
         .setType("io.confluent.kafka.server/authorization")
         .setSource("crn://mds.example.com/kafka=vPeOCWypqUOSepEvx0cbog")
         .setSubject("crn://mds.example.com/kafka=vPeOCWypqUOSepEvx0cbog/topic=my_new_topic")
         .setId("e7872058-f971-496c-8a14-e6b0196c7ce")
         .setTime(ZonedDateTime.parse("2020-04-05T17:31:00Z"))
-        .setEncoding(EventLoggerConfig.DEFAULT_CLOUD_EVENT_ENCODING_CONFIG)
+        .setDataContentType(Protobuf.APPLICATION_JSON)
         .setData(ale)
         .build();
 
-    String jsonString = CloudEventUtils.toJsonString(message);
+    String jsonString = JSON_SERIALIZER.toString(message);
 
     /*
 
@@ -331,7 +334,7 @@ public class AuditLogProtobufToJsonTest {
   }
 
   @Test
-  public void testOnpremTopicCreateToJSONGrantedFalse() throws Exception {
+  public void testOnpremTopicCreateToJSONGrantedFalse() {
     AuditLogEntry ale = AuditLogEntry.newBuilder()
         .setServiceName("/clusters/vPeOCWypqUOSepEvx0cbog")
         .setMethodName("CreateTopics")
@@ -378,17 +381,17 @@ public class AuditLogProtobufToJsonTest {
             .build())
         .build();
 
-    CloudEvent message = ProtobufEvent.newBuilder()
+    CloudEvent<AttributesImpl, AuditLogEntry> message = Event.<AuditLogEntry>newBuilder()
         .setType("io.confluent.kafka.server/authorization")
         .setSource("/clusters/vPeOCWypqUOSepEvx0cbog")
         .setSubject("/clusters/vPeOCWypqUOSepEvx0cbog/topic/my_new_topic")
         .setId("e7872058-f971-496c-8a14-e6b0196c7ce")
         .setTime(ZonedDateTime.parse("2020-04-05T17:31:00Z"))
-        .setEncoding(EventLoggerConfig.DEFAULT_CLOUD_EVENT_ENCODING_CONFIG)
+        .setDataContentType(Protobuf.APPLICATION_JSON)
         .setData(ale)
         .build();
 
-    String jsonString = CloudEventUtils.toJsonString(message);
+    String jsonString = JSON_SERIALIZER.toString(message);
 
     assertTrue(jsonString.contains("\"granted\":false"));
   }
@@ -439,13 +442,13 @@ public class AuditLogProtobufToJsonTest {
     assertTrue(mapper.getRegisteredModuleIds().stream()
         .noneMatch(m -> m.equals(ProtobufModule.class.getCanonicalName())));
 
-    CloudEvent message = ProtobufEvent.newBuilder()
+    CloudEvent<AttributesImpl, AuditLogEntry> message = Event.<AuditLogEntry>newBuilder()
         .setType("io.confluent.kafka.server/authorization")
         .setSource("crn:///kafka=CdiHxnm2SwGtUg5nnB8rBQ")
         .setSubject("crn:///kafka=CdiHxnm2SwGtUg5nnB8rBQ/topic=_confluent-metadata-auth")
         .setId("728497fe-2ab4-47ae-8984-40127c5a65cb")
         .setTime(ZonedDateTime.parse("2019-11-04T21:49:27.552Z"))
-        .setEncoding(EventLoggerConfig.DEFAULT_CLOUD_EVENT_ENCODING_CONFIG)
+        .setDataContentType(Protobuf.APPLICATION_JSON)
         .setData(ale)
         .build();
 
@@ -463,7 +466,7 @@ public class AuditLogProtobufToJsonTest {
   }
 
   @Test
-  public void testAuthenticationEventSuccessToJSON() throws Exception {
+  public void testAuthenticationEventSuccessToJSON() {
     AuditLogEntry auditLogEntry = AuditLogEntry.newBuilder()
         .setServiceName("crn://confluent.cloud/kafka=lkc-ld9rz")
         .setAuthenticationInfo(
@@ -487,23 +490,23 @@ public class AuditLogProtobufToJsonTest {
                 .setMessage("").build())
         .build();
 
-    CloudEvent message = ProtobufEvent.newBuilder()
+    CloudEvent<AttributesImpl, AuditLogEntry> message = Event.<AuditLogEntry>newBuilder()
         .setType(AUTHENTICATION_MESSAGE_TYPE)
         .setSource("crn://confluent.cloud/kafka=lkc-ld9rz")
         .setSubject("crn://confluent.cloud/kafka=lkc-ld9rz")
         .setId("e7872058-f971-496c-8a14-e6b0196c7ce")
         .setTime(ZonedDateTime.parse("2020-04-05T17:31:00Z"))
-        .setEncoding(EventLoggerConfig.DEFAULT_CLOUD_EVENT_ENCODING_CONFIG)
+        .setDataContentType(Protobuf.contentType(DEFAULT_CLOUD_EVENT_ENCODING_CONFIG))
         .setData(auditLogEntry)
         .build();
 
     assertEquals(
         "{\"data\":{\"serviceName\":\"crn://confluent.cloud/kafka=lkc-ld9rz\",\"methodName\":\"\",\"resourceName\":\"\",\"authenticationInfo\":{\"principal\":\"User:123\",\"metadata\":{\"mechanism\":\"sasl\",\"identifier\":\"id1\"}},\"request\":{\"clientId\":\"userSupplied\"},\"requestMetadata\":{\"callerIp\":\"192.168.1.23\"},\"result\":{\"status\":\"SUCCESS\",\"message\":\"\"}},\"id\":\"e7872058-f971-496c-8a14-e6b0196c7ce\",\"source\":\"crn://confluent.cloud/kafka=lkc-ld9rz\",\"specversion\":\"0.3\",\"type\":\"io.confluent.kafka.server/authentication\",\"time\":\"2020-04-05T17:31:00.000Z\",\"datacontenttype\":\"application/json\",\"subject\":\"crn://confluent.cloud/kafka=lkc-ld9rz\"}",
-        CloudEventUtils.toJsonString(message));
+        JSON_SERIALIZER.toString(message));
   }
 
   @Test
-  public void testAuthenticationEventFailureToJSON() throws Exception {
+  public void testAuthenticationEventFailureToJSON() {
     AuditLogEntry auditLogEntry = AuditLogEntry.newBuilder()
         .setServiceName("crn://confluent.cloud/kafka=lkc-ld9rz")
         .setAuthenticationInfo(
@@ -526,19 +529,18 @@ public class AuditLogProtobufToJsonTest {
                 .setMessage("error1").build())
         .build();
 
-    CloudEvent message = ProtobufEvent.newBuilder()
+    CloudEvent<AttributesImpl, AuditLogEntry> message = Event.<AuditLogEntry>newBuilder()
         .setType(AUTHENTICATION_MESSAGE_TYPE)
         .setSource("crn://confluent.cloud/kafka=lkc-ld9rz")
         .setSubject("crn://confluent.cloud/kafka=lkc-ld9rz")
         .setId("e7872058-f971-496c-8a14-e6b0196c7ce")
         .setTime(ZonedDateTime.parse("2020-04-05T17:31:00Z"))
-        .setEncoding(EventLoggerConfig.DEFAULT_CLOUD_EVENT_ENCODING_CONFIG)
+        .setDataContentType(Protobuf.contentType(DEFAULT_CLOUD_EVENT_ENCODING_CONFIG))
         .setData(auditLogEntry)
         .build();
 
-    System.out.println(CloudEventUtils.toJsonString(message));
     assertEquals(
         "{\"data\":{\"serviceName\":\"crn://confluent.cloud/kafka=lkc-ld9rz\",\"methodName\":\"\",\"resourceName\":\"\",\"authenticationInfo\":{\"principal\":\"\",\"metadata\":{\"mechanism\":\"sasl\",\"identifier\":\"id1\"}},\"request\":{\"clientId\":\"userSupplied\"},\"requestMetadata\":{\"callerIp\":\"192.168.1.23\"},\"result\":{\"status\":\"UNAUTHENTICATED\",\"message\":\"error1\"}},\"id\":\"e7872058-f971-496c-8a14-e6b0196c7ce\",\"source\":\"crn://confluent.cloud/kafka=lkc-ld9rz\",\"specversion\":\"0.3\",\"type\":\"io.confluent.kafka.server/authentication\",\"time\":\"2020-04-05T17:31:00.000Z\",\"datacontenttype\":\"application/json\",\"subject\":\"crn://confluent.cloud/kafka=lkc-ld9rz\"}",
-        CloudEventUtils.toJsonString(message));
+        JSON_SERIALIZER.toString(message));
   }
 }

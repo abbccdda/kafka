@@ -48,7 +48,8 @@ include 'clients',
     'ce-licensing',
     'ce-broker-plugins', 
     'ce-metrics', 
-    'ce-kafka-client-plugins', 
+    'ce-events',
+    'ce-kafka-client-plugins',
     'ce-authorizer',
     'ce-rest-authorizer',
     'ce-rbac',
@@ -58,4 +59,6 @@ include 'clients',
     'ce-audit',
     'ce-resource-names',
     'ce-http-server',
-    'internal-rest-server'
+    'internal-rest-server',
+    'ce-events'
+

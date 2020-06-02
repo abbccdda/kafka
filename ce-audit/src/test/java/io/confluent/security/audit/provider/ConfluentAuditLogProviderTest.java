@@ -3,16 +3,40 @@
  */
 package io.confluent.security.audit.provider;
 
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_LOGGER_ENABLE_CONFIG;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.CRN_AUTHORITY_NAME_CONFIG;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.ENABLE_AUTHENTICATION_AUDIT_LOGS;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.mock;
+
+import com.google.protobuf.MessageLite;
 import io.cloudevents.CloudEvent;
 import io.cloudevents.v03.AttributesImpl;
-import io.confluent.events.EventLogger;
-import io.confluent.events.ProtobufEvent;
-import io.confluent.events.exporter.LogExporter;
-import io.confluent.events.exporter.kafka.KafkaExporter;
 import io.confluent.security.audit.AuditLogConfig;
 import io.confluent.security.audit.AuditLogEntry;
+import io.confluent.security.audit.telemetry.exporter.NonBlockingKafkaExporter;
+import io.confluent.telemetry.events.serde.Protobuf;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders;
 import io.confluent.security.authorizer.provider.DefaultAuditLogProvider;
+import io.confluent.telemetry.events.EventLogger;
+import io.confluent.telemetry.events.serde.Serializer;
+import io.confluent.telemetry.events.exporter.Exporter;
+import java.net.InetAddress;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
+import javax.security.sasl.SaslServer;
 import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.metrics.KafkaMetric;
@@ -28,28 +52,8 @@ import org.apache.kafka.server.audit.AuthenticationEventImpl;
 import org.apache.kafka.test.TestUtils;
 import org.junit.Before;
 import org.junit.Test;
-
-import javax.security.sasl.SaslServer;
-import java.net.InetAddress;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
-
-import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_LOGGER_ENABLE_CONFIG;
-import static org.apache.kafka.common.config.internals.ConfluentConfigs.CRN_AUTHORITY_NAME_CONFIG;
-import static org.apache.kafka.common.config.internals.ConfluentConfigs.ENABLE_AUTHENTICATION_AUDIT_LOGS;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
-import static org.mockito.Mockito.mock;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @SuppressWarnings("unchecked")
 public class ConfluentAuditLogProviderTest {
@@ -91,7 +95,7 @@ public class ConfluentAuditLogProviderTest {
 
     EventLogger eventLogger = ((ConfluentAuditLogProvider) provider).getEventLogger();
     assertNotNull(eventLogger);
-    assertEquals(KafkaExporter.class, eventLogger.eventExporter().getClass());
+    assertEquals(NonBlockingKafkaExporter.class, eventLogger.eventExporter().getClass());
 
     AuditLogProvider defaultProvider = ConfluentBuiltInProviders
         .loadAuditLogProvider(
@@ -192,7 +196,7 @@ public class ConfluentAuditLogProviderTest {
 
     EventLogger eventLogger = ((ConfluentAuditLogProvider) provider).getEventLogger();
     assertNotNull(eventLogger);
-    assertEquals(KafkaExporter.class, eventLogger.eventExporter().getClass());
+    assertEquals(NonBlockingKafkaExporter.class, eventLogger.eventExporter().getClass());
   }
 
   @Test
@@ -234,7 +238,7 @@ public class ConfluentAuditLogProviderTest {
     authenticationEvent.setData(data);
     provider.logEvent(authenticationEvent);
 
-    MockExporter ma = (MockExporter) provider.getEventLogger().eventExporter();
+    MockExporter<AuditLogEntry> ma = (MockExporter) provider.getEventLogger().eventExporter();
     assertEquals(1, ma.events.size());
 
     CloudEvent<AttributesImpl, AuditLogEntry> event = ma.events.get(0);
@@ -246,7 +250,7 @@ public class ConfluentAuditLogProviderTest {
         event.getAttributes().getSubject().get());
     assertEquals("crn://mds.example.com/kafka=63REM3VWREiYtMuVxZeplA",
         event.getAttributes().getSource().toString());
-    assertEquals(ProtobufEvent.APPLICATION_JSON, event.getAttributes().getDatacontenttype().get());
+    assertEquals(Protobuf.APPLICATION_JSON, event.getAttributes().getDatacontenttype().get());
     assertEquals("0.3", event.getAttributes().getSpecversion());
     assertEquals("io.confluent.kafka.server/authentication", event.getAttributes().getType());
 
@@ -286,7 +290,25 @@ public class ConfluentAuditLogProviderTest {
         .waitForCondition(() -> provider.initExecutor().isTerminated(), "Executor not terminated");
   }
 
-  public static class TestExporter extends LogExporter {
+  @SuppressWarnings("unchecked")
+  public static class TestExporter<T extends MessageLite> implements Exporter<T> {
+    private Serializer<T> jsonSerializer = Protobuf.structuredSerializer();
+    private Logger log = LoggerFactory.getLogger(TestExporter.class);
+
+    @Override
+    public Set<String> reconfigurableConfigs() {
+      return Collections.emptySet();
+    }
+
+    @Override
+    public void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
+
+    }
+
+    @Override
+    public void reconfigure(Map<String, ?> configs) {
+
+    }
 
     enum State {
       INITIALIZED,
@@ -321,14 +343,23 @@ public class ConfluentAuditLogProviderTest {
       } catch (InterruptedException e) {
         throw new RuntimeException(e);
       }
-      super.configure(configs);
       state = State.STARTED;
     }
 
     @Override
+    public void append(CloudEvent<AttributesImpl, T> event) throws RuntimeException {
+    log.info(jsonSerializer.toString(event));
+    }
+
+    @Override
+    public boolean routeReady(CloudEvent<AttributesImpl, T> event) {
+      return true;
+    }
+
+
+    @Override
     public void close() throws Exception {
       state = State.CLOSED;
-      super.close();
     }
   }
 }

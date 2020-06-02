@@ -3,6 +3,7 @@ package org.apache.kafka.jmh.audit;
 import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 import io.confluent.kafka.multitenant.TenantMetadata;
 import io.confluent.kafka.multitenant.utils.TenantSanitizer;
+import io.confluent.security.audit.AuditLogEntry;
 import io.confluent.security.audit.provider.ConfluentAuditLogProvider;
 import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizePolicy;
@@ -116,9 +117,10 @@ public class MultiTenantProviderLogAuthorizationBenchmark {
   }
 
   @TearDown(Level.Trial)
+  @SuppressWarnings("unchecked")
   public void tearDown() {
     System.out.println("Topic Deliveries:");
-    CountExporter ce = (CountExporter) provider.getEventLogger().eventExporter();
+    CountExporter<AuditLogEntry> ce = (CountExporter) provider.getEventLogger().eventExporter();
     ce.counts.entrySet().stream()
         .sorted(Comparator.comparing(Entry::getKey))
         .forEach(e -> System.out.println(e.getKey() + "\t" + e.getValue()));

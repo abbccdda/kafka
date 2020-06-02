@@ -3,23 +3,25 @@
  */
 package io.confluent.security.audit.provider;
 
-import static io.confluent.events.cloudevents.kafka.Unmarshallers.structuredProto;
 import static org.junit.Assert.assertTrue;
 
 import io.cloudevents.CloudEvent;
 import io.cloudevents.v03.AttributesImpl;
 import io.confluent.crn.ConfluentResourceName;
-import io.confluent.events.CloudEventUtils;
 import io.confluent.kafka.security.authorizer.ConfluentServerAuthorizer;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.kafka.test.utils.KafkaTestUtils.ClientBuilder;
 import io.confluent.security.audit.AuditLogEntry;
 import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
+import io.confluent.telemetry.events.serde.Protobuf;
 import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.authorizer.AuthorizePolicy.PolicyType;
 import io.confluent.security.authorizer.AuthorizeResult;
 import io.confluent.security.authorizer.PermissionType;
 import io.confluent.security.test.utils.RbacClusters;
+import io.confluent.telemetry.events.EventLoggerConfig;
+import io.confluent.telemetry.events.serde.Deserializer;
+import io.confluent.telemetry.events.serde.Serializer;
 import java.time.Duration;
 import java.util.AbstractMap;
 import java.util.Arrays;
@@ -46,7 +48,7 @@ import org.slf4j.LoggerFactory;
 abstract class ClusterTestCommon {
 
   private static final Logger log = LoggerFactory.getLogger(ClusterTestCommon.class);
-
+  protected static final Serializer<AuditLogEntry> JSON_SERIALIZER = Protobuf.structuredSerializer();
   static final String BROKER_USER = "kafka";
   static final String DEVELOPER1 = "app1-developer";
   static final String RESOURCE_OWNER1 = "resourceOwner1";
@@ -138,10 +140,10 @@ abstract class ClusterTestCommon {
       ConsumerRecords<byte[], byte[]> records = consumer.poll(Duration.ofMillis(200));
       for (ConsumerRecord<byte[], byte[]> record : records) {
         try {
-          CloudEvent<AttributesImpl, AuditLogEntry> value = structuredProto(AuditLogEntry.class)
-              .withHeaders(() -> asMap(record.headers()))
-              .withPayload(() -> record.value())
-              .unmarshal();
+          Deserializer<AuditLogEntry> dser = Protobuf.deserializer(
+              EventLoggerConfig.CLOUD_EVENT_STRUCTURED_ENCODING, AuditLogEntry.class,
+              AuditLogEntry.parser());
+          CloudEvent<AttributesImpl, AuditLogEntry> value = dser.deserialize(record);
 
           AuditLogEntry entry = value.getData().get();
 
@@ -149,10 +151,10 @@ abstract class ClusterTestCommon {
           while (iterator.hasNext()) {
             Predicate<AuditLogEntry> predicate = iterator.next();
             if (predicate.test(entry)) {
-              log.info("CloudEvent matched: " + CloudEventUtils.toJsonString(value));
+              log.info("CloudEvent matched: " + JSON_SERIALIZER.toString(value));
               iterator.remove();
             } else {
-              log.debug("CloudEvent didn't match: " + CloudEventUtils.toJsonString(value));
+              log.debug("CloudEvent didn't match: " + JSON_SERIALIZER.toString(value));
             }
           }
         } catch (Exception e) {
@@ -227,7 +229,7 @@ abstract class ClusterTestCommon {
   }
 
   void closeConsumers() {
-    for (KafkaConsumer<byte[], byte[]> consumer: consumers) {
+    for (KafkaConsumer<byte[], byte[]> consumer : consumers) {
       try {
         consumer.close();
       } catch (Exception e) {

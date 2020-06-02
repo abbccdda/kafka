@@ -3,9 +3,9 @@
  */
 package io.confluent.security.audit.provider;
 
-import static io.confluent.events.EventLoggerConfig.KAFKA_EXPORTER_PREFIX;
 import static io.confluent.security.audit.router.AuditLogRouterJsonConfig.DEFAULT_TOPIC;
 import static io.confluent.security.audit.router.AuditLogRouterJsonConfig.TOPIC_PREFIX;
+import static io.confluent.security.audit.telemetry.exporter.NonBlockingKafkaExporterConfig.KAFKA_EXPORTER_PREFIX;
 import static io.confluent.security.test.utils.User.scramUser;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.CRN_AUTHORITY_NAME_CONFIG;
@@ -15,13 +15,13 @@ import static org.junit.Assert.assertTrue;
 
 import io.cloudevents.CloudEvent;
 import io.cloudevents.v03.AttributesImpl;
-import io.confluent.events.ProtobufEvent;
-import io.confluent.events.cloudevents.extensions.RouteExtension;
+import io.confluent.telemetry.events.cloudevents.extensions.RouteExtension;
 import io.confluent.security.audit.AuditLogConfig;
 import io.confluent.security.audit.AuditLogEntry;
 import io.confluent.security.audit.AuditLogRouterJsonConfigUtils;
 import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
 import io.confluent.security.audit.provider.ConfluentAuditLogProvider.AuditLogMetrics;
+import io.confluent.telemetry.events.serde.Protobuf;
 import io.confluent.security.authorizer.Action;
 import io.confluent.security.authorizer.AuthorizePolicy;
 import io.confluent.security.authorizer.AuthorizeResult;
@@ -119,7 +119,7 @@ public class ProviderRoutingTest {
         new ConfluentAuthorizationEvent(clusterScope, requestContext, write, AuthorizeResult.ALLOWED,
             policy));
 
-    MockExporter ma = (MockExporter) provider.getEventLogger().eventExporter();
+    MockExporter<AuditLogEntry> ma = (MockExporter) provider.getEventLogger().eventExporter();
     assertEquals(1, ma.events.size());
 
     CloudEvent<AttributesImpl, AuditLogEntry> event = ma.events.get(0);
@@ -131,7 +131,7 @@ public class ProviderRoutingTest {
         event.getAttributes().getSubject().get());
     assertEquals("crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA",
         event.getAttributes().getSource().toString());
-    assertEquals(ProtobufEvent.APPLICATION_JSON, event.getAttributes().getDatacontenttype().get());
+    assertEquals(Protobuf.APPLICATION_JSON, event.getAttributes().getDatacontenttype().get());
     assertEquals("0.3", event.getAttributes().getSpecversion());
     assertEquals("io.confluent.kafka.server/authorization", event.getAttributes().getType());
 
@@ -184,11 +184,11 @@ public class ProviderRoutingTest {
         .logEvent(
             new ConfluentAuthorizationEvent(clusterScope, requestContext, create, AuthorizeResult.ALLOWED,
                 policy));
-    MockExporter ma = (MockExporter) provider.getEventLogger().eventExporter();
+    MockExporter<AuditLogEntry> ma = (MockExporter) provider.getEventLogger().eventExporter();
 
     assertEquals(1, ma.events.size());
 
-    CloudEvent<?, AuditLogEntry> event = ma.events.get(0);
+    CloudEvent<AttributesImpl, AuditLogEntry> event = ma.events.get(0);
     assertTrue(event.getExtensions().containsKey(RouteExtension.Format.IN_MEMORY_KEY));
     RouteExtension re = (RouteExtension) event.getExtensions()
         .get(RouteExtension.Format.IN_MEMORY_KEY);
@@ -515,7 +515,7 @@ public class ProviderRoutingTest {
     AuthorizePolicy policy = new AuthorizePolicy.SuperUser(AuthorizePolicy.PolicyType.SUPER_USER,
         principal);
 
-    MockExporter ma = (MockExporter) provider.getEventLogger().eventExporter();
+    MockExporter<AuditLogEntry> ma = (MockExporter) provider.getEventLogger().eventExporter();
     ma.events.clear();
     provider
         .logEvent(
