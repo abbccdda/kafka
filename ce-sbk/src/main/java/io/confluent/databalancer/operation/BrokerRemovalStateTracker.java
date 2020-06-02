@@ -3,6 +3,7 @@
  */
 package io.confluent.databalancer.operation;
 
+import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.kafka.clients.admin.BrokerRemovalDescription;
 import org.slf4j.Logger;

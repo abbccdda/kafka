@@ -12,7 +12,7 @@ import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import java.util.Arrays;
 import java.util.Collections;
 import kafka.common.BrokerRemovalStatus;
-import io.confluent.databalancer.operation.BrokerRemovalCallback;
+import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback;
 import io.confluent.databalancer.operation.BrokerRemovalStateMachine;
 import io.confluent.databalancer.operation.BrokerRemovalStateTracker;
 import java.util.Optional;

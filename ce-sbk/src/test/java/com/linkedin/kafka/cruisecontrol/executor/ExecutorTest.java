@@ -17,7 +17,7 @@ import com.linkedin.kafka.cruisecontrol.monitor.LoadMonitor;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.NoopSampler;
 import com.yammer.metrics.core.MetricsRegistry;
 import java.time.Duration;
-import io.confluent.databalancer.operation.BrokerRemovalCallback;
+import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -271,7 +271,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
       assertReassignmentsStarted(admin, 1);
       assertEquals(0, executor.numCancelledReassignments());
 
-      try (Executor.AutoCloseableReservationHandle ignored = executor.reserveAndAbortOngoingExecutions(abortionTimeout)) {
+      try (Executor.ReservationHandle ignored = executor.reserveAndAbortOngoingExecutions(abortionTimeout)) {
         assertFalse("Expected ongoing execution to be canceled", executor.hasOngoingExecution());
 
         // assert execution canceled/reverted
@@ -341,7 +341,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     try {
       Executor executor = executor();
 
-      try (Executor.AutoCloseableReservationHandle ignored = executor.reserveAndAbortOngoingExecutions(abortionTimeout)) {
+      try (Executor.ReservationHandle ignored = executor.reserveAndAbortOngoingExecutions(abortionTimeout)) {
         // assert reservation is taken
         assertTrue("Expected the executor's reservation to be taken", executor._reservation.isReserved());
         assertTrue("Expected reservation to be held by the test thread",

@@ -5,6 +5,7 @@ import com.linkedin.cruisecontrol.exception.NotEnoughValidWindowsException;
 import com.linkedin.kafka.cruisecontrol.analyzer.GoalOptimizer;
 import com.linkedin.kafka.cruisecontrol.analyzer.OptimizerResult;
 import com.linkedin.kafka.cruisecontrol.async.progress.OperationProgress;
+import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalPhaseBuilder;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.detector.AnomalyDetector;
 import com.linkedin.kafka.cruisecontrol.exception.KafkaCruiseControlException;
@@ -15,14 +16,18 @@ import com.linkedin.kafka.cruisecontrol.model.ClusterModel;
 import com.linkedin.kafka.cruisecontrol.monitor.LoadMonitor;
 import com.linkedin.kafka.cruisecontrol.monitor.ModelCompletenessRequirements;
 import com.linkedin.kafka.cruisecontrol.server.BrokerShutdownManager;
-import io.confluent.databalancer.operation.BrokerRemovalCallback;
+import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback;
+import java.time.Duration;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.test.TestUtils;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -49,6 +54,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.only;
 import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 
@@ -70,6 +76,7 @@ public class KafkaCruiseControlTest {
     private static final int BROKER_ID_TO_REMOVE = 3;
     private static final Optional<Long> BROKER_EPOCH_TO_REMOVE = Optional.of(4L);
     private static final Long MOCK_TIME_NOW = 0L;
+    private static final Duration REMOVAL_TIMEOUT = Duration.ofSeconds(1);
 
     @Mock
     private KafkaCruiseControlConfig cruiseControlConfig;
@@ -287,7 +294,7 @@ public class KafkaCruiseControlTest {
         });
 
         KafkaCruiseControlException thrownException = assertThrows(KafkaCruiseControlException.class,
-            () -> kafkaCruiseControl.removeBroker(BROKER_ID_TO_REMOVE, BROKER_EPOCH_TO_REMOVE, mockRemovalCallback, "")
+            () -> kafkaCruiseControl.removeBroker(BROKER_ID_TO_REMOVE, BROKER_EPOCH_TO_REMOVE, mockRemovalCallback, "").execute(REMOVAL_TIMEOUT)
         );
 
         assertEquals(expectedException, thrownException);
@@ -304,7 +311,7 @@ public class KafkaCruiseControlTest {
         when(loadMonitor.clusterModel(anyLong(), any(), any())).thenReturn(clusterModel);
 
         KafkaCruiseControlException thrownException = assertThrows(KafkaCruiseControlException.class,
-            () -> kafkaCruiseControl.removeBroker(BROKER_ID_TO_REMOVE, BROKER_EPOCH_TO_REMOVE, mockRemovalCallback, "")
+            () -> kafkaCruiseControl.removeBroker(BROKER_ID_TO_REMOVE, BROKER_EPOCH_TO_REMOVE, mockRemovalCallback, "").execute(REMOVAL_TIMEOUT)
         );
 
         assertEquals(expectedException, thrownException.getCause());
@@ -314,6 +321,49 @@ public class KafkaCruiseControlTest {
         verify(mockRemovalCallback)
             .registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_FAILURE, expectedException);
         verifyNoProposalsExecuted();
+    }
+
+    @Test
+    public void removeBroker_brokerShutdownThrowsInterruptedException() throws Exception {
+        InterruptedException expectedException = new InterruptedException("boom");
+        when(mockShutdownManager.maybeShutdownBroker(BROKER_ID_TO_REMOVE, BROKER_EPOCH_TO_REMOVE)).thenThrow(expectedException);
+        when(loadMonitor.clusterModel(anyLong(), any(), any())).thenReturn(clusterModel);
+
+        assertThrows(InterruptedException.class,
+            () -> kafkaCruiseControl.removeBroker(BROKER_ID_TO_REMOVE, BROKER_EPOCH_TO_REMOVE, mockRemovalCallback, "").execute(REMOVAL_TIMEOUT)
+        );
+
+        verify(clusterModel).setBrokerState(BROKER_ID_TO_REMOVE, Broker.State.DEAD); // verify plan-computation
+        verify(mockRemovalCallback)
+            .registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS);
+        verifyNoMoreInteractions(mockRemovalCallback);
+        verifyNoProposalsExecuted();
+    }
+
+    @Test
+    public void removeBroker_canBeCancelled() throws Exception {
+        when(mockShutdownManager.maybeShutdownBroker(BROKER_ID_TO_REMOVE, BROKER_EPOCH_TO_REMOVE)).thenAnswer(invocation -> {
+            Thread.sleep(10000);
+            return null;
+        });
+        when(loadMonitor.clusterModel(anyLong(), any(), any())).thenReturn(clusterModel);
+        AtomicReference<Exception> thrownException = new AtomicReference<>();
+
+        BrokerRemovalPhaseBuilder.BrokerRemovalExecution removeFuture = kafkaCruiseControl.removeBroker(
+            BROKER_ID_TO_REMOVE, BROKER_EPOCH_TO_REMOVE, mockRemovalCallback, "");
+        new Thread(() -> {
+            try {
+                removeFuture.execute(REMOVAL_TIMEOUT);
+            } catch (Throwable throwable) {
+                assert throwable instanceof Exception;
+                thrownException.set((Exception) throwable);
+            }
+        }).start();
+        removeFuture.chainedFutures.cancel(true);
+
+        TestUtils.waitForCondition(() -> thrownException.get() != null, "Expected the future execution to throw an exception");
+
+        assertEquals(CancellationException.class, thrownException.get().getClass());
     }
 
     @Test
@@ -331,7 +381,7 @@ public class KafkaCruiseControlTest {
         when(loadMonitor.clusterModel(anyLong(), any(), any())).thenReturn(clusterModel);
 
         KafkaCruiseControlException thrownException = assertThrows(KafkaCruiseControlException.class,
-            () -> kafkaCruiseControl.removeBroker(BROKER_ID_TO_REMOVE, BROKER_EPOCH_TO_REMOVE, mockRemovalCallback, "")
+            () -> kafkaCruiseControl.removeBroker(BROKER_ID_TO_REMOVE, BROKER_EPOCH_TO_REMOVE, mockRemovalCallback, "").execute(REMOVAL_TIMEOUT)
         );
 
         assertEquals(expectedException, thrownException);
@@ -355,7 +405,7 @@ public class KafkaCruiseControlTest {
             eq(Collections.emptySet()), isNull(), eq(false))).thenReturn(optimizerResult);
 
         KafkaCruiseControlException thrownException = assertThrows(KafkaCruiseControlException.class,
-            () -> kafkaCruiseControl.removeBroker(BROKER_ID_TO_REMOVE, BROKER_EPOCH_TO_REMOVE, mockRemovalCallback, "")
+            () -> kafkaCruiseControl.removeBroker(BROKER_ID_TO_REMOVE, BROKER_EPOCH_TO_REMOVE, mockRemovalCallback, "").execute(REMOVAL_TIMEOUT)
         );
 
         assertTrue("Expected exception cause to be of type IllegalStateException",
@@ -373,7 +423,21 @@ public class KafkaCruiseControlTest {
     }
 
     @Test
-    public void removeBroker_successfullySubmitted() throws NotEnoughValidWindowsException, KafkaCruiseControlException {
+    public void removeBroker_cannotAcquireExecutorReservation() throws Throwable {
+        String uuid = "uuid";
+        TimeoutException expectedException = new TimeoutException("timeout!");
+        when(executor.reserveAndAbortOngoingExecutions(any())).thenThrow(expectedException);
+
+        assertThrows(TimeoutException.class,
+            () -> kafkaCruiseControl.removeBroker(BROKER_ID_TO_REMOVE, BROKER_EPOCH_TO_REMOVE, mockRemovalCallback, uuid).execute(REMOVAL_TIMEOUT)
+        );
+
+        verify(mockRemovalCallback)
+            .registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_FAILURE, expectedException);
+    }
+
+    @Test
+    public void removeBroker_successfullySubmitted() throws Throwable {
         String uuid = "uuid";
         Set<Integer> brokersToRemove = new HashSet<>();
         brokersToRemove.add(BROKER_ID_TO_REMOVE);
@@ -386,7 +450,7 @@ public class KafkaCruiseControlTest {
             eq(Collections.emptySet()), eq(Collections.emptySet()), eq(false),
             eq(Collections.emptySet()), isNull(), eq(false))).thenReturn(optimizerResult);
 
-        kafkaCruiseControl.removeBroker(BROKER_ID_TO_REMOVE, BROKER_EPOCH_TO_REMOVE, mockRemovalCallback, uuid);
+        kafkaCruiseControl.removeBroker(BROKER_ID_TO_REMOVE, BROKER_EPOCH_TO_REMOVE, mockRemovalCallback, uuid).execute(REMOVAL_TIMEOUT);
 
         verify(clusterModel, times(2)).setBrokerState(BROKER_ID_TO_REMOVE, Broker.State.DEAD);
         verify(mockRemovalCallback)
@@ -397,6 +461,7 @@ public class KafkaCruiseControlTest {
             .registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_COMPUTATION_SUCCESS);
         verify(executor).setExecutionMode(false);
         verify(executor, times(2)).state();
+        verify(executor).reserveAndAbortOngoingExecutions(Duration.ofMinutes(1));
         verify(executor).executeRemoveBrokerProposals(eq(proposals), eq(brokersToRemove), eq(brokersToRemove), eq(loadMonitor),
             isNull(), eq(0), isNull(), isNull(), anyLong(), eq(uuid), eq(mockRemovalCallback));
     }

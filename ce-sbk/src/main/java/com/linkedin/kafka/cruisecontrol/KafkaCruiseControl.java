@@ -10,6 +10,8 @@ import com.linkedin.kafka.cruisecontrol.analyzer.OptimizerResult;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.Goal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.PreferredLeaderElectionGoal;
 import com.linkedin.kafka.cruisecontrol.async.progress.OperationProgress;
+import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalOptions;
+import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalPhaseBuilder;
 import com.linkedin.kafka.cruisecontrol.client.BlockingSendClient;
 import com.linkedin.kafka.cruisecontrol.common.KafkaCruiseControlThreadFactory;
 import com.linkedin.kafka.cruisecontrol.common.MetadataClient;
@@ -33,8 +35,8 @@ import com.linkedin.kafka.cruisecontrol.monitor.metricdefinition.KafkaMetricDef;
 import com.linkedin.kafka.cruisecontrol.server.BrokerShutdownManager;
 import com.linkedin.kafka.cruisecontrol.servlet.response.CruiseControlState;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
-import io.confluent.databalancer.operation.BrokerRemovalCallback;
-import io.confluent.databalancer.operation.BrokerRemovalCallback.BrokerRemovalEvent;
+import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback;
+import java.time.Duration;
 import java.util.Optional;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.utils.SystemTime;
@@ -216,73 +218,49 @@ public class KafkaCruiseControl {
    * @param progressCallback - a callback utilized for tracking the progress of the remove broker call
    * @param uuid - the unique ID of this operation
    */
-  public void removeBroker(int broker, Optional<Long> brokerEpoch, BrokerRemovalCallback progressCallback, String uuid) throws KafkaCruiseControlException {
-    // TODO: Reserve Executor
-
-    LOG.info("Beginning the remove broker operation for broker {} (epoch {})", broker, brokerEpoch);
+  public BrokerRemovalPhaseBuilder.BrokerRemovalExecution removeBroker(int broker, Optional<Long> brokerEpoch, BrokerRemovalCallback progressCallback, String uuid) {
     OperationProgress operationProgress = new OperationProgress();
     Set<Integer> brokersToRemove = new HashSet<>();
     brokersToRemove.add(broker);
 
-    // 1. Validate that a plan can be computed
-    try {
-      computeDrainBrokersPlan(brokersToRemove, Collections.emptyList(), operationProgress, _defaultPlanComputationOptions);
-      LOG.info("Successfully computed the remove broker plan for broker {}", broker);
-      progressCallback.registerEvent(BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS);
-    } catch (KafkaCruiseControlException e) {
-      progressCallback.registerEvent(BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_FAILURE, e);
-      LOG.error("Error while computing the initial remove broker plan for broker {} prior to shutdown.",
-          broker, e);
-      throw e;
-    }
+    BrokerRemovalOptions removalArgs = new BrokerRemovalOptions(brokersToRemove, brokerEpoch, progressCallback, uuid,
+        _defaultPlanComputationOptions, _replicationThrottle, operationProgress);
 
-    // 2. Remove broker
-    try {
-      LOG.info("Attempting to shut down broker {} as part of broker removal operation", broker);
-      long start = _time.milliseconds();
+    BrokerRemovalPhaseBuilder brokerRemovalPhaseBuilder = new BrokerRemovalPhaseBuilder();
+    return brokerRemovalPhaseBuilder.composeRemoval(removalArgs, progressCallback,
+        removalOpts -> { // 1. Pre-shutdown plan computation - validate that a plan can be computed successfully
+          LOG.info("Reserving the Executor and aborting ongoing executions as part of broker removal operation for broker {}", broker);
+          Executor.ReservationHandle handle = _executor.reserveAndAbortOngoingExecutions(Duration.ofMinutes(1));
+          removalArgs.reservationHandle.set(handle);
+          LOG.info("Successfully reserved the Executor");
 
-      boolean wasShutdown = _brokerShutdownManager.maybeShutdownBroker(broker, brokerEpoch);
+          computeDrainBrokersPlan(removalOpts.brokersToRemove, Collections.emptyList(), removalOpts.operationProgress, removalOpts.planComputationOptions);
+          LOG.info("Successfully computed the remove broker plan for broker {}", broker);
+        },
+        removalOptions -> { // 2. Broker shutdown - shutdown the broker to be removed and wait for it to leave the cluster
+          LOG.info("Attempting to shut down broker {} as part of broker removal operation", broker);
+          long start = _time.milliseconds();
 
-      long end = _time.milliseconds();
-      if (wasShutdown) {
-        LOG.info("Broker {} was shut down successfully in {} milliseconds", broker, end - start);
-      } else {
-        LOG.info("Broker {} was already shut down prior to broker removal - no shutdown request was sent.", broker);
-      }
+          boolean wasShutdown = _brokerShutdownManager.maybeShutdownBroker(broker, brokerEpoch);
 
-      progressCallback.registerEvent(BrokerRemovalEvent.BROKER_SHUTDOWN_SUCCESS);
-    } catch (Exception e) {
-      progressCallback.registerEvent(BrokerRemovalEvent.BROKER_SHUTDOWN_FAILURE, e);
-
-      String errMsg = String.format("Error while executing broker shutdown for broker %d.", broker);
-      LOG.error(errMsg, e);
-      throw new KafkaCruiseControlException(errMsg, e);
-    }
-
-    OptimizerResult planToExecute;
-    LOG.info("Re-computing the remove broker plan for broker {}", broker);
-    // 3. Compute plan
-    try {
-      planToExecute = computeDrainBrokersPlan(brokersToRemove, Collections.emptyList(), operationProgress, _defaultPlanComputationOptions);
-      progressCallback.registerEvent(BrokerRemovalEvent.PLAN_COMPUTATION_SUCCESS);
-    } catch (KafkaCruiseControlException e) {
-      progressCallback.registerEvent(BrokerRemovalEvent.PLAN_COMPUTATION_FAILURE, e);
-      LOG.error(String.format("Error while computing broker removal plan for broker %d.", broker), e);
-      throw e;
-    }
-
-    LOG.info("Submitting the remove broker plan for broker {}", broker);
-    // 4. Submit the plan for execution
-    try {
-      executeRemoval(planToExecute.goalProposals(), brokersToRemove, false, _replicationThrottle, uuid, progressCallback);
-      LOG.info("Successfully submitted the broker removal plan for broker {} (epoch {})", broker, brokerEpoch);
-    } catch (Exception e) {
-      progressCallback.registerEvent(BrokerRemovalEvent.PLAN_EXECUTION_FAILURE, e);
-      LOG.error("Error while submitting the broker removal plan for broker {}.", broker, e);
-      throw new KafkaCruiseControlException(
-          String.format("Unexpected exception while submitting the broker removal plan for broker %d", broker),
-          e);
-    }
+          long end = _time.milliseconds();
+          if (wasShutdown) {
+            LOG.info("Broker {} was shut down successfully in {} milliseconds", broker, end - start);
+          } else {
+            LOG.info("Broker {} was already shut down prior to broker removal - no shutdown request was sent.", broker);
+          }
+        },
+        removalOptions -> { // 3. Actual plan computation - compute the plan which we'll execute to drain the broker
+          OptimizerResult plan = computeDrainBrokersPlan(
+              removalOptions.brokersToRemove, Collections.emptyList(), removalOptions.operationProgress, removalOptions.planComputationOptions
+          );
+          removalOptions.setProposals(plan.goalProposals());
+        },
+        removalOptions -> { // 4. Plan execution - execute the partition reassignments to move replicas away from the broker (drain)
+          executeRemoval(removalOptions.proposals, removalOptions.brokersToRemove, false, _replicationThrottle, uuid, progressCallback);
+          LOG.info("Successfully submitted the broker removal plan for broker {} (epoch {})", broker, brokerEpoch);
+        }
+    );
   }
 
   /**

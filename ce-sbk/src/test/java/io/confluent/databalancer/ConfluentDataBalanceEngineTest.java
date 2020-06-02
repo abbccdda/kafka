@@ -18,15 +18,16 @@ import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkOutboundUsageDistr
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.ReplicaCapacityGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.ReplicaDistributionGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.TopicReplicaDistributionGoal;
+import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalPhaseBuilder;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
-import com.linkedin.kafka.cruisecontrol.exception.KafkaCruiseControlException;
 import io.confluent.cruisecontrol.analyzer.goals.CrossRackMovementGoal;
 import io.confluent.cruisecontrol.analyzer.goals.SequentialReplicaMovementGoal;
 import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSampler;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
-import io.confluent.databalancer.operation.BrokerRemovalCallback;
+import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback;
 import io.confluent.databalancer.operation.BrokerRemovalStateTracker;
 import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
+import java.time.Duration;
 import java.util.Optional;
 import kafka.server.KafkaConfig;
 import kafka.server.KafkaConfig$;
@@ -68,10 +69,12 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.only;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -717,27 +720,32 @@ public class ConfluentDataBalanceEngineTest  {
         KafkaConfig config = mock(KafkaConfig.class);
 
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
-        Mockito.doReturn(null).when(executorService).submit(Mockito.any(Runnable.class));
+        Mockito.doReturn(null).when(executorService).submit(any(Runnable.class));
 
         dbe.onActivation(config);
-        verify(executorService).submit(Mockito.any(Runnable.class));
+        verify(executorService).submit(any(Runnable.class));
         assertTrue("DatabalanceEngine is not started", dbe.canAcceptRequests);
     }
 
     @Test
-    public void testRemoveBroker() throws KafkaCruiseControlException {
+    public void testRemoveBroker() throws Throwable {
+        int brokerToRemove = 1;
+        Optional<Long> brokerEpoch = Optional.of(1L);
+
         KafkaConfig config = mock(KafkaConfig.class);
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
         dbe.onActivation(config);
+        BrokerRemovalPhaseBuilder.BrokerRemovalExecution exec = mock(BrokerRemovalPhaseBuilder.BrokerRemovalExecution.class);
+        when(mockCruiseControl.removeBroker(Mockito.eq(brokerToRemove), Mockito.eq(brokerEpoch),
+            any(BrokerRemovalCallback.class), anyString())).thenReturn(exec);
 
-        int brokerToRemove = 1;
-        Optional<Long> brokerEpoch = Optional.of(1L);
         BrokerRemovalStateTracker mockTracker = mock(BrokerRemovalStateTracker.class);
         dbe.removeBroker(brokerToRemove, brokerEpoch, mockTracker, "uid");
 
-        verify(executorService, times(2)).submit(Mockito.any(Runnable.class));
+        verify(executorService, times(2)).submit(any(Runnable.class));
         verify(mockCruiseControl).removeBroker(Mockito.eq(brokerToRemove), Mockito.eq(brokerEpoch),
-            Mockito.any(BrokerRemovalCallback.class), anyString());
+            any(BrokerRemovalCallback.class), anyString());
+        verify(exec, only()).execute(Duration.ofMinutes(60));
 
         assertTrue("DatabalanceEngine is not started", dbe.canAcceptRequests);
     }

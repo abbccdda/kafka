@@ -1,7 +1,9 @@
 /*
  * Copyright (C) 2020 Confluent, Inc.
  */
-package io.confluent.databalancer.operation;
+package com.linkedin.kafka.cruisecontrol.brokerremoval;
+
+import io.confluent.databalancer.operation.BrokerRemovalStateMachine;
 
 /**
  * This class helps track the progress of a single broker removal operation.

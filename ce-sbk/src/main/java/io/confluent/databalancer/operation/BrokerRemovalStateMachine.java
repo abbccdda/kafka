@@ -3,6 +3,7 @@
  */
 package io.confluent.databalancer.operation;
 
+import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -13,15 +14,15 @@ import org.apache.kafka.clients.admin.BrokerRemovalDescription.PartitionReassign
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static io.confluent.databalancer.operation.BrokerRemovalCallback.BrokerRemovalEvent.BROKER_RESTARTED;
-import static io.confluent.databalancer.operation.BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_FAILURE;
-import static io.confluent.databalancer.operation.BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_SUCCESS;
-import static io.confluent.databalancer.operation.BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_FAILURE;
-import static io.confluent.databalancer.operation.BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS;
-import static io.confluent.databalancer.operation.BrokerRemovalCallback.BrokerRemovalEvent.PLAN_COMPUTATION_FAILURE;
-import static io.confluent.databalancer.operation.BrokerRemovalCallback.BrokerRemovalEvent.PLAN_COMPUTATION_SUCCESS;
-import static io.confluent.databalancer.operation.BrokerRemovalCallback.BrokerRemovalEvent.PLAN_EXECUTION_FAILURE;
-import static io.confluent.databalancer.operation.BrokerRemovalCallback.BrokerRemovalEvent.PLAN_EXECUTION_SUCCESS;
+import static com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback.BrokerRemovalEvent.BROKER_RESTARTED;
+import static com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_FAILURE;
+import static com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_SUCCESS;
+import static com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_FAILURE;
+import static com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS;
+import static com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback.BrokerRemovalEvent.PLAN_COMPUTATION_FAILURE;
+import static com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback.BrokerRemovalEvent.PLAN_COMPUTATION_SUCCESS;
+import static com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback.BrokerRemovalEvent.PLAN_EXECUTION_FAILURE;
+import static com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback.BrokerRemovalEvent.PLAN_EXECUTION_SUCCESS;
 
 /**
  * This is an ASCII representation of the state machine diagram in

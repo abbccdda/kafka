@@ -6,17 +6,18 @@ package io.confluent.databalancer;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControl;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkInboundCapacityGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkOutboundCapacityGoal;
+import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalPhaseBuilder;
 import com.linkedin.kafka.cruisecontrol.client.BlockingSendClient;
 import com.linkedin.kafka.cruisecontrol.common.KafkaCruiseControlThreadFactory;
 import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityResolver;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
-import com.linkedin.kafka.cruisecontrol.exception.KafkaCruiseControlException;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore;
 import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSampler;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import io.confluent.databalancer.operation.BrokerRemovalStateTracker;
 import io.confluent.databalancer.persistence.ApiStatePersistenceStore;
 import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
+import java.time.Duration;
 import kafka.server.KafkaConfig;
 import org.apache.kafka.common.Endpoint;
 import org.apache.kafka.common.config.ConfigException;
@@ -214,9 +215,12 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         if (cruiseControl != null) {
             LOG.info("Initiating broker removal operation with UUID {} for broker {} (epoch {})", uid, brokerToRemove, brokerToRemoveEpoch);
             try {
-                cruiseControl.removeBroker(brokerToRemove, brokerToRemoveEpoch, stateTracker, uid);
-            } catch (KafkaCruiseControlException kce) {
-                LOG.error("Broker removal operation with UUID {} failed due to {}", uid, kce);
+                BrokerRemovalPhaseBuilder.BrokerRemovalExecution removalExecutor = cruiseControl.removeBroker(brokerToRemove, brokerToRemoveEpoch, stateTracker, uid);
+                // TODO: Persist removalExecutor.chainedFutures to be able to cancel them
+                removalExecutor.execute(Duration.ofMinutes(60));
+            } catch (Throwable e) {
+                // TODO: Persist ApiStore here
+                LOG.error("Broker removal operation with UUID {} failed due to {}", uid, e);
             }
         } else {
             // TODO: https://confluentinc.atlassian.net/browse/CNKAF-756 - catch this error condition earlier

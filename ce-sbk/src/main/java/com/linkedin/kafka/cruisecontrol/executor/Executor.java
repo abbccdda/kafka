@@ -14,7 +14,7 @@ import com.linkedin.kafka.cruisecontrol.executor.strategy.ReplicaMovementStrateg
 import com.linkedin.kafka.cruisecontrol.model.ReplicaPlacementInfo;
 import com.linkedin.kafka.cruisecontrol.monitor.LoadMonitor;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
-import io.confluent.databalancer.operation.BrokerRemovalCallback;
+import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback;
 import java.util.HashMap;
 import java.util.Optional;
 import kafka.admin.PreferredReplicaLeaderElectionCommand;
@@ -264,12 +264,12 @@ public class Executor {
    * @throws TimeoutException if the aborted proposal execution doesn't stop before #{@code executionAbortTimeout}
    * @return a reservation handle #{@code AutoCloseableReservationHandle} if the reservation is taken successfully
    */
-  public AutoCloseableReservationHandle reserveAndAbortOngoingExecutions(Duration executionAbortTimeout)
+  public ReservationHandle reserveAndAbortOngoingExecutions(Duration executionAbortTimeout)
       throws TimeoutException {
-    AutoCloseableReservationHandle reservation = null;
+    ReservationHandle reservation = null;
     boolean isAbortedSuccessfully = false;
     try {
-      reservation = new AutoCloseableReservationHandle();
+      reservation = new ReservationHandle();
       // we've got the reservation flag set -> no new executions can be scheduled at this point
       // abort any on-going executions
       abortExecution(executionAbortTimeout);
@@ -582,6 +582,9 @@ public class Executor {
     long startMs = _time.milliseconds();
     long timeoutMs = startMs + timeout.toMillis();
 
+    if (hasOngoingExecution()) {
+      LOG.info("Aborted executions, waiting for them to stop for {}", timeout);
+    }
     while (hasOngoingExecution()) {
       if (timeoutMs <= _time.milliseconds()) {
         throw new TimeoutException(String.format("Timed out awaiting for execution to finish after %s", timeout));
@@ -1434,11 +1437,11 @@ public class Executor {
    * A reservation cannot be acquired twice - any subsequent reservation
    * attempts after a successful one will result in #{@link IllegalStateException}
    */
-  public class AutoCloseableReservationHandle implements AutoCloseable {
+  public class ReservationHandle implements AutoCloseable {
     /**
      * Acquires the Executor's reservation
      */
-    public AutoCloseableReservationHandle() {
+    public ReservationHandle() {
       boolean locked = _reservation.attemptReservation();
       if (!locked) {
         throw new IllegalStateException("Cannot reserve the Executor because it is already reserved by another thread!");
