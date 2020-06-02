@@ -43,7 +43,8 @@ import org.apache.kafka.raft.{FileBasedStateStore, KafkaRaftClient, QuorumState,
 
 import scala.jdk.CollectionConverters._
 
-class RaftServer(val config: KafkaConfig) extends Logging {
+class RaftServer(val config: KafkaConfig,
+                 val selfIncrement: Boolean) extends Logging {
 
   private val partition = new TopicPartition("__cluster_metadata", 0)
   private val time = Time.SYSTEM
@@ -75,19 +76,9 @@ class RaftServer(val config: KafkaConfig) extends Logging {
     val metadataLog = buildMetadataLog(logDir)
     val networkChannel = buildNetworkChannel(raftConfig, logContext)
 
-    val shutdown = new AtomicBoolean(false)
 
     val counter = new ReplicatedCounter(config.brokerId, logContext, true, time)
-    val incrementThread = new Thread() {
-      override def run(): Unit = {
-        while (!shutdown.get()) {
-          if (counter.isLeader) {
-//            counter.increment()
-            Thread.sleep(10000)
-          }
-        }
-      }
-    }
+
 
     val quorumState = new QuorumState(
       config.brokerId,
@@ -127,9 +118,25 @@ class RaftServer(val config: KafkaConfig) extends Logging {
 
     socketServer.startProcessingRequests(Map.empty)
 
+    val shutdown = new AtomicBoolean(false)
     try {
       raftClient.initialize(counter)
-      incrementThread.start()
+
+      if (selfIncrement) {
+        info("Start self increment thread")
+        val incrementThread = new Thread() {
+          override def run(): Unit = {
+            while (!shutdown.get()) {
+              if (counter.isLeader) {
+                counter.increment()
+                Thread.sleep(500)
+              }
+            }
+          }
+        }
+
+        incrementThread.start()
+      }
 
       while (true) {
         raftClient.poll()
@@ -304,7 +311,9 @@ object RaftServer extends Logging {
     try {
       val serverProps = getPropsFromArgs(args)
       val config = KafkaConfig.fromProps(serverProps, false)
-      val server = new RaftServer(config)
+
+      val selfIncrement = serverProps.getProperty("counter.self.increment").toBoolean
+      val server = new RaftServer(config, selfIncrement)
       server.startup()
     }
     catch {

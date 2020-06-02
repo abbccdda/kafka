@@ -307,7 +307,6 @@ public class Metadata implements Closeable {
     private MetadataCache handleMetadataResponse(MetadataResponse metadataResponse, boolean isPartialUpdate, long nowMs) {
         // All encountered topics.
         Set<String> topics = new HashSet<>();
-        System.out.println("Handle metadata response for " + metadataResponse.topicMetadata());
 
         // Retained topics to be passed to the metadata cache.
         Set<String> internalTopics = new HashSet<>();

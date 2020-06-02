@@ -94,10 +94,14 @@ class RaftRequestHandler(networkChannel: KafkaNetworkChannel,
 
           val produceRequest = request.body[ProduceRequest]
           produceRequest.partitionRecordsOrFail()
-          counter.increment().whenComplete{ (_, _) =>
+          counter.increment().whenComplete{ (_, exception) =>
+            val error = if (exception == null)
+              Errors.NONE
+            else
+              Errors.forException(exception)
             sendResponse(request, Option(new ProduceResponse(
-              Collections.singletonMap(metadataPartition, new ProduceResponse.PartitionResponse(
-                Errors.NONE)))))
+              Collections.singletonMap(metadataPartition,
+                new ProduceResponse.PartitionResponse(error)))))
           }
 
         case _ => throw new IllegalArgumentException(s"Unsupported api key: ${request.header.apiKey}")
