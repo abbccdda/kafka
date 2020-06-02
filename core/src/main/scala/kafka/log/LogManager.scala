@@ -449,6 +449,7 @@ class LogManager(logDirs: Seq[File],
       cleaner.startup()
   }
 
+  private val logCloseTime = newTimer("LogCloseTimeMs", TimeUnit.MILLISECONDS, TimeUnit.SECONDS)
   /**
    * Close all the logs
    */
@@ -486,8 +487,12 @@ class LogManager(logDirs: Seq[File],
       val jobsForDir = logsInDir.map { log =>
         val runnable: Runnable = () => {
           // flush the log to ensure latest possible recovery point
+          val startTime = time.hiResClockMs()
           log.flush()
           log.close()
+          val duration = time.hiResClockMs() - startTime
+          logCloseTime.update(duration, TimeUnit.MILLISECONDS)
+          info(s"Closing log for ${log.topicPartition.topic()} took $duration ms.")
         }
         runnable
       }
@@ -518,6 +523,7 @@ class LogManager(logDirs: Seq[File],
       threadPools.foreach(_.shutdown())
       // regardless of whether the close succeeded, we need to unlock the data directories
       dirLocks.foreach(_.destroy())
+      removeMetric("LogCloseTimeMs")
     }
 
     info("Shutdown complete.")
