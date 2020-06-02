@@ -289,11 +289,10 @@ public class MetadataNodeManager extends Thread implements MetadataServiceRebala
         CommonClientConfigs.METRIC_REPORTER_CLASSES_CONFIG,
         MetricsReporter.class
     );
-    JmxReporter reporter = new JmxReporter();
-    final MetricsContext metricsContext = new KafkaMetricsContext(JMX_PREFIX);
-    reporter.contextChange(metricsContext);
-    reporters.add(reporter);
-    Metrics metrics = new Metrics(metricConfig, reporters, time);
+    reporters.add(new JmxReporter());
+
+    MetricsContext metricsContext = new KafkaMetricsContext(JMX_PREFIX);
+    Metrics metrics = new Metrics(metricConfig, reporters, time, metricsContext);
     AppInfoParser.registerAppInfo(JMX_PREFIX, clientId, metrics, time.milliseconds());
     return metrics;
   }

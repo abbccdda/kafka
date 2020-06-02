@@ -407,6 +407,12 @@ public class ConfluentConfigs {
     // used by the telemetry-reporter to handle default inter-broker client configs
     public static final String INTERBROKER_REPORTER_CLIENT_CONFIG_PREFIX = "kafka.server.local.client.";
 
+    //Confluent metrics context labels used by Telemetry Reporter
+    public static final String RESOURCE_LABEL_PREFIX = "resource.";
+    public static final String RESOURCE_LABEL_TYPE = RESOURCE_LABEL_PREFIX + "type";
+    public static final String RESOURCE_LABEL_VERSION = RESOURCE_LABEL_PREFIX + "version";
+    public static final String RESOURCE_LABEL_COMMIT_ID = RESOURCE_LABEL_PREFIX + "commit.id";
+
     public enum ClientType {
         PRODUCER("producer", ProducerConfig.configNames()),
         CONSUMER("consumer", ConsumerConfig.configNames()),

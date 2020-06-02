@@ -659,6 +659,10 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
     contextLabels.put(KAFKA_CLUSTER_ID, clusterId)
     contextLabels.put(KAFKA_BROKER_ID, config.brokerId.toString)
     contextLabels.putAll(config.originalsWithPrefix(CommonClientConfigs.METRICS_CONTEXT_PREFIX))
+    // add Confluent metrics context labels
+    contextLabels.put(ConfluentConfigs.RESOURCE_LABEL_TYPE, "kafka")
+    contextLabels.put(ConfluentConfigs.RESOURCE_LABEL_VERSION, AppInfoParser.getVersion)
+    contextLabels.put(ConfluentConfigs.RESOURCE_LABEL_COMMIT_ID, AppInfoParser.getCommitId)
     val metricsContext = new KafkaMetricsContext(metricsPrefix, contextLabels)
     metricsContext
   }
