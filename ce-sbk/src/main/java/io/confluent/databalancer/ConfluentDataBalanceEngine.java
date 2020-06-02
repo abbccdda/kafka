@@ -12,6 +12,7 @@ import com.linkedin.kafka.cruisecontrol.common.KafkaCruiseControlThreadFactory;
 import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityResolver;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore;
+import com.linkedin.kafka.cruisecontrol.monitor.sampling.MetricSampler;
 import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSampler;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import io.confluent.databalancer.operation.BrokerRemovalStateTracker;
@@ -58,12 +59,30 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     // A list of classes that need to be checked to make sure that conditions are met for
     // successful startup.
     // Visible for testing
-    static final List<BiConsumer<KafkaCruiseControlConfig, Semaphore>> STARTUP_COMPONENTS = new LinkedList<>();
+    static final List<StartupComponent> STARTUP_COMPONENTS = new LinkedList<>();
+
+    static class StartupComponent {
+        private final BiConsumer<KafkaCruiseControlConfig, Semaphore> startUpLambda;
+        private final String componentName;
+
+        public StartupComponent(String componentName, BiConsumer<KafkaCruiseControlConfig, Semaphore> startUpLambda) {
+            this.componentName = componentName;
+            this.startUpLambda = startUpLambda;
+        }
+
+        public void start(KafkaCruiseControlConfig config, Semaphore semaphore) {
+            startUpLambda.accept(config, semaphore);
+        }
+
+        @Override
+        public String toString() {
+            return String.format("StartupComponent %s", this.componentName);
+        }
+    }
 
     static {
-        STARTUP_COMPONENTS.add(ConfluentMetricsReporterSampler::checkStartupCondition);
-        STARTUP_COMPONENTS.add(KafkaSampleStore::checkStartupCondition);
-        STARTUP_COMPONENTS.add(ApiStatePersistenceStore::checkStartupCondition);
+        STARTUP_COMPONENTS.add(new StartupComponent(KafkaSampleStore.class.getSimpleName(), KafkaSampleStore::checkStartupCondition));
+        STARTUP_COMPONENTS.add(new StartupComponent(ApiStatePersistenceStore.class.getSimpleName(), ApiStatePersistenceStore::checkStartupCondition));
     }
 
     private static final int SHUTDOWN_TIMEOUT_MS = 15000;
@@ -265,11 +284,12 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
             SHUTDOWN_MANAGER_CLIENT_ID, new LogContext());
 
         KafkaCruiseControlConfig config = generateCruiseControlConfig(kafkaConfig);
-        try {
-            checkStartupComponentsReady(config);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
+        MetricSampler sampler = config.getConfiguredInstance(KafkaCruiseControlConfig.METRIC_SAMPLER_CLASS_CONFIG, MetricSampler.class);
+        if (sampler instanceof ConfluentMetricsReporterSampler) {
+            STARTUP_COMPONENTS.add(new StartupComponent(ConfluentMetricsReporterSampler.class.getSimpleName(), ConfluentMetricsReporterSampler::checkStartupCondition));
         }
+
+        checkStartupComponentsReady(config);
 
         return new KafkaCruiseControl(config, dataBalancerMetricsRegistry, blockingSendClientBuilder);
     }
@@ -279,9 +299,9 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
      */
     // Visible for testing
     void checkStartupComponentsReady(KafkaCruiseControlConfig config) {
-        for (BiConsumer<KafkaCruiseControlConfig, Semaphore> startupComponent : STARTUP_COMPONENTS) {
+        for (StartupComponent startupComponent : STARTUP_COMPONENTS) {
             LOG.info("DataBalancer: Checking startup component {}", startupComponent);
-            startupComponent.accept(config, abortStartupCheck);
+            startupComponent.start(config, abortStartupCheck);
             LOG.info("DataBalancer: Startup component {} ready to proceed", startupComponent);
         }
         LOG.info("DataBalancer: Startup checking succeeded, proceeding to full validation.");

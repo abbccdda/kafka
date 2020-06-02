@@ -4,15 +4,13 @@
 
 package com.linkedin.kafka.cruisecontrol.monitor.task;
 
-import com.linkedin.cruisecontrol.metricdef.MetricInfo;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils;
-import com.linkedin.kafka.cruisecontrol.common.Resource;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUnitTestUtils;
 import com.linkedin.cruisecontrol.metricdef.MetricDef;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.common.MetadataClient;
-import com.linkedin.kafka.cruisecontrol.exception.MetricSamplingException;
 import com.linkedin.kafka.cruisecontrol.metricsreporter.utils.CCKafkaIntegrationTestHarness;
+import com.linkedin.kafka.cruisecontrol.monitor.MockSampler;
 import com.linkedin.kafka.cruisecontrol.monitor.metricdefinition.KafkaMetricDef;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.MetricFetcherManager;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.MetricSampler;
@@ -21,9 +19,7 @@ import com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.PartitionMetricS
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.aggregator.KafkaBrokerMetricSampleAggregator;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.aggregator.KafkaPartitionMetricSampleAggregator;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashSet;
-import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -34,7 +30,6 @@ import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import kafka.admin.RackAwareMode;
 import kafka.zk.AdminZkClient;
 import kafka.zk.KafkaZkClient;
-import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
@@ -102,7 +97,7 @@ public class LoadMonitorTaskRunnerTest extends CCKafkaIntegrationTestHarness {
     KafkaBrokerMetricSampleAggregator mockBrokerMetricSampleAggregator =
         EasyMock.mock(KafkaBrokerMetricSampleAggregator.class);
     DataBalancerMetricsRegistry metricRegistry = KafkaCruiseControlUnitTestUtils.getMetricsRegistry(metricsRegistry);
-    MetricSampler sampler = new MockSampler(0);
+    MetricSampler sampler = new MockSampler(0, TIME);
     MetricFetcherManager fetcherManager =
         new MetricFetcherManager(config, mockPartitionMetricSampleAggregator, mockBrokerMetricSampleAggregator,
                                  metadataClient, METRIC_DEF, TIME, metricRegistry, null, sampler);
@@ -151,7 +146,7 @@ public class LoadMonitorTaskRunnerTest extends CCKafkaIntegrationTestHarness {
     KafkaBrokerMetricSampleAggregator mockBrokerMetricSampleAggregator =
         EasyMock.mock(KafkaBrokerMetricSampleAggregator.class);
     DataBalancerMetricsRegistry metricRegistry = KafkaCruiseControlUnitTestUtils.getMetricsRegistry(metricsRegistry);
-    MetricSampler sampler = new MockSampler(0);
+    MetricSampler sampler = new MockSampler(0, TIME);
     MetricFetcherManager fetcherManager =
         new MetricFetcherManager(config, mockMetricSampleAggregator, mockBrokerMetricSampleAggregator, metadataClient,
                                  METRIC_DEF, TIME, metricRegistry, null, sampler);
@@ -200,54 +195,6 @@ public class LoadMonitorTaskRunnerTest extends CCKafkaIntegrationTestHarness {
     props.setProperty(KafkaCruiseControlConfig.METRIC_SAMPLING_INTERVAL_MS_CONFIG, Long.toString(SAMPLING_INTERVAL));
     props.setProperty(KafkaCruiseControlConfig.SAMPLE_STORE_CLASS_CONFIG, NoopSampleStore.class.getName());
     return props;
-  }
-
-  // A simple metric sampler that increment the mock time by 1
-  private class MockSampler implements MetricSampler {
-    private int _exceptionsLeft;
-
-    MockSampler(int numExceptions) {
-      _exceptionsLeft = numExceptions;
-    }
-
-    @Override
-    public Samples getSamples(Cluster cluster,
-                              Set<TopicPartition> assignedPartitions,
-                              long startTime,
-                              long endTime,
-                              SamplingMode mode,
-                              MetricDef metricDef,
-                              long timeout) throws MetricSamplingException {
-
-      if (_exceptionsLeft > 0) {
-        _exceptionsLeft--;
-        throw new MetricSamplingException("Error");
-      }
-      Set<PartitionMetricSample> partitionMetricSamples = new HashSet<>(assignedPartitions.size());
-      for (TopicPartition tp : assignedPartitions) {
-        PartitionMetricSample sample = new PartitionMetricSample(cluster.partition(tp).leader().id(), tp);
-        long now = TIME.milliseconds();
-        for (Resource resource : Resource.cachedValues()) {
-          for (MetricInfo metricInfo : KafkaMetricDef.resourceToMetricInfo(resource)) {
-            sample.record(metricInfo, now);
-          }
-        }
-        sample.close(now);
-        partitionMetricSamples.add(sample);
-      }
-
-      return new Samples(partitionMetricSamples, Collections.emptySet());
-    }
-
-    @Override
-    public void configure(Map<String, ?> configs) {
-
-    }
-
-    @Override
-    public void close() {
-
-    }
   }
 
   private static class MockPartitionMetricSampleAggregator extends KafkaPartitionMetricSampleAggregator {

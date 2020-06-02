@@ -5,13 +5,12 @@ package com.linkedin.kafka.cruisecontrol;
 
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.metricsreporter.utils.CCKafkaIntegrationTestHarness;
+import io.confluent.kafka.test.utils.KafkaTestUtils;
 import kafka.log.LogConfig;
 import kafka.zk.AdminZkClient;
 import kafka.zk.KafkaZkClient;
 import org.apache.kafka.clients.CommonClientConfigs;
-import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
-import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.admin.TopicDescription;
 import org.apache.kafka.test.TestUtils;
 import org.junit.After;
@@ -90,7 +89,7 @@ public class SbkTopicUtilsIntegrationTest extends CCKafkaIntegrationTestHarness 
         try {
             int startPartitionCount = 3;
             int newPartitionCount = 5;
-            createTopic(adminClient, startPartitionCount);
+            KafkaTestUtils.createTopic(adminClient, TEST_TOPIC, startPartitionCount, 3);
 
             Set<String> topicList = Collections.singleton(TEST_TOPIC);
             TopicDescription topicDescription = adminClient.describeTopics(topicList).values().get(TEST_TOPIC).get();
@@ -109,20 +108,6 @@ public class SbkTopicUtilsIntegrationTest extends CCKafkaIntegrationTestHarness 
             KafkaCruiseControlUtils.closeKafkaZkClientWithTimeout(kafkaZkClient);
             KafkaCruiseControlUtils.closeAdminClientWithTimeout(adminClient);
         }
-    }
-
-    private void createTopic(Admin adminClient,
-                             int partitionCount) throws Exception {
-        int replicationFactor = 3;
-
-        // Create topic
-        adminClient.createTopics(Collections.singleton(
-                new NewTopic(TEST_TOPIC, partitionCount, (short) replicationFactor)));
-
-        // Topic creation is not instantaneous; wait for completion.
-        TestUtils.waitForCondition(() -> adminClient.listTopics().names().get().contains(TEST_TOPIC),
-                30_000,
-                "Check " + TEST_TOPIC + " exists.");
     }
 
     private Map<String, String> getTestConfig() {

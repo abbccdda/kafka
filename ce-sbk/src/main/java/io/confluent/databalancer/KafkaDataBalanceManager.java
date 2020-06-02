@@ -147,6 +147,10 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
         balanceEngine.onActivation(kafkaConfig);
     }
 
+    public boolean isActive() {
+        return balanceEngine.isActive();
+    }
+
     /**
      * When the broker ceases to be the primary DataBalancer in the cluster. This renders the broker ineligible for
      * executing any DataBalanceEngine operations. Shut down all running services.

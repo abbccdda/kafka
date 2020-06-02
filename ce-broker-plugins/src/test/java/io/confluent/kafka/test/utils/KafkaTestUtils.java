@@ -18,7 +18,9 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import kafka.server.KafkaConfig;
 import org.apache.kafka.clients.CommonClientConfigs;
+import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
@@ -201,6 +203,16 @@ public class KafkaTestUtils {
     props.setProperty(SaslConfigs.SASL_KERBEROS_SERVICE_NAME, "kafka");
 
     return AdminClient.create(props);
+  }
+
+  public static void createTopic(Admin adminClient, String topicName, int partitionCount, int replicationFactor) throws InterruptedException {
+    adminClient.createTopics(Collections.singleton(
+        new NewTopic(topicName, partitionCount, (short) replicationFactor)));
+
+    // Topic creation is not instantaneous; wait for completion.
+    org.apache.kafka.test.TestUtils.waitForCondition(() -> adminClient.listTopics().names().get().contains(topicName),
+        30_000,
+        "Could not assert that " + topicName + " exists after creation.");
   }
 
   @SuppressWarnings("unchecked")

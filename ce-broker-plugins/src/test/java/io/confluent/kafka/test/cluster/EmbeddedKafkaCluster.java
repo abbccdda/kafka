@@ -69,14 +69,19 @@ public class EmbeddedKafkaCluster {
 
     int brokerIdStart = Integer.parseInt(overrideProps.getOrDefault(KafkaConfig.BrokerIdProp(), "0").toString());
     for (int i = 0; i < numBrokers; i++) {
-      Properties brokerConfig = createBrokerConfig(brokerIdStart + i, overrideProps);
-      log.debug("Starting a Kafka instance on port {} ...", brokerConfig.get(KafkaConfig.PortProp()));
-      EmbeddedKafka broker = new EmbeddedKafka.Builder(time).addConfigs(brokerConfig).build();
-      brokers.add(broker);
-
-      log.debug("Kafka instance started: {}", broker);
+      startBroker(brokerIdStart + i, overrideProps);
     }
   }
+
+  public void startBroker(int brokerId, Properties overrideProps) {
+    Properties brokerConfig = createBrokerConfig(brokerId, overrideProps);
+    log.debug("Starting a Kafka instance on port {} ...", brokerConfig.get(KafkaConfig.PortProp()));
+    EmbeddedKafka broker = new EmbeddedKafka.Builder(time).addConfigs(brokerConfig).build();
+    brokers.add(broker);
+
+    log.debug("Kafka instance started: {}", broker);
+  }
+
 
   public Properties createBrokerConfig(int brokerId, Properties overrideProps) {
     log.debug("Initiating embedded Kafka cluster startup with config {}", overrideProps);

@@ -61,7 +61,6 @@ import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.BiConsumer;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -535,11 +534,13 @@ public class ConfluentDataBalanceEngineTest  {
 
     @Test
     public void testStartupComponentsReadySuccessful() {
-        List<BiConsumer<KafkaCruiseControlConfig, Semaphore>> startupComponents = ConfluentDataBalanceEngine.STARTUP_COMPONENTS;
+        List<ConfluentDataBalanceEngine.StartupComponent> startupComponents = ConfluentDataBalanceEngine.STARTUP_COMPONENTS;
         try {
             ConfluentDataBalanceEngine.STARTUP_COMPONENTS.clear();
-            ConfluentDataBalanceEngine.STARTUP_COMPONENTS.add(
-                    ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent::checkStartupCondition);
+            ConfluentDataBalanceEngine.STARTUP_COMPONENTS.add(new ConfluentDataBalanceEngine.StartupComponent(
+                ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent.class.getName(),
+                ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent::checkStartupCondition)
+            );
 
             KafkaCruiseControlConfig ccConfig = mock(KafkaCruiseControlConfig.class);
 
@@ -557,11 +558,13 @@ public class ConfluentDataBalanceEngineTest  {
 
     @Test
     public void testStartupComponentsReadyAbort() throws Exception {
-        List<BiConsumer<KafkaCruiseControlConfig, Semaphore>> startupComponents = ConfluentDataBalanceEngine.STARTUP_COMPONENTS;
+        List<ConfluentDataBalanceEngine.StartupComponent> startupComponents = ConfluentDataBalanceEngine.STARTUP_COMPONENTS;
         try {
             ConfluentDataBalanceEngine.STARTUP_COMPONENTS.clear();
-            ConfluentDataBalanceEngine.STARTUP_COMPONENTS.add(
-                    ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent::checkStartupCondition);
+            ConfluentDataBalanceEngine.STARTUP_COMPONENTS.add(new ConfluentDataBalanceEngine.StartupComponent(
+                ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent.class.getName(),
+                ConfluentDataBalanceEngineTest.MockDatabalancerStartupComponent::checkStartupCondition)
+            );
 
             KafkaCruiseControlConfig ccConfig = mock(KafkaCruiseControlConfig.class);
 
@@ -674,7 +677,7 @@ public class ConfluentDataBalanceEngineTest  {
     @Test
     @SuppressWarnings("deprecation") // JavaConverters is deprecated in scala 2.13
     public void testStartCruiseControlSuccess() {
-        List<BiConsumer<KafkaCruiseControlConfig, Semaphore>> startupComponents = ConfluentDataBalanceEngine.STARTUP_COMPONENTS;
+        List<ConfluentDataBalanceEngine.StartupComponent> startupComponents = ConfluentDataBalanceEngine.STARTUP_COMPONENTS;
         try {
             ConfluentDataBalanceEngine.STARTUP_COMPONENTS.clear();
             KafkaConfig config = mock(KafkaConfig.class);
@@ -697,7 +700,7 @@ public class ConfluentDataBalanceEngineTest  {
 
     @Test
     public void testStartCruiseControlFailed() {
-        List<BiConsumer<KafkaCruiseControlConfig, Semaphore>> startupComponents = ConfluentDataBalanceEngine.STARTUP_COMPONENTS;
+        List<ConfluentDataBalanceEngine.StartupComponent> startupComponents = ConfluentDataBalanceEngine.STARTUP_COMPONENTS;
         try {
             ConfluentDataBalanceEngine.STARTUP_COMPONENTS.clear();
             KafkaConfig config = mock(KafkaConfig.class);
