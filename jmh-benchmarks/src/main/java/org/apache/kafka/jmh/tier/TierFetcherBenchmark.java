@@ -189,8 +189,9 @@ public class TierFetcherBenchmark {
                     fetchState.objectMetadata, Option.empty(), 0,
                     (int) fetchState.finalSegmentSize);
             PendingFetch pending = tierFetcher.buildFetch(Collections.singletonList(fetchMetadata),
-                            IsolationLevel.READ_UNCOMMITTED,
-                            ignored -> { });
+                    IsolationLevel.READ_UNCOMMITTED,
+                    ignored -> { },
+                    0);
             pending.run();
 
             Map<TopicPartition, TierFetchResult> fetchResults = pending.finish();

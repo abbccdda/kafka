@@ -229,6 +229,20 @@ object ReplicaManager {
   val HighWatermarkFilename = "replication-offset-checkpoint"
   val IsrChangePropagationBlackOut = 5000L
   val IsrChangePropagationInterval = 60000L
+
+  private[server] def tierFetchPartitionMaxBytesOverride(tierMaxPartitionFetchBytesOverride: Int,
+                                                         numPartitionsInFetch: Int,
+                                                         fetchMaxBytes: Int,
+                                                         maxPartitionFetchBytes: Int,
+                                                         localBytesRead: Int): Int = {
+    if (tierMaxPartitionFetchBytesOverride > 0) {
+      val maxBytes = Math.min(numPartitionsInFetch * maxPartitionFetchBytes.toLong, fetchMaxBytes).toInt
+      val maxTierFetchBytes = Math.max(maxBytes - localBytesRead, 0)
+      Math.min(maxTierFetchBytes, tierMaxPartitionFetchBytesOverride)
+    } else {
+      0
+    }
+  }
 }
 
 class ReplicaManager(val config: KafkaConfig,
@@ -1173,7 +1187,7 @@ class ReplicaManager(val config: KafkaConfig,
     val logReadResults = readFromLog()
 
     // check if this fetch request can be satisfied right away
-    var localReadableBytes: Long = 0
+    var localReadableBytes: Int = 0
     var errorReadingData = false
 
     def updateBrokerTopicStats(topic: String): Unit = {
@@ -1191,7 +1205,7 @@ class ReplicaManager(val config: KafkaConfig,
 
         if (logReadResult.error != Errors.NONE)
           errorReadingData = true
-        localReadableBytes = localReadableBytes + logReadResult.info.records.sizeInBytes
+        localReadableBytes += logReadResult.info.records.sizeInBytes
         localLogReadResultMap.put(topicPartition, logReadResult)
         if (isFromFollower && logReadResult.followerNeedsHwUpdate) {
           anyPartitionsNeedHwUpdate = true
@@ -1244,11 +1258,16 @@ class ReplicaManager(val config: KafkaConfig,
       } else {
         // Must use the logReadResult list instead of the tierLogReadResultMap to ensure ordering is maintained.
         val tierFetchMetadataList = logReadResults.collect { case (_, tierLogReadResult: TierLogReadResult) => tierLogReadResult.info.fetchMetadata }
-
         val completionCallback = (delayedOperationKey: DelayedOperationKey) =>
           delayedFetchPurgatory.checkAndComplete(delayedOperationKey): Unit
+
         val tierFetcher = tierReplicaComponents.fetcherOpt.getOrElse(throw new IllegalStateException("Attempted to initiate fetch for tiered data but there is no TierFetcher present"))
-        val pendingFetch = tierFetcher.fetch(tierFetchMetadataList.asJava, isolationLevel, completionCallback.asJava)
+        val tierFetchBytesOverride = ReplicaManager.tierFetchPartitionMaxBytesOverride(config.tierMaxPartitionFetchBytesOverride,
+          fetchInfos.size,
+          fetchMaxBytes,
+          tierFetchMetadataList.head.maxBytes,
+          localReadableBytes)
+        val pendingFetch = tierFetcher.fetch(tierFetchMetadataList.asJava, isolationLevel, completionCallback.asJava, tierFetchBytesOverride)
 
         // Create TopicPartitionOperationKey's for all local partitions included in this fetch. Merge the resulting
         // set of keys with the list of TierFetchOperationKeys returned from initiating the tier fetch.

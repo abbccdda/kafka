@@ -89,7 +89,8 @@ public class TierFetcher implements BrokerReconfigurable {
     // public for jmh benchmarking purposes
     public PendingFetch buildFetch(List<TierFetchMetadata> tierFetchMetadataList,
                                    IsolationLevel isolationLevel,
-                                   Consumer<DelayedOperationKey> fetchCompletionCallback) {
+                                   Consumer<DelayedOperationKey> fetchCompletionCallback,
+                                   int maxPartitionFetchBytesOverride) {
         if (!tierFetchMetadataList.isEmpty()) {
             // For now, we only fetch the first requested partition
             // This is subject to change in the future.
@@ -105,7 +106,7 @@ public class TierFetcher implements BrokerReconfigurable {
             } else if (!stopped.get()) {
                 logger.debug("Fetching " + firstFetchMetadata.topicPartition() + " from tiered storage");
                 final long targetOffset = firstFetchMetadata.fetchStartOffset();
-                final int maxBytes = firstFetchMetadata.maxBytes();
+                final int maxBytes = Math.max(firstFetchMetadata.maxBytes(), maxPartitionFetchBytesOverride);
                 final CancellationContext cancellationContext = this.cancellationContext.subContext();
                 return new PendingFetch(
                                 cancellationContext,
@@ -134,14 +135,20 @@ public class TierFetcher implements BrokerReconfigurable {
      * The provided UUID can be used at any time to cancel the in-progress fetch and retrieve
      * any data fetched. fetchCompletionCallback will be called with the
      * DelayedOperationKey of the completed fetch.
-     * <p>
-     * Returns a list of TierFetcherOperationKey to be used when registering a DelayedOperation
-     * which depends on this fetch.
+     *
+     * @param tierFetchMetadataList List containing metadata for partitions requiring tier fetch. Currently, only the
+     *                              first partition in this list is fetched from tiered storage.
+     * @param isolationLevel The isolation level for this fetch.
+     * @param fetchCompletionCallback The callback to invoke when this fetch is complete.
+     * @param maxPartitionFetchBytesOverride Override for the max partition fetch bytes. We will fetch up to the override
+     *                                       bytes, even if it exceeds the consumer's configured `max.partition.fetch.bytes`.
+     * @return a list of TierFetcherOperationKey to be used when registering a DelayedOperation which depends on this fetch
      */
     public PendingFetch fetch(List<TierFetchMetadata> tierFetchMetadataList,
                               IsolationLevel isolationLevel,
-                              Consumer<DelayedOperationKey> fetchCompletionCallback) {
-        PendingFetch fetch = buildFetch(tierFetchMetadataList, isolationLevel, fetchCompletionCallback);
+                              Consumer<DelayedOperationKey> fetchCompletionCallback,
+                              int maxPartitionFetchBytesOverride) {
+        PendingFetch fetch = buildFetch(tierFetchMetadataList, isolationLevel, fetchCompletionCallback, maxPartitionFetchBytesOverride);
         executorService.execute(fetch);
         return fetch;
     }

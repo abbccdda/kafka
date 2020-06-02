@@ -2649,6 +2649,40 @@ class ReplicaManagerTest {
     testStopReplicaWithExistingPartition(LeaderAndIsr.NoEpoch, true, false, Errors.NONE)
   }
 
+  @Test
+  def testTierFetchPartitionMaxBytesOverride(): Unit = {
+    val fetchMaxBytes = 50 * 1024 * 1024
+    val maxPartitionFetchBytes = 1 * 1024 * 1024
+
+    // Test 1: override disabled
+    assertEquals(0, ReplicaManager.tierFetchPartitionMaxBytesOverride(tierMaxPartitionFetchBytesOverride = 0,
+      numPartitionsInFetch = 10,
+      fetchMaxBytes = fetchMaxBytes,
+      maxPartitionFetchBytes = maxPartitionFetchBytes,
+      localBytesRead = 100))
+
+    // Test 2: override enabled; bounded by maxPartitionFetchBytes
+    assertEquals(10 * maxPartitionFetchBytes - 123, ReplicaManager.tierFetchPartitionMaxBytesOverride(tierMaxPartitionFetchBytesOverride = fetchMaxBytes,
+      numPartitionsInFetch = 10,
+      fetchMaxBytes = fetchMaxBytes,
+      maxPartitionFetchBytes = maxPartitionFetchBytes,
+      localBytesRead = 123))
+
+    // Test 3: override enabled; bounded by fetchMaxBytes
+    assertEquals(fetchMaxBytes - 123, ReplicaManager.tierFetchPartitionMaxBytesOverride(tierMaxPartitionFetchBytesOverride = fetchMaxBytes,
+      numPartitionsInFetch = 100,
+      fetchMaxBytes = fetchMaxBytes,
+      maxPartitionFetchBytes = maxPartitionFetchBytes,
+      localBytesRead = 123))
+
+    // Test 4: override enabled; bounded by tierMaxPartitionFetchBytesOverride
+    assertEquals(500, ReplicaManager.tierFetchPartitionMaxBytesOverride(tierMaxPartitionFetchBytesOverride = 500,
+      numPartitionsInFetch = 100,
+      fetchMaxBytes = fetchMaxBytes,
+      maxPartitionFetchBytes = maxPartitionFetchBytes,
+      localBytesRead = 123))
+  }
+
   private def testStopReplicaWithExistingPartition(leaderEpoch: Int,
                                                    deletePartition: Boolean,
                                                    throwIOException: Boolean,

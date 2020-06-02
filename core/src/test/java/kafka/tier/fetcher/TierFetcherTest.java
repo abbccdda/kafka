@@ -43,10 +43,12 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.NavigableMap;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Properties;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -100,7 +102,8 @@ public class TierFetcherTest {
         CompletableFuture<Boolean> future = new CompletableFuture<>();
         PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Collections.singletonList(fetchMetadata)),
                 IsolationLevel.READ_UNCOMMITTED,
-                ignored -> future.complete(true));
+                ignored -> future.complete(true),
+                0);
         Thread runThread = new Thread(pending);
 
         assertFalse("expected fetch to be blocked on memory allocation", futureReady(100, future));
@@ -133,7 +136,8 @@ public class TierFetcherTest {
             assertEquals(0.0, (double) metrics.metric(tierFetcher.tierFetcherMetrics.fetchExceptionTotalMetricName).metricValue(), 0);
             PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Collections.singletonList(fetchMetadata)),
                     IsolationLevel.READ_UNCOMMITTED,
-                    ignored -> f.complete(true));
+                    ignored -> f.complete(true),
+                    0);
             assertTrue(f.get(2000, TimeUnit.MILLISECONDS));
 
             TierFetchResult result =
@@ -172,7 +176,8 @@ public class TierFetcherTest {
             assertEquals(0.0, (double) metrics.metric(tierFetcher.tierFetcherMetrics.fetchCancellationTotalMetricName).metricValue(), 0);
             PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Collections.singletonList(fetchMetadata)),
                     IsolationLevel.READ_UNCOMMITTED,
-                    ignored -> f.complete(true));
+                    ignored -> f.complete(true),
+                    0);
             pending.cancel();
             assertTrue(f.get(2000, TimeUnit.MILLISECONDS));
             Map<TopicPartition, TierFetchResult> results = pending.finish();
@@ -258,7 +263,8 @@ public class TierFetcherTest {
             assertEquals(metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue(), 0.0);
             PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Collections.singletonList(fetchMetadata)),
                     IsolationLevel.READ_UNCOMMITTED,
-                    ignored -> f.complete(true));
+                    ignored -> f.complete(true),
+                    0);
             DelayedOperation delayedFetch = new MockDelayedFetch(pending);
             assertTrue(f.get(2000, TimeUnit.MILLISECONDS));
 
@@ -286,11 +292,11 @@ public class TierFetcherTest {
     @Test
     public void tierFetcherLocateTargetOffsetTest() throws Exception {
         MemoryRecords[] recordArr = {
-                buildWithOffset(0),
-                buildWithOffset(50),
-                buildWithOffset(100),
-                buildWithOffset(150),
-                buildWithOffset(200)
+                buildWithOffset(0, 50),
+                buildWithOffset(50, 50),
+                buildWithOffset(100, 50),
+                buildWithOffset(150, 50),
+                buildWithOffset(200, 50)
         };
 
         int indexInterval = recordArr[0].sizeInBytes() + 1;
@@ -340,7 +346,8 @@ public class TierFetcherTest {
 
                     PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Collections.singletonList(fetchMetadata)),
                             IsolationLevel.READ_UNCOMMITTED,
-                            ignored -> f.complete(true));
+                            ignored -> f.complete(true),
+                            0);
                     DelayedOperation delayedFetch = new MockDelayedFetch(pending);
                     assertTrue(f.get(4000, TimeUnit.MILLISECONDS));
 
@@ -391,13 +398,13 @@ public class TierFetcherTest {
         LogConfig logConfig = LogConfig.apply(logProps, scala.collection.JavaConverters.asScalaSetConverter(override).asScala().toSet());
         LogSegment logSegment = LogSegment.open(logSegmentDir, 0, logConfig, mockTime, false, 4096, false, "");
         try {
-            logSegment.append(logSegment.readNextOffset() + 49, 1L, 1, buildWithOffset(logSegment.readNextOffset()));
+            logSegment.append(logSegment.readNextOffset() + 49, 1L, 1, buildWithOffset(logSegment.readNextOffset(), 50));
             logSegment.flush();
-            logSegment.append(logSegment.readNextOffset() + 49, 1L, 1, buildWithOffset(logSegment.readNextOffset()));
+            logSegment.append(logSegment.readNextOffset() + 49, 1L, 1, buildWithOffset(logSegment.readNextOffset(), 50));
             logSegment.flush();
-            logSegment.append(logSegment.readNextOffset() + 49, 1L, 1, buildWithOffset(logSegment.readNextOffset()));
+            logSegment.append(logSegment.readNextOffset() + 49, 1L, 1, buildWithOffset(logSegment.readNextOffset(), 50));
             logSegment.flush();
-            logSegment.append(logSegment.readNextOffset() + 49, 1L, 1, buildWithOffset(logSegment.readNextOffset()));
+            logSegment.append(logSegment.readNextOffset() + 49, 1L, 1, buildWithOffset(logSegment.readNextOffset(), 50));
             logSegment.flush();
             logSegment.offsetIndex().flush();
             logSegment.offsetIndex().trimToValidSize();
@@ -434,7 +441,8 @@ public class TierFetcherTest {
 
                     PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Collections.singletonList(fetchMetadata)),
                             IsolationLevel.READ_UNCOMMITTED,
-                            ignored -> f.complete(true));
+                            ignored -> f.complete(true),
+                            0);
                     DelayedOperation delayedFetch = new MockDelayedFetch(pending);
                     assertTrue(f.get(4000, TimeUnit.MILLISECONDS));
 
@@ -473,10 +481,10 @@ public class TierFetcherTest {
         }
     }
 
-    private MemoryRecords buildWithOffset(long baseOffset) {
+    private MemoryRecords buildWithOffset(long baseOffset, int numRecords) {
         ByteBuffer buffer = ByteBuffer.allocate(2048);
         MemoryRecordsBuilder builder = MemoryRecords.builder(buffer, RecordBatch.MAGIC_VALUE_V2, CompressionType.NONE, TimestampType.CREATE_TIME, baseOffset);
-        IntStream.range(0, 50).forEach(i -> builder.appendWithOffset(baseOffset + i, baseOffset + i,
+        IntStream.range(0, numRecords).forEach(i -> builder.appendWithOffset(baseOffset + i, baseOffset + i,
                 "a".getBytes(), "v".getBytes()));
         return builder.build();
     }
@@ -490,11 +498,11 @@ public class TierFetcherTest {
         LogConfig logConfig = LogConfig.apply(logProps, scala.collection.JavaConverters.asScalaSetConverter(override).asScala().toSet());
         LogSegment logSegment = LogSegment.open(logSegmentDir, 0, logConfig, mockTime, false, 4096, false, "");
         try {
-            logSegment.append(logSegment.readNextOffset() + 49, 1L, 1, buildWithOffset(logSegment.readNextOffset()));
+            logSegment.append(logSegment.readNextOffset() + 49, 1L, 1, buildWithOffset(logSegment.readNextOffset(), 50));
             logSegment.flush();
-            logSegment.append(logSegment.readNextOffset() + 49, 1L, 1, buildWithOffset(logSegment.readNextOffset()));
+            logSegment.append(logSegment.readNextOffset() + 49, 1L, 1, buildWithOffset(logSegment.readNextOffset(), 50));
             logSegment.flush();
-            logSegment.append(logSegment.readNextOffset() + 49, 1L, 1, buildWithOffset(logSegment.readNextOffset()));
+            logSegment.append(logSegment.readNextOffset() + 49, 1L, 1, buildWithOffset(logSegment.readNextOffset(), 50));
             logSegment.flush();
             logSegment.offsetIndex().flush();
             logSegment.offsetIndex().trimToValidSize();
@@ -524,7 +532,8 @@ public class TierFetcherTest {
                 assertEquals(metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue(), 0.0);
                 PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Collections.singletonList(fetchMetadata)),
                         IsolationLevel.READ_UNCOMMITTED,
-                        ignored -> f.complete(true));
+                        ignored -> f.complete(true),
+                        0);
                 DelayedOperation delayedFetch = new MockDelayedFetch(pending);
                 assertTrue(f.get(2000, TimeUnit.MILLISECONDS));
 
@@ -561,15 +570,15 @@ public class TierFetcherTest {
         LogConfig logConfig = LogConfig.apply(logProps, scala.collection.JavaConverters.asScalaSetConverter(override).asScala().toSet());
         LogSegment logSegment = LogSegment.open(logSegmentDir, 0, logConfig, mockTime, false, 4096, false, "");
         try {
-            MemoryRecords records1 = buildWithOffset(logSegment.readNextOffset());
+            MemoryRecords records1 = buildWithOffset(logSegment.readNextOffset(), 50);
             long largestOffset1 = logSegment.readNextOffset() + 49;
             logSegment.append(largestOffset1, largestOffset1, largestOffset1, records1);
             logSegment.flush();
-            MemoryRecords records2 = buildWithOffset(logSegment.readNextOffset());
+            MemoryRecords records2 = buildWithOffset(logSegment.readNextOffset(), 50);
             long largestOffset2 = logSegment.readNextOffset() + 49;
             logSegment.append(largestOffset2, largestOffset2, largestOffset2, records2);
             logSegment.flush();
-            MemoryRecords records3 = buildWithOffset(logSegment.readNextOffset());
+            MemoryRecords records3 = buildWithOffset(logSegment.readNextOffset(), 50);
             long largestOffset3 = logSegment.readNextOffset() + 49;
             logSegment.append(largestOffset3, largestOffset3, largestOffset3, records3);
             logSegment.flush();
@@ -642,11 +651,20 @@ public class TierFetcherTest {
         LogSegment logSegment = LogSegment.open(logSegmentDir, 0, logConfig, mockTime,
                 false, 4096, false, "");
         try {
-            logSegment.append(logSegment.readNextOffset() + 49, 1L, 1, buildWithOffset(logSegment.readNextOffset()));
-            logSegment.flush();
-            logSegment.append(logSegment.readNextOffset() + 49, 1L, 1, buildWithOffset(logSegment.readNextOffset()));
-            logSegment.flush();
-            logSegment.append(logSegment.readNextOffset() + 49, 1L, 1, buildWithOffset(logSegment.readNextOffset()));
+            NavigableMap<Integer, Long> bytesToOffset = new TreeMap<>();
+
+            MemoryRecords toAppend = buildWithOffset(0, 50);
+            logSegment.append(49, 1L, 1, toAppend);
+            bytesToOffset.put(logSegment.size(), 49L);
+
+            toAppend = buildWithOffset(50, 50);
+            logSegment.append(99, 1L, 1, toAppend);
+            bytesToOffset.put(logSegment.size(), 99L);
+
+            toAppend = buildWithOffset(100, 50);
+            logSegment.append(149, 1L, 1, toAppend);
+            bytesToOffset.put(logSegment.size(), 149L);
+
             logSegment.flush();
             logSegment.offsetIndex().flush();
             logSegment.offsetIndex().trimToValidSize();
@@ -654,13 +672,11 @@ public class TierFetcherTest {
             File offsetIndexFile = logSegment.offsetIndex().file();
             ByteBuffer offsetIndexBuffer = ByteBuffer.wrap(Files.readAllBytes(offsetIndexFile.toPath()));
             File timestampIndexFile = logSegment.timeIndex().file();
-            ByteBuffer timestampIndexBuffer =
-                    ByteBuffer.wrap(Files.readAllBytes(timestampIndexFile.toPath()));
+            ByteBuffer timestampIndexBuffer = ByteBuffer.wrap(Files.readAllBytes(timestampIndexFile.toPath()));
             File segmentFile = logSegment.log().file();
             ByteBuffer segmentFileBuffer = ByteBuffer.wrap(Files.readAllBytes(segmentFile.toPath()));
 
-            TierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer,
-                    offsetIndexBuffer, timestampIndexBuffer);
+            TierObjectStore tierObjectStore = new MockedTierObjectStore(segmentFileBuffer, offsetIndexBuffer, timestampIndexBuffer);
             TopicIdPartition topicIdPartition = new TopicIdPartition("foo", UUID.randomUUID(), 0);
             TopicPartition topicPartition = topicIdPartition.topicPartition();
             TierObjectStore.ObjectMetadata tierObjectMetadata = new TierObjectStore.ObjectMetadata(topicIdPartition, UUID.randomUUID(), 0, 0, false, false, false);
@@ -669,35 +685,46 @@ public class TierFetcherTest {
             TierFetcher tierFetcher = new TierFetcher(mockTime, tierObjectStore, kafkaScheduler, metrics);
             try {
                 int maxBytes = 600;
+                int[] overrideMaxBytesArray = {0, 400, 600, segmentFileBuffer.remaining() - 1, segmentFileBuffer.remaining(), segmentFileBuffer.remaining() + 1};
                 TierFetchMetadata fetchMetadata =
                         new TierFetchMetadata(topicIdPartition.topicPartition(), 0,
                         maxBytes, 1000L, true,
                         tierObjectMetadata, OptionConverters.toScala(Optional.empty()), 0, 1000);
-
-                CompletableFuture<Boolean> f = new CompletableFuture<>();
                 assertEquals(metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue(), 0.0);
-                PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Collections.singletonList(fetchMetadata)), IsolationLevel.READ_UNCOMMITTED, ignored -> f.complete(true));
-                DelayedOperation delayedFetch = new MockDelayedFetch(pending);
-                assertTrue(f.get(2000, TimeUnit.MILLISECONDS));
 
-                Map<TopicPartition, TierFetchResult> fetchResults = pending.finish();
-                assertNotNull("expected non-null fetch result", fetchResults);
+                for (int overrideMaxBytes : overrideMaxBytesArray) {
+                    CompletableFuture<Boolean> f = new CompletableFuture<>();
+                    PendingFetch pending = tierFetcher.fetch(new ArrayList<>(Collections.singletonList(fetchMetadata)),
+                            IsolationLevel.READ_UNCOMMITTED,
+                            ignored -> f.complete(true),
+                            overrideMaxBytes);
+                    DelayedOperation delayedFetch = new MockDelayedFetch(pending);
+                    assertTrue(f.get(2000, TimeUnit.MILLISECONDS));
 
-                assertTrue((Double) metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue() > 0.0);
-                assertTrue(delayedFetch.tryComplete());
+                    Map<TopicPartition, TierFetchResult> fetchResults = pending.finish();
+                    assertNotNull("expected non-null fetch result", fetchResults);
 
-                TierFetchResult fetchResult = fetchResults.get(topicPartition);
-                Records records = fetchResult.records;
-                assertTrue(fetchResult.records.sizeInBytes() <= maxBytes);
+                    assertTrue((Double) metrics.metric(tierFetcher.tierFetcherMetrics.bytesFetchedTotalMetricName).metricValue() > 0.0);
+                    assertTrue(delayedFetch.tryComplete());
 
-                long lastOffset = 0L; // Start looking at offset 0
-                for (Record record : records.records()) {
-                    assertEquals("Offset not expected", record.offset(), lastOffset);
-                    lastOffset += 1;
+                    TierFetchResult fetchResult = fetchResults.get(topicPartition);
+                    Records records = fetchResult.records;
+
+                    int expectedFetchBytes = Math.min(Math.max(maxBytes, overrideMaxBytes), segmentFileBuffer.remaining());
+                    assertTrue(fetchResult.records.sizeInBytes() <= expectedFetchBytes);
+
+                    long currentOffset = -1L;
+                    for (Record record : records.records()) {
+                        currentOffset += 1;
+                        assertEquals("Offset not expected", record.offset(), currentOffset);
+                    }
+
+                    // Validate the last offset fetched based on the number of bytes fetched
+                    long expectedLastOffset = bytesToOffset.floorEntry(expectedFetchBytes).getValue();
+                    assertEquals("Unexpected lastOffset for overrideMaxBytes " + overrideMaxBytes,
+                            expectedLastOffset, currentOffset);
+                    fetchResult.records.release();
                 }
-                assertEquals("When we set maxBytes low, we just read the first 50 records "
-                        + "successfully.", 50, lastOffset);
-                fetchResult.records.release();
             } finally {
                 tierFetcher.close();
             }
