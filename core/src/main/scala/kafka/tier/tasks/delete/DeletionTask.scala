@@ -11,15 +11,13 @@ import com.yammer.metrics.core.Meter
 import kafka.log.{AbstractLog, TierLogSegment}
 import kafka.server.ReplicaManager
 import kafka.tier.domain.{AbstractTierMetadata, TierPartitionDeleteComplete, TierSegmentDeleteComplete, TierSegmentDeleteInitiate}
-import kafka.tier.exceptions.{TierArchiverFailedException, TierArchiverFencedException, TierMetadataRetriableException, TierObjectStoreRetriableException}
+import kafka.tier.exceptions.{TaskCompletedException, TierDeletionFailedException, TierDeletionFatalException, TierDeletionFencedException, TierDeletionRestoreFencedException, TierDeletionTaskFencedException, TierMetadataRetriableException, TierObjectStoreRetriableException}
 import kafka.tier.fetcher.CancellationContext
 import kafka.tier.state.TierPartitionState.AppendResult
 import kafka.tier.store.TierObjectStore
 import kafka.tier.tasks.TierTask
 import kafka.tier.tasks.delete.DeletionTask.State
 import kafka.tier.TopicIdPartition
-import kafka.tier.exceptions.TierArchiverFatalException
-import kafka.tier.exceptions.TierArchiverRestoreFencedException
 import kafka.tier.state.OffsetAndEpoch
 import kafka.tier.state.TierPartitionStatus
 import kafka.tier.topic.TierTopicAppender
@@ -94,18 +92,18 @@ final class DeletionTask(override val ctx: CancellationContext,
         info(s"$topicIdPartition was fenced, stopping deletion process", e)
         ctx.cancel()
         this
-      case e: TierArchiverFencedException =>
+      case e: TierDeletionFencedException =>
         info(s"$topicIdPartition was fenced, stopping deletion process", e)
         ctx.cancel()
         this
 
-      case _: TierArchiverRestoreFencedException =>
+      case _: TierDeletionRestoreFencedException =>
         debug(s"$topicIdPartition encountered metadata fencing due to state restoration")
         // the TierPartitionState has been restored. We can retry immediately but we must
         // transition to a FailedState so we can re-establish leadership if required
         state = FailedState(state.metadata)
         this
-      case e: TierArchiverFailedException =>
+      case e: TierDeletionFailedException =>
         warn(s"$topicIdPartition failed, stopping deletion process and marking $topicIdPartition to be in error", e)
         retryTaskLater(maxRetryBackoffMs.getOrElse(Defaults.FENCED_STATE_EXCEPTION_RETRY_MS), nowMs, e)
         state = FailedState(state.metadata)
@@ -438,17 +436,17 @@ object DeletionTask extends Logging {
             val leaderEpoch = metadata.leaderEpoch
             // if we're still in ERROR status, let's throw a fenced exception again and backoff
             if (log.tierPartitionState.status() == TierPartitionStatus.ERROR)
-              throw new TierArchiverFailedException(topicIdPartition)
+              throw new TierDeletionFailedException(topicIdPartition)
             else if (tierEpoch == leaderEpoch)
               CollectDeletableSegments(DeleteAsLeaderMetadata(replicaManager, leaderEpoch))
             // if the state epoch is higher than us we fence ourselves and cancel
             else if (tierEpoch > leaderEpoch)
-              throw new TierArchiverFencedException(topicIdPartition)
+              throw new TierDeletionFencedException(topicIdPartition)
             // if the state epoch is higher than us we backoff and let the archiver re-establish leadership
             else if (tierEpoch < leaderEpoch)
-              throw new TierArchiverFailedException(topicIdPartition)
+              throw new TierDeletionFailedException(topicIdPartition)
             else
-              throw new TierArchiverFatalException(s"attempted to transition from Failed for $topicIdPartition while in untransitionable state")
+              throw new TierDeletionFatalException(s"attempted to transition from Failed for $topicIdPartition while in untransitionable state")
           }.getOrElse(FailedState(metadata))
       }
     }
@@ -505,12 +503,12 @@ object DeletionTask extends Logging {
               debug(s"Successfully completed $marker")
             case AppendResult.FENCED =>
               info(s"Stopping state machine for ${marker.topicIdPartition()} as attempt to transition was fenced")
-              throw new TierArchiverFencedException(marker.topicIdPartition)
+              throw new TierDeletionFencedException(marker.topicIdPartition)
             case AppendResult.FAILED =>
               warn(s"Stopping state machine for ${marker.topicIdPartition()} as attempt to transition failed")
-              throw new TierArchiverFailedException(marker.topicIdPartition)
+              throw new TierDeletionFailedException(marker.topicIdPartition)
             case AppendResult.RESTORE_FENCED =>
-              throw new TierArchiverRestoreFencedException(marker.topicIdPartition)
+              throw new TierDeletionRestoreFencedException(marker.topicIdPartition)
             case _ =>
               throw new IllegalStateException(s"Unexpected append result for ${marker.topicIdPartition()}: $appendResult")
           }
@@ -518,7 +516,3 @@ object DeletionTask extends Logging {
   }
 }
 
-case class TaskCompletedException(topicIdPartition: TopicIdPartition) extends RuntimeException
-
-class TierDeletionTaskFencedException(val topicIdPartition: TopicIdPartition, cause: Throwable = null)
-  extends RuntimeException(s"Fenced for partition $topicIdPartition", cause)
