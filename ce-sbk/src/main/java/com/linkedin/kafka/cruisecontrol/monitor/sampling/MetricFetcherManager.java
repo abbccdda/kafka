@@ -53,8 +53,6 @@ public class MetricFetcherManager {
   // The below two members keep track last time the sampling threads were executed
   private final Timer _samplingFetcherTimer;
   private final Meter _samplingFetcherFailureRate;
-  private final Timer _trainingSamplesFetcherTimer;
-  private final Meter _trainingSamplesFetcherFailureRate;
 
   /**
    * Create a metric fetcher manager.
@@ -109,10 +107,6 @@ public class MetricFetcherManager {
     _samplingFetcherTimer = metricRegistry.newTimer(MetricFetcherManager.class, "partition-samples-fetcher-timer");
     _samplingFetcherFailureRate = metricRegistry.newMeter(MetricFetcherManager.class, "partition-samples-fetcher-failure-rate",
             "partition-samples-fetch-failures", TimeUnit.SECONDS);
-    _trainingSamplesFetcherTimer = metricRegistry.newTimer(MetricFetcherManager.class,
-                                                                                       "training-samples-fetcher-timer");
-    _trainingSamplesFetcherFailureRate = metricRegistry.newMeter(MetricFetcherManager.class, "training-samples-fetcher-failure-rate",
-            "training-samples-fetch-failures", TimeUnit.SECONDS);
 
     _metricSampler = sampler == null
                      ? config.getConfiguredInstance(KafkaCruiseControlConfig.METRIC_SAMPLER_CLASS_CONFIG, MetricSampler.class,
@@ -164,33 +158,6 @@ public class MetricFetcherManager {
                                                         _samplingFetcherTimer,
                                                         _samplingFetcherFailureRate);
     return fetchSamples(samplingFetcher, timeoutMs);
-  }
-
-  /**
-   * Fetch the broker metric samples for a given period.
-   * @param startMs the starting time of the fetching period.
-   * @param endMs the end time of the fetching period.
-   * @param timeoutMs the timeout.
-   * @param sampleStore the sample store to save the broker metric samples.
-   * @return true if there was no fetching error, false otherwise.
-   */
-  public boolean fetchBrokerMetricSamples(long startMs,
-                                          long endMs,
-                                          long timeoutMs,
-                                          SampleStore sampleStore) {
-    LOG.debug("Kicking off broker metric sampling for time range [{}, {}], duration {} ms with timeout {} ms.",
-             startMs, endMs, endMs - startMs, timeoutMs);
-    Set<TopicPartition> partitionAssignment = _partitionAssignor.assignPartitions(_metadataClient.cluster());
-    MetricFetcher trainingFetcher = new TrainingFetcher(_metricSampler,
-                                                        _metadataClient,
-                                                        sampleStore,
-                                                        partitionAssignment,
-                                                        startMs,
-                                                        endMs,
-                                                        _metricDef,
-                                                        _trainingSamplesFetcherTimer,
-                                                        _trainingSamplesFetcherFailureRate);
-    return fetchSamples(trainingFetcher, timeoutMs);
   }
 
   // Package private functions

@@ -270,12 +270,6 @@ public class LoadMonitor {
                                        totalNumPartitions,
                                        extrapolations,
                                        _loadMonitorTaskRunner.reasonOfLatestPauseOrResume());
-      case TRAINING:
-        return LoadMonitorState.training(numValidSnapshotWindows,
-                                         validPartitionRatio,
-                                         numValidPartitions,
-                                         totalNumPartitions,
-                                         extrapolations);
       case LOADING:
         return LoadMonitorState.loading(numValidSnapshotWindows,
                                         validPartitionRatio,
@@ -288,26 +282,10 @@ public class LoadMonitor {
   }
 
   /**
-   * Get the topic config provider.
-   */
-  public TopicConfigProvider topicConfigProvider() {
-    return _topicConfigProvider;
-  }
-
-  /**
    * Return the load monitor task runner state.
    */
   public LoadMonitorTaskRunner.LoadMonitorTaskRunnerState taskRunnerState() {
     return _loadMonitorTaskRunner.state();
-  }
-
-  /**
-   * Train the load model with metric samples.
-   * @param startMs training period starting time.
-   * @param endMs training period end time.
-   */
-  public void train(long startMs, long endMs) {
-    _loadMonitorTaskRunner.train(startMs, endMs);
   }
 
   /**

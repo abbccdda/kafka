@@ -24,7 +24,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import static com.linkedin.kafka.cruisecontrol.monitor.task.LoadMonitorTaskRunner.LoadMonitorTaskRunnerState.NOT_STARTED;
-import static com.linkedin.kafka.cruisecontrol.monitor.task.LoadMonitorTaskRunner.LoadMonitorTaskRunnerState.TRAINING;
 import static com.linkedin.kafka.cruisecontrol.monitor.task.LoadMonitorTaskRunner.LoadMonitorTaskRunnerState.LOADING;
 import static com.linkedin.kafka.cruisecontrol.monitor.task.LoadMonitorTaskRunner.LoadMonitorTaskRunnerState.RUNNING;
 import static com.linkedin.kafka.cruisecontrol.monitor.task.LoadMonitorTaskRunner.LoadMonitorTaskRunnerState.PAUSED;
@@ -56,7 +55,7 @@ public class LoadMonitorTaskRunner {
   private volatile String _reasonOfLatestPauseOrResume;
 
   public enum LoadMonitorTaskRunnerState {
-    NOT_STARTED, RUNNING, PAUSED, SAMPLING, TRAINING, LOADING
+    NOT_STARTED, RUNNING, PAUSED, SAMPLING, LOADING
   }
 
   /**
@@ -140,21 +139,6 @@ public class LoadMonitorTaskRunner {
 
   public double sampleLoadingProgress() {
     return _sampleStore.sampleLoadingProgress();
-  }
-
-  /**
-   * Train the cluster model
-   * @param startMs the starting time of the training period.
-   * @param endMs the end time of the training period.
-   */
-  public void train(long startMs, long endMs) {
-    if (_state.compareAndSet(RUNNING, TRAINING)) {
-      _samplingScheduler.submit(new TrainingTask(_time, this, _metricFetcherManager, _sampleStore,
-                                                 _configuredWindowMs, _samplingIntervalMs, startMs, endMs));
-    } else {
-      throw new IllegalStateException("Cannot start model training because the load monitor is in "
-                                          + _state.get() + " state.");
-    }
   }
 
   /**

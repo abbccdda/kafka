@@ -116,21 +116,6 @@ public class LoadMonitorState {
                    -1.0);
   }
 
-
-  public static LoadMonitorState training(int numValidSnapshotWindows,
-                                          SortedMap<Long, Float> monitoredSnapshotWindows,
-                                          int numValidMonitoredTopics,
-                                          int totalNumPartitions,
-                                          Map<TopicPartition, List<SampleExtrapolation>> sampleExtrapolations) {
-    return new LoadMonitorState(LoadMonitorTaskRunnerState.TRAINING,
-                                numValidSnapshotWindows,
-                                monitoredSnapshotWindows,
-                                numValidMonitoredTopics,
-                                totalNumPartitions,
-                                sampleExtrapolations,
-                   -1.0);
-  }
-
   public static LoadMonitorState loading(int numValidSnapshotWindows,
                                          SortedMap<Long, Float> monitoredSnapshotWindows,
                                          int numValidMonitoredTopics,
@@ -171,7 +156,6 @@ public class LoadMonitorState {
       case RUNNING:
       case SAMPLING:
       case PAUSED:
-      case TRAINING:
       case LOADING:
         setCommonJsonGenericAttributeCollection(verbose, loadMonitorState);
         break;
@@ -185,7 +169,6 @@ public class LoadMonitorState {
         loadMonitorState.put(REASON_OF_LATEST_PAUSE_OR_RESUME, _reasonOfLatestPauseOrResume == null ? "N/A" : _reasonOfLatestPauseOrResume);
         break;
       case SAMPLING:
-      case TRAINING:
         break;
       case LOADING:
         loadMonitorState.put(LOADING_PROGRESS_PCT, nanToZero(_loadingProgress * 100));
@@ -231,12 +214,6 @@ public class LoadMonitorState {
                              _loadMonitorTaskRunnerState, trained, _numValidWindows,
                              _monitoredWindows.size(), validWindowPercent * 100,
                              _numValidMonitoredPartitions, _totalNumPartitions, validPartitionPercent * 100,
-                             _sampleExtrapolations.size());
-
-      case TRAINING:
-        return String.format("{state: %s%s, NumValidWindows: (%d/%d) (%.3f%%) , NumValidPartitions: %d/%d (%.3f%%), FlawedPartitions: %d}",
-                             _loadMonitorTaskRunnerState, trained, _monitoredWindows.size(), _numValidWindows,
-                             validWindowPercent * 100, _numValidMonitoredPartitions, _totalNumPartitions, validPartitionPercent * 100,
                              _sampleExtrapolations.size());
 
       case LOADING:
