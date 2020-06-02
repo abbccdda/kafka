@@ -33,7 +33,6 @@ import scala.collection.JavaConverters;
 import scala.compat.java8.OptionConverters;
 
 import java.io.IOException;
-import java.nio.file.FileStore;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -62,8 +61,8 @@ public class DiskUsageBasedThrottlerBench {
         if (!Files.isDirectory(logDir))
             throw new IOException("error creating test directory");
 
-        final ArrayList<FileStore> fileStores = new ArrayList<FileStore>() {{
-            add(Files.getFileStore(logDir));
+        final ArrayList<String> fileStores = new ArrayList<String>() {{
+            add(logDir.toString());
         }};
 
         // the quotaManagerConfig object with disk throttling turned on

@@ -14,9 +14,6 @@ import org.apache.kafka.test.IntegrationTest;
 import org.apache.kafka.clients.admin.AdminClient;
 
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.FileStore;
-import java.nio.file.Files;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -448,14 +445,7 @@ public class BrokerBackpressureTest {
     final ClientQuotaManager quotaManager = broker.quotaManagers().produce();
 
     final List<File> logDirs = JavaConverters.seqAsJavaList(broker.logManager().liveLogDirs());
-    final List<FileStore> fileStores = logDirs.stream().map(dir -> {
-      try {
-        return Files.getFileStore(dir.toPath());
-      } catch (IOException e) {
-        e.printStackTrace();
-        return null;
-      }
-    }).collect(Collectors.toList());
+    final List<String> fileStores = logDirs.stream().map(File::getAbsolutePath).collect(Collectors.toList());
     final DiskUsageBasedThrottlingConfig defaultConfig = DiskUsageBasedThrottlingConfig$.MODULE$.apply(
             ConfluentConfigs.BACKPRESSURE_DISK_THRESHOLD_BYTES_DEFAULT,
             ConfluentConfigs.BACKPRESSURE_PRODUCE_THROUGHPUT_DEFAULT,

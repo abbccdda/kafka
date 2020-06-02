@@ -4,7 +4,7 @@
 
 package kafka.server
 
-import java.nio.file.FileStore
+import java.nio.file.{FileStore, Files, Paths}
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.{AtomicLong, AtomicReference}
 
@@ -38,6 +38,29 @@ trait DiskUsageBasedThrottler extends Logging {
 
   private val lastCheckedTime = new AtomicLong(time.milliseconds())
 
+  /**
+   * This method tries creating the file-stores on top of the underlying log directories within the broker
+   * However, this returns an empty sequence in the case of an error, for example, in the case that the underlying log
+   * directories might not have been created at the time of the disk throttler initialization.
+   * Hence, we currently log that and return an empty sequence (to indicate uninitialized fileStores)
+   * Consequently, in the case of disk throttling feature being enabled,
+   * subsequent calls to checkAndUpdateQuotaOnDiskUsage will ensure the file stores get created at that time.
+   *
+   * @return the sequence of the file-store objects
+   */
+  protected def getFileStores: Seq[FileStore] = {
+    try {
+      dynamicDiskThrottlingConfig.logDirs.map(logDir => Files.getFileStore(Paths.get(logDir)))
+    } catch {
+      case e: Exception =>
+        debug(s"Couldn't create file-stores for logDirs: ${dynamicDiskThrottlingConfig.logDirs}, " +
+          "however, this is normal at startup with non-existent log directories", e)
+        Seq.empty
+    }
+  }
+
+  @volatile private var fileStores = getFileStores
+
   def updateDiskThrottlingConfig(newConfig: DiskUsageBasedThrottlingConfig): Unit = {
     if (diskThrottlingEnabledInConfig(dynamicDiskThrottlingConfig) && !diskThrottlingEnabledInConfig(newConfig)) {
       // this means we are turning off the throttling through the dynamic config route
@@ -61,7 +84,7 @@ trait DiskUsageBasedThrottler extends Logging {
    * @return minimum of the total bytes allotted across the log dirs
    */
   protected[server] def minDiskTotalBytes: Long = {
-    dynamicDiskThrottlingConfig.logDirs.map(_.getTotalSpace).min
+    fileStores.map(_.getTotalSpace).min
   }
 
   /**
@@ -72,7 +95,7 @@ trait DiskUsageBasedThrottler extends Logging {
    * @return minimum of the available bytes across the log dirs
    */
   protected[server] def minDiskUsableBytes: Long = {
-    dynamicDiskThrottlingConfig.logDirs.map(_.getUsableSpace).min
+    fileStores.map(_.getUsableSpace).min
   }
 
   /**
@@ -101,19 +124,38 @@ trait DiskUsageBasedThrottler extends Logging {
   }
 
   private def doCheckAndUpdateThrottles(): Unit = {
-    if (minDiskUsableBytes < dynamicDiskThrottlingConfig.freeDiskThresholdBytes) {
-      logger.info("Disk with the lowest free space: {}B available < threshold: {}B, will apply throttle!",
-        minDiskUsableBytes,
-        dynamicDiskThrottlingConfig.freeDiskThresholdBytes)
-      updateListeners(Some(dynamicDiskThrottlingConfig.throttledProduceThroughput))
-    } else if (getListeners.exists(_.lastSignalledQuotaOptRef.get.isDefined) && minDiskUsableBytes >=
-      dynamicDiskThrottlingConfig.freeDiskThresholdBytesRecoveryFactor * dynamicDiskThrottlingConfig.freeDiskThresholdBytes) {
-      logger.info("Disk with the lowest free space: {}B available >= {} x threshold: {}B, will remove low disk " +
-        "space throttle",
-        minDiskUsableBytes,
-        dynamicDiskThrottlingConfig.freeDiskThresholdBytesRecoveryFactor,
-        dynamicDiskThrottlingConfig.freeDiskThresholdBytes)
-      updateListeners(None)
+    // we are checking if the underlying fileStores are set, otherwise try to set them before evaluating disk threshold
+    if (fileStores.nonEmpty || maybeSetFileStores()) {
+      if (minDiskUsableBytes < dynamicDiskThrottlingConfig.freeDiskThresholdBytes) {
+        logger.info("Disk with the lowest free space: {}B available < threshold: {}B, will apply throttle!",
+          minDiskUsableBytes,
+          dynamicDiskThrottlingConfig.freeDiskThresholdBytes)
+        updateListeners(Some(dynamicDiskThrottlingConfig.throttledProduceThroughput))
+      } else if (getListeners.exists(_.lastSignalledQuotaOptRef.get.isDefined) && minDiskUsableBytes >=
+        dynamicDiskThrottlingConfig.freeDiskThresholdBytesRecoveryFactor * dynamicDiskThrottlingConfig.freeDiskThresholdBytes) {
+        logger.info("Disk with the lowest free space: {}B available >= {} x threshold: {}B, will remove low disk " +
+          "space throttle",
+          minDiskUsableBytes,
+          dynamicDiskThrottlingConfig.freeDiskThresholdBytesRecoveryFactor,
+          dynamicDiskThrottlingConfig.freeDiskThresholdBytes)
+        updateListeners(None)
+      }
+    }
+  }
+
+  /**
+   * This method updates the file stores wrapped on top of the underlying log directories.
+   * The rationale behind this delayed instantiation of the file-stores have been explained in the docs of getFileStores
+   *
+   * @return boolean signalling whether fileStores have been successfully set to the return value from getFileStores
+   */
+  private def maybeSetFileStores(): Boolean = {
+    getFileStores match {
+      case createdFileStores if createdFileStores.nonEmpty =>
+        fileStores = createdFileStores
+        debug(s"Created file-stores for logDirs: ${dynamicDiskThrottlingConfig.logDirs}")
+        true
+      case _ => false
     }
   }
 
@@ -222,8 +264,7 @@ object DiskUsageBasedThrottler {
  * @param freeDiskThresholdBytes               the minimum usable bytes present amongst the log dirs, below which the producer will be throttled
  * @param throttledProduceThroughput           the throughput in Bytes/s that will be applied across the producers
  *                                             corresponds to "confluent.backpressure.disk.produce.bytes.per.second"
- * @param logDirs                              the list of fileStore where each of the FileStore object maps to
- *                                             the individual logDirs, corresponds to kafkaConfig.logDirs
+ * @param logDirs                              the list of kafka data log dirs, corresponds to kafkaConfig.logDirs
  * @param enableDiskBasedThrottling            the boolean flag to indicate enabling of disk based throttling,
  *                                             corresponds to confluent.backpressure.disk.enable
  * @param diskCheckFrequencyMs                 the frequency in ms of checking the disk usage
@@ -231,7 +272,7 @@ object DiskUsageBasedThrottler {
  */
 case class DiskUsageBasedThrottlingConfig private(freeDiskThresholdBytes: Long,
                                                   throttledProduceThroughput: Long,
-                                                  logDirs: Seq[FileStore],
+                                                  logDirs: Seq[String],
                                                   enableDiskBasedThrottling: Boolean,
                                                   diskCheckFrequencyMs: Long,
                                                   freeDiskThresholdBytesRecoveryFactor: Double) {
@@ -239,7 +280,7 @@ case class DiskUsageBasedThrottlingConfig private(freeDiskThresholdBytes: Long,
   // we are making the copy constructor protected to ensure sanitized case class props, and only exposing it for tests
   protected[server] def copy(freeDiskThresholdBytes: Long = this.freeDiskThresholdBytes,
                              throttledProduceThroughput: Long = this.throttledProduceThroughput,
-                             logDirs: Seq[FileStore] = this.logDirs,
+                             logDirs: Seq[String] = this.logDirs,
                              enableDiskBasedThrottling: Boolean = this.enableDiskBasedThrottling,
                              diskCheckFrequencyMs: Long = this.diskCheckFrequencyMs,
                              freeDiskThresholdBytesRecoveryFactor: Double = this.freeDiskThresholdBytesRecoveryFactor)
@@ -273,7 +314,7 @@ object DiskUsageBasedThrottlingConfig extends Logging {
 
   def apply(freeDiskThresholdBytes: Long = ConfluentConfigs.BACKPRESSURE_DISK_THRESHOLD_BYTES_DEFAULT,
             throttledProduceThroughput: Long = ConfluentConfigs.BACKPRESSURE_PRODUCE_THROUGHPUT_DEFAULT,
-            logDirs: Seq[FileStore] = Seq.empty,
+            logDirs: Seq[String] = Seq.empty,
             enableDiskBasedThrottling: Boolean = ConfluentConfigs.BACKPRESSURE_DISK_ENABLE_DEFAULT,
             diskCheckFrequencyMs: Long = DefaultDiskCheckFrequencyMs,
             freeDiskThresholdBytesRecoveryFactor: Double = ConfluentConfigs.BACKPRESSURE_DISK_RECOVERY_FACTOR_DEFAULT)

@@ -20,8 +20,9 @@ class DiskUsageBasedThrottlerTest {
   private val throughput = 64 * 1024L
   private val threshold = 5 * 1024 * 1024 * 1024L
   private val largeFileSize = 12 * 1024 * 1024 * 1024L
-  // we are creating 2 different fileStores to ensure the minimum amongst them is considered for throttling
-  private val logDirs = Seq(new DeterministicFileStore, new DeterministicFileStore)
+  // we are creating 2 different fileStoresRefOpt to ensure the minimum amongst them is considered for throttling
+  private val logDirs = Seq("/some/fileA", "/some/fileB")
+  private val fileStores = Seq(new DeterministicFileStore, new DeterministicFileStore)
   private val config = DiskUsageBasedThrottlingConfig(
     freeDiskThresholdBytes = threshold,
     throttledProduceThroughput = throughput,
@@ -53,30 +54,21 @@ class DiskUsageBasedThrottlerTest {
 
   @Test
   def testConfigRejectsIllegalValues(): Unit = {
-    val configWithIllegalValues = DiskUsageBasedThrottlingConfig(
-      freeDiskThresholdBytes = 10L,
-      throttledProduceThroughput = 42L
-    )
+    val configWithIllegalValues = DiskUsageBasedThrottlingConfig(freeDiskThresholdBytes = 10L, throttledProduceThroughput = 42L)
     assertEquals(DiskUsageBasedThrottlingConfig.MinDiskThresholdBytes, configWithIllegalValues.freeDiskThresholdBytes)
     assertEquals(DiskUsageBasedThrottlingConfig.MinThroughputBytesPerSec, configWithIllegalValues.throttledProduceThroughput)
   }
 
   @Test
   def testConfigRejectsNegativeValues(): Unit = {
-    val configWithIllegalValues = DiskUsageBasedThrottlingConfig(
-      freeDiskThresholdBytes = -10L,
-      throttledProduceThroughput = -42L
-    )
+    val configWithIllegalValues = DiskUsageBasedThrottlingConfig(freeDiskThresholdBytes = -10L, throttledProduceThroughput = -42L)
     assertEquals(DiskUsageBasedThrottlingConfig.MinDiskThresholdBytes, configWithIllegalValues.freeDiskThresholdBytes)
     assertEquals(DiskUsageBasedThrottlingConfig.MinThroughputBytesPerSec, configWithIllegalValues.throttledProduceThroughput)
   }
 
   @Test
   def testEmptyLogDirsDisableThrottling(): Unit = {
-    val configWithEmptyLogDirs = DiskUsageBasedThrottlingConfig(
-      logDirs = Seq.empty,
-      enableDiskBasedThrottling = true
-    )
+    val configWithEmptyLogDirs = DiskUsageBasedThrottlingConfig(logDirs = Seq.empty, enableDiskBasedThrottling = true)
     assertFalse(configWithEmptyLogDirs.enableDiskBasedThrottling)
     assertEquals(Seq.empty, configWithEmptyLogDirs.logDirs)
   }
@@ -104,7 +96,7 @@ class DiskUsageBasedThrottlerTest {
     }
     DiskUsageBasedThrottler.registerListener(produceListener)
     DiskUsageBasedThrottler.registerListener(followerListener)
-    val throttler = getThrottler(config, mockTime)
+    val throttler = getThrottler(config, mockTime, fileStores)
     withLargeFileWritten { _ =>
       throttler.checkAndUpdateQuotaOnDiskUsage(mockTime.milliseconds())
       assertEquals(throughput, produceListener.counter.get())
@@ -122,7 +114,7 @@ class DiskUsageBasedThrottlerTest {
 
   @Test
   def testMinDiskUsableBytes(): Unit = {
-    val throttler = getThrottler(config, mockTime)
+    val throttler = getThrottler(config, mockTime, fileStores)
     val previousUsableSpaceBytes = throttler.minDiskUsableBytes
     // we will write a large 12GB file
     withLargeFileWritten { fileSize =>
@@ -130,13 +122,13 @@ class DiskUsageBasedThrottlerTest {
       // the current usable bytes should be equal to the existing usable bytes minus the size of the file
       assertEquals(previousUsableSpaceBytes - fileSize, currentUsableBytes)
       // verifying that the second log dir's usable space hasn't changed
-      assertEquals(previousUsableSpaceBytes, logDirs(1).getUsableSpace)
+      assertEquals(previousUsableSpaceBytes, fileStores(1).getUsableSpace)
     }
   }
 
   @Test
   def testMinDiskTotalBytes(): Unit = {
-    val throttler = getThrottler(config, mockTime)
+    val throttler = getThrottler(config, mockTime, fileStores)
     val existingTotalBytes = throttler.minDiskTotalBytes
     // we will write a large 12GB file
     withLargeFileWritten { _ =>
@@ -148,8 +140,8 @@ class DiskUsageBasedThrottlerTest {
 
   @Test
   def testBasicThrottling(): Unit = {
-    val threshold = logDirs.map(_.getUsableSpace).min - largeFileSize + 1L
-    val throttler = getThrottler(config.copy(freeDiskThresholdBytes = threshold), mockTime)
+    val threshold = fileStores.map(_.getUsableSpace).min - largeFileSize + 1L
+    val throttler = getThrottler(config.copy(freeDiskThresholdBytes = threshold), mockTime, fileStores)
 
     // initially, since we haven't written the large file, the listener shouldn't be throttled
     throttler.checkAndUpdateQuotaOnDiskUsage(mockTime.milliseconds())
@@ -173,8 +165,8 @@ class DiskUsageBasedThrottlerTest {
 
   @Test
   def testThroughputIsUpdatedDuringThrottling(): Unit = {
-    val threshold = logDirs.map(_.getUsableSpace).min - largeFileSize + 1L
-    val throttler = getThrottler(config.copy(freeDiskThresholdBytes = threshold), mockTime)
+    val threshold = fileStores.map(_.getUsableSpace).min - largeFileSize + 1L
+    val throttler = getThrottler(config.copy(freeDiskThresholdBytes = threshold), mockTime, fileStores)
 
     // initially, since we haven't written the large file, the listener shouldn't be throttled
     throttler.checkAndUpdateQuotaOnDiskUsage(mockTime.milliseconds())
@@ -202,8 +194,8 @@ class DiskUsageBasedThrottlerTest {
 
   @Test
   def testEnableFlagIsRespected(): Unit = {
-    val threshold = logDirs.map(_.getUsableSpace).min - largeFileSize + 1L
-    val throttler = getThrottler(config.copy(enableDiskBasedThrottling = false, freeDiskThresholdBytes = threshold), mockTime)
+    val threshold = fileStores.map(_.getUsableSpace).min - largeFileSize + 1L
+    val throttler = getThrottler(config.copy(freeDiskThresholdBytes = threshold, enableDiskBasedThrottling = false), mockTime, fileStores)
 
     // initially, since we haven't written the large file, the listener shouldn't be throttled
     throttler.checkAndUpdateQuotaOnDiskUsage(mockTime.milliseconds())
@@ -219,8 +211,8 @@ class DiskUsageBasedThrottlerTest {
 
   @Test
   def testTimeIsRespected(): Unit = {
-    val threshold = logDirs.map(_.getUsableSpace).min - largeFileSize + 1L
-    val throttler = getThrottler(config.copy(diskCheckFrequencyMs = 1000, freeDiskThresholdBytes = threshold), mockTime)
+    val threshold = fileStores.map(_.getUsableSpace).min - largeFileSize + 1L
+    val throttler = getThrottler(config.copy(freeDiskThresholdBytes = threshold, diskCheckFrequencyMs = 1000), mockTime, fileStores)
 
     // initially, since we haven't written the large file, the listener shouldn't be throttled
     throttler.checkAndUpdateQuotaOnDiskUsage(mockTime.milliseconds())
@@ -243,7 +235,7 @@ class DiskUsageBasedThrottlerTest {
   // partial function which writes a large file of 12GB and ensure its cleanup
   private def withLargeFileWritten(inner: Long => Unit, fileSize: Long = largeFileSize): Unit = {
     // we are only writing the large file to the first log dir to ensure the verification of the minimum logic
-    val fileStore = logDirs.head
+    val fileStore = fileStores.head
     fileStore.writeLargeFile(fileSize)
     mockTime.sleep(501)
     inner(fileSize)
@@ -308,11 +300,13 @@ object DiskUsageBasedThrottlerTest {
   }
 
   // this helper method will generate the throttler instance with the provided config
-  def getThrottler(config: DiskUsageBasedThrottlingConfig = DiskUsageBasedThrottlingConfig(), mockTime: Time): DiskUsageBasedThrottler = {
+  def getThrottler(config: DiskUsageBasedThrottlingConfig = DiskUsageBasedThrottlingConfig(), mockTime: Time, mockFileStores: Seq[FileStore]): DiskUsageBasedThrottler = {
     new DiskUsageBasedThrottler {
       override protected def diskThrottlingConfig: DiskUsageBasedThrottlingConfig = config
 
       override protected def time: Time = mockTime
+
+      override protected def getFileStores: collection.Seq[FileStore] = mockFileStores
     }
   }
 }

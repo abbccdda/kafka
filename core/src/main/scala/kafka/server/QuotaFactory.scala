@@ -16,8 +16,6 @@
   */
 package kafka.server
 
-import java.nio.file.{Files, Paths}
-
 import kafka.server.QuotaType._
 import kafka.utils.CoreUtils.parseCsvList
 import kafka.utils.{CoreUtils, Logging}
@@ -107,18 +105,15 @@ object QuotaFactory extends Logging {
   }
 
   def diskThrottleConfig(cfg: KafkaConfig): DiskUsageBasedThrottlingConfig = {
-    val fileStores = cfg.logDirs.map(logDir => Files.getFileStore(Paths.get(logDir)))
     val freeDiskThresholdBytes = cfg.getLong(ConfluentConfigs.BACKPRESSURE_DISK_THRESHOLD_BYTES_CONFIG)
     val throttledProduceThroughput = cfg.getLong(ConfluentConfigs.BACKPRESSURE_PRODUCE_THROUGHPUT_CONFIG)
     val enableDiskThrottling = cfg.getBoolean(ConfluentConfigs.BACKPRESSURE_DISK_ENABLE_CONFIG)
     val recoveryFactor = cfg.getDouble(ConfluentConfigs.BACKPRESSURE_DISK_RECOVERY_FACTOR_CONFIG)
-    DiskUsageBasedThrottlingConfig(
-      freeDiskThresholdBytes = freeDiskThresholdBytes,
+    DiskUsageBasedThrottlingConfig(freeDiskThresholdBytes = freeDiskThresholdBytes,
       throttledProduceThroughput = throttledProduceThroughput,
-      logDirs = fileStores,
+      logDirs = cfg.logDirs,
       enableDiskBasedThrottling = enableDiskThrottling,
-      freeDiskThresholdBytesRecoveryFactor = recoveryFactor
-    )
+      freeDiskThresholdBytesRecoveryFactor = recoveryFactor)
   }
 
   def clientFetchConfig(cfg: KafkaConfig): ClientQuotaManagerConfig = {

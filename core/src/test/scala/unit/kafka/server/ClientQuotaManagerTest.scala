@@ -832,7 +832,7 @@ class ClientQuotaManagerTest {
     val diskThrottlingConfig = DiskUsageBasedThrottlingConfig(
       freeDiskThresholdBytes = diskThreshold,
       throttledProduceThroughput = throttledBandwidth,
-      logDirs = Seq(tempFileStore),
+      logDirs = Seq(tempLogDir.toString),
       enableDiskBasedThrottling = true,
       diskCheckFrequencyMs = 1000
     ).copy(throttledProduceThroughput = 300L)

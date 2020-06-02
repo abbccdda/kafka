@@ -16,7 +16,6 @@
   */
 package kafka.server
 
-import java.nio.file.FileStore
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicLong
 
@@ -26,7 +25,6 @@ import org.apache.kafka.common.metrics.{MetricConfig, Metrics, Quota}
 import org.apache.kafka.common.utils.{MockTime, Time}
 import org.junit.Assert.{assertEquals, assertFalse, assertTrue}
 import org.junit.{After, Test}
-import org.mockito.Mockito.mock
 
 import scala.jdk.CollectionConverters._
 
@@ -228,7 +226,7 @@ class ReplicationQuotaManagerTest {
     val throttlingConfig = DiskUsageBasedThrottlingConfig(
       freeDiskThresholdBytes = diskThreshold,
       throttledProduceThroughput = throttledLimit,
-      logDirs = Seq(mock(classOf[FileStore])),
+      logDirs = Seq(System.getProperty("java.io.tmpdir")),
       enableDiskBasedThrottling = true,
       diskCheckFrequencyMs = 500L,
       freeDiskThresholdBytesRecoveryFactor = 1.5)
