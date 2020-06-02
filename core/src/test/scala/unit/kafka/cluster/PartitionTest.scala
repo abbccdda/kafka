@@ -81,6 +81,7 @@ class PartitionTest {
   var partition: Partition = _
   var tieredPartition: Partition = _
   val executor = Executors.newCachedThreadPool()
+  val clusterLinkId = UUID.randomUUID()
 
   @Before
   def setup(): Unit = {
@@ -427,17 +428,17 @@ class PartitionTest {
 
   @Test
   def testLastOffsetForLeaderEpochForMirrorLeader(): Unit = {
-    verifyOffsetForLeaderEpochForLinkedLeader(Some("clusterLink"), Some(TopicLinkMirror))
+    verifyOffsetForLeaderEpochForLinkedLeader(Some(clusterLinkId), Some(TopicLinkMirror))
   }
 
   @Test
   def testLastOffsetForLeaderEpochForFailedMirrorLeader(): Unit = {
-    verifyOffsetForLeaderEpochForNonLinkedLeader(Some("clusterLink"), Some(TopicLinkFailedMirror))
+    verifyOffsetForLeaderEpochForNonLinkedLeader(Some(clusterLinkId), Some(TopicLinkFailedMirror))
   }
 
   @Test
   def testLastOffsetForLeaderEpochForStoppedMirrorLeader(): Unit = {
-    verifyOffsetForLeaderEpochForNonLinkedLeader(Some("clusterLink"), Some(TopicLinkStoppedMirror))
+    verifyOffsetForLeaderEpochForNonLinkedLeader(Some(clusterLinkId), Some(TopicLinkStoppedMirror))
   }
 
   @Test
@@ -447,17 +448,17 @@ class PartitionTest {
 
   @Test
   def testLastOffsetForLeaderEpochForMirrorFollower(): Unit = {
-    verifyOffsetForLeaderEpochForFollower(Some("clusterLink"), Some(TopicLinkMirror))
+    verifyOffsetForLeaderEpochForFollower(Some(clusterLinkId), Some(TopicLinkMirror))
   }
 
   @Test
   def testLastOffsetForLeaderEpochForFailedMirrorFollower(): Unit = {
-    verifyOffsetForLeaderEpochForFollower(Some("clusterLink"), Some(TopicLinkFailedMirror))
+    verifyOffsetForLeaderEpochForFollower(Some(clusterLinkId), Some(TopicLinkFailedMirror))
   }
 
   @Test
   def testLastOffsetForLeaderEpochForStoppedMirrorFollower(): Unit = {
-    verifyOffsetForLeaderEpochForFollower(Some("clusterLink"), Some(TopicLinkStoppedMirror))
+    verifyOffsetForLeaderEpochForFollower(Some(clusterLinkId), Some(TopicLinkStoppedMirror))
   }
 
   @Test
@@ -474,11 +475,11 @@ class PartitionTest {
     assertEquals(expectedValue, endOffset)
   }
 
-  private def verifyOffsetForLeaderEpochForLinkedLeader(clusterLink: Option[String],
+  private def verifyOffsetForLeaderEpochForLinkedLeader(clusterLinkId: Option[UUID],
                                                         clusterLinkState: Option[TopicLinkState]): Unit = {
     val leaderEpoch = 5
     partition = setupPartitionWithMocks(leaderEpoch, isLeader = true,
-      clusterLink = clusterLink, clusterLinkState = clusterLinkState)
+      clusterLinkId = clusterLinkId, clusterLinkState = clusterLinkState)
 
     assertTrue(partition.getLinkedLeaderOffsetsPending)
     assertLastOffsetForLeaderEpoch(Optional.of(leaderEpoch), 0, new EpochEndOffset(Errors.NOT_LEADER_FOR_PARTITION, -1, -1))
@@ -504,11 +505,11 @@ class PartitionTest {
     assertLastOffsetForLeaderEpoch(Optional.empty(), leaderEpoch + 1, new EpochEndOffset(Errors.NONE, -1, -1))
   }
 
-  private def verifyOffsetForLeaderEpochForNonLinkedLeader(clusterLink: Option[String],
+  private def verifyOffsetForLeaderEpochForNonLinkedLeader(clusterLinkId: Option[UUID],
                                                            clusterLinkState: Option[TopicLinkState]): Unit = {
     val leaderEpoch = 5
     partition = setupPartitionWithMocks(leaderEpoch, isLeader = true,
-      clusterLink = clusterLink, clusterLinkState = clusterLinkState)
+      clusterLinkId = clusterLinkId, clusterLinkState = clusterLinkState)
 
     assertFalse(partition.getLinkedLeaderOffsetsPending)
     assertLastOffsetForLeaderEpoch(Optional.empty(), 0, new EpochEndOffset(Errors.NONE, 0, 0))
@@ -524,11 +525,11 @@ class PartitionTest {
     assertLastOffsetForLeaderEpoch(Optional.empty(), leaderEpoch + 1, new EpochEndOffset(Errors.NONE, -1, -1))
   }
 
-  private def verifyOffsetForLeaderEpochForFollower(clusterLink: Option[String],
+  private def verifyOffsetForLeaderEpochForFollower(clusterLinkId: Option[UUID],
                                                     clusterLinkState: Option[TopicLinkState]): Unit = {
     val leaderEpoch = 5
     partition = setupPartitionWithMocks(leaderEpoch, isLeader = false,
-      clusterLink = clusterLink, clusterLinkState = clusterLinkState)
+      clusterLinkId = clusterLinkId, clusterLinkState = clusterLinkState)
 
     assertFalse(partition.getLinkedLeaderOffsetsPending)
     assertLastOffsetForLeaderEpoch(Optional.empty(), 0, new EpochEndOffset(Errors.NOT_LEADER_FOR_PARTITION, -1, -1))
@@ -869,7 +870,7 @@ class PartitionTest {
                                       isLeader: Boolean,
                                       log: AbstractLog = logManager.getOrCreateLog(topicPartition, () => logConfig),
                                       topicIdOpt: Option[UUID] = None,
-                                      clusterLink: Option[String] = None,
+                                      clusterLinkId: Option[UUID] = None,
                                       clusterLinkState: Option[TopicLinkState] = None): Partition = {
     partition.createLogIfNotExists(isNew = false, isFutureReplica = false, offsetCheckpoints)
 
@@ -886,8 +887,8 @@ class PartitionTest {
           .setZkVersion(1)
           .setReplicas(replicas)
           .setIsNew(true)
-          .setClusterLink(clusterLink.orNull)
-          .setClusterLinkTopicState(clusterLinkState.map(_.name)orNull)
+          .setClusterLinkId(clusterLinkId.map(_.toString).orNull)
+          .setClusterLinkTopicState(clusterLinkState.map(_.name).orNull)
       topicIdOpt.foreach { topicId => partitionState.setTopicId(topicId) }
 
       assertTrue("Expected become leader transition to succeed",
@@ -902,8 +903,8 @@ class PartitionTest {
         .setZkVersion(1)
         .setReplicas(replicas)
         .setIsNew(true)
-        .setClusterLink(clusterLink.orNull)
-        .setClusterLinkTopicState(clusterLinkState.map(_.name)orNull)
+        .setClusterLinkId(clusterLinkId.map(_.toString).orNull)
+        .setClusterLinkTopicState(clusterLinkState.map(_.name).orNull)
       topicIdOpt.foreach { topicId => partitionState.setTopicId(topicId) }
 
       assertTrue("Expected become follower transition to succeed",
@@ -2583,7 +2584,7 @@ class PartitionTest {
       .setZkVersion(1)
       .setReplicas(replicas.map(Int.box).asJava)
       .setIsNew(false)
-      .setClusterLink("test-link")
+      .setClusterLinkId(UUID.randomUUID().toString)
       .setClusterLinkTopicState("Mirror")
     assertFalse(partition.makeLeader(leaderState2, offsetCheckpoints))
     origins.foreach { origin =>

@@ -4379,7 +4379,7 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
 
                 @Override
                 DeleteClusterLinksRequest.Builder createRequest(int timeoutMs) {
-                    return new DeleteClusterLinksRequest.Builder(linkNames, options.validateOnly(), options.force());
+                    return new DeleteClusterLinksRequest.Builder(linkNames, options.validateOnly(), options.force(), timeoutMs);
                 }
 
                 @Override

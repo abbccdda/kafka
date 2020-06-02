@@ -4,13 +4,13 @@
 
 package kafka.server.link
 
-import java.util.Properties
+import java.util.{Properties, UUID}
 
 import kafka.cluster.Partition
 import kafka.server.QuotaFactory.UnboundedQuota
 import kafka.server.{KafkaConfig, MetadataCache, ReplicaManager}
 import kafka.utils.TestUtils
-import kafka.zk.KafkaZkClient
+import kafka.zk.{ClusterLinkData, KafkaZkClient}
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.errors.ClusterAuthorizationException
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
@@ -54,28 +54,37 @@ class ClusterLinkFactoryTest {
   @Test
   def testLinkManagerWithClusterLinkDisabled(): Unit = {
     val linkName = "testLink"
+    val linkId = UUID.randomUUID()
     val brokerConfig = createBrokerConfig(enableClusterLink = false)
     clusterLinkManager = createClusterLinkManager(brokerConfig)
     assertSame(ClusterLinkDisabled.LinkManager, clusterLinkManager)
     assertSame(ClusterLinkDisabled.AdminManager, clusterLinkManager.admin)
 
     verifyClusterLinkDisabled(() => clusterLinkManager.configEncoder)
-    verifyClusterLinkDisabled(() => clusterLinkManager.fetcherManager(linkName))
-    verifyClusterLinkDisabled(() => clusterLinkManager.clientManager(linkName))
-    verifyClusterLinkDisabled(() => clusterLinkManager.addClusterLink(linkName, clusterLinkProps))
-    verifyClusterLinkDisabled(() => clusterLinkManager.removeClusterLink(linkName))
+    verifyClusterLinkDisabled(() => clusterLinkManager.createClusterLink(
+      ClusterLinkData(linkName, linkId, None),
+      ClusterLinkProps(new ClusterLinkConfig(Map.empty.asJava), None),
+      new Properties()))
+    verifyClusterLinkDisabled(() => clusterLinkManager.listClusterLinks())
+    verifyClusterLinkDisabled(() => clusterLinkManager.updateClusterLinkConfig(linkName, (props: Properties) => false))
+    verifyClusterLinkDisabled(() => clusterLinkManager.deleteClusterLink(linkName, linkId))
+    verifyClusterLinkDisabled(() => clusterLinkManager.fetcherManager(linkId))
+    verifyClusterLinkDisabled(() => clusterLinkManager.clientManager(linkId))
+    verifyClusterLinkDisabled(() => clusterLinkManager.resolveLinkId(linkName))
+    verifyClusterLinkDisabled(() => clusterLinkManager.resolveLinkIdOrThrow(linkName))
+    verifyClusterLinkDisabled(() => clusterLinkManager.ensureLinkNameDoesntExist(linkName))
 
     // Verify that cluster links in ZK created when cluster links were enabled don't
     // throw exceptions when cluster linking is disabled.
-    clusterLinkManager.processClusterLinkChanges(linkName, new Properties)
-    verifyClusterLinkDisabled(() => clusterLinkManager.fetcherManager(linkName))
+    clusterLinkManager.processClusterLinkChanges(linkId, new Properties)
+    verifyClusterLinkDisabled(() => clusterLinkManager.fetcherManager(linkId))
 
     // Verify that partitions with cluster links don't throw exceptions when cluster links are disabled.
     val tp0 = new TopicPartition("topic", 0)
     val partition0: Partition = createNiceMock(classOf[Partition])
-    setupMock(partition0, tp0, Some(linkName))
+    setupMock(partition0, tp0, Some(linkId))
     clusterLinkManager.addPartitions(Set(partition0))
-    verifyClusterLinkDisabled(() => clusterLinkManager.fetcherManager(linkName))
+    verifyClusterLinkDisabled(() => clusterLinkManager.fetcherManager(linkId))
 
     val partitionState: LeaderAndIsrPartitionState = mock(classOf[LeaderAndIsrPartitionState])
     clusterLinkManager.removePartitions(Map(partition0 -> partitionState))
@@ -114,17 +123,11 @@ class ClusterLinkFactoryTest {
     KafkaConfig.fromProps(props)
   }
 
-  private def clusterLinkProps: ClusterLinkProps = {
-    val props = new Properties
-    props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "localhost:1234")
-    ClusterLinkProps(new ClusterLinkConfig(props), None)
-  }
-
-  private def setupMock(partition: Partition, tp: TopicPartition, linkName: Option[String]): Unit = {
+  private def setupMock(partition: Partition, tp: TopicPartition, linkId: Option[UUID]): Unit = {
     reset(partition)
     expect(partition.topicPartition).andReturn(tp).anyTimes()
-    expect(partition.getClusterLink).andReturn(linkName).anyTimes()
-    expect(partition.isActiveLinkDestinationLeader).andReturn(linkName.nonEmpty).anyTimes()
+    expect(partition.getClusterLinkId).andReturn(linkId).anyTimes()
+    expect(partition.isActiveLinkDestinationLeader).andReturn(linkId.nonEmpty).anyTimes()
     expect(partition.getLinkedLeaderEpoch).andReturn(Some(1)).anyTimes()
     replay(partition)
   }

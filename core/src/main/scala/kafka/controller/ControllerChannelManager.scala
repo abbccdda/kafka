@@ -401,7 +401,7 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
         .setLeader(leaderAndIsr.leader)
         .setLeaderEpoch(leaderAndIsr.leaderEpoch)
         .setConfluentIsUncleanLeader(leaderAndIsr.isUnclean)
-        .setClusterLink(clusterLink.map(_.linkName).orNull)
+        .setClusterLinkId(clusterLink.map(_.linkId.toString).orNull)
         .setClusterLinkTopicState(clusterLink.map(_.state.name).orNull)
         .setLinkedLeaderEpoch(leaderAndIsr.clusterLinkState.map(_.linkedLeaderEpoch).getOrElse(-1))
         .setIsr(leaderAndIsr.isr.map(Integer.valueOf).asJava)

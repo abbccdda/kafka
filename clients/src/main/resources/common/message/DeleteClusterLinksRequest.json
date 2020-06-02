@@ -14,6 +14,8 @@
     { "name": "ValidateOnly", "type": "bool", "versions": "0+",
       "about": "Whether to validate that the cluster links can be created, but not actually create them." },
     { "name": "Force", "type": "bool", "versions": "0+",
-      "about": "Whether to force deletion of the cluster link even if it's in use." }
+      "about": "Whether to force deletion of the cluster link even if it's in use." },
+    { "name": "TimeoutMs", "type": "int32", "versions": "0+",
+      "about": "The time, in milliseconds, to allow for request completion." }
   ]
 }

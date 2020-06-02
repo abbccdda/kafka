@@ -5,7 +5,7 @@
 package kafka.server.link
 
 import java.time.Duration
-import java.util.{Collections, Properties, ServiceLoader}
+import java.util.{Collections, Properties, ServiceLoader, UUID}
 
 import kafka.api.KAFKA_2_3_IV1
 import kafka.cluster.Partition
@@ -14,7 +14,7 @@ import kafka.server.{AdminManager, KafkaConfig, ReplicaManager, ReplicaQuota}
 import kafka.server.link.ClusterLinkManager._
 import kafka.tier.fetcher.TierStateFetcher
 import kafka.utils.Logging
-import kafka.zk.KafkaZkClient
+import kafka.zk.{AdminZkClient, ClusterLinkData, KafkaZkClient}
 import org.apache.kafka.clients.{ClientInterceptor, CommonClientConfigs, NetworkClient}
 import org.apache.kafka.clients.admin.{Admin, AdminClientConfig, ConfluentAdmin, KafkaAdminClient}
 import org.apache.kafka.common.{Endpoint, TopicPartition}
@@ -56,8 +56,9 @@ object ClusterLinkManager {
   *   - ClusterLinkManager is thread-safe. All update operations including creation and
   *     deletion of links as well as addition and removal of topic mirrors are performed while
   *     holding the `managersLock`.
-  *   - Locking order: ClusterLinkManager.managersLock -> ClusterLinkFetcherManager.lock
-  *                    ClusterLinkManager.managersLock -> ClusterLinkClientManager.lock
+  *   - Locking order: ClusterLinkManager.updateLock -> ClusterLinkManager.lock
+  *                    ClusterLinkManager.lock -> ClusterLinkFetcherManager.lock
+  *                    ClusterLinkManager.lock -> ClusterLinkClientManager.lock
   *
   */
 class ClusterLinkManager(brokerConfig: KafkaConfig,
@@ -72,8 +73,17 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
 
   private case class Managers(fetcherManager: ClusterLinkFetcherManager, clientManager: ClusterLinkClientManager)
 
-  private val managersLock = new Object
-  private val managers = mutable.Map[String, Managers]()
+  private val adminZkClient = new AdminZkClient(zkClient)
+
+  // Protects `managers` and `linkData`.
+  private val lock = new Object
+  private val managers = mutable.Map[UUID, Managers]()
+  private val linkData = mutable.Map[String, ClusterLinkData]()
+
+  // Lock that must be acquired to ensure consistency between persistent metadata and in-memory
+  // data structures for cluster links.
+  private val updateLock = new Object
+
   val scheduler = new ClusterLinkScheduler
   val admin = new ClusterLinkAdminManager(brokerConfig, clusterId, zkClient, this)
   val configEncoder = new ClusterLinkConfigEncoder(brokerConfig)
@@ -102,37 +112,118 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
   /**
     * Process link update notifications. This is invoked to add existing cluster links during
     * broker start up and to update existing cluster links when config update notifications
-    * are processed. All updates are expected to be processed on a single thread.
+    * are processed.
     */
-  def processClusterLinkChanges(linkName: String, persistentProps: Properties): Unit = {
+  def processClusterLinkChanges(linkId: UUID, persistentProps: Properties): Unit = {
     val clusterLinkProps = configEncoder.clusterLinkProps(persistentProps)
 
-    val existingManager = managersLock synchronized {
-      val linkManager = managers.get(linkName)
-      if (persistentProps.isEmpty) {
-        if (managers.contains(linkName))
-          removeClusterLink(linkName)
-        None
-      } else if (linkManager.isEmpty) {
-        addClusterLink(linkName, clusterLinkProps)
-        None
-      } else {
-        linkManager
+    updateLock synchronized {
+      val existingManager = lock synchronized {
+        managers.get(linkId)
+      }
+      existingManager match {
+        case Some(manager) =>
+          if (persistentProps.isEmpty)
+            removeClusterLink(linkId)
+          else
+            reconfigureClusterLink(manager, clusterLinkProps)
+        case None =>
+          if (!persistentProps.isEmpty)
+            zkClient.getClusterLinks(Set(linkId)).get(linkId).foreach { clusterLinkData =>
+              addClusterLink(clusterLinkData, clusterLinkProps)
+            }
       }
     }
-    existingManager.foreach(manager => reconfigureClusterLink(manager, clusterLinkProps))
   }
 
-  def addClusterLink(linkName: String, clusterLinkProps: ClusterLinkProps): Unit = {
+  /**
+    * Creates a persistent cluster link with the provided data.
+    *
+    * @param clusterLinkData the cluster link's data to create
+    * @param props the cluster link's properties
+    * @param persistentProps the properties that are persisted for the cluster link
+    * @throws ClusterLinkExistsException if the cluster link name already exists
+    */
+  def createClusterLink(clusterLinkData: ClusterLinkData,
+                        props: ClusterLinkProps,
+                        persistentProps: Properties): Unit = updateLock synchronized {
+    ensureLinkNameDoesntExist(clusterLinkData.linkName)
+    if (fetcherManager(clusterLinkData.linkId).nonEmpty)
+      throw new ClusterLinkExistsException(s"Cluster link with ID '${clusterLinkData.linkId}' already exists")
+
+    info(s"Creating cluster link with data '$clusterLinkData'")
+    adminZkClient.createClusterLink(clusterLinkData, persistentProps)
+    addClusterLink(clusterLinkData, props)
+  }
+
+  /**
+    * Lists the clusters links.
+    *
+    * @return the cluster links
+    */
+  def listClusterLinks(): Seq[ClusterLinkData] = updateLock synchronized {
+    linkData.values.toSeq
+  }
+
+  /**
+    * Updates the cluster link configuration for the given link name, invoking the provided callback with the
+    * current configuration. The callback should update the configuration and return `true` if the update should
+    * be performed, otherwise `false` if no change should be performed.
+    *
+    * @param linkName the link name to update
+    * @param updateCallback updates the current configuration with the desired changes, returning whether the
+    *                       update should proceed
+    * @throws ClusterLinkNotFoundException if the cluster link with the provided name is not found
+    */
+  def updateClusterLinkConfig(linkName: String,
+                              updateCallback: Properties => Boolean): Unit = updateLock synchronized {
+    val linkId = resolveLinkIdOrThrow(linkName)
+    val currentConfig = adminZkClient.fetchClusterLinkConfig(linkId)
+    val (configProps, tenantPrefix) = configEncoder.decode(currentConfig)
+    if (updateCallback(configProps)) {
+      info(s"Updating cluster link '$linkName' with new configuration ${new ClusterLinkConfig(configProps)}")
+      val persistentProps = configEncoder.encode(configProps, tenantPrefix)
+      adminZkClient.changeClusterLinkConfig(linkId, persistentProps)
+      reconfigureClusterLink(managers(linkId), configEncoder.clusterLinkProps(persistentProps))
+    }
+  }
+
+  /**
+    * Persistently deletes cluster link with the provided name and ID.
+    *
+    * @param linkName the cluster link's name to delete
+    * @param linkId the cluster link's ID to delete
+    * @throws ClusterLinkNotFoundException if the cluster link name is not found
+    * @throws ClusterLinkNotFoundException if the cluster link name doesn't resolve to the given ID
+    */
+  def deleteClusterLink(linkName: String, linkId: UUID): Unit = updateLock synchronized {
+    if (resolveLinkIdOrThrow(linkName) != linkId)
+      throw new ClusterLinkNotFoundException(s"Cluster link '$linkName' not found")
+    info(s"Deleting cluster link with name '$linkName' and ID '$linkId'")
+    adminZkClient.deleteClusterLink(linkId)
+    removeClusterLink(linkId)
+  }
+
+  /**
+    * Adds a cluster link with the provided data to the manager.
+    *
+    * It's required that the cluster link does not already exist in the manager and that the
+    * update lock is held.
+    */
+  private def addClusterLink(clusterLinkData: ClusterLinkData, clusterLinkProps: ClusterLinkProps): Unit = {
     // Support for OffsetsForLeaderEpoch in clients was added in 2.3.0. This is the minimum supported version
     // for cluster linking.
     if (brokerConfig.interBrokerProtocolVersion <= KAFKA_2_3_IV1)
       throw new InvalidClusterLinkException(s"Cluster linking is not supported with inter-broker protocol version ${brokerConfig.interBrokerProtocolVersion}")
 
+    val linkName = clusterLinkData.linkName
+    val linkId = clusterLinkData.linkId
     val config = clusterLinkProps.config
-    managersLock synchronized {
-      if (managers.contains(linkName))
-        throw new ClusterLinkExistsException(s"Cluster link '$linkName' exists")
+    lock synchronized {
+      if (managers.contains(linkId))
+        throw new IllegalStateException(s"Cluster link with ID $linkId already exists")
+      if (linkData.contains(linkName))
+        throw new IllegalStateException(s"Cluster link with name $linkName already exists")
 
       val clientInterceptor = clusterLinkProps.tenantPrefix.map(tenantInterceptor)
       val clientManager = new ClusterLinkClientManager(linkName, scheduler, zkClient, config,
@@ -155,27 +246,38 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
         tierStateFetcher)
       fetcherManager.startup()
 
-      managers.put(linkName, Managers(fetcherManager, clientManager))
+      managers.put(linkId, Managers(fetcherManager, clientManager))
+      linkData.put(linkName, clusterLinkData)
     }
   }
 
-  def removeClusterLink(linkName: String): Unit = {
-    managersLock synchronized {
-      managers.get(linkName) match {
+  /**
+    * Removes the specified cluster link from the manager.
+    *
+    * It's required that the cluster link exists within the manager and that the update lock
+    * is held.
+    */
+  private def removeClusterLink(linkId: UUID): Unit = {
+    lock synchronized {
+      managers.get(linkId) match {
         case Some(Managers(fetcherManager, clientManager)) =>
-          if (fetcherManager.isEmpty) {
-            managers.remove(linkName)
-            fetcherManager.shutdown()
-            clientManager.shutdown()
-          } else {
-            throw new ClusterLinkInUseException("Cluster link cannot be deleted since some local topics are currently linked to this cluster")
-          }
+          if (!fetcherManager.isEmpty)
+            warn("Removing cluster link with local topics that are currently linked to this cluster")
+          linkData.find(_._2.linkId == linkId).map(_._2.linkName).foreach(linkData.remove)
+          managers.remove(linkId)
+          fetcherManager.shutdown()
+          clientManager.shutdown()
         case None =>
-          throw new ClusterLinkNotFoundException(s"Cluster link '$linkName' not found")
+          throw new IllegalStateException(s"Attempted to remove non-existent cluster link with ID '$linkId'")
       }
     }
   }
 
+  /**
+    * Reconfigures the cluster link managers with new properties.
+    *
+    * It's required that the update lock is held.
+    */
   private def reconfigureClusterLink(linkManagers: Managers, newProps: ClusterLinkProps): Unit = {
     val newConfig = newProps.config
     linkManagers.fetcherManager.reconfigure(newConfig)
@@ -185,12 +287,12 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
   def addPartitions(partitions: collection.Set[Partition]): Unit = {
     if (partitions.nonEmpty) {
       debug(s"addPartitions $partitions")
-      val unknownClusterLinks = mutable.Map[String, Iterable[TopicPartition]]()
-      managersLock synchronized {
-        partitions.filter(_.isActiveLinkDestinationLeader).groupBy(_.getClusterLink.getOrElse(""))
-          .foreach { case (linkName, linkPartitions) =>
-            if (!linkName.isEmpty) {
-              managers.get(linkName) match {
+      val unknownClusterLinks = mutable.Map[UUID, Iterable[TopicPartition]]()
+      lock synchronized {
+        partitions.filter(_.isActiveLinkDestinationLeader).groupBy(_.getClusterLinkId)
+          .foreach { case (linkId, linkPartitions) =>
+            linkId.foreach { lid =>
+              managers.get(lid) match {
                 case Some(Managers(fetcherManager, clientManager)) =>
                   fetcherManager.addLinkedFetcherForPartitions(linkPartitions)
 
@@ -200,7 +302,7 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
                   }
 
                 case None =>
-                  unknownClusterLinks += linkName -> linkPartitions.map(_.topicPartition)
+                  unknownClusterLinks += lid -> linkPartitions.map(_.topicPartition)
               }
             }
           }
@@ -214,7 +316,7 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
 
   def removePartitionsAndMetadata(partitions: collection.Set[TopicPartition]): Unit = {
     val firstPartitionTopics = partitions.filter(_.partition == 0).map(_.topic).toSet
-    managersLock synchronized {
+    lock synchronized {
       managers.values.foreach { case Managers(fetcherManager, clientManager) =>
         fetcherManager.removeLinkedFetcherForPartitions(partitions, retainMetadata = false)
         if (firstPartitionTopics.nonEmpty) {
@@ -230,7 +332,7 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
     */
   def removePartitions(partitionStates: Map[Partition, LeaderAndIsrPartitionState]): Unit = {
     val firstPartitionTopics = partitionStates.map(_._1.topicPartition).filter(_.partition == 0).map(_.topic).toSet
-    managersLock synchronized {
+    lock synchronized {
       val (linkedPartitions, unlinkedPartitions)  = partitionStates.partition { case (_, partitionState) =>
         Partition.clusterLinkShouldSync(partitionState)
       }
@@ -251,14 +353,14 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
   }
 
   def shutdownIdleFetcherThreads(): Unit = {
-    managersLock synchronized {
+    lock synchronized {
       managers.values.foreach(_.fetcherManager.shutdownIdleFetcherThreads())
     }
   }
 
   def shutdown(): Unit = {
     info("shutting down")
-    managersLock synchronized {
+    lock synchronized {
       managers.values.foreach { case Managers(fetcherManager, clientManager) =>
         fetcherManager.shutdown()
         clientManager.shutdown()
@@ -272,16 +374,51 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
     info("shutdown completed")
   }
 
-  def fetcherManager(linkName: String): Option[ClusterLinkFetcherManager] = {
-    managersLock synchronized {
-      managers.get(linkName).map(_.fetcherManager)
+  def fetcherManager(linkId: UUID): Option[ClusterLinkFetcherManager] = {
+    lock synchronized {
+      managers.get(linkId).map(_.fetcherManager)
     }
   }
 
-  def clientManager(linkName: String): Option[ClusterLinkClientManager] = {
-    managersLock synchronized {
-      managers.get(linkName).map(_.clientManager)
+  def clientManager(linkId: UUID): Option[ClusterLinkClientManager] = {
+    lock synchronized {
+      managers.get(linkId).map(_.clientManager)
     }
+  }
+
+  /**
+    * Returns the cluster link ID for the provided cluster link name.
+    *
+    * @param linkName the cluster link name
+    * @return the cluster link's ID, or none if not found
+    */
+  def resolveLinkId(linkName: String): Option[UUID] = {
+    lock synchronized {
+      linkData.get(linkName).map(_.linkId)
+    }
+  }
+
+  /**
+    * Returns the cluster link ID for the provided cluster link name, or throws if it's not found.
+    *
+    * @param linkName the cluster link name
+    * @return the cluster link's ID
+    * @throws ClusterLinkNotFoundException if the cluster link is not found
+    */
+  def resolveLinkIdOrThrow(linkName: String): UUID = {
+    resolveLinkId(linkName).getOrElse(
+      throw new ClusterLinkNotFoundException(s"Cluster link '$linkName' does not exist."))
+  }
+
+  /**
+    * Tests whether a cluster link with the provided link name exists, and if so, throws an exception.
+    *
+    * @param linkName the cluster link name
+    * @throws ClusterLinkExistsException if the cluster link with the provided name already exists
+    */
+  def ensureLinkNameDoesntExist(linkName: String): Unit = {
+    if (resolveLinkId(linkName).nonEmpty)
+      throw new ClusterLinkExistsException(s"Cluster link '$linkName' already exists.")
   }
 
   private def newSourceAdmin(linkName: String,
@@ -313,5 +450,5 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
     }
     destAdminClient
   }
-}
 
+}

@@ -4,7 +4,7 @@
 
 package kafka.server.link
 
-import java.util.Properties
+import java.util.{Properties, UUID}
 import java.util.concurrent.CompletableFuture
 
 import kafka.cluster.Partition
@@ -12,7 +12,7 @@ import kafka.controller.KafkaController
 import kafka.server.{DelayedFuturePurgatory, KafkaConfig, ReplicaManager, ReplicaQuota}
 import kafka.tier.fetcher.TierStateFetcher
 import kafka.utils.Logging
-import kafka.zk.KafkaZkClient
+import kafka.zk.{ClusterLinkData, KafkaZkClient}
 import org.apache.kafka.clients.admin.{Config, TopicDescription}
 import org.apache.kafka.common.{Endpoint, TopicPartition}
 import org.apache.kafka.common.errors.ClusterAuthorizationException
@@ -59,11 +59,18 @@ object ClusterLinkFactory {
                 controller: KafkaController,
                 authorizer: Option[Authorizer]): Unit
 
-    def addClusterLink(linkName: String, clusterLinkProps: ClusterLinkProps): Unit
+    def createClusterLink(clusterLinkData: ClusterLinkData,
+                          props: ClusterLinkProps,
+                          persistentProps: Properties): Unit
 
-    def removeClusterLink(linkName: String): Unit
+    def listClusterLinks(): Seq[ClusterLinkData]
 
-    def processClusterLinkChanges(linkName: String, persistentProps: Properties): Unit
+    def updateClusterLinkConfig(linkName: String,
+                                updateCallback: Properties => Boolean): Unit
+
+    def deleteClusterLink(linkName: String, linkId: UUID): Unit
+
+    def processClusterLinkChanges(linkId: UUID, persistentProps: Properties): Unit
 
     def addPartitions(partitions: collection.Set[Partition]): Unit
 
@@ -79,9 +86,15 @@ object ClusterLinkFactory {
 
     def configEncoder: ClusterLinkConfigEncoder
 
-    def fetcherManager(linkName: String): Option[ClusterLinkFetcherManager]
+    def fetcherManager(linkId: UUID): Option[ClusterLinkFetcherManager]
 
-    def clientManager(linkName: String): Option[ClusterLinkClientManager]
+    def clientManager(linkId: UUID): Option[ClusterLinkClientManager]
+
+    def resolveLinkId(linkName: String): Option[UUID]
+
+    def resolveLinkIdOrThrow(linkName: String): UUID
+
+    def ensureLinkNameDoesntExist(linkName: String): Unit
   }
 
   trait AdminManager {
@@ -121,17 +134,29 @@ object ClusterLinkDisabled {
                          controller: KafkaController,
                          authorizer: Option[Authorizer]): Unit = {}
 
-    override def addClusterLink(linkName: String, clusterLinkProps: ClusterLinkProps): Unit = {
+    override def createClusterLink(clusterLinkData: ClusterLinkData,
+                                   props: ClusterLinkProps,
+                                   persistentProps: Properties): Unit = {
       throw exception()
     }
 
-    override def removeClusterLink(linkName: String): Unit = {
+    override def updateClusterLinkConfig(linkName: String,
+                                         updateCallback: Properties => Boolean): Unit = {
       throw exception()
     }
 
-    override def processClusterLinkChanges(linkName: String, persistentProps: Properties): Unit = {
-      error(s"Cluster link $linkName not updated since cluster links are not enabled")
+    override def listClusterLinks(): Seq[ClusterLinkData] = {
+      throw exception()
     }
+
+    override def deleteClusterLink(linkName: String, linkId: UUID): Unit = {
+      throw exception()
+    }
+
+    override def processClusterLinkChanges(linkId: UUID, persistentProps: Properties): Unit = {
+      error(s"Cluster link $linkId not updated since cluster links are not enabled")
+    }
+
     override def addPartitions(partitions: collection.Set[Partition]): Unit = {}
 
     override def removePartitionsAndMetadata(partitions: collection.Set[TopicPartition]): Unit = {}
@@ -148,11 +173,23 @@ object ClusterLinkDisabled {
       throw exception()
     }
 
-    override def fetcherManager(linkName: String): Option[ClusterLinkFetcherManager] = {
+    override def fetcherManager(linkId: UUID): Option[ClusterLinkFetcherManager] = {
       throw exception()
     }
 
-    override def clientManager(linkName: String): Option[ClusterLinkClientManager] = {
+    override def clientManager(linkId: UUID): Option[ClusterLinkClientManager] = {
+      throw exception()
+    }
+
+    override def resolveLinkId(linkName: String): Option[UUID] = {
+      throw exception()
+    }
+
+    override def resolveLinkIdOrThrow(linkName: String): UUID = {
+      throw exception()
+    }
+
+    override def ensureLinkNameDoesntExist(linkName: String): Unit = {
       throw exception()
     }
   }

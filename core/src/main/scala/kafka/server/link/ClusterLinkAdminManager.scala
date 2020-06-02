@@ -6,14 +6,15 @@ package kafka.server.link
 import java.util.{Properties, UUID}
 import java.util.concurrent.{CompletableFuture, ExecutionException}
 
+import kafka.api.KAFKA_2_3_IV1
 import kafka.server.{DelayedFuturePurgatory, KafkaConfig}
 import kafka.utils.{CoreUtils, Logging}
 import kafka.utils.Implicits._
-import kafka.zk.{AdminZkClient, ClusterLinkData, KafkaZkClient}
+import kafka.zk.{ClusterLinkData, KafkaZkClient}
 import org.apache.kafka.clients.admin.{Admin, DescribeClusterOptions}
 import org.apache.kafka.common.acl.AclOperation
 import org.apache.kafka.common.internals.Topic
-import org.apache.kafka.common.errors.{ClusterAuthorizationException, ClusterLinkExistsException, ClusterLinkInUseException, ClusterLinkNotFoundException, InvalidConfigurationException, InvalidRequestException, UnknownTopicOrPartitionException, UnsupportedVersionException}
+import org.apache.kafka.common.errors.{ClusterAuthorizationException, ClusterLinkInUseException, InvalidClusterLinkException, InvalidConfigurationException, InvalidRequestException, UnknownTopicOrPartitionException, UnsupportedVersionException}
 import org.apache.kafka.common.requests.{AlterMirrorsRequest, AlterMirrorsResponse, ApiError, ClusterLinkListing, NewClusterLink}
 
 import scala.jdk.CollectionConverters._
@@ -27,7 +28,6 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
 
   this.logIdent = "[Cluster Link Admin Manager on Broker " + config.brokerId + "]: "
 
-  private val adminZkClient = new AdminZkClient(zkClient)
   val purgatory = new DelayedFuturePurgatory(purgatoryName = "ClusterLink", brokerId = config.brokerId)
 
   def shutdown(): Unit = {
@@ -40,11 +40,14 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
                         validateLink: Boolean,
                         timeoutMs: Int): CompletableFuture[Void] = {
 
+    // Support for OffsetsForLeaderEpoch in clients was added in 2.3.0. This is the minimum supported version
+    // for cluster linking.
+    if (config.interBrokerProtocolVersion <= KAFKA_2_3_IV1)
+      throw new InvalidClusterLinkException(s"Cluster linking is not supported with inter-broker protocol version ${config.interBrokerProtocolVersion}")
+
     val linkName = newClusterLink.linkName
     ClusterLinkUtils.validateLinkName(linkName)
-
-    if (clusterLinkManager.clientManager(linkName).isDefined)
-      throw new ClusterLinkExistsException(s"Cluster link '$linkName' already exists")
+    clusterLinkManager.ensureLinkNameDoesntExist(linkName)
 
     val props = new Properties()
     props ++= newClusterLink.configs.asScala
@@ -54,7 +57,7 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
     if (expectedClusterId.contains(clusterId))
       throw new InvalidRequestException(s"Requested cluster ID matches local cluster ID '$clusterId' - cannot create cluster link to self")
 
-    val result = new CompletableFuture[Void]()
+    val result = new CompletableFuture[Void]
     val clusterLinkProps = ClusterLinkProps(linkConfig, tenantPrefix)
     val persistentProps = clusterLinkManager.configEncoder.encode(props, clusterLinkProps.tenantPrefix)
     if (validateLink) {
@@ -67,51 +70,46 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
           case e: Throwable => result.completeExceptionally(e)
         })
     } else {
-      finishCreateClusterLink(linkName, expectedClusterId, clusterLinkProps, persistentProps, validateOnly)
-      result.complete(null)
+      try {
+        finishCreateClusterLink(linkName, expectedClusterId, clusterLinkProps, persistentProps, validateOnly)
+        result.complete(null)
+      } catch {
+        case e: Throwable => result.completeExceptionally(e)
+      }
     }
     result
   }
 
   def listClusterLinks(): Seq[ClusterLinkListing] = {
-    adminZkClient.getAllClusterLinks().map { info =>
-      new ClusterLinkListing(info.linkName, info.linkId, info.clusterId.orNull)
+    clusterLinkManager.listClusterLinks.map { clusterLinkData =>
+      new ClusterLinkListing(clusterLinkData.linkName, clusterLinkData.linkId, clusterLinkData.clusterId.orNull)
     }
   }
 
   def deleteClusterLink(linkName: String, validateOnly: Boolean, force: Boolean): Unit = {
     ClusterLinkUtils.validateLinkName(linkName)
 
-    if (clusterLinkManager.clientManager(linkName).isEmpty)
-      throw new ClusterLinkNotFoundException(s"Cluster link '$linkName' not found")
-
+    val linkId = clusterLinkManager.resolveLinkIdOrThrow(linkName)
     val allTopics = zkClient.getAllTopicsInCluster()
     if (allTopics.nonEmpty) {
       val topicsInUse = zkClient.getClusterLinkForTopics(allTopics).filter { case (_, state) =>
-        state.mirrorIsEstablished && state.linkName == linkName
+        state.mirrorIsEstablished && state.linkId == linkId
       }.keys
       if (topicsInUse.nonEmpty) {
         if (force)
           throw new UnsupportedVersionException("Force deletion not yet implemented")
         else
-          throw new ClusterLinkInUseException(s"Cluster link '$linkName' in used by topics: $topicsInUse")
+          throw new ClusterLinkInUseException(s"Cluster link '$linkName' with ID '$linkId' in used by topics: $topicsInUse")
       }
     }
 
     if (!validateOnly) {
-      adminZkClient.deleteClusterLink(linkName)
-
-      try {
-        clusterLinkManager.removeClusterLink(linkName)
-      } catch {
-        case _: ClusterLinkNotFoundException => // Ignore, this may have been done due to config callback.
-        case e: Throwable => warn(s"Encountered error while removing cluster link '$linkName'", e)
-      }
+      clusterLinkManager.deleteClusterLink(linkName, linkId)
     }
   }
 
   def alterMirror(op: AlterMirrorsRequest.Op, validateOnly: Boolean): CompletableFuture[AlterMirrorsResponse.Result] = {
-    val result = new CompletableFuture[AlterMirrorsResponse.Result]()
+    val result = new CompletableFuture[AlterMirrorsResponse.Result]
 
     op match {
       case subOp: AlterMirrorsRequest.StopTopicMirrorOp =>
@@ -127,7 +125,7 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
             clusterLink match {
               case _: ClusterLinkTopicState.Mirror | _: ClusterLinkTopicState.FailedMirror =>
                 // TODO: Save the log end offsets. For now, an empty array is a valid state.
-                new ClusterLinkTopicState.StoppedMirror(linkName, List.empty[Long])
+                new ClusterLinkTopicState.StoppedMirror(linkName, clusterLink.linkId, List.empty[Long])
               case _: ClusterLinkTopicState.StoppedMirror =>
                 throw new InvalidRequestException(s"Topic '${subOp.topic}' has already stopped its mirror from '$linkName'")
             }
@@ -147,24 +145,14 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
     result
   }
 
-  private[link] def clusterLinkData(linkName: String): Option[ClusterLinkData] = {
-    adminZkClient.getClusterLink(linkName)
-  }
-
   private def finishCreateClusterLink(linkName: String,
                                       linkClusterId: Option[String],
                                       props: ClusterLinkProps,
                                       persistentProps: Properties,
                                       validateOnly: Boolean): Unit = {
     if (!validateOnly) {
-      adminZkClient.createClusterLink(linkName, UUID.randomUUID(), linkClusterId, persistentProps)
-
-      try {
-        clusterLinkManager.addClusterLink(linkName, props)
-      } catch {
-        case _: ClusterLinkExistsException => // Ignore, this may have been done due to config callback.
-        case e: Throwable => warn(s"Encountered error while adding cluster link '$linkName'", e)
-      }
+      val clusterLinkData = ClusterLinkData(linkName, UUID.randomUUID(), linkClusterId)
+      clusterLinkManager.createClusterLink(clusterLinkData, props, persistentProps)
     }
   }
 

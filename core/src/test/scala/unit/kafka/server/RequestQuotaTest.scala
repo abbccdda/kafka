@@ -571,7 +571,7 @@ class RequestQuotaTest extends BaseRequestTest {
           new ListClusterLinksRequest.Builder();
 
         case ApiKeys.DELETE_CLUSTER_LINKS =>
-          new DeleteClusterLinksRequest.Builder(List.empty.asJava, false, false);
+          new DeleteClusterLinksRequest.Builder(List.empty.asJava, false, false, 1000);
 
         case ApiKeys.INITIATE_SHUTDOWN =>
           new InitiateShutdownRequest.Builder(Long.MaxValue);

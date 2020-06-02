@@ -16,13 +16,14 @@ public class DeleteClusterLinksRequest extends AbstractRequest {
 
         private final DeleteClusterLinksRequestData data;
 
-        public Builder(Collection<String> linkNames, boolean validateOnly, boolean force) {
+        public Builder(Collection<String> linkNames, boolean validateOnly, boolean force, int timeoutMs) {
             super(ApiKeys.DELETE_CLUSTER_LINKS);
 
             this.data = new DeleteClusterLinksRequestData()
                 .setLinkNames(new ArrayList<>(linkNames))
                 .setValidateOnly(validateOnly)
-                .setForce(force);
+                .setForce(force)
+                .setTimeoutMs(timeoutMs);
         }
 
         @Override
@@ -58,6 +59,10 @@ public class DeleteClusterLinksRequest extends AbstractRequest {
 
     public boolean force() {
         return data.force();
+    }
+
+    public int timeoutMs() {
+        return data.timeoutMs();
     }
 
     @Override

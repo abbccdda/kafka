@@ -844,8 +844,8 @@ class KafkaController(val config: KafkaConfig,
     failedLinks.foreach { topic =>
       linkedLeaderChanges ++= controllerContext.partitionsForTopic(topic)
       controllerContext.linkedTopics.get(topic) match {
-        case Some(Mirror(linkName, _)) =>
-          val newState = FailedMirror(linkName)
+        case Some(Mirror(linkName, linkId, _)) =>
+          val newState = FailedMirror(linkName, linkId)
           controllerContext.linkedTopics += topic -> newState
           updateClusterLinkState(topic, newState)
         case _ =>

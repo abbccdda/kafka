@@ -3234,7 +3234,8 @@ class KafkaApis(val requestChannel: RequestChannel,
             createClusterLinksRequest.validateOnly, createClusterLinksRequest.validateLink, timeoutMs)
         } catch {
           case e: Throwable =>
-            val result = new CompletableFuture[Void]()
+            trace(s"Error processing cluster link creation request for '$linkName'", e)
+            val result = new CompletableFuture[Void]
             result.completeExceptionally(e)
             result
         }
@@ -3244,7 +3245,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       clusterLinkAdminManager.purgatory.tryCompleteElseWatch(timeoutMs, futures.values.toSeq, () => {
         val result = futures.map { case (linkName, future) =>
           def handleError(e: Throwable): ApiError = {
-            error(s"Error processing cluster link creation request for '$linkName'", e)
+            trace(s"Error processing cluster link creation request for '$linkName'", e)
             ApiError.fromThrowable(e)
           }
           val apiError = try {
@@ -3303,7 +3304,7 @@ class KafkaApis(val requestChannel: RequestChannel,
           ApiError.NONE
         } catch {
           case e: Throwable =>
-            error(s"Error processing cluster link deletion request $linkName", e)
+            trace(s"Error processing cluster link deletion request $linkName", e)
             ApiError.fromThrowable(e)
         }
         linkName -> apiError
@@ -3358,7 +3359,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       clusterLinkAdminManager.purgatory.tryCompleteElseWatch(timeoutMs, futures, () => {
         val results = futures.map { future =>
           def handleError(e: Throwable): AlterMirrorsResponse.Result.OrError = {
-            error(s"Error processing alter mirrors request", e)
+            trace(s"Error processing alter mirrors request", e)
             new AlterMirrorsResponse.Result.OrError(ApiError.fromThrowable(e))
           }
           try {

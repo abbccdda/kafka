@@ -338,10 +338,10 @@ class ClusterLinksRequestTest extends BaseRequestTest {
   }
 
   private def deleteClusterLinks(linkNames: Iterable[String],
-    validateOnly: Boolean, force: Boolean): Map[String, Errors] = {
+    validateOnly: Boolean, force: Boolean, timeoutMs: Int = 2000): Map[String, Errors] = {
 
     val tmpResults = linkNames.map(name => (name -> new KafkaFutureImpl[Void])).toMap.asJava
-    sendDeleteClusterLinksRequest(linkNames, validateOnly, force).complete(tmpResults)
+    sendDeleteClusterLinksRequest(linkNames, validateOnly, force, timeoutMs).complete(tmpResults)
     val results = tmpResults.asScala
     results.map { case (linkName, future) =>
       assertTrue(linkNames.find(_ == linkName).isDefined)
@@ -356,9 +356,9 @@ class ClusterLinksRequestTest extends BaseRequestTest {
   }
 
   private def sendDeleteClusterLinksRequest(linkNames: Iterable[String],
-    validateOnly: Boolean, force: Boolean): DeleteClusterLinksResponse = {
+    validateOnly: Boolean, force: Boolean, timeoutMs: Int): DeleteClusterLinksResponse = {
 
-    val request = new DeleteClusterLinksRequest.Builder(linkNames.asJavaCollection, validateOnly, force).build()
+    val request = new DeleteClusterLinksRequest.Builder(linkNames.asJavaCollection, validateOnly, force, timeoutMs).build()
     connectAndReceive[DeleteClusterLinksResponse](request, destination = controllerSocketServer)
   }
 }

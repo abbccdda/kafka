@@ -17,7 +17,7 @@
 
 package kafka.server
 
-import java.util.Properties
+import java.util.{Properties, UUID}
 
 import DynamicConfig.Broker._
 import kafka.api.ApiVersion
@@ -252,9 +252,9 @@ class BrokerConfigHandler(private val brokerConfig: KafkaConfig,
 /**
  * Handles cluster link config updates in ZK.
  */
-class ClusterLinkConfigHandler(private val clusterLinkManager: ClusterLinkFactory.LinkManager) extends ConfigHandler with Logging {
-  def processConfigChanges(linkName: String, value: Properties): Unit = {
-    clusterLinkManager.processClusterLinkChanges(linkName, value)
+class ClusterLinkConfigHandler(clusterLinkManager: ClusterLinkFactory.LinkManager) extends ConfigHandler with Logging {
+  def processConfigChanges(linkId: String, value: Properties): Unit = {
+    clusterLinkManager.processClusterLinkChanges(UUID.fromString(linkId), value)
   }
 }
 

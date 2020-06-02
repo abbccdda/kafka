@@ -5,7 +5,7 @@
 package unit.kafka.server.link
 
 import java.util
-import java.util.Optional
+import java.util.{Optional, UUID}
 import java.util.concurrent.TimeUnit
 
 import kafka.controller.KafkaController
@@ -35,7 +35,7 @@ class ClusterLinkSyncOffsetsTest {
   private val destAdmin: Admin = mock(classOf[Admin])
 
   private val clientManager: ClusterLinkClientManager = mock(classOf[ClusterLinkClientManager])
-  private val testTopicState: ClusterLinkTopicState = new Mirror("testLink")
+  private val testTopicState: ClusterLinkTopicState = new Mirror("testLink", UUID.randomUUID())
 
   private var controller: KafkaController = null
 

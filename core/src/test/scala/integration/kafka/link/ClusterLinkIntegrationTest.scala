@@ -7,8 +7,8 @@ import java.io.File
 import java.nio.file.{Files, StandardCopyOption}
 import java.time.Duration
 import java.util
+import java.util.{Collections, Optional, Properties, UUID}
 import java.util.concurrent.{ExecutionException, TimeUnit}
-import java.util.{Collections, Optional, Properties}
 
 import com.yammer.metrics.core.{Gauge, Histogram, Meter, Metric}
 import kafka.api.{IntegrationTestHarness, KafkaSasl, SaslSetup}
@@ -96,7 +96,7 @@ class ClusterLinkIntegrationTest extends Logging {
   def testMirrorNewRecords(): Unit = {
     val numRecords = 20
     sourceCluster.createTopic(topic, numPartitions, replicationFactor = 2)
-    destCluster.createClusterLink(linkName, sourceCluster)
+    val linkId = destCluster.createClusterLink(linkName, sourceCluster)
     destCluster.linkTopic(topic, replicationFactor = 2, linkName)
 
     produceToSourceCluster(numRecords)
@@ -104,7 +104,7 @@ class ClusterLinkIntegrationTest extends Logging {
 
     verifyMirror(topic)
 
-    val jaasConfig = destCluster.adminZkClient.fetchClusterLinkConfig(linkName).getProperty(SaslConfigs.SASL_JAAS_CONFIG)
+    val jaasConfig = destCluster.adminZkClient.fetchClusterLinkConfig(linkId).getProperty(SaslConfigs.SASL_JAAS_CONFIG)
     assertNotNull(jaasConfig)
     assertFalse(s"Password not encrypted: $jaasConfig", jaasConfig.contains("secret-"))
 
@@ -661,7 +661,7 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
                         sourceCluster: ClusterLinkTestHarness,
                         metadataMaxAgeMs: Long = 60000L,
                         retryTimeoutMs: Long = 30000L,
-                        configOverrides: Properties = new Properties): Unit = {
+                        configOverrides: Properties = new Properties): UUID = {
     val userName = s"user-$linkName"
     val password = s"secret-$linkName"
     val linkJaasConfig = "org.apache.kafka.common.security.scram.ScramLoginModule required username=\"%s\" password=\"%s\";"
@@ -680,17 +680,27 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
     val newLink = new NewClusterLink(linkName, null, linkConfigs)
     withAdmin((admin: ConfluentAdmin) => {
       val options = new CreateClusterLinksOptions().timeoutMs(adminTimeoutMs)
-      admin.createClusterLinks(Collections.singleton(newLink), options).all.get
+      admin.createClusterLinks(Collections.singleton(newLink), options).all.get(waitTimeMs, TimeUnit.MILLISECONDS)
+    })
+
+    val linkId = withAdmin((admin: ConfluentAdmin) => {
+      val options = new ListClusterLinksOptions().timeoutMs(adminTimeoutMs)
+      admin.listClusterLinks(options).result.get(waitTimeMs, TimeUnit.MILLISECONDS)
+        .asScala.filter(_.linkName == linkName).head.linkId
     })
 
     servers.foreach { server =>
       TestUtils.waitUntilTrue(() =>
-        server.clusterLinkManager.fetcherManager(linkName).nonEmpty,
+        server.clusterLinkManager.fetcherManager(linkId).nonEmpty,
         s"Linked fetcher not created for $linkName on broker ${server.config.brokerId}")
     }
+
+    linkId
   }
 
   def deleteClusterLink(linkName: String): Unit = {
+    val linkId = servers.head.clusterLinkManager.resolveLinkIdOrThrow(linkName)
+
     withAdmin((admin: ConfluentAdmin) => {
       val options = new DeleteClusterLinksOptions().timeoutMs(adminTimeoutMs)
       admin.deleteClusterLinks(Collections.singleton(linkName), options)
@@ -699,7 +709,7 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
 
     servers.foreach { server =>
       TestUtils.waitUntilTrue(() =>
-        server.clusterLinkManager.fetcherManager(linkName).isEmpty,
+        server.clusterLinkManager.fetcherManager(linkId).isEmpty,
         s"Linked fetcher not deleted for $linkName on broker ${server.config.brokerId}")
     }
   }
@@ -717,8 +727,9 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
     })
 
     servers.foreach { server =>
+      val linkId = server.clusterLinkManager.resolveLinkIdOrThrow(linkName)
       TestUtils.waitUntilTrue(() => {
-        val config = server.clusterLinkManager.fetcherManager(linkName).get.currentConfig
+        val config = server.clusterLinkManager.fetcherManager(linkId).get.currentConfig
         updatedConfigs.forall { case (name, value) => config.originals.get(name) == value }
       }, s"Linked fetcher configs not updated for $linkName on broker ${server.config.brokerId}")
     }
@@ -753,8 +764,9 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
 
     if (verifyShutdown) {
       servers.foreach { server =>
+        val linkId = server.clusterLinkManager.resolveLinkIdOrThrow(linkName)
         TestUtils.waitUntilTrue(() =>
-          server.clusterLinkManager.fetcherManager(linkName).forall(_.isEmpty),
+          server.clusterLinkManager.fetcherManager(linkId).forall(_.isEmpty),
           s"Linked fetchers not stopped for $linkName on broker ${server.config.brokerId}")
       }
     }

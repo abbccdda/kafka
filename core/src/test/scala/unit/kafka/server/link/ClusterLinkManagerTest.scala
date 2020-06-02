@@ -4,16 +4,16 @@
 
 package kafka.server.link
 
-import java.util.{Collections, Properties}
+import java.util.{Collections, Properties, UUID}
 
 import kafka.cluster.Partition
 import kafka.server.QuotaFactory.UnboundedQuota
-import kafka.server.{KafkaConfig, MetadataCache, ReplicaManager}
+import kafka.server.{ConfigType, KafkaConfig, MetadataCache, ReplicaManager}
 import kafka.utils.TestUtils
 import kafka.zk.{ClusterLinkData, KafkaZkClient}
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.{Endpoint, TopicPartition}
-import org.apache.kafka.common.errors.{ClusterLinkInUseException, ClusterLinkNotFoundException}
+import org.apache.kafka.common.errors.{ClusterLinkExistsException, ClusterLinkNotFoundException}
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.security.auth.SecurityProtocol
@@ -50,38 +50,53 @@ class ClusterLinkManagerTest {
   @Test
   def testClusterLinks(): Unit = {
     val linkName = "testLink"
+    val linkId = UUID.randomUUID()
+    val clusterId = "testClusterId"
+    val clusterLinkData = ClusterLinkData(linkName, linkId, Some(clusterId))
     val topic = "testTopic"
     val tp0 = new TopicPartition(topic, 0)
     val partition0: Partition = createNiceMock(classOf[Partition])
-    assertEquals(None, clusterLinkManager.fetcherManager(linkName))
-    assertEquals(None, clusterLinkManager.clientManager(linkName))
+    assertEquals(None, clusterLinkManager.fetcherManager(linkId))
+    assertEquals(None, clusterLinkManager.clientManager(linkId))
+    assertEquals(None, clusterLinkManager.resolveLinkId(linkName))
+    intercept[ClusterLinkNotFoundException] {
+      clusterLinkManager.resolveLinkIdOrThrow(linkName)
+    }
+    clusterLinkManager.ensureLinkNameDoesntExist(linkName)
+    assertEquals(Seq.empty, clusterLinkManager.listClusterLinks())
 
     setupMock(partition0, tp0, None)
     clusterLinkManager.addPartitions(Set(partition0))
 
-    setupMock(partition0, tp0, Some(linkName))
+    setupMock(partition0, tp0, Some(linkId))
     intercept[ClusterLinkNotFoundException] {
       clusterLinkManager.addPartitions(Set(partition0))
     }
 
-    setupMock(partition0, tp0, Some(linkName))
-    clusterLinkManager.addClusterLink(linkName, clusterLinkProps)
-    assertNotEquals(None, clusterLinkManager.fetcherManager(linkName))
-    assertNotEquals(None, clusterLinkManager.clientManager(linkName))
-    val fetcherManager = clusterLinkManager.fetcherManager(linkName).get
-    val clientManager = clusterLinkManager.clientManager(linkName).get
+    setupMock(partition0, tp0, Some(linkId))
+    expect(zkClient.clusterLinkExists(linkId)).andReturn(false).times(1)
+    replay(zkClient)
+    clusterLinkManager.createClusterLink(clusterLinkData, clusterLinkProps, clusterLinkPersistentProps)
+    assertNotEquals(None, clusterLinkManager.fetcherManager(linkId))
+    assertNotEquals(None, clusterLinkManager.clientManager(linkId))
+    assertEquals(Some(linkId), clusterLinkManager.resolveLinkId(linkName))
+    assertEquals(Seq(clusterLinkData), clusterLinkManager.listClusterLinks())
+    val fetcherManager = clusterLinkManager.fetcherManager(linkId).get
+    val clientManager = clusterLinkManager.clientManager(linkId).get
+
+    intercept[ClusterLinkExistsException] {
+      clusterLinkManager.createClusterLink(ClusterLinkData(linkName, UUID.randomUUID(), Some(clusterId)),
+        clusterLinkProps, clusterLinkPersistentProps)
+    }
 
     clusterLinkManager.addPartitions(Set(partition0))
     assertTrue("Topic not added to metadata",
       fetcherManager.currentMetadata.retainTopic(topic, isInternal = false, time.milliseconds))
     assertTrue("Topic not added to client manager", clientManager.getTopics.contains(topic))
-
-    intercept[ClusterLinkInUseException] {
-      clusterLinkManager.removeClusterLink(linkName)
-    }
+    assertFalse("Fetcher not recording active topic", fetcherManager.isEmpty)
 
     val partitionState: LeaderAndIsrPartitionState = mock(classOf[LeaderAndIsrPartitionState])
-    expect(partitionState.clusterLink()).andReturn(linkName).anyTimes()
+    expect(partitionState.clusterLinkId()).andReturn(linkId.toString).anyTimes()
     expect(partitionState.clusterLinkTopicState()).andReturn("Mirror").anyTimes()
     expect(partitionState.linkedLeaderEpoch()).andReturn(1).anyTimes()
     replay(partitionState)
@@ -91,7 +106,7 @@ class ClusterLinkManagerTest {
     assertFalse("Topic not removed from client manager", clientManager.getTopics.contains(topic))
 
     reset(partitionState)
-    expect(partitionState.clusterLink()).andReturn(null).anyTimes()
+    expect(partitionState.clusterLinkId()).andReturn(null).anyTimes()
     replay(partitionState)
     clusterLinkManager.removePartitions(Map(partition0 -> partitionState))
     assertFalse("Topic not removed from metadata",
@@ -99,7 +114,7 @@ class ClusterLinkManagerTest {
     assertFalse("Topic should not be in client manager", clientManager.getTopics.contains(topic))
 
     reset(partitionState)
-    expect(partitionState.clusterLink()).andReturn(linkName).anyTimes()
+    expect(partitionState.clusterLinkId()).andReturn(linkId.toString).anyTimes()
     expect(partitionState.clusterLinkTopicState()).andReturn("FailedMirror").anyTimes()
     expect(partitionState.linkedLeaderEpoch()).andReturn(-1).anyTimes()
     replay(partitionState)
@@ -111,7 +126,7 @@ class ClusterLinkManagerTest {
 
     val tp1 = new TopicPartition(topic, 1)
     val partition1: Partition = createNiceMock(classOf[Partition])
-    setupMock(partition1, tp1, Some(linkName))
+    setupMock(partition1, tp1, Some(linkId))
 
     clusterLinkManager.addPartitions(Set(partition1))
     assertTrue("Topic not added to metadata",
@@ -123,31 +138,70 @@ class ClusterLinkManagerTest {
       fetcherManager.currentMetadata.retainTopic(topic, isInternal = false, time.milliseconds))
     assertFalse("Topic should not be in to client manager", clientManager.getTopics.contains(topic))
 
-    assertTrue("Unexpected fetcher manager", clusterLinkManager.fetcherManager(linkName).get == fetcherManager)
-    assertTrue("Unexpected client manager", clusterLinkManager.clientManager(linkName).get == clientManager)
+    assertTrue("Unexpected fetcher manager", clusterLinkManager.fetcherManager(linkId).get == fetcherManager)
+    assertTrue("Unexpected client manager", clusterLinkManager.clientManager(linkId).get == clientManager)
 
-    clusterLinkManager.removeClusterLink(linkName)
-    assertEquals(None, clusterLinkManager.fetcherManager(linkName))
-    assertEquals(None, clusterLinkManager.clientManager(linkName))
+    reset(zkClient)
+    expect(zkClient.clusterLinkExists(linkId)).andReturn(true).times(1)
+    replay(zkClient)
+    clusterLinkManager.deleteClusterLink(linkName, linkId)
+    assertEquals(None, clusterLinkManager.fetcherManager(linkId))
+    assertEquals(None, clusterLinkManager.clientManager(linkId))
+    assertEquals(None, clusterLinkManager.resolveLinkId(linkName))
+
+    reset(zkClient)
+    expect(zkClient.clusterLinkExists(linkId)).andReturn(false).times(1)
+    replay(zkClient)
+    intercept[ClusterLinkNotFoundException] {
+      clusterLinkManager.deleteClusterLink(linkName, linkId)
+    }
   }
 
   @Test
   def testReconfigure(): Unit = {
     val linkName = "testLink"
+    val linkId = UUID.randomUUID()
 
-    assertEquals(None, clusterLinkManager.fetcherManager(linkName))
-    clusterLinkManager.addClusterLink(linkName, clusterLinkProps)
-    val fetcherManager = clusterLinkManager.fetcherManager(linkName).get
+    intercept[ClusterLinkNotFoundException] {
+      clusterLinkManager.updateClusterLinkConfig(linkName, (props: Properties) => false)
+    }
+
+    expect(zkClient.clusterLinkExists(linkId)).andReturn(false).times(1)
+    expect(zkClient.getClusterLinks(Set(linkId)))
+      .andReturn(Map(linkId -> ClusterLinkData(linkName, linkId, None)))
+      .anyTimes()
+    replay(zkClient)
+
+    assertEquals(None, clusterLinkManager.fetcherManager(linkId))
+    clusterLinkManager.createClusterLink(ClusterLinkData(linkName, linkId, None),
+      clusterLinkProps, clusterLinkPersistentProps)
+    val fetcherManager = clusterLinkManager.fetcherManager(linkId).get
     assertEquals(Collections.singletonList("localhost:1234"), fetcherManager.currentConfig.bootstrapServers)
 
     val newProps = new Properties
     newProps.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "localhost:5678")
-    expect(zkClient.getClusterLinks(Set(linkName)))
-      .andReturn(Map(linkName -> ClusterLinkData(linkName, null, None)))
-      .anyTimes()
-    replay(zkClient)
-    clusterLinkManager.processClusterLinkChanges(linkName, newProps)
+    clusterLinkManager.processClusterLinkChanges(linkId, newProps)
     assertEquals(Collections.singletonList("localhost:5678"), fetcherManager.currentConfig.bootstrapServers)
+
+    reset(zkClient)
+    expect(zkClient.clusterLinkExists(linkId)).andReturn(true).times(1)
+    expect(zkClient.getEntityConfigs(ConfigType.ClusterLink, linkId.toString)).andReturn(newProps).times(1)
+    replay(zkClient)
+    clusterLinkManager.updateClusterLinkConfig(linkName, (props: Properties) => {
+      props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "localhost:1234")
+      false
+    })
+    assertEquals(Collections.singletonList("localhost:5678"), fetcherManager.currentConfig.bootstrapServers)
+
+    reset(zkClient)
+    expect(zkClient.clusterLinkExists(linkId)).andReturn(true).times(1)
+    expect(zkClient.getEntityConfigs(ConfigType.ClusterLink, linkId.toString)).andReturn(newProps).times(1)
+    replay(zkClient)
+    clusterLinkManager.updateClusterLinkConfig(linkName, (props: Properties) => {
+      props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "localhost:1234")
+      true
+    })
+    assertEquals(Collections.singletonList("localhost:1234"), fetcherManager.currentConfig.bootstrapServers)
   }
 
   private def createBrokerConfig(): KafkaConfig = {
@@ -156,17 +210,20 @@ class ClusterLinkManagerTest {
     KafkaConfig.fromProps(props)
   }
 
-  private def clusterLinkProps: ClusterLinkProps = {
+  private def clusterLinkPersistentProps: Properties = {
     val props = new Properties
     props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "localhost:1234")
-    ClusterLinkProps(new ClusterLinkConfig(props), None)
+    props
   }
 
-  private def setupMock(partition: Partition, tp: TopicPartition, linkName: Option[String]): Unit = {
+  private def clusterLinkProps: ClusterLinkProps =
+    ClusterLinkProps(new ClusterLinkConfig(clusterLinkPersistentProps), None)
+
+  private def setupMock(partition: Partition, tp: TopicPartition, linkId: Option[UUID]): Unit = {
     reset(partition)
     expect(partition.topicPartition).andReturn(tp).anyTimes()
-    expect(partition.getClusterLink).andReturn(linkName).anyTimes()
-    expect(partition.isActiveLinkDestinationLeader).andReturn(linkName.nonEmpty).anyTimes()
+    expect(partition.getClusterLinkId).andReturn(linkId).anyTimes()
+    expect(partition.isActiveLinkDestinationLeader).andReturn(linkId.nonEmpty).anyTimes()
     expect(partition.getLinkedLeaderEpoch).andReturn(Some(1)).anyTimes()
     replay(partition)
   }

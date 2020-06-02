@@ -808,18 +808,18 @@ object ClusterLinksZNode {
 case class ClusterLinkData(linkName: String, linkId: UUID, clusterId: Option[String])
 
 object ClusterLinkZNode {
-  def path(linkName: String) = s"${ClusterLinksZNode.path}/$linkName"
+  def path(linkId: UUID) = s"${ClusterLinksZNode.path}/$linkId"
 
-  def encode(linkId: UUID, clusterId: Option[String]): Array[Byte] = {
+  def encode(linkName: String, clusterId: Option[String]): Array[Byte] = {
     val config = mutable.Map.empty[String, String]
-    config += "link_id" -> linkId.toString
+    config += "link_name" -> linkName
     clusterId.foreach(cid => config += "cluster_id" -> cid)
     Json.encodeAsBytes(config.asJava)
   }
 
-  def decode(linkName: String, bytes: Array[Byte]): Option[ClusterLinkData] = {
+  def decode(linkId: UUID, bytes: Array[Byte]): Option[ClusterLinkData] = {
     Json.parseBytes(bytes).map(_.asJsonObject).map { json =>
-      val linkId = UUID.fromString(json("link_id").to[String])
+      val linkName = json("link_name").to[String]
       val clusterId = json.get("cluster_id").map(_.to[String])
       ClusterLinkData(linkName, linkId, clusterId)
     }

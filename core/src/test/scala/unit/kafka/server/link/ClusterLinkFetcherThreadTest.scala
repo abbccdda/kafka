@@ -9,24 +9,24 @@ import java.util.{Collections, Properties}
 import kafka.api.{ApiVersion, LeaderAndIsr}
 import kafka.cluster.{BrokerEndPoint, DelayedOperations, Partition, PartitionStateStore}
 import kafka.log.{AbstractLog, LogManager}
-import kafka.controller.KafkaController
 import kafka.server.QuotaFactory.UnboundedQuota
 import kafka.server._
 import kafka.tier.fetcher.TierStateFetcher
 import kafka.utils.{MockTime, TestUtils}
 import org.apache.kafka.clients.CommonClientConfigs
-import org.apache.kafka.common.{Endpoint, TopicPartition}
+import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.InvalidClusterLinkException
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.protocol.Errors
-import org.apache.kafka.common.security.auth.SecurityProtocol
+import org.apache.kafka.common.requests.NewClusterLink
 import org.apache.kafka.common.utils.{LogContext, SystemTime, Time}
-import org.apache.kafka.server.authorizer.Authorizer
 import org.apache.kafka.test.{TestUtils => JTestUtils}
 import org.easymock.EasyMock._
 import org.junit.Assert._
 import org.easymock.EasyMock.{anyObject, expect, mock, replay}
 import org.junit.{Ignore, Test}
+
+import scala.jdk.CollectionConverters._
 
 class ClusterLinkFetcherThreadTest extends ReplicaFetcherThreadTest {
 
@@ -89,20 +89,14 @@ class ClusterLinkFetcherThreadTest extends ReplicaFetcherThreadTest {
   override def shouldUseLeaderEndOffsetIfInterBrokerVersionBelow20(): Unit = {
     val props = TestUtils.createBrokerConfig(1, "localhost:1234")
     props.put(KafkaConfig.InterBrokerProtocolVersionProp, "0.11.0")
-    val replicaManager: ReplicaManager = mock(classOf[ReplicaManager])
-    val authorizer: Option[Authorizer] = Some(createNiceMock(classOf[Authorizer]))
-    val controller: KafkaController = createNiceMock(classOf[KafkaController])
-    val clusterLinkManager = new ClusterLinkManager(
+    val clusterLinkAdminManager = new ClusterLinkAdminManager(
       KafkaConfig.fromProps(props),
       "clusterId",
-      quota = UnboundedQuota,
       zkClient = null,
-      new Metrics,
-      new SystemTime,
-      tierStateFetcher = None)
-    val brokerEndpoint = new Endpoint("PLAINTEXT", SecurityProtocol.PLAINTEXT, "localhost", 1234)
-    clusterLinkManager.startup(brokerEndpoint, replicaManager, adminManager = null, controller, authorizer)
-    clusterLinkManager.addClusterLink(clusterLinkName, clusterLinkProps)
+      clusterLinkManager = null)
+    val newClusterLink = new NewClusterLink("test-link", "clusterId", Map.empty.asJava)
+    clusterLinkAdminManager.createClusterLink(
+      newClusterLink, tenantPrefix = None, validateOnly = false, validateLink = false, timeoutMs = 1000).get
   }
 
   @Test

@@ -89,7 +89,7 @@ public class LeaderAndIsrRequest extends AbstractControlRequest {
                     t -> new LeaderAndIsrTopicState()
                         .setTopicName(partition.topicName())
                         .setTopicId(partition.topicId())
-                        .setClusterLink(partition.clusterLink())
+                        .setClusterLinkId(partition.clusterLinkId())
                         .setClusterLinkTopicState(partition.clusterLinkTopicState()));
                 topicState.partitionStates().add(partition);
             }

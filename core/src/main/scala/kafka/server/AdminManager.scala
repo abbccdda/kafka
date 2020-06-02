@@ -16,7 +16,7 @@
   */
 package kafka.server
 
-import java.util.{Collections, Properties}
+import java.util.{Collections, Properties, UUID}
 import java.util.concurrent.CompletableFuture
 
 import kafka.admin.AdminOperationException
@@ -119,7 +119,9 @@ class AdminManager(val config: KafkaConfig,
 
       val mirrorTopics = toCreate.filter(_._2.mirrorTopic != null)
       def mirrorValidateCallback(results: Map[String, ApiError]): Unit = {
-        val topicLinks = mirrorTopics.values.map(topic => topic.name -> topic.linkName).toMap
+        val topicLinks = mirrorTopics.values.map { topic =>
+          topic.name -> clusterLinkManager.resolveLinkId(topic.linkName)
+        }.toMap
 
         // 2. Fetch the remote topics' information.
         val mirrorInfo = fetchMirrorTopicInfo(topicLinks, results, (topic: String, client: ClusterLinkClientManager) => {
@@ -181,7 +183,9 @@ class AdminManager(val config: KafkaConfig,
         }
 
         // Resolve the mirror topic information.
-        val resolveClusterLink = ClusterLinkUtils.resolveCreateTopic(topic, configs, validateOnly, mirrorInfo.flatMap(_.get(topic.name)))
+        val linkId = Option(topic.linkName).flatMap(clusterLinkManager.resolveLinkId)
+        val resolveClusterLink = ClusterLinkUtils.resolveCreateTopic(topic, linkId, configs,
+          validateOnly, mirrorInfo.flatMap(_.get(topic.name)))
         configs = resolveClusterLink.configs
 
         val resolvedNumPartitions = if (resolveClusterLink.numPartitions != NO_NUM_PARTITIONS)
@@ -355,7 +359,7 @@ class AdminManager(val config: KafkaConfig,
     val topicInfos = getTopicInfos()
 
     val topicLinks = topicInfos.values.map { assignment =>
-      assignment.clusterLink.filter(_.mirrorIsEstablished).map(assignment.topic -> _.linkName)
+      assignment.clusterLink.filter(_.mirrorIsEstablished).map(cl => assignment.topic -> Some(cl.linkId))
     }.flatten.toMap
 
     if (topicLinks.isEmpty) {
@@ -563,8 +567,9 @@ class AdminManager(val config: KafkaConfig,
             val linkName = resource.name
             if (linkName == null || linkName.isEmpty)
               throw new InvalidRequestException("Cluster link name must not be empty")
-            adminZkClient.ensureClusterLinkExists(linkName)
-            val persistentProps = adminZkClient.fetchClusterLinkConfig(linkName)
+            val linkId = clusterLinkManager.resolveLinkIdOrThrow(linkName)
+            adminZkClient.ensureClusterLinkExists(linkId)
+            val persistentProps = adminZkClient.fetchClusterLinkConfig(linkId)
             val config = clusterLinkManager.configEncoder.clusterLinkProps(persistentProps).config
             createResponseConfig(allConfigs(config), createClusterLinkConfigEntry(config))
 
@@ -690,23 +695,6 @@ class AdminManager(val config: KafkaConfig,
     }
   }
 
-  private def alterClusterLinkConfigs(resource: ConfigResource,
-                                      validateOnly: Boolean,
-                                      tenantPrefix: Option[String],
-                                      configProps: Properties,
-                                      configEntriesMap: Map[String, String],
-                                      principal: KafkaPrincipal): (ConfigResource, ApiError) = {
-    val linkName = resource.name
-    adminZkClient.ensureClusterLinkExists(linkName)
-    validateConfigPolicy(resource, configEntriesMap, principal)
-    if (!validateOnly) {
-      info(s"Updating cluster link $linkName with new configuration ${new ClusterLinkConfig(configProps)}")
-      adminZkClient.changeClusterLinkConfig(linkName, clusterLinkManager.configEncoder.encode(configProps, tenantPrefix))
-    }
-
-    resource -> ApiError.NONE
-  }
-
   private def getBrokerId(resource: ConfigResource) = {
     if (resource.name == null || resource.name.isEmpty)
       None
@@ -771,10 +759,14 @@ class AdminManager(val config: KafkaConfig,
             resource -> ApiError.NONE
 
           case ConfigResource.Type.CLUSTER_LINK =>
-            val currentConfig = adminZkClient.fetchClusterLinkConfig(resource.name)
-            val (configProps, tenantPrefix) = clusterLinkManager.configEncoder.decode(currentConfig)
-            prepareIncrementalConfigs(alterConfigOps, configProps, ClusterLinkConfig.configKeys)
-            alterClusterLinkConfigs(resource, validateOnly, tenantPrefix, configProps, configEntriesMap, principal)
+            val linkName = resource.name
+            ClusterLinkUtils.validateLinkName(linkName)
+            validateConfigPolicy(resource, configEntriesMap, principal)
+            clusterLinkManager.updateClusterLinkConfig(linkName, (configProps: Properties) => {
+              prepareIncrementalConfigs(alterConfigOps, configProps, ClusterLinkConfig.configKeys)
+              !validateOnly
+            })
+            resource -> ApiError.NONE
 
           case resourceType =>
             throw new InvalidRequestException(s"AlterConfigs is only supported for topics and brokers, but resource type is $resourceType")
@@ -1155,21 +1147,21 @@ class AdminManager(val config: KafkaConfig,
   /**
     * Helper for fetching topic information over cluster links.
     *
-    * @param topicLinks a map from topic name to link name
+    * @param topicLinks a map from topic name to link ID
     * @param validateResult result from request validation
     * @param fetchWork the work to be performed for fetching the topic's information
     * @return a map from topic name to a future containing its information
     */
-  private def fetchMirrorTopicInfo[T](topicLinks: Map[String, String],
+  private def fetchMirrorTopicInfo[T](topicLinks: Map[String, Option[UUID]],
                                       validateResult: Map[String, ApiError],
                                       fetchWork: (String, ClusterLinkClientManager) => CompletableFuture[T]): Map[String, CompletableFuture[T]] = {
-    topicLinks.map { case (topic, linkName) =>
+    topicLinks.map { case (topic, linkId) =>
       val future = try {
         val error = validateResult(topic)
         if (error != ApiError.NONE)
           throw error.exception()
-        val clientManager = clusterLinkManager.clientManager(linkName).getOrElse(
-          throw new ClusterLinkNotFoundException(s"Cluster link '$linkName' doesn't exist."))
+        val clientManager = linkId.flatMap(lid => clusterLinkManager.clientManager(lid)).getOrElse(
+          throw new ClusterLinkNotFoundException(s"Cluster link with ID '$linkId' doesn't exist."))
         fetchWork(topic, clientManager)
       } catch {
         case e: Throwable =>

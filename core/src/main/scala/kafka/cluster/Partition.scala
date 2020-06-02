@@ -19,7 +19,7 @@ package kafka.cluster
 import java.nio.ByteBuffer
 import java.util.concurrent.{CompletableFuture, Executor}
 import java.util.concurrent.locks.ReentrantReadWriteLock
-import java.util.{Optional, Properties}
+import java.util.{Optional, Properties, UUID}
 
 import kafka.api.{ApiVersion, LeaderAndIsr, PartitionLinkState}
 import kafka.common.UnexpectedAppendOffsetException
@@ -211,7 +211,7 @@ object Partition extends KafkaMetricsGroup {
   }
 
   def clusterLinkState(partitionState: LeaderAndIsrPartitionState): Option[ClusterLinkState] = {
-    Option(partitionState.clusterLink).flatMap { linkName =>
+    Option(partitionState.clusterLinkId).map(UUID.fromString).flatMap { linkId =>
       Option(partitionState.clusterLinkTopicState).map(state => {
         val topicState = try {
           TopicLinkState.fromString(state)
@@ -221,7 +221,7 @@ object Partition extends KafkaMetricsGroup {
             TopicLinkFailedMirror
         }
         val linkedPartitionState = PartitionLinkState(partitionState.linkedLeaderEpoch, topicState == TopicLinkFailedMirror)
-        ClusterLinkState(linkName, topicState, linkedPartitionState)
+        ClusterLinkState(linkId, topicState, linkedPartitionState)
       })
     }
   }
@@ -249,7 +249,7 @@ case class OngoingReassignmentState(addingReplicas: Seq[Int],
 
 case class SimpleAssignmentState(replicas: Seq[Int], observers: Set[Int]) extends AssignmentState
 
-case class ClusterLinkState(linkName: String, topicState: TopicLinkState, partitionState: PartitionLinkState)
+case class ClusterLinkState(linkId: UUID, topicState: TopicLinkState, partitionState: PartitionLinkState)
 
 /**
  * Data structure that represents a topic partition. The leader maintains the AR, ISR, CUR, RAR
@@ -584,7 +584,7 @@ class Partition(val topicPartition: TopicPartition,
 
   def getZkVersion: Int = this.zkVersion
 
-  def getClusterLink: Option[String] = this.clusterLink.map(_.linkName)
+  def getClusterLinkId: Option[UUID] = this.clusterLink.map(_.linkId)
 
   def getLinkedLeaderEpoch: Option[Int] = this.clusterLink.map(_.partitionState.linkedLeaderEpoch)
 
@@ -823,7 +823,7 @@ class Partition(val topicPartition: TopicPartition,
       assignmentState = SimpleAssignmentState(assignment, observers)
 
     inSyncReplicaIds = isr
-    if (this.clusterLink.nonEmpty && clusterLink.nonEmpty && this.clusterLink.get.linkName != clusterLink.get.linkName) {
+    if (this.clusterLink.nonEmpty && clusterLink.nonEmpty && this.clusterLink.get.linkId != clusterLink.get.linkId) {
       throw new IllegalStateException(s"Cannot change cluster link of partition $topicPartition from ${this.clusterLink} to $clusterLink")
     }
     this.clusterLink = clusterLink
@@ -1632,7 +1632,7 @@ class Partition(val topicPartition: TopicPartition,
       val zkVersionOpt = stateStore.updateClusterLinkState(controllerEpoch, newLeaderAndIsr)
       zkVersionOpt match {
         case Some(newVersion) =>
-          clusterLink = Some(ClusterLinkState(link.linkName, link.topicState, newState))
+          clusterLink = Some(ClusterLinkState(link.linkId, link.topicState, newState))
           zkVersion = newVersion
           info(s"Source leader epoch updated to [$newLinkedLeaderEpoch] and zkVersion updated to [$zkVersion]")
           true
@@ -1655,7 +1655,7 @@ class Partition(val topicPartition: TopicPartition,
           val zkVersionOpt = stateStore.updateClusterLinkState(controllerEpoch, newLeaderAndIsr)
           zkVersionOpt match {
             case Some(newVersion) =>
-              clusterLink = Some(ClusterLinkState(link.linkName, TopicLinkFailedMirror, newState))
+              clusterLink = Some(ClusterLinkState(link.linkId, TopicLinkFailedMirror, newState))
               zkVersion = newVersion
               info(s"Cluster link marked as failed and zkVersion updated to [$zkVersion]")
               true

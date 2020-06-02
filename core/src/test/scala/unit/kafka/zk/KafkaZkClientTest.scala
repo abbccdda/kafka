@@ -1291,31 +1291,32 @@ class KafkaZkClientTest extends ZooKeeperTestHarness {
       ("test-link-3", UUID.randomUUID(), None)
     )
 
-    clusterLinks.foreach { case (linkName, _, _) =>
-      assertFalse(zkClient.clusterLinkExists(linkName))
+    clusterLinks.foreach { case (_, linkId, _) =>
+      assertFalse(zkClient.clusterLinkExists(linkId))
     }
 
     clusterLinks.foreach { case (linkName, linkId, clusterId) =>
-      zkClient.createClusterLink(linkName, linkId, clusterId)
+      zkClient.createClusterLink(ClusterLinkData(linkName, linkId, clusterId))
     }
 
-    val getClusterLinks = zkClient.getClusterLinks(clusterLinks.map(_._1).toSet + "nonexistent")
+    val getClusterLinks = zkClient.getClusterLinks(clusterLinks.map(_._2).toSet + UUID.randomUUID())
     assertEquals(3, getClusterLinks.size)
     clusterLinks.foreach { case (linkName, linkId, clusterId) =>
-      val data = getClusterLinks(linkName)
+      val data = getClusterLinks(linkId)
+      assertEquals(linkName, data.linkName)
       assertEquals(linkId, data.linkId)
       assertEquals(clusterId, data.clusterId)
     }
 
-    clusterLinks.foreach { case (linkName, _, _) =>
-      assertTrue(zkClient.clusterLinkExists(linkName))
+    clusterLinks.foreach { case (_, linkId, _) =>
+      assertTrue(zkClient.clusterLinkExists(linkId))
     }
 
-    clusterLinks.foreach { case (linkName, _, _) =>
-      zkClient.deleteClusterLink(linkName)
+    clusterLinks.foreach { case (_, linkId, _) =>
+      zkClient.deleteClusterLink(linkId)
     }
 
-    val getDeletedClusterLinks = zkClient.getClusterLinks(clusterLinks.map(_._1).toSet)
+    val getDeletedClusterLinks = zkClient.getClusterLinks(clusterLinks.map(_._2).toSet)
     assertEquals(0, getDeletedClusterLinks.size)
   }
 

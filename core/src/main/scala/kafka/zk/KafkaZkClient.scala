@@ -17,8 +17,7 @@
 */
 package kafka.zk
 
-import java.util.Properties
-import java.util.UUID
+import java.util.{Properties, UUID}
 
 import com.yammer.metrics.core.MetricName
 import kafka.api.LeaderAndIsr
@@ -1501,28 +1500,27 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
   }
 
   /**
-   * Creates a cluster link.
+   * Creates a cluster link with the provided data.
    *
-   * @param linkName the cluster link's name
-   * @param linkId the UUID associated with the cluster link
-   * @param clusterId the linked cluster's expected ID
+   * @param clusterLinkData the cluster link's data
    */
-  def createClusterLink(linkName: String, linkId: UUID, clusterId: Option[String]) =
-    createRecursive(ClusterLinkZNode.path(linkName), ClusterLinkZNode.encode(linkId, clusterId))
+  def createClusterLink(clusterLinkData: ClusterLinkData): Unit =
+    createRecursive(ClusterLinkZNode.path(clusterLinkData.linkId),
+      ClusterLinkZNode.encode(clusterLinkData.linkName, clusterLinkData.clusterId))
 
   /**
-   * Gets cluster link data for a set of link names.
+   * Gets cluster link data for a set of link IDs.
    *
-   * @param linkNames set of cluster link names
-   * @return a map of link names with data
+   * @param linkIds set of cluster link IDs
+   * @return a map of link IDs with data
    */
-  def getClusterLinks(linkNames: Set[String]): Map[String, ClusterLinkData] = {
-    val getDataRequests = linkNames.map(ln => GetDataRequest(ClusterLinkZNode.path(ln), ctx = Some(ln))).toSeq
+  def getClusterLinks(linkIds: Set[UUID]): Map[UUID, ClusterLinkData] = {
+    val getDataRequests = linkIds.map(lid => GetDataRequest(ClusterLinkZNode.path(lid), ctx = Some(lid))).toSeq
     val getDataResponses = retryRequestsUntilConnected(getDataRequests)
     getDataResponses.flatMap { getDataResponse =>
-      val linkName = getDataResponse.ctx.get.asInstanceOf[String]
+      val linkId = getDataResponse.ctx.get.asInstanceOf[UUID]
       getDataResponse.resultCode match {
-        case Code.OK => ClusterLinkZNode.decode(linkName, getDataResponse.data).map(linkName -> _)
+        case Code.OK => ClusterLinkZNode.decode(linkId, getDataResponse.data).map(linkId -> _)
         case Code.NONODE => None
         case _ => throw getDataResponse.resultException.get
       }
@@ -1532,19 +1530,19 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
   /**
    * Tests whether a cluster link exists.
    *
-   * @param linkName the cluster link's name
-   * @return a cluster link listing
+   * @param linkId the cluster link's ID
+   * @return whether the cluster link exists
    */
-  def clusterLinkExists(linkName: String): Boolean =
-    pathExists(ClusterLinkZNode.path(linkName))
+  def clusterLinkExists(linkId: UUID): Boolean =
+    pathExists(ClusterLinkZNode.path(linkId))
 
   /**
     * Deletes a cluster link.
     *
-    * @param linkName the link name to delete
+    * @param linkId the ID of the cluster link to delete
     */
-  def deleteClusterLink(linkName: String): Unit =
-    deletePath(ClusterLinkZNode.path(linkName))
+  def deleteClusterLink(linkId: UUID): Unit =
+    deletePath(ClusterLinkZNode.path(linkId))
 
   /**
    * This registers a ZNodeChangeHandler and attempts to register a watcher with an ExistsRequest, which allows data

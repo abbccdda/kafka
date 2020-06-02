@@ -3,14 +3,14 @@
  */
 package kafka.server.link
 
-import java.util.Properties
+import java.util.{Properties, UUID}
 import java.util.concurrent.CompletableFuture
 
 import kafka.log.LogConfig
 import org.apache.kafka.clients.admin.{Config, ConfigEntry, TopicDescription}
 import org.apache.kafka.common.{Node, TopicPartitionInfo}
 import org.apache.kafka.common.acl.AclOperation
-import org.apache.kafka.common.errors.{InvalidClusterLinkException, InvalidConfigurationException, InvalidPartitionsException, InvalidRequestException, TimeoutException, TopicAuthorizationException, UnsupportedVersionException}
+import org.apache.kafka.common.errors.{ClusterLinkNotFoundException, InvalidClusterLinkException, InvalidConfigurationException, InvalidPartitionsException, InvalidRequestException, TimeoutException, TopicAuthorizationException, UnsupportedVersionException}
 import org.apache.kafka.common.message.CreateTopicsRequestData
 import org.apache.kafka.common.requests.CreateTopicsRequest.NO_NUM_PARTITIONS
 import org.junit.Test
@@ -156,7 +156,7 @@ class ClusterLinkUtilsTest {
   def testResolveCreateTopicStandard(): Unit = {
     val configs = makeProperties(Seq(LogConfig.UncleanLeaderElectionEnableProp -> "true"))
     val topic = makeCreatableTopic("test-topic", 4, None, None)
-    val result = ClusterLinkUtils.resolveCreateTopic(topic, configs, validateOnly = false, None)
+    val result = ClusterLinkUtils.resolveCreateTopic(topic, linkId = None, configs, validateOnly = false, None)
     assertEquals(configs, result.configs)
     assertTrue(result.topicState.isEmpty)
     assertEquals(NO_NUM_PARTITIONS, result.numPartitions)
@@ -164,6 +164,7 @@ class ClusterLinkUtilsTest {
 
   @Test
   def testResolveCreateTopicMirror(): Unit = {
+    val linkId = UUID.randomUUID()
     val configs = makeProperties(Seq(LogConfig.UncleanLeaderElectionEnableProp -> "true"))
     val remoteConfig = makeConfig(Seq((LogConfig.CleanupPolicyProp, "compact", false)))
     val expectedConfigs = makeProperties(Seq(
@@ -173,7 +174,7 @@ class ClusterLinkUtilsTest {
 
     val result1 = ClusterLinkUtils.resolveCreateTopic(
       makeCreatableTopic("test-topic", NO_NUM_PARTITIONS, Some("link-name"), Some("test-topic")),
-      configs, validateOnly = true, None)
+      Some(linkId), configs, validateOnly = true, None)
     assertEquals(configs, result1.configs)
     assertTrue(result1.topicState.isEmpty)
     assertEquals(NO_NUM_PARTITIONS, result1.numPartitions)
@@ -192,7 +193,7 @@ class ClusterLinkUtilsTest {
     future.complete(ClusterLinkClientManager.TopicInfo(description, remoteConfig))
     val result2 = ClusterLinkUtils.resolveCreateTopic(
       makeCreatableTopic("test-topic", NO_NUM_PARTITIONS, Some("link-name"), Some("test-topic")),
-      configs, validateOnly = false, Some(future))
+      Some(linkId), configs, validateOnly = false, Some(future))
     assertEquals(expectedConfigs, result2.configs)
     assertTrue(result2.topicState.get.isInstanceOf[ClusterLinkTopicState.Mirror])
     assertEquals("link-name", result2.topicState.get.linkName)
@@ -203,66 +204,76 @@ class ClusterLinkUtilsTest {
   def testResolveCreateTopicMirrorErrors(): Unit = {
     val topic = "test-topic"
     val linkName = "link-name"
+    val linkId = UUID.randomUUID()
     val validConfigs = makeProperties(Seq(LogConfig.UncleanLeaderElectionEnableProp -> "true"))
     val invalidConfigs = makeProperties(Seq(LogConfig.CleanupPolicyProp -> "compact"))
+    val node = new Node(0, "localhost", 9092)
+    val nodeList = List(node).asJava
+    val partitionInfos = List(
+      new TopicPartitionInfo(0, node, nodeList, nodeList),
+      new TopicPartitionInfo(1, node, nodeList, nodeList),
+      new TopicPartitionInfo(2, node, nodeList, nodeList)
+    )
 
     intercept[InvalidRequestException] {
       ClusterLinkUtils.resolveCreateTopic(
         makeCreatableTopic(topic, NO_NUM_PARTITIONS, Some(linkName), None),
-        validConfigs, validateOnly = false, None)
+        Some(linkId), validConfigs, validateOnly = false, None)
     }
     intercept[InvalidRequestException] {
       ClusterLinkUtils.resolveCreateTopic(
         makeCreatableTopic(topic, NO_NUM_PARTITIONS, None, Some(topic)),
-        validConfigs, validateOnly = false, None)
+        Some(linkId), validConfigs, validateOnly = false, None)
     }
     intercept[InvalidRequestException] {
       ClusterLinkUtils.resolveCreateTopic(
         makeCreatableTopic(topic, 4, Some(linkName), Some(topic)),
-        validConfigs, validateOnly = false, None)
+        Some(linkId), validConfigs, validateOnly = false, None)
     }
     intercept[UnsupportedVersionException] {
       ClusterLinkUtils.resolveCreateTopic(
         makeCreatableTopic(topic, NO_NUM_PARTITIONS, Some(linkName), Some("different-topic")),
-        validConfigs, validateOnly = false, None)
+        Some(linkId), validConfigs, validateOnly = false, None)
     }
     intercept[InvalidConfigurationException] {
       ClusterLinkUtils.resolveCreateTopic(
         makeCreatableTopic(topic, NO_NUM_PARTITIONS, Some(linkName), Some(topic)),
-        invalidConfigs, validateOnly = false, None)
+        Some(linkId), invalidConfigs, validateOnly = false, None)
     }
     intercept[IllegalStateException] {
       ClusterLinkUtils.resolveCreateTopic(
         makeCreatableTopic(topic, NO_NUM_PARTITIONS, Some(linkName), Some(topic)),
-        validConfigs, validateOnly = false, None)
+        Some(linkId), validConfigs, validateOnly = false, None)
     }
     intercept[IllegalStateException] {
       val future = new CompletableFuture[ClusterLinkClientManager.TopicInfo]
       ClusterLinkUtils.resolveCreateTopic(
         makeCreatableTopic(topic, NO_NUM_PARTITIONS, Some(linkName), Some(topic)),
-        validConfigs, validateOnly = false, Some(future))
+        Some(linkId), validConfigs, validateOnly = false, Some(future))
     }
     intercept[TimeoutException] {
       val future = new CompletableFuture[ClusterLinkClientManager.TopicInfo]
       future.completeExceptionally(new TimeoutException("timeout"))
       ClusterLinkUtils.resolveCreateTopic(
         makeCreatableTopic(topic, NO_NUM_PARTITIONS, Some(linkName), Some(topic)),
-        validConfigs, validateOnly = false, Some(future))
+        Some(linkId), validConfigs, validateOnly = false, Some(future))
     }
     intercept[TopicAuthorizationException] {
-      val node = new Node(0, "localhost", 9092)
-      val nodeList = List(node).asJava
-      val partitionInfos = List(
-        new TopicPartitionInfo(0, node, nodeList, nodeList),
-        new TopicPartitionInfo(1, node, nodeList, nodeList),
-        new TopicPartitionInfo(2, node, nodeList, nodeList)
-      )
       val description = new TopicDescription("test-topic", false, partitionInfos.asJava)
       val future = new CompletableFuture[ClusterLinkClientManager.TopicInfo]
       future.complete(ClusterLinkClientManager.TopicInfo(description, makeConfig(Seq.empty)))
       ClusterLinkUtils.resolveCreateTopic(
         makeCreatableTopic(topic, NO_NUM_PARTITIONS, Some(linkName), Some(topic)),
-        validConfigs, validateOnly = false, Some(future))
+        Some(linkId), validConfigs, validateOnly = false, Some(future))
+    }
+    intercept[ClusterLinkNotFoundException] {
+      val authorizedOperations = Set(AclOperation.READ)
+      val description = new TopicDescription("test-topic", false, partitionInfos.asJava, authorizedOperations.asJava)
+      val future = new CompletableFuture[ClusterLinkClientManager.TopicInfo]
+      future.complete(ClusterLinkClientManager.TopicInfo(description, makeConfig(Seq.empty)))
+      ClusterLinkUtils.resolveCreateTopic(
+        makeCreatableTopic(topic, NO_NUM_PARTITIONS, Some(linkName), Some(topic)),
+        None, validConfigs, validateOnly = false, Some(future))
     }
   }
 

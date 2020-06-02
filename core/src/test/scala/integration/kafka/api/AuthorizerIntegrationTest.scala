@@ -617,7 +617,8 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
 
   private def listClusterLinksRequest = new ListClusterLinksRequest.Builder().build()
 
-  private def deleteClusterLinksRequest = new DeleteClusterLinksRequest.Builder(Collections.singleton(linkName), false, true).build()
+  private def deleteClusterLinksRequest = new DeleteClusterLinksRequest.Builder(
+    Collections.singleton(linkName), false, true, 10000).build()
 
   private def initiateShutdownRequest = new InitiateShutdownRequest.Builder(brokerEpoch).build()
 

@@ -3,7 +3,7 @@
  */
 package kafka.server.link
 
-import java.util.Properties
+import java.util.{Properties, UUID}
 import java.util.concurrent.{CompletableFuture, ExecutionException}
 
 import kafka.log.LogConfig
@@ -11,7 +11,7 @@ import kafka.server.KafkaConfig
 import kafka.utils.Logging
 import org.apache.kafka.clients.admin.Config
 import org.apache.kafka.common.acl.AclOperation
-import org.apache.kafka.common.errors.{InvalidClusterLinkException, InvalidConfigurationException, InvalidPartitionsException, InvalidRequestException, TimeoutException, TopicAuthorizationException, UnsupportedVersionException}
+import org.apache.kafka.common.errors.{ClusterLinkNotFoundException, InvalidClusterLinkException, InvalidConfigurationException, InvalidPartitionsException, InvalidRequestException, TimeoutException, TopicAuthorizationException, UnsupportedVersionException}
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopic
 import org.apache.kafka.common.requests.CreateTopicsRequest.NO_NUM_PARTITIONS
 
@@ -241,6 +241,7 @@ object ClusterLinkUtils extends Logging {
    * then the result will be valid but not contain any mirror information.
    *
    * @param topic the creatable topic
+   * @param linkId the cluster link's ID
    * @param configs the creatable topic's configs
    * @param validateOnly whether the creation should only be validated
    * @param topicInfo the remote topic's information if this is a mirror topic, otherwise none if not. The future
@@ -248,6 +249,7 @@ object ClusterLinkUtils extends Logging {
    *                  information won't be validated.
    */
   def resolveCreateTopic(topic: CreatableTopic,
+                         linkId: Option[UUID],
                          configs: Properties,
                          validateOnly: Boolean,
                          topicInfo: Option[CompletableFuture[ClusterLinkClientManager.TopicInfo]]): ResolveCreateTopic = {
@@ -269,6 +271,8 @@ object ClusterLinkUtils extends Logging {
           throw new InvalidRequestException("Cannot specify both mirror topic and number of partitions.")
         if (!topic.assignments.isEmpty)
           throw new InvalidRequestException("Cannot specify both mirror topic and partition assignments.")
+        if (linkId.isEmpty)
+          throw new ClusterLinkNotFoundException(s"Cluster link with ID '$linkId' does not exist.")
 
         // If the mirror info is defined, then the actual topic creation is being performed. Otherwise if not, then
         // the request is only being validated.
@@ -289,7 +293,8 @@ object ClusterLinkUtils extends Logging {
               throw new TopicAuthorizationException("Mirror topic creation requires READ access on the source topic.")
 
             val newConfigs = ClusterLinkUtils.initMirrorProps(topic.name, configs, info.config)
-            ResolveCreateTopic(newConfigs, Some(new ClusterLinkTopicState.Mirror(linkName)), info.description.partitions.size)
+            ResolveCreateTopic(newConfigs, Some(new ClusterLinkTopicState.Mirror(linkName, linkId.get)),
+              info.description.partitions.size)
 
           case None =>
             if (!validateOnly)

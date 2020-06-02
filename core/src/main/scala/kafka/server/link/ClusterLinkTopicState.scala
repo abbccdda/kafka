@@ -4,6 +4,8 @@
 
 package kafka.server.link
 
+import java.util.UUID
+
 import kafka.common.BaseEnum
 import kafka.utils.Json
 import org.apache.kafka.common.utils.Time
@@ -38,10 +40,15 @@ abstract class ClusterLinkTopicState {
 
   /**
     * Name of the cluster link for the topic.
-    * Link name is returned even if mirroring is in paused or failed state
+    * Link name is returned even if mirroring is in paused, failed, or stopped state
     * to prevent updates to local topic.
     */
   def linkName: String
+
+  /**
+    * The link's ID, which uniquely distinguishes it.
+    */
+  def linkId: UUID
 
   /**
     * State of the topic link, persisted in ZK and propagated to brokers in LeaderAndIsrRequest
@@ -79,9 +86,11 @@ object ClusterLinkTopicState {
     * Indicates an active mirroring setup, where the local topic is the destination.
     *
     * @param linkName the name of the cluster link that the topic mirrors from
+    * @param linkId the UUID of the cluster link
     * @param timeMs the time, in milliseconds, at which the state transition occurred
     */
   case class Mirror(linkName: String,
+                    linkId: UUID,
                     timeMs: Long = Time.SYSTEM.milliseconds())
       extends ClusterLinkTopicState {
 
@@ -93,7 +102,8 @@ object ClusterLinkTopicState {
       Map(
         "version" -> 1,
         "time_ms" -> timeMs,
-        "link_name" -> linkName
+        "link_name" -> linkName,
+        "link_id" -> linkId
       )
     }
   }
@@ -103,9 +113,11 @@ object ClusterLinkTopicState {
     * Active mirrors may be in this state because source topic was deleted.
     *
     * @param linkName the name of the cluster link that the topic mirrors from
+    * @param linkId the UUID of the cluster link
     * @param timeMs the time, in milliseconds, at which the state transition occurred
     */
   case class FailedMirror(linkName: String,
+                          linkId: UUID,
                           timeMs: Long = Time.SYSTEM.milliseconds())
     extends ClusterLinkTopicState {
 
@@ -117,7 +129,8 @@ object ClusterLinkTopicState {
       Map(
         "version" -> 1,
         "time_ms" -> timeMs,
-        "link_name" -> linkName
+        "link_name" -> linkName,
+        "link_id" -> linkId
       )
     }
   }
@@ -135,10 +148,12 @@ object ClusterLinkTopicState {
     * known at which point the local and remote topics are synchronized.
     *
     * @param linkName the name of the cluster link that the topic mirrors from
+    * @param linkId the UUID of the cluster link
     * @param logEndOffsets the log end offsets of every partition, in ascending partition order
     * @param timeMs the time, in milliseconds, at which the state transition occurred
     */
   case class StoppedMirror(linkName: String,
+                           linkId: UUID,
                            logEndOffsets: Seq[Long],
                            timeMs: Long = Time.SYSTEM.milliseconds())
       extends ClusterLinkTopicState {
@@ -152,6 +167,7 @@ object ClusterLinkTopicState {
         "version" -> 1,
         "time_ms" -> timeMs,
         "link_name" -> linkName,
+        "link_id" -> linkId,
         "log_end_offsets" -> logEndOffsets.asJava
       )
     }
@@ -193,25 +209,29 @@ object ClusterLinkTopicState {
             validateVersion(1, jsonOpt("version").to[Int])
             val timeMs = jsonOpt("time_ms").to[Long]
             val linkName = jsonOpt("link_name").to[String]
-            Mirror(linkName, timeMs)
+            val linkId = UUID.fromString(jsonOpt("link_id").to[String])
+            Mirror(linkName, linkId, timeMs)
           case TopicLinkFailedMirror =>
             validateVersion(1, jsonOpt("version").to[Int])
             val timeMs = jsonOpt("time_ms").to[Long]
             val linkName = jsonOpt("link_name").to[String]
-            FailedMirror(linkName, timeMs)
+            val linkId = UUID.fromString(jsonOpt("link_id").to[String])
+            FailedMirror(linkName, linkId, timeMs)
           case TopicLinkStoppedMirror =>
             validateVersion(1, jsonOpt("version").to[Int])
             val timeMs = jsonOpt("time_ms").to[Long]
             val linkName = jsonOpt("link_name").to[String]
+            val linkId = UUID.fromString(jsonOpt("link_id").to[String])
             val logEndOffsets = jsonOpt("log_end_offsets").to[Seq[Long]]
-            StoppedMirror(linkName, logEndOffsets, timeMs)
+            StoppedMirror(linkName, linkId, logEndOffsets, timeMs)
           case _ =>
             // During rolling upgrade, we should ensure that some brokers with new states cannot
             // put the link into a state not known by other brokers. For now, mark this as failed.
             validateVersion(1, jsonOpt("version").to[Int])
             val timeMs = jsonOpt("time_ms").to[Long]
             val linkName = jsonOpt("link_name").to[String]
-            FailedMirror(linkName, timeMs)
+            val linkId = UUID.fromString(jsonOpt("link_id").to[String])
+            FailedMirror(linkName, linkId, timeMs)
         }
 
       case None =>
