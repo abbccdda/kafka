@@ -19,6 +19,8 @@ package org.apache.kafka.connect.util;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.MockAdminClient;
 import org.apache.kafka.common.Node;
+import org.apache.kafka.common.config.internals.ConfluentConfigs;
+import org.apache.kafka.common.utils.AppInfoParser;
 import org.apache.kafka.connect.errors.ConnectException;
 import org.apache.kafka.connect.runtime.WorkerConfig;
 import org.apache.kafka.connect.runtime.distributed.DistributedConfig;
@@ -98,6 +100,47 @@ public class ConnectUtilsTest {
         ConnectUtils.addMetricsContextProperties(prop, config, "cluster-1");
         assertEquals(null, prop.get(CommonClientConfigs.METRICS_CONTEXT_PREFIX + WorkerConfig.CONNECT_GROUP_ID));
         assertEquals("cluster-1", prop.get(CommonClientConfigs.METRICS_CONTEXT_PREFIX + WorkerConfig.CONNECT_KAFKA_CLUSTER_ID));
+    }
 
+    @Test
+    public void testAddMetricsContextPropertiesAndConfluentPropertiesStandalone() {
+        Map<String, String> props = new HashMap<>();
+        props.put(StandaloneConfig.OFFSET_STORAGE_FILE_FILENAME_CONFIG, "offsetStorageFile");
+        props.put(StandaloneConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+        props.put(StandaloneConfig.KEY_CONVERTER_CLASS_CONFIG, "org.apache.kafka.connect.json.JsonConverter");
+        props.put(StandaloneConfig.VALUE_CONVERTER_CLASS_CONFIG, "org.apache.kafka.connect.json.JsonConverter");
+        StandaloneConfig config = new StandaloneConfig(props);
+
+        Map<String, Object> prop = new HashMap<>();
+        ConnectUtils.addMetricsContextProperties(prop, config, "cluster-1");
+        ConnectUtils.addConfluentMetricsContextProperties(prop);
+        assertEquals(null, prop.get(CommonClientConfigs.METRICS_CONTEXT_PREFIX + WorkerConfig.CONNECT_GROUP_ID));
+        assertEquals("cluster-1", prop.get(CommonClientConfigs.METRICS_CONTEXT_PREFIX + WorkerConfig.CONNECT_KAFKA_CLUSTER_ID));
+        assertEquals("connect", prop.get(CommonClientConfigs.METRICS_CONTEXT_PREFIX + ConfluentConfigs.RESOURCE_LABEL_TYPE));
+        assertEquals(AppInfoParser.getCommitId(), prop.get(CommonClientConfigs.METRICS_CONTEXT_PREFIX + ConfluentConfigs.RESOURCE_LABEL_COMMIT_ID));
+        assertEquals(AppInfoParser.getVersion(), prop.get(CommonClientConfigs.METRICS_CONTEXT_PREFIX + ConfluentConfigs.RESOURCE_LABEL_VERSION));
+    }
+
+    @Test
+    public void testAddMetricsContextPropertiesAndConfluentPropertiesDistributed() {
+        Map<String, String> props = new HashMap<>();
+        props.put(DistributedConfig.GROUP_ID_CONFIG, "connect-cluster");
+        props.put(DistributedConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+        props.put(DistributedConfig.CONFIG_TOPIC_CONFIG, "connect-configs");
+        props.put(DistributedConfig.OFFSET_STORAGE_TOPIC_CONFIG, "connect-offsets");
+        props.put(DistributedConfig.STATUS_STORAGE_TOPIC_CONFIG, "connect-status");
+        props.put(DistributedConfig.KEY_CONVERTER_CLASS_CONFIG, "org.apache.kafka.connect.json.JsonConverter");
+        props.put(DistributedConfig.VALUE_CONVERTER_CLASS_CONFIG, "org.apache.kafka.connect.json.JsonConverter");
+        DistributedConfig config = new DistributedConfig(props);
+
+        Map<String, Object> prop = new HashMap<>();
+        ConnectUtils.addMetricsContextProperties(prop, config, "cluster-1");
+        ConnectUtils.addConfluentMetricsContextProperties(prop);
+
+        assertEquals("connect-cluster", prop.get(CommonClientConfigs.METRICS_CONTEXT_PREFIX + WorkerConfig.CONNECT_GROUP_ID));
+        assertEquals("cluster-1", prop.get(CommonClientConfigs.METRICS_CONTEXT_PREFIX + WorkerConfig.CONNECT_KAFKA_CLUSTER_ID));
+        assertEquals("connect", prop.get(CommonClientConfigs.METRICS_CONTEXT_PREFIX + ConfluentConfigs.RESOURCE_LABEL_TYPE));
+        assertEquals(AppInfoParser.getCommitId(), prop.get(CommonClientConfigs.METRICS_CONTEXT_PREFIX + ConfluentConfigs.RESOURCE_LABEL_COMMIT_ID));
+        assertEquals(AppInfoParser.getVersion(), prop.get(CommonClientConfigs.METRICS_CONTEXT_PREFIX + ConfluentConfigs.RESOURCE_LABEL_VERSION));
     }
 }

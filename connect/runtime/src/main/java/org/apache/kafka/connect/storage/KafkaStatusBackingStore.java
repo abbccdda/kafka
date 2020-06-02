@@ -160,14 +160,17 @@ public class KafkaStatusBackingStore implements StatusBackingStore {
         producerProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class.getName());
         producerProps.put(ProducerConfig.RETRIES_CONFIG, 0); // we handle retries in this class
         ConnectUtils.addMetricsContextProperties(producerProps, config, clusterId);
+        ConnectUtils.addConfluentMetricsContextProperties(producerProps);
 
         Map<String, Object> consumerProps = new HashMap<>(originals);
         consumerProps.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         consumerProps.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
         ConnectUtils.addMetricsContextProperties(consumerProps, config, clusterId);
+        ConnectUtils.addConfluentMetricsContextProperties(consumerProps);
 
         Map<String, Object> adminProps = new HashMap<>(originals);
         ConnectUtils.addMetricsContextProperties(adminProps, config, clusterId);
+        ConnectUtils.addConfluentMetricsContextProperties(adminProps);
 
         Map<String, Object> topicSettings = config instanceof DistributedConfig
                                             ? ((DistributedConfig) config).statusStorageTopicSettings()

@@ -25,6 +25,7 @@ import org.apache.kafka.clients.NetworkClient;
 import org.apache.kafka.clients.consumer.internals.ConsumerNetworkClient;
 import org.apache.kafka.clients.GroupRebalanceConfig;
 import org.apache.kafka.common.KafkaException;
+import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.internals.ClusterResourceListeners;
 import org.apache.kafka.common.metrics.JmxReporter;
 import org.apache.kafka.common.metrics.MetricsContext;
@@ -101,6 +102,10 @@ public class WorkerGroupMember {
             contextLabels.putAll(config.originalsWithPrefix(CommonClientConfigs.METRICS_CONTEXT_PREFIX));
             contextLabels.put(WorkerConfig.CONNECT_KAFKA_CLUSTER_ID, ConnectUtils.lookupKafkaClusterId(config));
             contextLabels.put(WorkerConfig.CONNECT_GROUP_ID, config.getString(DistributedConfig.GROUP_ID_CONFIG));
+            //add confluent labels
+            contextLabels.put(ConfluentConfigs.RESOURCE_LABEL_TYPE, WorkerConfig.CONNECT_RESOURCE_TYPE);
+            contextLabels.put(ConfluentConfigs.RESOURCE_LABEL_VERSION, AppInfoParser.getVersion());
+            contextLabels.put(ConfluentConfigs.RESOURCE_LABEL_COMMIT_ID, AppInfoParser.getCommitId());
             MetricsContext metricsContext = new KafkaMetricsContext(JMX_PREFIX, contextLabels);
 
             this.metrics = new Metrics(metricConfig, reporters, time, metricsContext);

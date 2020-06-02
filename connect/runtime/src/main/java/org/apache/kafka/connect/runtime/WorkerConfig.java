@@ -269,6 +269,11 @@ public class WorkerConfig extends AbstractConfig {
 
     public static final String CONNECT_KAFKA_CLUSTER_ID = "connect.kafka.cluster.id";
     public static final String CONNECT_GROUP_ID = "connect.group.id";
+    public static final String CONNECT_RESOURCE_TYPE = "connect";
+    public static final String RESOURCE_LABEL_PREFIX = "resource.";
+    public static final String RESOURCE_LABEL_TYPE = RESOURCE_LABEL_PREFIX + "type";
+    public static final String RESOURCE_LABEL_VERSION = RESOURCE_LABEL_PREFIX + "version";
+    public static final String RESOURCE_LABEL_COMMIT_ID = RESOURCE_LABEL_PREFIX + "commit.id";
 
     public static final String RESPONSE_HTTP_HEADERS_CONFIG = "response.http.headers.config";
     public static final String RESPONSE_HTTP_HEADERS_DOC = "Rules for REST API HTTP response headers";

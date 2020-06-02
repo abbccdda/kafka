@@ -19,6 +19,7 @@ package org.apache.kafka.connect.runtime;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.common.MetricName;
 import org.apache.kafka.common.MetricNameTemplate;
+import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.metrics.Gauge;
 import org.apache.kafka.common.metrics.JmxReporter;
 import org.apache.kafka.common.metrics.KafkaMetricsContext;
@@ -91,6 +92,11 @@ public class ConnectMetrics {
         if (groupId != null) {
             contextLabels.put(WorkerConfig.CONNECT_GROUP_ID, groupId);
         }
+        //add confluent labels
+        contextLabels.put(ConfluentConfigs.RESOURCE_LABEL_TYPE, WorkerConfig.CONNECT_RESOURCE_TYPE);
+        contextLabels.put(ConfluentConfigs.RESOURCE_LABEL_VERSION, AppInfoParser.getVersion());
+        contextLabels.put(ConfluentConfigs.RESOURCE_LABEL_COMMIT_ID, AppInfoParser.getCommitId());
+
         MetricsContext metricsContext = new KafkaMetricsContext(JMX_PREFIX, contextLabels);
         this.metrics = new Metrics(metricConfig, reporters, time, metricsContext);
 

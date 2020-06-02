@@ -592,6 +592,7 @@ public class Worker {
         producerProps.putAll(config.originalsWithPrefix("producer."));
         //add client metrics.context properties
         ConnectUtils.addMetricsContextProperties(producerProps, config, clusterId);
+        ConnectUtils.addConfluentMetricsContextProperties(producerProps);
 
         // Connector-specified overrides
         Map<String, Object> producerOverrides =
@@ -626,6 +627,7 @@ public class Worker {
 
         //add client metrics.context properties
         ConnectUtils.addMetricsContextProperties(consumerProps, config, clusterId);
+        ConnectUtils.addConfluentMetricsContextProperties(consumerProps);
 
         // Connector-specified overrides
         Map<String, Object> consumerOverrides =
@@ -670,6 +672,7 @@ public class Worker {
 
         //add client metrics.context properties
         ConnectUtils.addMetricsContextProperties(adminProps, config, clusterId);
+        ConnectUtils.addConfluentMetricsContextProperties(adminProps);
 
         return adminProps;
     }

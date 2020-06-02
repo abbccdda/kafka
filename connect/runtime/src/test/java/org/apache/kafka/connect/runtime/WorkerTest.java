@@ -27,6 +27,7 @@ import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.metrics.MetricsReporter;
 import org.apache.kafka.common.metrics.stats.Avg;
+import org.apache.kafka.common.utils.AppInfoParser;
 import org.apache.kafka.common.config.provider.MockFileConfigProvider;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
@@ -1091,6 +1092,9 @@ public class WorkerTest extends ThreadedTest {
         Map<String, String> expectedConfigs = new HashMap<>(defaultProducerConfigs);
         expectedConfigs.put("client.id", "connector-producer-job-0");
         expectedConfigs.put("metrics.context.connect.kafka.cluster.id", CLUSTER_ID);
+        expectedConfigs.put("metrics.context.resource.version", AppInfoParser.getVersion());
+        expectedConfigs.put("metrics.context.resource.commit.id", AppInfoParser.getCommitId());
+        expectedConfigs.put("metrics.context.resource.type", WorkerConfig.CONNECT_RESOURCE_TYPE);
         assertEquals(expectedConfigs,
                      Worker.producerConfigs(TASK_ID, "connector-producer-" + TASK_ID, config, connectorConfig, null, noneConnectorClientConfigOverridePolicy, CLUSTER_ID));
     }
@@ -1108,6 +1112,9 @@ public class WorkerTest extends ThreadedTest {
         expectedConfigs.put("linger.ms", "1000");
         expectedConfigs.put("client.id", "producer-test-id");
         expectedConfigs.put("metrics.context.connect.kafka.cluster.id", CLUSTER_ID);
+        expectedConfigs.put("metrics.context.resource.version", AppInfoParser.getVersion());
+        expectedConfigs.put("metrics.context.resource.commit.id", AppInfoParser.getCommitId());
+        expectedConfigs.put("metrics.context.resource.type", WorkerConfig.CONNECT_RESOURCE_TYPE);
 
         EasyMock.expect(connectorConfig.originalsWithPrefix(ConnectorConfig.CONNECTOR_CLIENT_PRODUCER_OVERRIDES_PREFIX)).andReturn(
             new HashMap<String, Object>());
@@ -1130,6 +1137,9 @@ public class WorkerTest extends ThreadedTest {
         expectedConfigs.put("batch.size", "1000");
         expectedConfigs.put("client.id", "producer-test-id");
         expectedConfigs.put("metrics.context.connect.kafka.cluster.id", CLUSTER_ID);
+        expectedConfigs.put("metrics.context.resource.version", AppInfoParser.getVersion());
+        expectedConfigs.put("metrics.context.resource.commit.id", AppInfoParser.getCommitId());
+        expectedConfigs.put("metrics.context.resource.type", WorkerConfig.CONNECT_RESOURCE_TYPE);
 
         Map<String, Object> connConfig = new HashMap<String, Object>();
         connConfig.put("linger.ms", "5000");
@@ -1147,6 +1157,9 @@ public class WorkerTest extends ThreadedTest {
         expectedConfigs.put("group.id", "connect-test");
         expectedConfigs.put("client.id", "connector-consumer-test-1");
         expectedConfigs.put("metrics.context.connect.kafka.cluster.id", CLUSTER_ID);
+        expectedConfigs.put("metrics.context.resource.version", AppInfoParser.getVersion());
+        expectedConfigs.put("metrics.context.resource.commit.id", AppInfoParser.getCommitId());
+        expectedConfigs.put("metrics.context.resource.type", WorkerConfig.CONNECT_RESOURCE_TYPE);
 
         EasyMock.expect(connectorConfig.originalsWithPrefix(ConnectorConfig.CONNECTOR_CLIENT_CONSUMER_OVERRIDES_PREFIX)).andReturn(new HashMap<>());
         PowerMock.replayAll();
@@ -1168,6 +1181,9 @@ public class WorkerTest extends ThreadedTest {
         expectedConfigs.put("max.poll.records", "1000");
         expectedConfigs.put("client.id", "consumer-test-id");
         expectedConfigs.put("metrics.context.connect.kafka.cluster.id", CLUSTER_ID);
+        expectedConfigs.put("metrics.context.resource.version", AppInfoParser.getVersion());
+        expectedConfigs.put("metrics.context.resource.commit.id", AppInfoParser.getCommitId());
+        expectedConfigs.put("metrics.context.resource.type", WorkerConfig.CONNECT_RESOURCE_TYPE);
 
         EasyMock.expect(connectorConfig.originalsWithPrefix(ConnectorConfig.CONNECTOR_CLIENT_CONSUMER_OVERRIDES_PREFIX)).andReturn(new HashMap<>());
         PowerMock.replayAll();
@@ -1190,6 +1206,9 @@ public class WorkerTest extends ThreadedTest {
         expectedConfigs.put("max.poll.interval.ms", "1000");
         expectedConfigs.put("client.id", "connector-consumer-test-1");
         expectedConfigs.put("metrics.context.connect.kafka.cluster.id", CLUSTER_ID);
+        expectedConfigs.put("metrics.context.resource.version", AppInfoParser.getVersion());
+        expectedConfigs.put("metrics.context.resource.commit.id", AppInfoParser.getCommitId());
+        expectedConfigs.put("metrics.context.resource.type", WorkerConfig.CONNECT_RESOURCE_TYPE);
 
         Map<String, Object> connConfig = new HashMap<String, Object>();
         connConfig.put("max.poll.records", "5000");
@@ -1238,6 +1257,9 @@ public class WorkerTest extends ThreadedTest {
         expectedConfigs.put("metadata.max.age.ms", "10000");
         //we added a config on the fly
         expectedConfigs.put("metrics.context.connect.kafka.cluster.id", CLUSTER_ID);
+        expectedConfigs.put("metrics.context.resource.version", AppInfoParser.getVersion());
+        expectedConfigs.put("metrics.context.resource.commit.id", AppInfoParser.getCommitId());
+        expectedConfigs.put("metrics.context.resource.type", WorkerConfig.CONNECT_RESOURCE_TYPE);
 
         EasyMock.expect(connectorConfig.originalsWithPrefix(ConnectorConfig.CONNECTOR_CLIENT_ADMIN_OVERRIDES_PREFIX))
             .andReturn(connConfig);

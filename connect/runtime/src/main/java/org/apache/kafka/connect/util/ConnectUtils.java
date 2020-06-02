@@ -20,7 +20,9 @@ import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.InvalidRecordException;
+import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.record.RecordBatch;
+import org.apache.kafka.common.utils.AppInfoParser;
 import org.apache.kafka.connect.errors.ConnectException;
 import org.apache.kafka.connect.runtime.WorkerConfig;
 import org.apache.kafka.connect.runtime.distributed.DistributedConfig;
@@ -78,5 +80,12 @@ public final class ConnectUtils {
         if (groupId != null) {
             prop.put(CommonClientConfigs.METRICS_CONTEXT_PREFIX + WorkerConfig.CONNECT_GROUP_ID, groupId);
         }
+    }
+
+    public static void addConfluentMetricsContextProperties(Map<String, Object> prop) {
+        //add runtime config
+        prop.put(CommonClientConfigs.METRICS_CONTEXT_PREFIX + ConfluentConfigs.RESOURCE_LABEL_TYPE, WorkerConfig.CONNECT_RESOURCE_TYPE);
+        prop.put(CommonClientConfigs.METRICS_CONTEXT_PREFIX + ConfluentConfigs.RESOURCE_LABEL_VERSION, AppInfoParser.getVersion());
+        prop.put(CommonClientConfigs.METRICS_CONTEXT_PREFIX + ConfluentConfigs.RESOURCE_LABEL_COMMIT_ID, AppInfoParser.getCommitId());
     }
 }
