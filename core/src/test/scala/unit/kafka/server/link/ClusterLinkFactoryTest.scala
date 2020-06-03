@@ -62,8 +62,8 @@ class ClusterLinkFactoryTest {
 
     verifyClusterLinkDisabled(() => clusterLinkManager.configEncoder)
     verifyClusterLinkDisabled(() => clusterLinkManager.createClusterLink(
-      ClusterLinkData(linkName, linkId, None),
-      ClusterLinkProps(new ClusterLinkConfig(Map.empty.asJava), None),
+      ClusterLinkData(linkName, linkId, None, None),
+      new ClusterLinkConfig(Map.empty.asJava),
       new Properties()))
     verifyClusterLinkDisabled(() => clusterLinkManager.listClusterLinks())
     verifyClusterLinkDisabled(() => clusterLinkManager.updateClusterLinkConfig(linkName, (props: Properties) => false))

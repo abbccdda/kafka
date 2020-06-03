@@ -1286,33 +1286,35 @@ class KafkaZkClientTest extends ZooKeeperTestHarness {
   @Test
   def testClusterLinksMethods(): Unit = {
     val clusterLinks = Seq(
-      ("test-link-1", UUID.randomUUID(), Some("abc123")),
-      ("test-link-2", UUID.randomUUID(), Some("xyz789")),
-      ("test-link-3", UUID.randomUUID(), None)
+      ("test-link-1", UUID.randomUUID(), Some("abc123"), None),
+      ("test-link-2", UUID.randomUUID(), Some("xyz789"), None),
+      ("test-link-3", UUID.randomUUID(), None, None),
+      ("tenant_test-link-4", UUID.randomUUID(), Some("xyz123"), Some("tenant_")),
     )
 
-    clusterLinks.foreach { case (_, linkId, _) =>
+    clusterLinks.foreach { case (_, linkId, _, _) =>
       assertFalse(zkClient.clusterLinkExists(linkId))
     }
 
-    clusterLinks.foreach { case (linkName, linkId, clusterId) =>
-      zkClient.createClusterLink(ClusterLinkData(linkName, linkId, clusterId))
+    clusterLinks.foreach { case (linkName, linkId, clusterId, tenantPrefix) =>
+      zkClient.createClusterLink(ClusterLinkData(linkName, linkId, clusterId, tenantPrefix))
     }
 
     val getClusterLinks = zkClient.getClusterLinks(clusterLinks.map(_._2).toSet + UUID.randomUUID())
-    assertEquals(3, getClusterLinks.size)
-    clusterLinks.foreach { case (linkName, linkId, clusterId) =>
+    assertEquals(clusterLinks.size, getClusterLinks.size)
+    clusterLinks.foreach { case (linkName, linkId, clusterId, tenantPrefix) =>
       val data = getClusterLinks(linkId)
       assertEquals(linkName, data.linkName)
       assertEquals(linkId, data.linkId)
       assertEquals(clusterId, data.clusterId)
+      assertEquals(tenantPrefix, data.tenantPrefix)
     }
 
-    clusterLinks.foreach { case (_, linkId, _) =>
+    clusterLinks.foreach { case (_, linkId, _, _) =>
       assertTrue(zkClient.clusterLinkExists(linkId))
     }
 
-    clusterLinks.foreach { case (_, linkId, _) =>
+    clusterLinks.foreach { case (_, linkId, _, _) =>
       zkClient.deleteClusterLink(linkId)
     }
 

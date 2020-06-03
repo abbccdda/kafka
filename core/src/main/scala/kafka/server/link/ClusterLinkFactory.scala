@@ -60,7 +60,7 @@ object ClusterLinkFactory {
                 authorizer: Option[Authorizer]): Unit
 
     def createClusterLink(clusterLinkData: ClusterLinkData,
-                          props: ClusterLinkProps,
+                          clusterLinkConfig: ClusterLinkConfig,
                           persistentProps: Properties): Unit
 
     def listClusterLinks(): Seq[ClusterLinkData]
@@ -135,7 +135,7 @@ object ClusterLinkDisabled {
                          authorizer: Option[Authorizer]): Unit = {}
 
     override def createClusterLink(clusterLinkData: ClusterLinkData,
-                                   props: ClusterLinkProps,
+                                   clusterLinkConfig: ClusterLinkConfig,
                                    persistentProps: Properties): Unit = {
       throw exception()
     }

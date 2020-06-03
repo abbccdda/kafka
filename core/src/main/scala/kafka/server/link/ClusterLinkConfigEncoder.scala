@@ -4,7 +4,6 @@ import java.util
 import java.util.Properties
 
 import kafka.server.KafkaConfig
-import kafka.server.link.ClusterLinkConfig.TenantPrefixProp
 import kafka.server.link.ClusterLinkConfigProvider._
 import kafka.utils.PasswordEncoder
 import org.apache.kafka.common.config.{AbstractConfig, ConfigData, ConfigDef, ConfigException}
@@ -18,10 +17,9 @@ class ClusterLinkConfigEncoder(brokerConfig: KafkaConfig) {
 
   private val encoders: Seq[Encoder] = createEncoders(brokerConfig.values)
 
-  def encode(linkProps: Properties, tenantPrefix: Option[String]): Properties = {
+  def encode(linkProps: Properties): Properties = {
     val props = new Properties
     val sensitiveProps = mutable.Map[String, String]()
-    tenantPrefix.foreach(props.put(TenantPrefixProp, _))
     linkProps.asScala.foreach { case (k, v) =>
       val propType = ClusterLinkConfig.typeOf(k)
       if (propType.isEmpty || propType.contains(ConfigDef.Type.PASSWORD)) {
@@ -44,21 +42,20 @@ class ClusterLinkConfigEncoder(brokerConfig: KafkaConfig) {
     props
   }
 
-  def decode(persistentProps: Properties): (Properties, Option[String]) = {
+  def decode(persistentProps: Properties): Properties = {
     val providerProps = providerProperties(persistentProps, brokerConfig)
     val encodedProps = new Properties
-    val tenantPrefix = Option(persistentProps.getProperty(TenantPrefixProp))
     persistentProps.entrySet.stream
-      .filter(e => e.getKey == AbstractConfig.CONFIG_PROVIDERS_CONFIG || (!providerProps.containsKey(e.getKey) && e.getKey != TenantPrefixProp))
+      .filter(e => e.getKey == AbstractConfig.CONFIG_PROVIDERS_CONFIG || !providerProps.containsKey(e.getKey))
       .forEach { e => encodedProps.put(e.getKey, e.getValue) }
     val decodedProps = new Properties
     new DecodingConfig(encodedProps, providerProps).originals.forEach((k, v) => decodedProps.put(k, v))
-    (decodedProps, tenantPrefix)
+    decodedProps
   }
 
-  def clusterLinkProps(persistentProps: Properties): ClusterLinkProps = {
-    val (decodedProps, tenantPrefix) = decode(persistentProps)
-    ClusterLinkProps(new ClusterLinkConfig(decodedProps), tenantPrefix)
+  def clusterLinkConfig(persistentProps: Properties): ClusterLinkConfig = {
+    val decodedProps = decode(persistentProps)
+    new ClusterLinkConfig(decodedProps)
   }
 
   private def providerProperties(persistentProps: Properties, brokerConfig: KafkaConfig): util.Map[String, String] = {

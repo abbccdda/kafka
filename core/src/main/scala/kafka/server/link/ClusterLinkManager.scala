@@ -115,7 +115,7 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
     * are processed.
     */
   def processClusterLinkChanges(linkId: UUID, persistentProps: Properties): Unit = {
-    val clusterLinkProps = configEncoder.clusterLinkProps(persistentProps)
+    val newConfig = configEncoder.clusterLinkConfig(persistentProps)
 
     updateLock synchronized {
       val existingManager = lock synchronized {
@@ -126,11 +126,11 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
           if (persistentProps.isEmpty)
             removeClusterLink(linkId)
           else
-            reconfigureClusterLink(manager, clusterLinkProps)
+            reconfigureClusterLink(manager, newConfig)
         case None =>
           if (!persistentProps.isEmpty)
             zkClient.getClusterLinks(Set(linkId)).get(linkId).foreach { clusterLinkData =>
-              addClusterLink(clusterLinkData, clusterLinkProps)
+              addClusterLink(clusterLinkData, newConfig)
             }
       }
     }
@@ -140,12 +140,12 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
     * Creates a persistent cluster link with the provided data.
     *
     * @param clusterLinkData the cluster link's data to create
-    * @param props the cluster link's properties
+    * @param clusterLinkConfig the cluster link's configs
     * @param persistentProps the properties that are persisted for the cluster link
     * @throws ClusterLinkExistsException if the cluster link name already exists
     */
   def createClusterLink(clusterLinkData: ClusterLinkData,
-                        props: ClusterLinkProps,
+                        clusterLinkConfig: ClusterLinkConfig,
                         persistentProps: Properties): Unit = updateLock synchronized {
     ensureLinkNameDoesntExist(clusterLinkData.linkName)
     if (fetcherManager(clusterLinkData.linkId).nonEmpty)
@@ -153,7 +153,7 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
 
     info(s"Creating cluster link with data '$clusterLinkData'")
     adminZkClient.createClusterLink(clusterLinkData, persistentProps)
-    addClusterLink(clusterLinkData, props)
+    addClusterLink(clusterLinkData, clusterLinkConfig)
   }
 
   /**
@@ -179,12 +179,12 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
                               updateCallback: Properties => Boolean): Unit = updateLock synchronized {
     val linkId = resolveLinkIdOrThrow(linkName)
     val currentConfig = adminZkClient.fetchClusterLinkConfig(linkId)
-    val (configProps, tenantPrefix) = configEncoder.decode(currentConfig)
+    val configProps = configEncoder.decode(currentConfig)
     if (updateCallback(configProps)) {
       info(s"Updating cluster link '$linkName' with new configuration ${new ClusterLinkConfig(configProps)}")
-      val persistentProps = configEncoder.encode(configProps, tenantPrefix)
+      val persistentProps = configEncoder.encode(configProps)
       adminZkClient.changeClusterLinkConfig(linkId, persistentProps)
-      reconfigureClusterLink(managers(linkId), configEncoder.clusterLinkProps(persistentProps))
+      reconfigureClusterLink(managers(linkId), configEncoder.clusterLinkConfig(persistentProps))
     }
   }
 
@@ -210,7 +210,7 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
     * It's required that the cluster link does not already exist in the manager and that the
     * update lock is held.
     */
-  private def addClusterLink(clusterLinkData: ClusterLinkData, clusterLinkProps: ClusterLinkProps): Unit = {
+  private def addClusterLink(clusterLinkData: ClusterLinkData, config: ClusterLinkConfig): Unit = {
     // Support for OffsetsForLeaderEpoch in clients was added in 2.3.0. This is the minimum supported version
     // for cluster linking.
     if (brokerConfig.interBrokerProtocolVersion <= KAFKA_2_3_IV1)
@@ -218,19 +218,17 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
 
     val linkName = clusterLinkData.linkName
     val linkId = clusterLinkData.linkId
-    val config = clusterLinkProps.config
     lock synchronized {
       if (managers.contains(linkId))
         throw new IllegalStateException(s"Cluster link with ID $linkId already exists")
       if (linkData.contains(linkName))
         throw new IllegalStateException(s"Cluster link with name $linkName already exists")
 
-      val clientInterceptor = clusterLinkProps.tenantPrefix.map(tenantInterceptor)
-      val clientManager = new ClusterLinkClientManager(linkName, scheduler, zkClient, config,
+      val clientInterceptor = clusterLinkData.tenantPrefix.map(tenantInterceptor)
+      val clientManager = new ClusterLinkClientManager(clusterLinkData, scheduler, zkClient, config,
         authorizer, controller,
         (cfg: ClusterLinkConfig) => newSourceAdmin(linkName, cfg, clientInterceptor),
-        () => getOrCreateDestAdmin(),
-        clusterLinkProps.tenantPrefix)
+        () => getOrCreateDestAdmin())
       clientManager.startup()
 
       val fetcherManager = new ClusterLinkFetcherManager(
@@ -279,10 +277,17 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
     *
     * It's required that the update lock is held.
     */
-  private def reconfigureClusterLink(linkManagers: Managers, newProps: ClusterLinkProps): Unit = {
-    val newConfig = newProps.config
-    linkManagers.fetcherManager.reconfigure(newConfig)
-    linkManagers.clientManager.reconfigure(newConfig)
+  private def reconfigureClusterLink(linkManagers: Managers, newConfig: ClusterLinkConfig): Unit = {
+    val currentProps = linkManagers.fetcherManager.currentConfig.originals
+    val newProps = newConfig.originals
+    val altered = newProps.asScala.filter { case (k, v) => v != currentProps.get(k) }
+    val deleted = currentProps.asScala.filter { case (k, _) => !newProps.containsKey(k) }
+    val updatedKeys = altered.keySet ++ deleted.keySet
+
+    if (updatedKeys.nonEmpty) {
+      linkManagers.fetcherManager.reconfigure(newConfig, updatedKeys)
+      linkManagers.clientManager.reconfigure(newConfig, updatedKeys)
+    }
   }
 
   def addPartitions(partitions: collection.Set[Partition]): Unit = {

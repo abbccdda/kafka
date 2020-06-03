@@ -7,6 +7,7 @@ package kafka.server.link
 import java.util
 
 import kafka.controller.KafkaController
+import kafka.zk.ClusterLinkData
 import org.apache.kafka.clients.admin.Admin
 import org.apache.kafka.clients.consumer.OffsetAndMetadata
 import org.apache.kafka.common.errors.{GroupAuthorizationException, TopicAuthorizationException}
@@ -18,10 +19,10 @@ import scala.collection.mutable
 import scala.jdk.CollectionConverters._
 
 class ClusterLinkSyncOffsets(val clientManager: ClusterLinkClientManager,
+                             linkData: ClusterLinkData,
                              config: ClusterLinkConfig,
                              controller: KafkaController,
-                             val destAdminFactory: () => Admin,
-                             tenantPrefix: Option[String] = None)
+                             val destAdminFactory: () => Admin)
   extends ClusterLinkScheduler.PeriodicTask(clientManager.scheduler, name = "SyncOffsets",
     config.consumerOffsetSyncMs) {
 
@@ -190,7 +191,7 @@ class ClusterLinkSyncOffsets(val clientManager: ClusterLinkClientManager,
     groupFilters.map { filter =>
       val patternType = SecurityUtils.patternType(filter.patternType)
 
-      tenantPrefix match {
+      linkData.tenantPrefix match {
         case Some(prefix) =>
           patternType match {
             case PatternType.LITERAL =>

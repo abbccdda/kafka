@@ -1506,7 +1506,7 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
    */
   def createClusterLink(clusterLinkData: ClusterLinkData): Unit =
     createRecursive(ClusterLinkZNode.path(clusterLinkData.linkId),
-      ClusterLinkZNode.encode(clusterLinkData.linkName, clusterLinkData.clusterId))
+      ClusterLinkZNode.encode(clusterLinkData.linkName, clusterLinkData.clusterId, clusterLinkData.tenantPrefix))
 
   /**
    * Gets cluster link data for a set of link IDs.

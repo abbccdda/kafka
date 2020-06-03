@@ -47,13 +47,13 @@ class ClusterLinkSyncTopicsConfigs(clientManager: ClusterLinkClientManager, sync
         try {
           val curConfig = future.get
           if (oldConfig.forall(_ != curConfig)) {
-            debug(s"Detected new remote configuration for mirror topic '$topic' on cluster link '${clientManager.linkName}'")
+            debug(s"Detected new remote configuration for mirror topic '$topic' on cluster link '${clientManager.linkData.linkName}'")
 
             // Determine if the local configuration has changed, and if so, update it.
             val curProps = clientManager.adminZkClient.fetchEntityConfig(ConfigType.Topic, topic)
             val newProps = ClusterLinkUtils.updateMirrorProps(topic, curProps, curConfig)
             if (newProps != curProps) {
-              debug(s"Updating local configuration for mirror topic '$topic' on cluster link '${clientManager.linkName}'")
+              debug(s"Updating local configuration for mirror topic '$topic' on cluster link '${clientManager.linkData.linkName}'")
               clientManager.adminZkClient.changeTopicConfig(topic, newProps)
             }
 
@@ -62,7 +62,7 @@ class ClusterLinkSyncTopicsConfigs(clientManager: ClusterLinkClientManager, sync
         } catch {
           case e: Throwable =>
             debug(s"Error encountered while processing remote configuration for mirror topic '$topic' " +
-              s"on cluster link ${clientManager.linkName}'", e)
+              s"on cluster link ${clientManager.linkData.linkName}'", e)
         }
       }
     }

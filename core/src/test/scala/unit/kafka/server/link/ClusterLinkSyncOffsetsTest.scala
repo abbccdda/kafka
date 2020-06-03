@@ -12,7 +12,7 @@ import kafka.controller.KafkaController
 import kafka.server.link.ClusterLinkTopicState.Mirror
 import kafka.server.{DelegationTokenManager, KafkaConfig}
 import kafka.tier.topic.TierTopicManager
-import kafka.zk.{BrokerInfo, KafkaZkClient}
+import kafka.zk.{BrokerInfo, ClusterLinkData, KafkaZkClient}
 import org.apache.kafka.clients.admin._
 import org.apache.kafka.clients.consumer.OffsetAndMetadata
 import org.apache.kafka.common.TopicPartition
@@ -229,7 +229,7 @@ class ClusterLinkSyncOffsetsTest {
 
     replay(admin, clientManager, destAdmin)
 
-    val syncOffsets = new ClusterLinkSyncOffsets(clientManager, clusterLinkConfig, controller, () => destAdmin)
+    val syncOffsets = new ClusterLinkSyncOffsets(clientManager, linkData(), clusterLinkConfig, controller, () => destAdmin)
 
     // we force the existing offset to be the same as the fetched one, this should not call alterConsumerGroupOffsets
     syncOffsets.currentOffsets.clear()
@@ -255,7 +255,7 @@ class ClusterLinkSyncOffsetsTest {
     setupMockOffsetResponses(offsetEntries, groupName)
     replay(admin, clientManager, destAdmin)
 
-    val syncOffsets = new ClusterLinkSyncOffsets(clientManager, clusterLinkConfig, controller,() => destAdmin)
+    val syncOffsets = new ClusterLinkSyncOffsets(clientManager, linkData(), clusterLinkConfig, controller,() => destAdmin)
 
     syncOffsets.currentOffsets.clear()
     syncOffsets.currentOffsets += (oldGroupName, new TopicPartition(topic, 1)) -> 1
@@ -396,6 +396,10 @@ class ClusterLinkSyncOffsetsTest {
     ).asJava)
   }
 
+  private def linkData(tenantPrefix: Option[String] = None): ClusterLinkData =
+    ClusterLinkData("testLink", UUID.randomUUID, None, tenantPrefix)
+
+
   private def mockListGroups(groups: String*): ListConsumerGroupsResult = {
     val consumerGroups = groups.map(consumerGroupListing).toList
     val future = new KafkaFutureImpl[util.Collection[ConsumerGroupListing]]
@@ -428,10 +432,10 @@ class ClusterLinkSyncOffsetsTest {
                                    tenantPrefix: Option[String] = None): ClusterLinkSyncOffsets = {
     replay(admin, clientManager, destAdmin)
     val syncOffsets = new ClusterLinkSyncOffsets(clientManager,
+      linkData(tenantPrefix),
       clusterLinkConfig,
       controller,
-      () => destAdmin,
-      tenantPrefix)
+      () => destAdmin)
 
     syncOffsets.runOnce().get(5, TimeUnit.SECONDS)
     verifyMock()

@@ -73,30 +73,23 @@ class ClusterLinkConfigEncoderTest {
   }
 
   def verifyEncodeDecode(props: Properties, sensitiveConfigs: Set[String], resolvedProps: Properties): Unit = {
-    val linkProps = clusterLinkProps(props)
-    val tenantLinkProps = clusterLinkProps(props, Some("lkc-test"))
+    val linkConfig = new ClusterLinkConfig(props)
 
     val brokerConfig1 = brokerConfig(secret = None)
     val encoder1 = new ClusterLinkConfigEncoder(brokerConfig1)
     if (sensitiveConfigs.isEmpty) {
-      verifyEncoding(brokerConfig1, linkProps, sensitiveConfigs, resolvedProps)
-      verifyEncoding(brokerConfig1, tenantLinkProps, sensitiveConfigs, resolvedProps)
+      verifyEncoding(brokerConfig1, linkConfig, sensitiveConfigs, resolvedProps)
     } else {
-      assertThrows(classOf[ConfigException], () => encoder1.encode(props, linkProps.tenantPrefix))
-      assertThrows(classOf[ConfigException], () => encoder1.encode(props, tenantLinkProps.tenantPrefix))
+      assertThrows(classOf[ConfigException], () => encoder1.encode(props))
     }
 
     val brokerConfig2 = brokerConfig(secret = Some("secret-1234"))
-    verifyEncoding(brokerConfig2, linkProps, sensitiveConfigs, resolvedProps)
-    verifyEncoding(brokerConfig2, tenantLinkProps, sensitiveConfigs, resolvedProps)
+    verifyEncoding(brokerConfig2, linkConfig, sensitiveConfigs, resolvedProps)
 
     val brokerConfig3 = brokerConfig(secret = Some("secret-new"), oldSecret = Some("secret-old"))
-    val encoded = verifyEncoding(brokerConfig3, linkProps, sensitiveConfigs, resolvedProps)
-    verifyDecoding(brokerConfig(secret = Some("secret-new")), encoded, resolvedProps, None)
-    verifyDecoding(brokerConfig(secret = Some("secret-old")), encoded, resolvedProps, None)
-    val tenantEncoded = verifyEncoding(brokerConfig3, tenantLinkProps, sensitiveConfigs, resolvedProps)
-    verifyDecoding(brokerConfig(secret = Some("secret-new")), tenantEncoded, resolvedProps, Some("lkc-test"))
-    verifyDecoding(brokerConfig(secret = Some("secret-old")), tenantEncoded, resolvedProps, Some("lkc-test"))
+    val encoded = verifyEncoding(brokerConfig3, linkConfig, sensitiveConfigs, resolvedProps)
+    verifyDecoding(brokerConfig(secret = Some("secret-new")), encoded, resolvedProps)
+    verifyDecoding(brokerConfig(secret = Some("secret-old")), encoded, resolvedProps)
   }
 
   private def brokerConfig(secret: Option[String], oldSecret: Option[String] = None): KafkaConfig = {
@@ -106,36 +99,30 @@ class ClusterLinkConfigEncoderTest {
     new KafkaConfig(brokerProps)
   }
 
-  private def clusterLinkProps(props: Properties, tenantPrefix: Option[String] = None): ClusterLinkProps = {
-    ClusterLinkProps(new ClusterLinkConfig(props), tenantPrefix)
-  }
-
   private def verifyEncoding(kafkaConfig: KafkaConfig,
-                             linkProps: ClusterLinkProps,
+                             linkConfig: ClusterLinkConfig,
                              sensitiveConfigs: Set[String],
                              resolvedProps: Properties): Properties = {
     val encoder = new ClusterLinkConfigEncoder(kafkaConfig)
     val props = new Properties
-    linkProps.config.originalsStrings.forEach((k, v) => props.setProperty(k, v))
-    val encodedProps = encoder.encode(props, linkProps.tenantPrefix)
+    linkConfig.originalsStrings.forEach((k, v) => props.setProperty(k, v))
+    val encodedProps = encoder.encode(props)
     sensitiveConfigs.foreach { name =>
-      assertNotEquals(linkProps.config.originals.get(name), encodedProps.getProperty(name))
+      assertNotEquals(linkConfig.originals.get(name), encodedProps.getProperty(name))
     }
-    linkProps.config.originals.asScala.keySet.diff(sensitiveConfigs).foreach { name =>
-      assertEquals(linkProps.config.originals.get(name), encodedProps.getProperty(name))
+    linkConfig.originals.asScala.keySet.diff(sensitiveConfigs).foreach { name =>
+      assertEquals(linkConfig.originals.get(name), encodedProps.getProperty(name))
     }
-    verifyDecoding(kafkaConfig, encodedProps, resolvedProps, linkProps.tenantPrefix)
+    verifyDecoding(kafkaConfig, encodedProps, resolvedProps)
     encodedProps
   }
 
   private def verifyDecoding(kafkaConfig: KafkaConfig,
                              encodedProps: Properties,
-                             resolvedProps: Properties,
-                             tenantPrefix: Option[String]): Unit = {
+                             resolvedProps: Properties): Unit = {
     val encoder = new ClusterLinkConfigEncoder(kafkaConfig)
-    val linkProps = encoder.clusterLinkProps(encodedProps)
-    assertEquals(tenantPrefix, linkProps.tenantPrefix)
-    assertEquals(resolvedProps, linkProps.config.originals)
+    val linkConfig = encoder.clusterLinkConfig(encodedProps)
+    assertEquals(resolvedProps, linkConfig.originals)
   }
 }
 

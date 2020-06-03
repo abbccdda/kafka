@@ -8,7 +8,7 @@ import java.util.concurrent.{CompletableFuture, ExecutionException}
 
 import kafka.controller.KafkaController
 import kafka.utils.{CoreUtils, Logging}
-import kafka.zk.{AdminZkClient, KafkaZkClient}
+import kafka.zk.{AdminZkClient, ClusterLinkData, KafkaZkClient}
 import org.apache.kafka.clients.admin._
 import org.apache.kafka.common.KafkaFuture
 import org.apache.kafka.common.config.ConfigResource
@@ -29,15 +29,14 @@ object ClusterLinkClientManager {
   * Thread safety:
   *   - ClusterLinkClientManager is thread-safe.
   */
-class ClusterLinkClientManager(val linkName: String,
+class ClusterLinkClientManager(val linkData: ClusterLinkData,
                                val scheduler: ClusterLinkScheduler,
                                val zkClient: KafkaZkClient,
                                private var config: ClusterLinkConfig,
                                authorizer: Option[Authorizer],
                                controller: KafkaController,
                                linkAdminFactory: ClusterLinkConfig => ConfluentAdmin,
-                               destAdminFactory: () => Admin,
-                               tenantPrefix: Option[String] = None) extends Logging {
+                               destAdminFactory: () => Admin) extends Logging {
 
   @volatile private var admin: Option[ConfluentAdmin] = None
 
@@ -57,7 +56,7 @@ class ClusterLinkClientManager(val linkName: String,
   def startup(): Unit = {
     setAdmin(Some(linkAdminFactory(config)))
 
-    clusterLinkSyncOffsets = Some(new ClusterLinkSyncOffsets(this, config, controller,destAdminFactory, tenantPrefix))
+    clusterLinkSyncOffsets = Some(new ClusterLinkSyncOffsets(this, linkData, config, controller,destAdminFactory))
     clusterLinkSyncOffsets.get.startup()
 
     clusterLinkSyncTopicConfigs = new ClusterLinkSyncTopicsConfigs(this, config.topicConfigSyncMs)
@@ -80,10 +79,12 @@ class ClusterLinkClientManager(val linkName: String,
     setAdmin(None)
   }
 
-  def reconfigure(newConfig: ClusterLinkConfig): Unit = {
+  def reconfigure(newConfig: ClusterLinkConfig, updatedKeys: Set[String]): Unit = {
     lock synchronized {
       config = newConfig
-      setAdmin(Some(linkAdminFactory(config)))
+      if (updatedKeys.diff(ClusterLinkConfig.ReplicationProps).nonEmpty) {
+        setAdmin(Some(linkAdminFactory(config)))
+      }
     }
   }
 
@@ -91,7 +92,7 @@ class ClusterLinkClientManager(val linkName: String,
     lock synchronized {
       addTopics.foreach { topic =>
         if (topics.add(topic))
-          debug(s"Added topic '$topic' for link '$linkName'")
+          debug(s"Added topic '$topic' for link '${linkData.linkName}'")
       }
     }
   }
@@ -100,7 +101,7 @@ class ClusterLinkClientManager(val linkName: String,
     lock synchronized {
       removeTopics.foreach { topic =>
         if (topics.remove(topic))
-          debug(s"Removed topic '$topic' for link '$linkName'")
+          debug(s"Removed topic '$topic' for link '${linkData.linkName}'")
       }
     }
   }
@@ -109,7 +110,7 @@ class ClusterLinkClientManager(val linkName: String,
     topics.toSet
   }
 
-  def getAdmin: ConfluentAdmin = admin.getOrElse(throw new IllegalStateException(s"Client manager for $linkName not initialized"))
+  def getAdmin: ConfluentAdmin = admin.getOrElse(throw new IllegalStateException(s"Client manager for ${linkData.linkName} not initialized"))
 
   def getAuthorizer: Option[Authorizer] = authorizer
 
@@ -199,7 +200,7 @@ class ClusterLinkClientManager(val linkName: String,
 
   private def fetchTopicInfoWrapException(topic: String, e: Throwable, action: String): Throwable = {
     val error = ApiError.fromThrowable(e)
-    error.error.exception(s"While $action for topic '$topic' over cluster link '$linkName': ${error.messageWithFallback}")
+    error.error.exception(s"While $action for topic '$topic' over cluster link '${linkData.linkName}': ${error.messageWithFallback}")
   }
 
 }
