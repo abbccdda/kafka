@@ -99,6 +99,9 @@ class RaftRequestHandler(networkChannel: KafkaNetworkChannel,
               Errors.NONE
             else
               Errors.forException(exception)
+
+            if (error != Errors.NONE)
+              warn(s"Encountered error $error")
             sendResponse(request, Option(new ProduceResponse(
               Collections.singletonMap(metadataPartition,
                 new ProduceResponse.PartitionResponse(error)))))

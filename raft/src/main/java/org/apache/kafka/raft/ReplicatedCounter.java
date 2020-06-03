@@ -86,9 +86,9 @@ public class ReplicatedCounter implements ReplicatedStateMachine {
                     log.trace("Applied counter update at offset {}: {} -> {}", record.offset(), committed.get(), value);
                     committed.set(value);
 
-                    if (verbose) {
-                        System.out.println(value);
-                    }
+//                    if (verbose) {
+//                        System.out.println(value);
+//                    }
                 }
             }
             this.position = new OffsetAndEpoch(batch.lastOffset() + 1, batch.partitionLeaderEpoch());

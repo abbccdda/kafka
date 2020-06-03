@@ -76,9 +76,7 @@ class RaftServer(val config: KafkaConfig,
     val metadataLog = buildMetadataLog(logDir)
     val networkChannel = buildNetworkChannel(raftConfig, logContext)
 
-
-    val counter = new ReplicatedCounter(config.brokerId, logContext, true, time)
-
+    val counter = new ReplicatedCounter(config.brokerId, logContext, true)
 
     val quorumState = new QuorumState(
       config.brokerId,
