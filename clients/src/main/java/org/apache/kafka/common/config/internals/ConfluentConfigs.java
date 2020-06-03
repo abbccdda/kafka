@@ -364,7 +364,8 @@ public class ConfluentConfigs {
 
     public static final String CLUSTER_REGISTRY_CONFIG = "confluent.metadata.server.cluster.registry.clusters";
     public static final String CLUSTER_REGISTRY_CONFIG_DEFAULT = "[]";
-    public static final String CLUSTER_REGISTRY_CONFIG_DOC = "JSON defining the clusters in the Cluster Registry.";
+    public static final String CLUSTER_REGISTRY_CONFIG_DOC = "JSON defining initial state of Cluster Registry. "
+        + "This should not be set manually, instead Cluster Registry http apis should be used.";
 
     public static final String ENABLE_FIPS_CONFIG = "enable.fips";
     public static final String ENABLE_FIPS_DEFAULT = "false";
