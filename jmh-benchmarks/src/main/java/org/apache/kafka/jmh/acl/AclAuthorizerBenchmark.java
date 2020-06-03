@@ -78,7 +78,7 @@ public class AclAuthorizerBenchmark {
     private int aclCount;
 
     private final int hostPreCount = 1000;
-    private final String resourceNamePrefix = "lkc-avd35_resource-";
+    private final String resourceNamePrefix = "foo-bar35_resource-";
 
     private final AclAuthorizer aclAuthorizer = new AclAuthorizer();
     private final KafkaPrincipal principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "test-user");

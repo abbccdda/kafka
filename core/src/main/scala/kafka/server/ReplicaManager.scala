@@ -84,13 +84,15 @@ case class LogDeleteRecordsResult(requestedOffset: Long, lowWatermark: Long, exc
   }
 }
 
-/*
+/**
  * Result metadata of a log read operation on the log
- * @param info @FetchDataInfo returned by the @Log read
- * @param hw high watermark of the local replica
- * @param readSize amount of data that was read from the log i.e. size of the fetch
- * @param isReadFromLogEnd true if the request read up to the log end offset snapshot
- *                         when the read was initiated, false otherwise
+ * @param info @AbstractFetchDataInfo returned by the @Log read
+ * @param highWatermark high watermark of the local replica
+ * @param leaderLogStartOffset The log start offset of the leader at the time of the read
+ * @param leaderLogEndOffset The log end offset of the leader at the time of the read
+ * @param followerLogStartOffset The log start offset of the follower taken from the Fetch request
+ * @param fetchTimeMs The time the fetch was received
+ * @param lastStableOffset Current LSO or None if the result has an exception
  * @param preferredReadReplica the preferred read replica to be used for future fetches
  * @param exception Exception if error encountered while reading from the log
  */
@@ -100,11 +102,9 @@ sealed trait AbstractLogReadResult {
   def leaderLogStartOffset: Long
   def leaderLogEndOffset: Long
   def fetchTimeMs: Long
-  def readSize: Int
   def lastStableOffset: Option[Long]
   def exception: Option[Throwable]
   def preferredReadReplica: Option[Int]
-  def followerNeedsHwUpdate: Boolean
 
   def error: Errors = exception match {
     case None => Errors.NONE
@@ -124,19 +124,27 @@ case class LogReadResult(info: FetchDataInfo,
                          leaderLogEndOffset: Long,
                          followerLogStartOffset: Long,
                          fetchTimeMs: Long,
-                         readSize: Int,
                          lastStableOffset: Option[Long],
-                         isReadAllowed: Boolean,
                          preferredReadReplica: Option[Int] = None,
-                         followerNeedsHwUpdate: Boolean = false,
                          exception: Option[Throwable] = None) extends AbstractLogReadResult {
 
   def withEmptyFetchInfo: LogReadResult =
     copy(info = FetchDataInfo(LogOffsetMetadata.UnknownOffsetMetadata, MemoryRecords.EMPTY))
 
-  override def toString =
-    s"Fetch Data: [$info], HW: [$highWatermark], leaderLogStartOffset: [$leaderLogStartOffset], leaderLogEndOffset: [$leaderLogEndOffset], " +
-    s"followerLogStartOffset: [$followerLogStartOffset], fetchTimeMs: [$fetchTimeMs], readSize: [$readSize], lastStableOffset: [$lastStableOffset], isReadAllowed: [$isReadAllowed] error: [$error]"
+  override def toString = {
+    "LogReadResult(" +
+      s"info=$info, " +
+      s"highWatermark=$highWatermark, " +
+      s"leaderLogStartOffset=$leaderLogStartOffset, " +
+      s"leaderLogEndOffset=$leaderLogEndOffset, " +
+      s"followerLogStartOffset=$followerLogStartOffset, " +
+      s"fetchTimeMs=$fetchTimeMs, " +
+      s"isReadAllowed: $isReadAllowed" +
+      s"preferredReadReplica=$preferredReadReplica, " +
+      s"lastStableOffset=$lastStableOffset, " +
+      s"error=$error" +
+      ")"
+  }
 }
 
 case class TierLogReadResult(info: TierFetchDataInfo,
@@ -182,11 +190,9 @@ case class TierLogReadResult(info: TierFetchDataInfo,
       leaderLogEndOffset = this.leaderLogEndOffset,
       followerLogStartOffset = this.followerLogStartOffset,
       fetchTimeMs = this.fetchTimeMs,
-      readSize = this.readSize,
       isReadAllowed = isReadAllowed,
       lastStableOffset = this.lastStableOffset,
       preferredReadReplica = this.preferredReadReplica,
-      followerNeedsHwUpdate = this.followerNeedsHwUpdate,
       exception = exceptionOpt
     )
   }
@@ -1184,6 +1190,7 @@ class ReplicaManager(val config: KafkaConfig,
       if (isFromFollower) updateFollowerFetchState(replicaId, result)
       else result
     }
+
     val logReadResults = readFromLog()
 
     // check if this fetch request can be satisfied right away
@@ -1197,7 +1204,6 @@ class ReplicaManager(val config: KafkaConfig,
 
     val localLogReadResultMap = new mutable.HashMap[TopicPartition, LogReadResult]
     val tierLogReadResultMap = new mutable.HashMap[TopicPartition, TierLogReadResult]
-    var anyPartitionsNeedHwUpdate = false
 
     logReadResults.foreach {
       case (topicPartition: TopicPartition, logReadResult: LogReadResult) =>
@@ -1207,9 +1213,6 @@ class ReplicaManager(val config: KafkaConfig,
           errorReadingData = true
         localReadableBytes += logReadResult.info.records.sizeInBytes
         localLogReadResultMap.put(topicPartition, logReadResult)
-        if (isFromFollower && logReadResult.followerNeedsHwUpdate) {
-          anyPartitionsNeedHwUpdate = true
-        }
 
       case (topicPartition: TopicPartition, tierLogReadResult: TierLogReadResult) =>
         updateBrokerTopicStats(topicPartition.topic)
@@ -1223,8 +1226,7 @@ class ReplicaManager(val config: KafkaConfig,
     //                        2) fetch request does not require any data
     //                        3) fetch request does not require any tiered data and has enough data available in local store to respond
     //                        4) some error happens while reading data
-    //                        5) any of the requested partitions need HW update
-    if (timeout <= 0 || fetchInfos.isEmpty || (tierLogReadResultMap.isEmpty && localReadableBytes >= fetchMinBytes) || errorReadingData || anyPartitionsNeedHwUpdate) {
+    if (timeout <= 0 || fetchInfos.isEmpty || (tierLogReadResultMap.isEmpty && localReadableBytes >= fetchMinBytes) || errorReadingData) {
       val fetchPartitionData = logReadResults.map { case (tp, result) =>
         val records = result match {
           case logReadResult: LogReadResult =>
@@ -1333,7 +1335,6 @@ class ReplicaManager(val config: KafkaConfig,
             leaderLogEndOffset = offsetSnapshot.logEndOffset.messageOffset,
             followerLogStartOffset = followerLogStartOffset,
             fetchTimeMs = -1L,
-            readSize = 0,
             isReadAllowed = false,
             lastStableOffset = Some(offsetSnapshot.lastStableOffset.messageOffset),
             preferredReadReplica = preferredReadReplica,
@@ -1380,11 +1381,9 @@ class ReplicaManager(val config: KafkaConfig,
                 leaderLogEndOffset = readInfo.logEndOffset,
                 followerLogStartOffset = followerLogStartOffset,
                 fetchTimeMs = fetchTimeMs,
-                readSize = adjustedMaxBytes,
                 isReadAllowed = adjustedMaxBytes > 0 || minOneMessage,
                 lastStableOffset = Some(readInfo.lastStableOffset),
                 preferredReadReplica = preferredReadReplica,
-                followerNeedsHwUpdate = followerNeedsHwUpdate,
                 exception = None)
 
             case info: TierFetchDataInfo =>
@@ -1417,7 +1416,6 @@ class ReplicaManager(val config: KafkaConfig,
             leaderLogEndOffset = Log.UnknownOffset,
             followerLogStartOffset = Log.UnknownOffset,
             fetchTimeMs = -1L,
-            readSize = 0,
             isReadAllowed = false,
             lastStableOffset = None,
             exception = Some(e))
@@ -1435,7 +1433,6 @@ class ReplicaManager(val config: KafkaConfig,
             leaderLogEndOffset = Log.UnknownOffset,
             followerLogStartOffset = Log.UnknownOffset,
             fetchTimeMs = -1L,
-            readSize = 0,
             isReadAllowed = false,
             lastStableOffset = None,
             exception = Some(e))
@@ -1990,8 +1987,7 @@ class ReplicaManager(val config: KafkaConfig,
                   followerFetchOffsetMetadata = readResult.info.fetchOffsetMetadata,
                   followerStartOffset = readResult.followerLogStartOffset,
                   followerFetchTimeMs = readResult.fetchTimeMs,
-                  leaderEndOffset = readResult.leaderLogEndOffset,
-                  lastSentHighwatermark = readResult.highWatermark)) {
+                  leaderEndOffset = readResult.leaderLogEndOffset)) {
                   readResult
                 } else {
                   warn(s"Leader $localBrokerId failed to record follower $followerId's position " +
@@ -2000,9 +1996,6 @@ class ReplicaManager(val config: KafkaConfig,
                     s"for partition $topicPartition. Empty records will be returned for this partition.")
                   readResult.withEmptyFetchInfo
                 }
-              case None =>
-                warn(s"While recording the replica LEO, the partition $topicPartition hasn't been created.")
-                readResult
             }
           case readResult: TierLogReadResult =>
             val reason = s"Lagging follower $followerId fetched from the tiered portion of the log at offset " +
@@ -2014,7 +2007,6 @@ class ReplicaManager(val config: KafkaConfig,
               leaderLogEndOffset = -1L,
               followerLogStartOffset = -1L,
               fetchTimeMs = -1L,
-              readSize = 0,
               isReadAllowed = false,
               lastStableOffset = None,
               exception = Some(new OffsetTieredException(reason)))

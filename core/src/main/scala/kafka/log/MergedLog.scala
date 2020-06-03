@@ -242,10 +242,11 @@ class MergedLog(private[log] val localLog: Log,
     tierPartitionState.closeHandlers()
   }
 
-  override def maybeIncrementLogStartOffset(newLogStartOffset: Long): Unit = lock synchronized {
+  override def maybeIncrementLogStartOffset(newLogStartOffset: Long,
+                                            reason: LogStartOffsetIncrementReason): Unit = lock synchronized {
     if (newLogStartOffset > logStartOffset) {
       info(s"Incrementing merged log start offset to $newLogStartOffset")
-      localLog.maybeIncrementLogStartOffset(newLogStartOffset)
+      localLog.maybeIncrementLogStartOffset(newLogStartOffset, reason)
       updateLogStartOffset(newLogStartOffset)
     }
   }
@@ -1015,7 +1016,7 @@ sealed trait AbstractLog {
     * Increment the log start offset if the provided offset is larger
     * @param newLogStartOffset Proposed log start offset
     */
-  def maybeIncrementLogStartOffset(newLogStartOffset: Long): Unit
+  def maybeIncrementLogStartOffset(newLogStartOffset: Long, reason: LogStartOffsetIncrementReason): Unit
 
   /**
     * Locate messages from the log. This method returns a locator to the relevant log data.

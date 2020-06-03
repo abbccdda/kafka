@@ -17,10 +17,10 @@
 
 package kafka.cluster
 
-import kafka.log.{Log}
+import kafka.log.Log
+import kafka.server.LogOffsetMetadata
 import kafka.utils.Logging
-import kafka.server.{LogOffsetMetadata}
-import org.apache.kafka.common.{TopicPartition}
+import org.apache.kafka.common.TopicPartition
 
 class Replica(val brokerId: Int, val topicPartition: TopicPartition) extends Logging {
   // the log end offset value, kept in all replicas;
@@ -73,8 +73,7 @@ class Replica(val brokerId: Int, val topicPartition: TopicPartition) extends Log
   def updateFetchState(followerFetchOffsetMetadata: LogOffsetMetadata,
                        followerStartOffset: Long,
                        followerFetchTimeMs: Long,
-                       leaderEndOffset: Long,
-                       lastSentHighwatermark: Long): Unit = {
+                       leaderEndOffset: Long): Unit = {
     if (followerFetchOffsetMetadata.messageOffset >= leaderEndOffset)
       _lastCaughtUpTimeMs = math.max(_lastCaughtUpTimeMs, followerFetchTimeMs)
     else if (followerFetchOffsetMetadata.messageOffset >= lastFetchLeaderLogEndOffset)
@@ -117,7 +116,6 @@ class Replica(val brokerId: Int, val topicPartition: TopicPartition) extends Log
     replicaString.append(s", logEndOffsetMetadata=$logEndOffsetMetadata")
     replicaString.append(s", lastFetchLeaderLogEndOffset=$lastFetchLeaderLogEndOffset")
     replicaString.append(s", lastFetchTimeMs=$lastFetchTimeMs")
-    replicaString.append(s", lastSentHighWatermark=$lastSentHighWatermark")
     replicaString.append(")")
     replicaString.toString
   }

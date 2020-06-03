@@ -106,6 +106,7 @@ public class WorkerGroupMember {
             contextLabels.put(ConfluentConfigs.RESOURCE_LABEL_TYPE, WorkerConfig.CONNECT_RESOURCE_TYPE);
             contextLabels.put(ConfluentConfigs.RESOURCE_LABEL_VERSION, AppInfoParser.getVersion());
             contextLabels.put(ConfluentConfigs.RESOURCE_LABEL_COMMIT_ID, AppInfoParser.getCommitId());
+
             MetricsContext metricsContext = new KafkaMetricsContext(JMX_PREFIX, contextLabels);
 
             this.metrics = new Metrics(metricConfig, reporters, time, metricsContext);

@@ -28,6 +28,9 @@ import kafka.api.LeaderAndIsr
 import kafka.api.{ApiVersion, KAFKA_0_10_2_IV0, KAFKA_2_2_IV1}
 import kafka.cluster.{Broker, Partition}
 import kafka.controller.{KafkaController, ReplicaAssignment}
+import kafka.cluster.Partition
+import kafka.controller.KafkaController
+import kafka.coordinator.group.GroupOverview
 import kafka.coordinator.group.GroupCoordinatorConcurrencyTest.JoinGroupCallback
 import kafka.coordinator.group.GroupCoordinatorConcurrencyTest.SyncGroupCallback
 import kafka.coordinator.group.JoinGroupResult
@@ -270,7 +273,7 @@ class KafkaApisTest {
 
     val configResource = new ConfigResource(ConfigResource.Type.TOPIC, resourceName)
     val config = new DescribeConfigsResponse.Config(ApiError.NONE, Collections.emptyList[DescribeConfigsResponse.ConfigEntry])
-    EasyMock.expect(adminManager.describeConfigs(anyObject(), EasyMock.eq(true), anyObject()))
+    EasyMock.expect(adminManager.describeConfigs(anyObject(), EasyMock.eq(true), anyObject(), EasyMock.eq(false)))
         .andReturn(Map(configResource -> config))
 
     EasyMock.replay(replicaManager, clientRequestQuotaManager, requestChannel, authorizer,
@@ -2257,8 +2260,8 @@ class KafkaApisTest {
     val cluster = new Cluster("clusterId",
       nodes.asJava,
       partitions,
-      Collections.emptySet(),   // unauthorized topics
-      Collections.emptySet())   // internal topics
+      Collections.emptySet(), // unauthorized topics
+      Collections.emptySet()) // internal topics
 
     val metadataCache: MetadataCache = EasyMock.createNiceMock(classOf[MetadataCache])
     EasyMock.expect(metadataCache.getClusterMetadata(anyString(), anyObject(classOf[ListenerName]))).andReturn(cluster)
@@ -2272,6 +2275,50 @@ class KafkaApisTest {
     val requestChannelRequest = buildRequest(request)
     createKafkaApis(metadataCache = metadataCache).handleRemoveBrokersRequest(requestChannelRequest)
     EasyMock.verify(controller)
+  }
+
+  @Test
+  def testListGroupsRequest(): Unit = {
+    val overviews = List(
+      GroupOverview("group1", "protocol1", "Stable"),
+      GroupOverview("group2", "qwerty", "Empty")
+    )
+    val response = listGroupRequest(None, overviews)
+    assertEquals(2, response.data.groups.size)
+    assertEquals("Stable", response.data.groups.get(0).groupState)
+    assertEquals("Empty", response.data.groups.get(1).groupState)
+  }
+
+  @Test
+  def testListGroupsRequestWithState(): Unit = {
+    val overviews = List(
+      GroupOverview("group1", "protocol1", "Stable")
+    )
+    val response = listGroupRequest(Some("Stable"), overviews)
+    assertEquals(1, response.data.groups.size)
+    assertEquals("Stable", response.data.groups.get(0).groupState)
+  }
+
+  private def listGroupRequest(state: Option[String], overviews: List[GroupOverview]): ListGroupsResponse = {
+    EasyMock.reset(groupCoordinator, clientRequestQuotaManager, requestChannel)
+
+    val data = new ListGroupsRequestData()
+    if (state.isDefined)
+      data.setStatesFilter(Collections.singletonList(state.get))
+    val listGroupsRequest = new ListGroupsRequest.Builder(data).build()
+    val requestChannelRequest = buildRequest(listGroupsRequest)
+
+    val capturedResponse = expectNoThrottling()
+    val expectedStates: Set[String] = if (state.isDefined) Set(state.get) else Set()
+    EasyMock.expect(groupCoordinator.handleListGroups(expectedStates))
+      .andReturn((Errors.NONE, overviews))
+    EasyMock.replay(groupCoordinator, clientRequestQuotaManager, requestChannel)
+
+    createKafkaApis().handleListGroupsRequest(requestChannelRequest)
+
+    val response = readResponse(ApiKeys.LIST_GROUPS, listGroupsRequest, capturedResponse).asInstanceOf[ListGroupsResponse]
+    assertEquals(Errors.NONE.code, response.data.errorCode)
+    response
   }
 
   /**
