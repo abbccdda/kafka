@@ -76,8 +76,10 @@ public class KafkaAuthStore implements AuthStore, ConsumerListener<AuthKey, Auth
   private volatile KafkaAuthWriter writer;
   private volatile Integer masterWriterId;
 
-  public KafkaAuthStore(Scope scope, ConfluentAuthorizerServerInfo serverInfo) {
-    this(RbacRoles.loadDefaultPolicy(), Time.SYSTEM, scope, serverInfo, KafkaStoreConfig.NUM_PARTITIONS);
+  public KafkaAuthStore(boolean isConfluentCloud, Scope scope,
+                        ConfluentAuthorizerServerInfo serverInfo) {
+    this(RbacRoles.loadDefaultPolicy(isConfluentCloud), Time.SYSTEM, scope, serverInfo,
+            KafkaStoreConfig.NUM_PARTITIONS);
   }
 
   public KafkaAuthStore(RbacRoles rbacRoles, Time time, Scope scope,

@@ -201,7 +201,6 @@ object KafkaServer {
   }
 
   val MIN_INCREMENTAL_FETCH_SESSION_EVICTION_MS: Long = 120000
-  val MULTI_TENANT_AUTHORIZER_CLASS_NAME = "io.confluent.kafka.multitenant.authorizer.MultiTenantAuthorizer"
   val externalShutdownInitiations: AtomicLong = new AtomicLong(0)
   val logger = Logger(LoggerFactory.getLogger("KafkaServer"))
 }
@@ -604,7 +603,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         // confluent-server` disables license only for Cloud. Start license manager if
         // not using the multi-tenant authorizer.
-        if (!authorizer.map(_.getClass.getName).contains(KafkaServer.MULTI_TENANT_AUTHORIZER_CLASS_NAME)) {
+        if (!authorizer.map(_.getClass.getName).contains(ConfluentConfigs.MULTITENANT_AUTHORIZER_CLASS_NAME)) {
           val interBrokerEndpoint = brokerInfo.broker.endPoint(config.interBrokerListenerName).toJava
           licenseValidator = ConfluentConfigs.buildLicenseValidator(config, interBrokerEndpoint)
           licenseValidator.start(config.brokerId.toString)

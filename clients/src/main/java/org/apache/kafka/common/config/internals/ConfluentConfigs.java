@@ -49,6 +49,7 @@ public class ConfluentConfigs {
 
     public static final String BROKER_INTERCEPTOR_CLASS_CONFIG = "broker.interceptor.class";
     public static final Class<?> BROKER_INTERCEPTOR_CLASS_DEFAULT = DefaultBrokerInterceptor.class;
+    public static final String MULTITENANT_AUTHORIZER_CLASS_NAME = "io.confluent.kafka.multitenant.authorizer.MultiTenantAuthorizer";
     public static final String MULTITENANT_METADATA_CLASS_CONFIG = "multitenant.metadata.class";
     public static final String MULTITENANT_METADATA_CLASS_DEFAULT = null;
     public static final String MULTITENANT_METADATA_DIR_CONFIG = "multitenant.metadata.dir";

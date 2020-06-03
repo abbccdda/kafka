@@ -1,0 +1,23 @@
+// (Copyright) [2020 - 2020] Confluent, Inc.
+
+// Cloud role definitions with access policies
+/*
+This skeleton will be fleshed out in CIAM-26
+*/
+
+{
+  "roles" : [
+    {
+      "name" : "OrgAdmin",
+      "policy" : {
+        "scopeType" : "Cluster",
+        "allowedOperations" : [
+          {
+            "resourceType" : "All",
+            "operations" : ["All"]
+          }
+        ]
+      }
+    }
+  ]
+}
