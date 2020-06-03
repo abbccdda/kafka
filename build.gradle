@@ -166,6 +166,35 @@ allprojects {
 
 }
 
+ext {
+  gradleVersion = versions.gradle
+  minJavaVersion = "8"
+  buildVersionFileName = "kafka-version.properties"
+
+  defaultMaxHeapSize = "2g"
+  defaultJvmArgs = ["-Xss4m", "-XX:+UseParallelGC"]
+
+  userMaxForks = project.hasProperty('maxParallelForks') ? maxParallelForks.toInteger() : null
+
+  userMaxTestRetries = project.hasProperty('maxTestRetries') ? maxTestRetries.toInteger() : 0
+  userMaxTestRetryFailures = project.hasProperty('maxTestRetryFailures') ? maxTestRetryFailures.toInteger() : 0
+
+  skipSigning = project.hasProperty('skipSigning') && skipSigning.toBoolean()
+  shouldSign = !skipSigning && !version.endsWith("SNAPSHOT") && project.gradle.startParameter.taskNames.any { it.contains("upload") }
+
+  mavenUrl = project.hasProperty('mavenUrl') ? project.mavenUrl : ''
+  mavenUsername = project.hasProperty('mavenUsername') ? project.mavenUsername : ''
+  mavenPassword = project.hasProperty('mavenPassword') ? project.mavenPassword : ''
+
+  userShowStandardStreams = project.hasProperty("showStandardStreams") ? showStandardStreams : null
+
+  userTestLoggingEvents = project.hasProperty("testLoggingEvents") ? Arrays.asList(testLoggingEvents.split(",")) : null
+
+  generatedDocsDir = new File("${project.rootDir}/docs/generated")
+
+  commitId = project.hasProperty('commitId') ? commitId : null
+}
+
 apply from: file('wrapper.gradle')
 
 // The RAT check examines the license headers of files.  Because we have some
@@ -341,8 +370,8 @@ subprojects {
   test {
     maxParallelForks = userMaxForks ?: Runtime.runtime.availableProcessors()
 
-    minHeapSize = "256m"
-    maxHeapSize = "2048m"
+    maxHeapSize = defaultMaxHeapSize
+    jvmArgs = defaultJvmArgs
 
     testLogging {
       events = userTestLoggingEvents ?: testLoggingEvents
@@ -365,8 +394,9 @@ subprojects {
     maxParallelForks = userMaxForks ?: Runtime.runtime.availableProcessors()
     ignoreFailures = userIgnoreFailures
 
-    minHeapSize = "256m"
-    maxHeapSize = "2048m"
+    maxHeapSize = defaultMaxHeapSize
+    jvmArgs = defaultJvmArgs
+
 
     testLogging {
       events = userTestLoggingEvents ?: testLoggingEvents
@@ -393,8 +423,8 @@ subprojects {
     maxParallelForks = userMaxForks ?: Runtime.runtime.availableProcessors()
     ignoreFailures = userIgnoreFailures
 
-    minHeapSize = "256m"
-    maxHeapSize = "2048m"
+    maxHeapSize = defaultMaxHeapSize
+    jvmArgs = defaultJvmArgs
 
     testLogging {
       events = userTestLoggingEvents ?: testLoggingEvents
@@ -551,8 +581,8 @@ subprojects {
       scalaCompileOptions.additionalParameters += ["-release", minJavaVersion]
 
     configure(scalaCompileOptions.forkOptions) {
-      memoryMaximumSize = '2g'
-      jvmArgs = ['-Xss4m']
+      memoryMaximumSize = defaultMaxHeapSize
+      jvmArgs = defaultJvmArgs
     }
   }
 
@@ -587,7 +617,8 @@ subprojects {
       xml.enabled(project.hasProperty('xmlSpotBugsReport') || project.hasProperty('xmlFindBugsReport'))
       html.enabled(!project.hasProperty('xmlSpotBugsReport') && !project.hasProperty('xmlFindBugsReport'))
     }
-    maxHeapSize = "2g"
+    maxHeapSize = defaultMaxHeapSize
+    jvmArgs = defaultJvmArgs
   }
 
   // Ignore core since its a scala project
