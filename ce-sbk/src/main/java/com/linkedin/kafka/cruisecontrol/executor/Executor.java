@@ -10,6 +10,7 @@ import com.linkedin.kafka.cruisecontrol.common.MetadataClient;
 import com.linkedin.kafka.cruisecontrol.common.SbkAdminUtils;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.detector.AnomalyDetector;
+import com.linkedin.kafka.cruisecontrol.detector.notifier.AnomalyType;
 import com.linkedin.kafka.cruisecontrol.executor.strategy.ReplicaMovementStrategy;
 import com.linkedin.kafka.cruisecontrol.model.ReplicaPlacementInfo;
 import com.linkedin.kafka.cruisecontrol.monitor.LoadMonitor;
@@ -801,15 +802,21 @@ public class Executor {
     }
 
     public void run() {
-      LOG.info("Starting execution of balancing proposals.");
-      execute();
-      LOG.info("Execution finished.");
+      try {
+        LOG.info("Starting execution of balancing proposals.");
+        execute();
+        LOG.info("Execution finished.");
+      } catch (Exception e) {
+        LOG.error("Exception during execution of ProposalExecutionRunnable", e);
+      }
     }
 
     /**
      * Start the actual execution of the proposals in order: First move replicas, then transfer leadership.
      */
     protected void execute() {
+      boolean isAnomaly = AnomalyType.cachedValues().stream().anyMatch(type -> _uuid.startsWith(type.toString()));
+
       _state = ExecutorState.State.STARTING_EXECUTION;
       _executorState = ExecutorState.executionStarted(_uuid, _recentlyDemotedBrokers, _recentlyRemovedBrokers);
       OPERATION_LOG.info("Task [{}] execution starts.", _uuid);
@@ -880,10 +887,11 @@ public class Executor {
         LOG.error("Executor got exception during execution", t);
         _executionException = t;
       } finally {
-        // If the finished task was triggered by a user request, update task status in user task manager; if task is triggered
-        // by an anomaly self-healing, update the task status in anomaly detector.
-        // XXX: Need to track user requests versus other
-        _anomalyDetector.markSelfHealingFinished(_uuid);
+        LOG.info("Cleaning up execution of {}", _uuid);
+        // If task was triggered by an anomaly self-healing, update the task status in anomaly detector.
+        if (isAnomaly) {
+          _anomalyDetector.markSelfHealingFinished(_uuid);
+        }
         _loadMonitor.resumeMetricSampling(String.format("Resumed-By-Cruise-Control-After-Completed-Execution (Date: %s)", currentUtcDate()));
 
         _throttleHelper.resetThrottleAfterExecution();

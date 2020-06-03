@@ -778,17 +778,28 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
   @Test
   public void testBrokerRemovalProposalExecutionRunnableCallsCallbackWithException() {
     Exception expectedException = new Exception("!!!");
+
     AnomalyDetector mockAnomalyDetector = Mockito.mock(AnomalyDetector.class);
+    LoadMonitor mockLoadMonitor = Mockito.mock(LoadMonitor.class);
+    // Throw one catchable exception during the execution.
+    Mockito.doAnswer(invocation -> {
+      throw new NullPointerException("haha got you");
+    }).when(mockLoadMonitor).pauseMetricSampling(Mockito.anyString());
+    // Once execution has finished, throw a different exception to make sure we catch the right one.
     Mockito.doAnswer(invocation -> {
       throw expectedException;
-    }).when(mockAnomalyDetector).markSelfHealingFinished(Mockito.any());
+    }).when(mockLoadMonitor).resumeMetricSampling(Mockito.anyString());
 
     Executor executor = createExecutor(mockAnomalyDetector);
+
+    // Bleah, the ProposalExecutionRunnable depends on "global" (Executor) state. Initialize that.
+    executor.initProposalExecution(Collections.emptySet(), Collections.emptySet(), null, null, null,
+            null, RANDOM_UUID);
+
     BrokerRemovalCallback callbackMock = Mockito.mock(BrokerRemovalCallback.class);
     // pass in some nulls to trigger an NPE in the run() method,
-    // then have mockAnomalyDetector#markSelfHealingFinished throw as
-    // the first statement in ProposalExecutionRunnable's finally block
-    Executor.BrokerRemovalProposalExecutionRunnable runnable = executor.new BrokerRemovalProposalExecutionRunnable(null, null, null, null, callbackMock);
+    // and the null LoadMonitor will result in another in the finally() cleanup.
+    Executor.BrokerRemovalProposalExecutionRunnable runnable = executor.new BrokerRemovalProposalExecutionRunnable(mockLoadMonitor, null, null, null, callbackMock);
     try {
       runnable.run();
       fail("Expected the BrokerRemovalProposalExecutionRunnable to throw an exception");
