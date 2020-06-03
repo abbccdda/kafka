@@ -20,11 +20,13 @@ import scala.jdk.CollectionConverters._
 class ClusterLinkSyncOffsets(val clientManager: ClusterLinkClientManager,
                              config: ClusterLinkConfig,
                              controller: KafkaController,
-                             val destAdminFactory: () => Admin)
+                             val destAdminFactory: () => Admin,
+                             tenantPrefix: Option[String] = None)
   extends ClusterLinkScheduler.PeriodicTask(clientManager.scheduler, name = "SyncOffsets",
     config.consumerOffsetSyncMs) {
 
-  val currentOffsets = mutable.Map.empty[(String, TopicPartition), Long]
+  private[link] val currentOffsets = mutable.Map.empty[(String, TopicPartition), Long]
+  private val groupFilters: Seq[Filter] = destinationFilters(config.consumerGroupFilters.map(_.groupFilters).getOrElse(Seq.empty))
 
   /**
    * Starts running the task, returning whether the task has completed.
@@ -58,7 +60,6 @@ class ClusterLinkSyncOffsets(val clientManager: ClusterLinkClientManager,
     }
   }
 
-
   /**
    * Method to filter out consumer groups to match those that we are interested in.
    *
@@ -68,33 +69,24 @@ class ClusterLinkSyncOffsets(val clientManager: ClusterLinkClientManager,
    */
   private def filterConsumerGroups(groups: Set[String]) : Set[String] = {
 
-    val groupFilters = config.consumerGroupFilters.get
-
-    val matches = (filter:GroupFilter,group:String) =>  {
-      val patternType = SecurityUtils.patternType(filter.patternType)
-      ((filter.name == "*" && patternType == PatternType.LITERAL)
-        || (patternType == PatternType.PREFIXED && group.startsWith(filter.name))
-        || (patternType == PatternType.LITERAL && group == filter.name))
-    }
-
-    // determine if there any filters that match no groups and warn
-    groupFilters.groupFilters
-      .filterNot { filter => groups.exists(matches(filter, _) ) }
-      .foreach(unusedFilter => warn(s"The filter $unusedFilter does not match any consumer " +
-        "group. This filter may not be required or the groups it referred to may not have the correct DESCRIBE ACL " +
-        "for the cluster link principal on the source cluster."))
-
-    groups.filter(group => {
-      val matchedFilters = groupFilters.groupFilters.filter(filter =>
-        matches(filter,group)
-      )
+    val usedFilters = mutable.Buffer[Filter]()
+    val filtered = groups.filter { group =>
+      val matchedFilters = groupFilters.filter(_.matches(group))
       // if there are no filters that match this group we deny it by default
       if (matchedFilters.isEmpty) {
         false
       } else {
-        matchedFilters.forall(_.filterType == FilterType.WHITELIST_OPT)
+        usedFilters ++= matchedFilters
+        matchedFilters.forall(_.isWhiteList)
       }
-    })
+    }
+
+    groupFilters.diff(usedFilters).foreach { unusedFilter =>
+      warn(s"The filter $unusedFilter does not match any consumer group. This filter may not be " +
+        "required or the groups it referred to may not have the correct DESCRIBE ACL " +
+        "for the cluster link principal on the source cluster.")
+    }
+    filtered
   }
 
   /**
@@ -115,12 +107,13 @@ class ClusterLinkSyncOffsets(val clientManager: ClusterLinkClientManager,
         val commitFutures = getCommitFutures(groupFutures)
         val allCommitFutures = KafkaFuture.allOf(commitFutures.values.toSeq:_*)
 
-        commitOffsets(allCommitFutures,groupFutures)
+        commitOffsets(allCommitFutures, groupFutures)
         false
       })
   }
 
-  private def commitOffsets(allCommitFutures: KafkaFuture[Void],commitFutures: Map[String, KafkaFuture[util.Map[TopicPartition, OffsetAndMetadata]]]) = {
+  private def commitOffsets(allCommitFutures: KafkaFuture[Void],
+                            commitFutures: Map[String, KafkaFuture[util.Map[TopicPartition, OffsetAndMetadata]]]) = {
     scheduleWhenComplete(allCommitFutures, () => {
       // clear current offsets to be remove old groups
       currentOffsets.clear()
@@ -159,7 +152,7 @@ class ClusterLinkSyncOffsets(val clientManager: ClusterLinkClientManager,
         .filter(t => controller.controllerContext.linkedTopics.get(t._1.topic).exists(_.mirrorIsEstablished)
           && currentOffsets.getOrElse((group, t._1), -1) != t._2.offset())
       if (offsets.nonEmpty) {
-        Some(group -> destAdminFactory().alterConsumerGroupOffsets(group,offsets.asJava).all())
+        Some(group -> destAdminFactory().alterConsumerGroupOffsets(group, offsets.asJava).all())
       } else {
         None
       }
@@ -191,5 +184,42 @@ class ClusterLinkSyncOffsets(val clientManager: ClusterLinkClientManager,
           None
       }
     }).toMap
+  }
+
+  private def destinationFilters(groupFilters: Seq[GroupFilter]) : Seq[Filter] = {
+    groupFilters.map { filter =>
+      val patternType = SecurityUtils.patternType(filter.patternType)
+
+      tenantPrefix match {
+        case Some(prefix) =>
+          patternType match {
+            case PatternType.LITERAL =>
+              if (filter.name == "*" && patternType == PatternType.LITERAL)
+                Filter(prefix, PatternType.PREFIXED, filter.filterType, filter)
+              else
+                Filter(prefix + filter.name, patternType, filter.filterType, filter)
+            case PatternType.PREFIXED =>
+              Filter(prefix + filter.name, patternType, filter.filterType, filter)
+            case _ =>
+              throw new IllegalStateException(s"Unexpected pattern type ${filter.patternType}")
+          }
+        case None => Filter(filter.name, patternType, filter.filterType, filter)
+      }
+    }
+  }
+
+  private case class Filter(name : String,
+                            patternType: PatternType,
+                            filterType: String,
+                            configuredFilter: GroupFilter) {
+    val isWildcard = name == "*" && patternType == PatternType.LITERAL
+    val isWhiteList = FilterType.fromString(filterType).contains(FilterType.WHITELIST)
+
+    def matches(group: String): Boolean = {
+      isWildcard || (patternType == PatternType.PREFIXED && group.startsWith(name)) ||
+        (patternType == PatternType.LITERAL && group == name)
+    }
+
+    override def toString: String = configuredFilter.toString
   }
 }

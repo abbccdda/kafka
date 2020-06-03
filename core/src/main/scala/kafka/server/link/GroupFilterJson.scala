@@ -10,8 +10,6 @@ import org.apache.kafka.common.config.{ConfigDef, ConfigException}
 import org.apache.kafka.common.resource.PatternType
 import org.apache.kafka.common.utils.SecurityUtils
 
-import scala.collection.mutable
-
 /* Example consumer.group.filters.json:
 {
 "groupFilters": [
@@ -112,7 +110,7 @@ final class GroupFilterJsonValidator extends ConfigDef.Validator {
 }
 
 @JsonCreator
-case class GroupFiltersJson(@JsonProperty ("groupFilters") groupFilters: mutable.ListBuffer[GroupFilter]) {
+case class GroupFiltersJson(@JsonProperty ("groupFilters") groupFilters: Seq[GroupFilter]) {
 
   def toJson: String = {
     try {

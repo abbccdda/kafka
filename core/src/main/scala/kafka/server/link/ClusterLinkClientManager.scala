@@ -36,7 +36,8 @@ class ClusterLinkClientManager(val linkName: String,
                                authorizer: Option[Authorizer],
                                controller: KafkaController,
                                linkAdminFactory: ClusterLinkConfig => ConfluentAdmin,
-                               destAdminFactory: () => Admin) extends Logging {
+                               destAdminFactory: () => Admin,
+                               tenantPrefix: Option[String] = None) extends Logging {
 
   @volatile private var admin: Option[ConfluentAdmin] = None
 
@@ -56,7 +57,7 @@ class ClusterLinkClientManager(val linkName: String,
   def startup(): Unit = {
     setAdmin(Some(linkAdminFactory(config)))
 
-    clusterLinkSyncOffsets = Some(new ClusterLinkSyncOffsets(this, config, controller,destAdminFactory))
+    clusterLinkSyncOffsets = Some(new ClusterLinkSyncOffsets(this, config, controller,destAdminFactory, tenantPrefix))
     clusterLinkSyncOffsets.get.startup()
 
     clusterLinkSyncTopicConfigs = new ClusterLinkSyncTopicsConfigs(this, config.topicConfigSyncMs)
