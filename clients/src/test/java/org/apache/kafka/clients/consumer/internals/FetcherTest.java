@@ -30,6 +30,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.OffsetAndTimestamp;
 import org.apache.kafka.clients.consumer.OffsetOutOfRangeException;
 import org.apache.kafka.clients.consumer.OffsetResetStrategy;
+import org.apache.kafka.clients.consumer.internals.OffsetsForLeaderEpochClient.OffsetForEpochResult;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.IsolationLevel;
 import org.apache.kafka.common.KafkaException;
@@ -3832,7 +3833,11 @@ public class FetcherTest {
         Metadata.LeaderAndEpoch leaderAndEpoch = new Metadata.LeaderAndEpoch(metadata.currentLeader(tp0).leader, Optional.of(epochOne));
         subscriptions.seekUnvalidated(tp0, new SubscriptionState.FetchPosition(0, Optional.of(epochOne), leaderAndEpoch));
 
-        fetcher.validateOffsetsIfNeeded();
+        Map<Node, RequestFuture<OffsetForEpochResult>> futures = fetcher.validateOffsetsIfNeeded();
+        assertEquals(1, futures.size());
+
+        RequestFuture<OffsetForEpochResult> future = futures.values().iterator().next();
+
         consumerClient.poll(time.timer(Duration.ZERO));
         assertTrue(subscriptions.awaitingValidation(tp0));
         assertTrue(client.hasInFlightRequests());
@@ -3844,11 +3849,15 @@ public class FetcherTest {
         }, new OffsetsForLeaderEpochResponse(singletonMap(tp0, epochEndOffset)));
         consumerClient.poll(time.timer(Duration.ZERO));
 
+        assertTrue(future.isDone());
+
         assertEquals(0, subscriptions.position(tp0).offset);
 
         if (offsetResetStrategy == OffsetResetStrategy.NONE) {
+            assertThrows(OffsetOutOfRangeException.class, future::exception);
             assertTrue(subscriptions.awaitingValidation(tp0));
         } else {
+            assertTrue(future.succeeded());
             assertFalse(subscriptions.awaitingValidation(tp0));
         }
     }
