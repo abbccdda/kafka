@@ -213,11 +213,13 @@ object Defaults {
   val TierS3Region = null
   val TierS3Prefix = ""
   val TierS3SseAlgorithm = "AES256"
+  val TierS3SseCustomerEncryptionKey = null: String
   val TierS3AwsAccessKeyId = null
   val TierS3AwsSecretAccessKey = null
   val TierS3EndpointOverride = null
   val TierS3SignerOverride = null
   val TierS3AutoAbortThresholdBytes = 500000: Integer
+  val TierS3AssumeRoleArn = null: String
   val TierFetcherNumThreads = 4: Integer
   val TierFetcherOffsetCacheSize = 200000: Integer
   val TierFetcherOffsetCacheExpirationMs = 30 * 60 * 1000
@@ -584,11 +586,13 @@ object KafkaConfig {
   val TierS3RegionProp = ConfluentPrefix + "tier.s3.region"
   val TierS3PrefixProp = ConfluentPrefix + "tier.s3.prefix"
   val TierS3SseAlgorithmProp = ConfluentPrefix + "tier.s3.sse.algorithm"
+  val TierS3SseCustomerEncryptionKeyProp = ConfluentPrefix + "tier.s3.sse.customer.encryption.key"
   val TierS3AwsAccessKeyIdProp = ConfluentPrefix + "tier.s3.aws.access.key.id"
   val TierS3AwsSecretAccessKeyProp = ConfluentPrefix + "tier.s3.aws.secret.access.key"
   val TierS3EndpointOverrideProp = ConfluentPrefix + "tier.s3.aws.endpoint.override"
   val TierS3SignerOverrideProp = ConfluentPrefix + "tier.s3.aws.signer.override"
   val TierS3AutoAbortThresholdBytesProp = ConfluentPrefix + "tier.s3.auto.abort.threshold.bytes"
+  val TierS3AssumeRoleArnProp = ConfluentPrefix + "tier.s3.assumerole.arn"
 
   /** Tiered storage GCS configs **/
   val TierGcsBucketProp = ConfluentPrefix + "tier.gcs.bucket"
@@ -1052,12 +1056,14 @@ object KafkaConfig {
   val TierS3BucketDoc = "The S3 bucket to use for tiered storage."
   val TierS3RegionDoc = "The S3 region to use for tiered storage."
   val TierS3PrefixDoc = "This prefix will be added to tiered storage objects stored in S3."
-  val TierS3SseAlgorithmDoc = "The S3 server side encryption algorithm to use to protect objects at rest. Currently supports AES256 and none. Defaults to AES256."
+  val TierS3SseAlgorithmDoc = "The S3 server side encryption algorithm to use to protect objects at rest. Currently supports AES256, aws:kms, and none. Defaults to AES256."
+  val TierS3SseCustomerEncryptionKeyDoc = s"The SSE-KMS customer key to use. If a customer key is provided, 'aws:kms' should be set for $TierS3SseAlgorithmProp"
   val TierS3AwsAccessKeyIdDoc = "The S3 AWS access key id directly via the Kafka configuration. If not set, the access key id will be supplied via the AWS default provider chain e.g. AWS_ACCESS_KEY_ID environment variable, ~/.aws/config, etc"
   val TierS3AwsSecretAccessKeyDoc = "The S3 AWS secret access key directly via the Kafka configuration. If not set, the secret access key will be supplied via the AWS default provider chain e.g. AWS_SECRET_ACCESS_KEY environment variable, ~/.aws/config, etc"
   val TierS3EndpointOverrideDoc = "Override picking an S3 endpoint. Normally this is performed automatically by the client."
   val TierS3SignerOverrideDoc = "Set the name of the signature algorithm used for signing S3 requests."
   val TierS3AutoAbortThresholdBytesDoc = "The S3 client closes any connection that performs GetRequests that are not fully read. To promote connection reuse, the broker will read the remainder of a request if there are fewer bytes remaining than <code>confluent.tier.s3.auto.abort.threshold.bytes</code>."
+  val TierS3AssumeRoleArnDoc = "Authorize S3 requests via sts::AssumeRole by assuming the specified role after authenticating."
   val TierFetcherNumThreadsDoc = "The size of the thread pool used by the TierFetcher. Roughly corresponds to number of concurrent fetch requests that can be served from tiered storage."
   val TierFetcherOffsetCacheSizeDoc = "The maximum size of the TierFetcher LRU offset cache. This cache avoids use of the offset index by predicting the next fetch offset and the corresponding byte offset in tiered log segments"
   val TierFetcherOffsetCacheExpirationMsDoc = "Expiration time (ms) for entries in the TierFetcher offset cache. Entries that have not been used for longer than the expiration time will be expired."
@@ -1414,12 +1420,14 @@ object KafkaConfig {
       .define(TierS3BucketProp, STRING, Defaults.TierS3Bucket, HIGH, TierS3BucketDoc)
       .define(TierS3RegionProp, STRING, Defaults.TierS3Region, HIGH, TierS3RegionDoc)
       .define(TierS3PrefixProp, STRING, Defaults.TierS3Prefix, HIGH, TierS3PrefixDoc)
-      .defineInternal(TierS3SseAlgorithmProp, STRING, Defaults.TierS3SseAlgorithm, in("AES256", TIER_S3_SSE_ALGORITHM_NONE), HIGH, TierS3SseAlgorithmDoc)
+      .defineInternal(TierS3SseAlgorithmProp, STRING, Defaults.TierS3SseAlgorithm, in("AES256", "aws:kms", TIER_S3_SSE_ALGORITHM_NONE), HIGH, TierS3SseAlgorithmDoc)
+      .defineInternal(TierS3SseCustomerEncryptionKeyProp, STRING, Defaults.TierS3SseCustomerEncryptionKey, LOW, TierS3SseCustomerEncryptionKeyDoc)
       .define(TierS3AwsAccessKeyIdProp, PASSWORD, Defaults.TierS3AwsAccessKeyId, MEDIUM, TierS3AwsAccessKeyIdDoc)
       .define(TierS3AwsSecretAccessKeyProp, PASSWORD, Defaults.TierS3AwsSecretAccessKey, MEDIUM, TierS3AwsSecretAccessKeyDoc)
       .defineInternal(TierS3EndpointOverrideProp, STRING, Defaults.TierS3EndpointOverride, LOW, TierS3EndpointOverrideDoc)
       .defineInternal(TierS3SignerOverrideProp, STRING, Defaults.TierS3SignerOverride, LOW, TierS3SignerOverrideDoc)
       .defineInternal(TierS3AutoAbortThresholdBytesProp, INT, Defaults.TierS3AutoAbortThresholdBytes, atLeast(0), LOW, TierS3AutoAbortThresholdBytesDoc)
+      .defineInternal(TierS3AssumeRoleArnProp, STRING, Defaults.TierS3AssumeRoleArn, LOW, TierS3AssumeRoleArnDoc)
       .define(TierFetcherNumThreadsProp, INT, Defaults.TierFetcherNumThreads, atLeast(1), MEDIUM, TierFetcherNumThreadsDoc)
       .defineInternal(TierFetcherOffsetCacheSizeProp, INT, Defaults.TierFetcherOffsetCacheSize, atLeast(1), MEDIUM, TierFetcherOffsetCacheSizeDoc)
       .defineInternal(TierFetcherOffsetCacheExpirationMsProp, INT, Defaults.TierFetcherOffsetCacheExpirationMs, atLeast(1), LOW, TierFetcherOffsetCacheExpirationMsDoc)
@@ -2056,11 +2064,13 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   val tierS3Region = getString(KafkaConfig.TierS3RegionProp)
   val tierS3Prefix = getString(KafkaConfig.TierS3PrefixProp)
   val tierS3SseAlgorithm = getString(KafkaConfig.TierS3SseAlgorithmProp)
+  val s3SseCustomerEncryptionKey = getString(KafkaConfig.TierS3SseCustomerEncryptionKeyProp)
   val tierS3AwsAccessKeyId = Option(getPassword(KafkaConfig.TierS3AwsAccessKeyIdProp))
   val tierS3AwsSecretAccessKey = Option(getPassword(KafkaConfig.TierS3AwsSecretAccessKeyProp))
   val tierS3EndpointOverride = Option(getString(KafkaConfig.TierS3EndpointOverrideProp))
   val tierS3SignerOverride = Option(getString(KafkaConfig.TierS3SignerOverrideProp))
   val tierS3AutoAbortThresholdBytes = getInt(KafkaConfig.TierS3AutoAbortThresholdBytesProp)
+  val tierS3AssumeRoleArn = Option(getString(KafkaConfig.TierS3AssumeRoleArnProp))
   val tierFetcherNumThreads = getInt(KafkaConfig.TierFetcherNumThreadsProp)
   val tierFetcherOffsetCacheSize = getInt(KafkaConfig.TierFetcherOffsetCacheSizeProp)
   val tierFetcherOffsetCacheExpirationMs = getInt(KafkaConfig.TierFetcherOffsetCacheExpirationMsProp)
@@ -2382,5 +2392,8 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
         s"${KafkaConfig.FailedAuthenticationDelayMsProp}=$failedAuthenticationDelayMs should always be less than" +
           s" ${KafkaConfig.ConnectionsMaxIdleMsProp}=$connectionsMaxIdleMs to prevent failed" +
           s" authentication responses from timing out")
+
+    if (s3SseCustomerEncryptionKey != null && s3SseCustomerEncryptionKey != "")
+      require(tierS3SseAlgorithm == "aws:kms", s"${KafkaConfig.TierS3SseAlgorithmProp} must be set to 'aws:kms' if ${KafkaConfig.TierS3SseCustomerEncryptionKeyProp} is set.")
   }
 }

@@ -6,9 +6,11 @@ package kafka.tier.store;
 
 import com.amazonaws.AmazonClientException;
 import com.amazonaws.ClientConfiguration;
+import com.amazonaws.auth.AWSCredentialsProvider;
 import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
+import com.amazonaws.auth.STSAssumeRoleSessionCredentialsProvider;
 import com.amazonaws.client.builder.AwsClientBuilder;
 import com.amazonaws.regions.Regions;
 import com.amazonaws.services.s3.AmazonS3;
@@ -18,6 +20,9 @@ import com.amazonaws.services.s3.model.GetObjectRequest;
 import com.amazonaws.services.s3.model.PutObjectRequest;
 import com.amazonaws.services.s3.model.S3Object;
 import com.amazonaws.services.s3.model.S3ObjectInputStream;
+import com.amazonaws.services.s3.model.SSEAwsKeyManagementParams;
+import com.amazonaws.services.securitytoken.AWSSecurityTokenService;
+import com.amazonaws.services.securitytoken.AWSSecurityTokenServiceClient;
 import kafka.tier.exceptions.TierObjectStoreFatalException;
 import kafka.tier.exceptions.TierObjectStoreRetriableException;
 import org.apache.kafka.common.utils.ByteBufferInputStream;
@@ -40,6 +45,7 @@ public class S3TierObjectStore implements TierObjectStore {
     private final String bucket;
     private final String prefix;
     private final String sseAlgorithm;
+    private final String sseCustomerEncryptionKey;
     private final int autoAbortThresholdBytes;
 
     public S3TierObjectStore(S3TierObjectStoreConfig config) {
@@ -54,6 +60,7 @@ public class S3TierObjectStore implements TierObjectStore {
         this.bucket = config.s3Bucket;
         this.prefix = config.s3Prefix;
         this.sseAlgorithm = config.s3SseAlgorithm;
+        this.sseCustomerEncryptionKey = config.s3SseCustomerEncryptionKey;
         this.autoAbortThresholdBytes = config.s3AutoAbortThresholdBytes;
         expectBucket(bucket, config.s3Region);
     }
@@ -173,7 +180,10 @@ public class S3TierObjectStore implements TierObjectStore {
     }
 
     private void putFile(String key, Map<String, String> metadata, File file) {
-        final PutObjectRequest request = new PutObjectRequest(bucket, key, file).withMetadata(putObjectMetadata(metadata));
+        final PutObjectRequest request =
+                new PutObjectRequest(bucket, key, file)
+                        .withMetadata(putObjectMetadata(metadata))
+                        .withSSEAwsKeyManagementParams(generateKeyManagmentParams());
         log.debug("Uploading object to s3://{}/{}", bucket, key);
         client.putObject(request);
     }
@@ -181,9 +191,24 @@ public class S3TierObjectStore implements TierObjectStore {
     private void putBuf(String key, Map<String, String> metadata, ByteBuffer buf) {
         final com.amazonaws.services.s3.model.ObjectMetadata s3metadata = putObjectMetadata(metadata);
         s3metadata.setContentLength(buf.limit() - buf.position());
-        final PutObjectRequest request = new PutObjectRequest(bucket, key, new ByteBufferInputStream(buf), s3metadata);
+        final PutObjectRequest request =
+                new PutObjectRequest(bucket, key, new ByteBufferInputStream(buf), s3metadata)
+                        .withSSEAwsKeyManagementParams(generateKeyManagmentParams());
         log.debug("Uploading object to s3://{}/{}", bucket, key);
         client.putObject(request);
+    }
+
+    /**
+     * Generate SSEAwsKeyManagmentParams for a request. Defaults to the master key if no sseCustomerEncryptionKey
+     * is specified.
+     */
+    private SSEAwsKeyManagementParams generateKeyManagmentParams() {
+        // Default to the master key
+        SSEAwsKeyManagementParams sseAwsKeyManagementParams = new SSEAwsKeyManagementParams();
+        if (sseCustomerEncryptionKey != null && !sseCustomerEncryptionKey.isEmpty()) {
+            sseAwsKeyManagementParams = new SSEAwsKeyManagementParams(sseCustomerEncryptionKey);
+        }
+        return sseAwsKeyManagementParams;
     }
 
     private static AmazonS3 client(S3TierObjectStoreConfig config) {
@@ -207,13 +232,28 @@ public class S3TierObjectStore implements TierObjectStore {
             builder.setRegion(config.s3Region);
         }
 
+        AWSCredentialsProvider provider;
+
         if (config.s3AwsAccessKeyId.isPresent() && config.s3AwsSecretAccessKey.isPresent()) {
             final BasicAWSCredentials credentials = new BasicAWSCredentials(config.s3AwsAccessKeyId.get(),
                     config.s3AwsSecretAccessKey.get());
-            builder.setCredentials(new AWSStaticCredentialsProvider(credentials));
+            provider = new AWSStaticCredentialsProvider(credentials);
+
         } else {
-            builder.setCredentials(new DefaultAWSCredentialsProviderChain());
+            provider = new DefaultAWSCredentialsProviderChain();
         }
+
+        if (config.assumeRoleArn.isPresent()) {
+            AWSSecurityTokenService stsClient = AWSSecurityTokenServiceClient.builder()
+                    .withCredentials(new DefaultAWSCredentialsProviderChain())
+                    .build();
+            provider = new STSAssumeRoleSessionCredentialsProvider
+                    .Builder(config.assumeRoleArn.get(), "tiered-storage")
+                    .withStsClient(stsClient)
+                    .build();
+        }
+
+        builder.setCredentials(provider);
 
         return builder.build();
     }

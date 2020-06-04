@@ -758,7 +758,8 @@ project(':core') {
     compile libs.slf4jApi
     compile libs.scalaJava8Compat
     compile libs.flatbuffers
-    compile libs.amazons3client
+    compile libs.amazonS3Client
+    compile libs.amazonStsClient
     compile libs.netty
     compile libs.nettyTcNative
     compile(libs.zookeeper) {
