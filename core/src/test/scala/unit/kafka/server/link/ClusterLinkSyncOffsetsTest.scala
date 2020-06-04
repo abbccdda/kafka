@@ -5,7 +5,7 @@
 package kafka.server.link
 
 import java.util
-import java.util.{Optional, UUID}
+import java.util.{Collections, Optional, UUID}
 import java.util.concurrent.TimeUnit
 
 import kafka.controller.KafkaController
@@ -34,6 +34,7 @@ class ClusterLinkSyncOffsetsTest {
 
   private val clientManager: ClusterLinkClientManager = mock(classOf[ClusterLinkClientManager])
   private val testTopicState: ClusterLinkTopicState = new Mirror("testLink", UUID.randomUUID())
+  private val metrics: Metrics = new Metrics()
 
   private var controller: KafkaController = null
 
@@ -47,6 +48,7 @@ class ClusterLinkSyncOffsetsTest {
   @After
   def tearDown(): Unit = {
     scheduler.shutdown()
+    metrics.close()
   }
 
   @Test
@@ -229,7 +231,8 @@ class ClusterLinkSyncOffsetsTest {
 
     replay(admin, clientManager, destAdmin)
 
-    val syncOffsets = new ClusterLinkSyncOffsets(clientManager, linkData(), clusterLinkConfig, controller, () => destAdmin)
+    val syncOffsets = new ClusterLinkSyncOffsets(clientManager, linkData(), clusterLinkConfig,
+      controller, () => destAdmin, metrics, Collections.emptyMap())
 
     // we force the existing offset to be the same as the fetched one, this should not call alterConsumerGroupOffsets
     syncOffsets.currentOffsets.clear()
@@ -255,7 +258,8 @@ class ClusterLinkSyncOffsetsTest {
     setupMockOffsetResponses(offsetEntries, groupName)
     replay(admin, clientManager, destAdmin)
 
-    val syncOffsets = new ClusterLinkSyncOffsets(clientManager, linkData(), clusterLinkConfig, controller,() => destAdmin)
+    val syncOffsets = new ClusterLinkSyncOffsets(clientManager, linkData(), clusterLinkConfig,
+      controller,() => destAdmin, metrics, Collections.emptyMap())
 
     syncOffsets.currentOffsets.clear()
     syncOffsets.currentOffsets += (oldGroupName, new TopicPartition(topic, 1)) -> 1
@@ -435,7 +439,9 @@ class ClusterLinkSyncOffsetsTest {
       linkData(tenantPrefix),
       clusterLinkConfig,
       controller,
-      () => destAdmin)
+      () => destAdmin,
+      metrics,
+      Collections.emptyMap())
 
     syncOffsets.runOnce().get(5, TimeUnit.SECONDS)
     verifyMock()

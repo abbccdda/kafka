@@ -10,9 +10,11 @@ import java.util.concurrent.CompletableFuture
 
 import kafka.controller.KafkaController
 import org.apache.kafka.clients.admin.DescribeAclsResult
-import org.apache.kafka.common.KafkaFuture
+import org.apache.kafka.common.{KafkaFuture, MetricName}
 import org.apache.kafka.common.acl.{AclBinding, AclBindingFilter}
 import org.apache.kafka.common.errors.AuthorizationException
+import org.apache.kafka.common.metrics.{Metrics, Sensor}
+import org.apache.kafka.common.metrics.stats.{Rate, CumulativeSum}
 import org.apache.kafka.server.authorizer.{AclCreateResult, AclDeleteResult}
 
 import scala.jdk.CollectionConverters._
@@ -20,7 +22,8 @@ import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 
 class ClusterLinkSyncAcls (val clientManager: ClusterLinkClientManager, config: ClusterLinkConfig,
-                           controller: KafkaController)
+                           controller: KafkaController, metrics: Metrics,
+                           metricsTags: java.util.Map[String, String])
   extends ClusterLinkScheduler.PeriodicTask(clientManager.scheduler, name = "SyncAcls",
     config.aclSyncMs) {
 
@@ -29,6 +32,34 @@ class ClusterLinkSyncAcls (val clientManager: ClusterLinkClientManager, config: 
 
   // integer counting number of tasks outstanding for acl migration
   private var tasksOutstanding = 0
+  private var aclsAddedSensor: Sensor = _
+  private var aclsDeletedSensor: Sensor = _
+
+  override def startup(): Unit = {
+    aclsAddedSensor = metrics.sensor("acls-added-sensor")
+    val aclsAddedTotal = new MetricName("acls-added-total",
+      "cluster-link-metrics", "Total number of ACLs added.", metricsTags)
+    val aclsAddedRate = new MetricName("acls-added-rate",
+      "cluster-link-metrics", "Rate of ACLs added.", metricsTags)
+    aclsAddedSensor.add(aclsAddedTotal, new CumulativeSum)
+    aclsAddedSensor.add(aclsAddedRate, new Rate)
+
+    aclsDeletedSensor = metrics.sensor("acls-deleted-sensor")
+    val aclsDeletedTotal = new MetricName("acls-deleted-total",
+      "cluster-link-metrics", "Total number of ACLs deleted.", metricsTags)
+    val aclsDeletedRate = new MetricName("acls-deleted-rate",
+      "cluster-link-metrics", "Rate of ACLs deleted.", metricsTags)
+    aclsDeletedSensor.add(aclsDeletedTotal, new CumulativeSum)
+    aclsDeletedSensor.add(aclsDeletedRate, new Rate)
+
+    super.startup()
+  }
+
+  override def shutdown(): Unit = {
+    metrics.removeSensor("acls-added-sensor")
+    metrics.removeSensor("acls-deleted-sensor")
+    super.shutdown()
+  }
 
   /**
    * Starts running the task, returning whether the task has completed.
@@ -97,6 +128,7 @@ class ClusterLinkSyncAcls (val clientManager: ClusterLinkClientManager, config: 
           scheduleWhenComplete(createdAclsFuture, () =>
             addAclsAndLogCreationWarnings(createdAclResults.toList, addedAclsList, addedAcls))
           tasksOutstanding += 1
+          aclsAddedSensor.record(addedAcls.size)
         } catch {
           case e: Throwable =>
             warn("Unexpected error encountered while trying to create ACLs on destination"
@@ -113,6 +145,7 @@ class ClusterLinkSyncAcls (val clientManager: ClusterLinkClientManager, config: 
             deleteAclsAndLogDeletionWarnings(deletedAclResults.toList, deletedAcls,
               deleteAclsFilterList))
           tasksOutstanding += 1
+          aclsDeletedSensor.record(deletedAcls.size)
         } catch {
           case e: Throwable =>
             warn("Unexpected error encountered while trying to create ACLs on destination"

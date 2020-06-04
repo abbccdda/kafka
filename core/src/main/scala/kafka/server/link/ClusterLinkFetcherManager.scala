@@ -15,8 +15,8 @@ import org.apache.kafka.clients.Metadata.LeaderAndEpoch
 import org.apache.kafka.clients._
 import org.apache.kafka.clients.admin.{Admin, NewPartitions}
 import org.apache.kafka.common.config.SslConfigs
-import org.apache.kafka.common.metrics.Metrics
-import org.apache.kafka.common.metrics.stats.{Avg, Max}
+import org.apache.kafka.common.metrics.{Measurable, MetricConfig, Metrics, Sensor}
+import org.apache.kafka.common.metrics.stats.{Avg, CumulativeSum, Max, Rate}
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.utils.Time
 import org.apache.kafka.common._
@@ -60,6 +60,8 @@ class ClusterLinkFetcherManager(linkName: String,
   @volatile private var metadata: ClusterLinkMetadata = _
   @volatile private var metadataRefreshThread: ClusterLinkMetadataThread = _
   @volatile private var clusterLinkConfig = initialConfig
+  private var linkedTopicPartitionAdditionSensor: Sensor = _
+  private var linkedLeaderEpochChangeSensor: Sensor = _
   initialize()
 
   private def initialize(): Unit = {
@@ -73,6 +75,47 @@ class ClusterLinkFetcherManager(linkName: String,
       "The maximum throttle time in ms", tags)
     throttleTimeSensor.add(throttleTimeAvg, new Avg)
     throttleTimeSensor.add(throttleTimeMax, new Max)
+
+    val mirrorPartitionCount: Measurable = (_: MetricConfig, _: Long) => {
+      linkedPartitions.values().asScala.count(_.failureStartMs == 0L)
+    }
+    metrics.addMetric(metrics.metricName("mirror-partition-count",
+      "cluster-link-metrics",
+      "Number of actively mirrored partitions on this broker", tags),
+      mirrorPartitionCount)
+    val failedMirrorPartitionCount: Measurable = (_: MetricConfig, _: Long) => {
+      linkedPartitions.values().asScala.count(_.failureStartMs != 0L)
+    }
+    metrics.addMetric(metrics.metricName("failed-mirror-partition-count",
+      "cluster-link-metrics",
+      "Number of failed mirrored partitions on this broker", tags),
+      failedMirrorPartitionCount)
+
+    linkedTopicPartitionAdditionSensor = metrics.sensor(
+      "linked-topic-partition-addition-sensor")
+    val linkedTopicPartitionAdditionTotal = new MetricName(
+      "linked-topic-partition-addition-total",
+      "cluster-link-metrics", "Total number of topic partition additions.",
+      tags)
+    val linkedTopicPartitionAdditionRate = new MetricName(
+      "linked-topic-partition-addition-rate",
+      "cluster-link-metrics", "Rate of topic partition additions.", tags)
+    linkedTopicPartitionAdditionSensor.add(linkedTopicPartitionAdditionTotal, new CumulativeSum)
+    linkedTopicPartitionAdditionSensor.add(linkedTopicPartitionAdditionRate, new Rate)
+
+    linkedLeaderEpochChangeSensor = metrics.sensor(
+      "linked-leader-epoch-change-sensor")
+    val linkedLeaderEpochChangeTotal = new MetricName(
+      "linked-leader-epoch-change-total",
+      "cluster-link-metrics", "Total number of leader elections triggered due" +
+        " to source leader changes.", tags)
+    val linkedLeaderEpochChangeRate = new MetricName(
+      "linked-leader-epoch-change-rate",
+      "cluster-link-metrics", "Rate of leader elections triggered due to source" +
+        " leader changes.", tags)
+    linkedLeaderEpochChangeSensor.add(linkedLeaderEpochChangeTotal, new CumulativeSum)
+    linkedLeaderEpochChangeSensor.add(linkedLeaderEpochChangeRate, new Rate)
+
     initializeMetadata()
   }
 
@@ -149,6 +192,8 @@ class ClusterLinkFetcherManager(linkName: String,
     closeAllFetchers()
     metadataRefreshThread.shutdown()
     metrics.removeSensor(metadata.throttleTimeSensorName)
+    metrics.removeSensor("linked-topic-partition-addition-sensor")
+    metrics.removeSensor("linked-leader-epoch-change-sensor")
     info("shutdown completed")
   }
 
@@ -179,6 +224,7 @@ class ClusterLinkFetcherManager(linkName: String,
           if (destPartitionCount < sourcePartitionCount) {
             logger.debug(s"Increasing partitions for linked topic $topic from $destPartitionCount to $sourcePartitionCount")
             updatedPartitionCounts += topic -> sourcePartitionCount
+            linkedTopicPartitionAdditionSensor.record()
           } else if (destPartitionCount > sourcePartitionCount) {
             val reason = s"Topic $topic has $destPartitionCount destination partitions, but only $sourcePartitionCount source partitions."
             warn(s"$reason This may be a transient issue or it could indicate that the source partition was" +
@@ -202,6 +248,7 @@ class ClusterLinkFetcherManager(linkName: String,
           partition.linkedLeaderOffsetsPending(true)
           updatedPartitions += tp
           linkedEpochChanges += partition -> newEpoch
+          linkedLeaderEpochChangeSensor.record()
         }
         if (!failedLinks.contains(tp) && newLeaderAndEpoch.leader.isPresent && newEpoch >= 0) {
           if (oldEpoch > newEpoch) {

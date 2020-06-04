@@ -21,7 +21,7 @@ import org.apache.kafka.common.{Endpoint, TopicPartition}
 import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.apache.kafka.common.errors._
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
-import org.apache.kafka.common.metrics.Metrics
+import org.apache.kafka.common.metrics.{Measurable, MetricConfig, Metrics}
 import org.apache.kafka.common.utils.Time
 import org.apache.kafka.server.authorizer.Authorizer
 
@@ -106,6 +106,12 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
     this.adminManager = adminManager
     this.controller = controller
     this.authorizer = authorizer
+    val linkCount: Measurable = (_: MetricConfig, _: Long) => {
+      linkData.size
+    }
+    metrics.addMetric(metrics.metricName("link-count",
+      "cluster-link-metrics",
+      "Number of links for this cluster"), linkCount)
     scheduler.startup()
   }
 
@@ -226,7 +232,7 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
 
       val clientInterceptor = clusterLinkData.tenantPrefix.map(tenantInterceptor)
       val clientManager = new ClusterLinkClientManager(clusterLinkData, scheduler, zkClient, config,
-        authorizer, controller,
+        authorizer, controller, metrics,
         (cfg: ClusterLinkConfig) => newSourceAdmin(linkName, cfg, clientInterceptor),
         () => getOrCreateDestAdmin())
       clientManager.startup()

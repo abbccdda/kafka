@@ -28,7 +28,7 @@ import kafka.log.LogConfig
 import kafka.metrics.{KafkaMetricsGroup, KafkaTimer}
 import kafka.server._
 import kafka.server.link.ClusterLinkTopicState
-import kafka.server.link.ClusterLinkTopicState.{FailedMirror, Mirror}
+import kafka.server.link.ClusterLinkTopicState.{FailedMirror, Mirror, StoppedMirror}
 import kafka.tier.topic.TierTopicManager
 import kafka.utils._
 import kafka.zk.KafkaZkClient.UpdateLeaderAndIsrResult
@@ -136,6 +136,12 @@ class KafkaController(val config: KafkaConfig,
   newGauge("PreferredReplicaImbalanceCount", () => preferredReplicaImbalanceCount)
   newGauge("ControllerState", () => state.value)
   newGauge("GlobalTopicCount", () => globalTopicCount)
+  newGauge("GlobalActiveMirrorTopicCount", () =>
+    if (isActive) controllerContext.linkedTopics.values.count(_.isInstanceOf[Mirror]) else 0)
+  newGauge("GlobalStoppedMirrorTopicCount", () =>
+    if (isActive) controllerContext.linkedTopics.values.count(_.isInstanceOf[StoppedMirror]) else 0)
+  newGauge("GlobalFailedMirrorTopicCount", () =>
+    if (isActive) controllerContext.linkedTopics.values.count(_.isInstanceOf[FailedMirror]) else 0)
   newGauge("GlobalPartitionCount", () => globalPartitionCount)
   newGauge("TopicsToDeleteCount", () => topicsToDeleteCount)
   newGauge("ReplicasToDeleteCount", () => replicasToDeleteCount)

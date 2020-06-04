@@ -9,15 +9,15 @@ import java.util.concurrent.{ExecutionException, TimeUnit}
 
 import kafka.server.ConfigType
 import kafka.zk.{AdminZkClient, KafkaZkClient}
-import org.apache.kafka.clients.admin.{ConfluentAdmin, Config, ConfigEntry, DescribeConfigsResult}
+import org.apache.kafka.clients.admin.{Config, ConfigEntry, ConfluentAdmin, DescribeConfigsResult}
 import org.apache.kafka.common.config.ConfigResource
 import org.apache.kafka.common.internals.KafkaFutureImpl
 import org.apache.kafka.common.errors.TopicAuthorizationException
+import org.apache.kafka.common.metrics.Metrics
 import org.easymock.{EasyMock => EM}
 import org.easymock.EasyMock._
 import org.junit.{After, Before, Test}
 import org.junit.Assert._
-
 import org.scalatest.Assertions.intercept
 
 import scala.jdk.CollectionConverters._
@@ -29,6 +29,7 @@ class ClusterLinkSyncTopicsConfigsTest {
   private val zkClient: KafkaZkClient = mock(classOf[KafkaZkClient])
   private val adminZkClient: AdminZkClient = mock(classOf[AdminZkClient])
   private val clientManager: ClusterLinkClientManager = mock(classOf[ClusterLinkClientManager])
+  private val metrics: Metrics = new Metrics()
 
   @Before
   def setUp(): Unit = {
@@ -38,6 +39,7 @@ class ClusterLinkSyncTopicsConfigsTest {
   @After
   def tearDown(): Unit = {
     scheduler.shutdown()
+    metrics.close()
   }
 
   @Test
@@ -72,7 +74,9 @@ class ClusterLinkSyncTopicsConfigsTest {
     expect(adminZkClient.changeTopicConfig(EM.eq(topic), EM.eq(newProps))).times(1)
     replay(adminZkClient)
 
-    val syncTopicsConfigs = new ClusterLinkSyncTopicsConfigs(clientManager, syncIntervalMs = 100)
+    val syncTopicsConfigs = new ClusterLinkSyncTopicsConfigs(clientManager, syncIntervalMs = 100,
+      metrics, Collections.emptyMap())
+    syncTopicsConfigs.startup()
     syncTopicsConfigs.runOnce().get(5, TimeUnit.SECONDS)
 
     verifyMock()
@@ -100,7 +104,9 @@ class ClusterLinkSyncTopicsConfigsTest {
     expect(adminZkClient.fetchEntityConfig(EM.eq(ConfigType.Topic), EM.eq(topic))).andReturn(curProps).times(1)
     replay(adminZkClient)
 
-    val syncTopicsConfigs = new ClusterLinkSyncTopicsConfigs(clientManager, syncIntervalMs = 100)
+    val syncTopicsConfigs = new ClusterLinkSyncTopicsConfigs(clientManager, syncIntervalMs = 100,
+      metrics, Collections.emptyMap())
+    syncTopicsConfigs.startup()
     syncTopicsConfigs.runOnce().get(5, TimeUnit.SECONDS)
 
     verifyMock()
@@ -128,7 +134,9 @@ class ClusterLinkSyncTopicsConfigsTest {
     expect(adminZkClient.fetchEntityConfig(EM.eq(ConfigType.Topic), EM.eq(topic))).andReturn(curProps).times(1)
     replay(adminZkClient)
 
-    val syncTopicsConfigs = new ClusterLinkSyncTopicsConfigs(clientManager, syncIntervalMs = 100)
+    val syncTopicsConfigs = new ClusterLinkSyncTopicsConfigs(clientManager, syncIntervalMs = 100,
+      metrics, Collections.emptyMap())
+    syncTopicsConfigs.startup()
     syncTopicsConfigs.runOnce().get(5, TimeUnit.SECONDS)
     syncTopicsConfigs.runOnce().get(5, TimeUnit.SECONDS)
 
@@ -150,7 +158,9 @@ class ClusterLinkSyncTopicsConfigsTest {
 
     replay(adminZkClient)
 
-    val syncTopicsConfigs = new ClusterLinkSyncTopicsConfigs(clientManager, syncIntervalMs = 100)
+    val syncTopicsConfigs = new ClusterLinkSyncTopicsConfigs(clientManager, syncIntervalMs = 100,
+      metrics, Collections.emptyMap())
+    syncTopicsConfigs.startup()
     val e = intercept[ExecutionException] {
       syncTopicsConfigs.runOnce().get(5, TimeUnit.SECONDS)
     }
@@ -193,7 +203,9 @@ class ClusterLinkSyncTopicsConfigsTest {
 
     replay(adminZkClient)
 
-    val syncTopicsConfigs = new ClusterLinkSyncTopicsConfigs(clientManager, syncIntervalMs = 100)
+    val syncTopicsConfigs = new ClusterLinkSyncTopicsConfigs(clientManager, syncIntervalMs = 100,
+      metrics, Collections.emptyMap())
+    syncTopicsConfigs.startup()
     syncTopicsConfigs.runOnce().get(5, TimeUnit.SECONDS)
 
     verifyMock()
@@ -232,7 +244,9 @@ class ClusterLinkSyncTopicsConfigsTest {
     expect(adminZkClient.fetchEntityConfig(EM.eq(ConfigType.Topic), EM.eq(topics(1)))).andReturn(curProps2).times(1)
     replay(adminZkClient)
 
-    val syncTopicsConfigs = new ClusterLinkSyncTopicsConfigs(clientManager, syncIntervalMs = 100)
+    val syncTopicsConfigs = new ClusterLinkSyncTopicsConfigs(clientManager, syncIntervalMs = 100,
+      metrics, Collections.emptyMap())
+    syncTopicsConfigs.startup()
     syncTopicsConfigs.runOnce().get(5, TimeUnit.SECONDS)
     syncTopicsConfigs.runOnce().get(5, TimeUnit.SECONDS)
 

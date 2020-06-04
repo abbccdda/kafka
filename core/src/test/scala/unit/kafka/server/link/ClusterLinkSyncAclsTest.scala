@@ -18,6 +18,7 @@ import org.apache.kafka.common.acl.AclOperation._
 import org.apache.kafka.common.acl.AclPermissionType._
 import org.apache.kafka.common.acl._
 import org.apache.kafka.common.errors.{AuthenticationException, AuthorizationException}
+import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.resource.PatternType.{LITERAL, PREFIXED}
 import org.apache.kafka.common.resource.ResourceType._
 import org.apache.kafka.common.resource.{PatternType, ResourcePattern, ResourceType}
@@ -36,6 +37,7 @@ class ClusterLinkSyncAclsTest {
   private val clientManager: ClusterLinkClientManager = createNiceMock(classOf[ClusterLinkClientManager])
   private val authorizer: Authorizer = createNiceMock(classOf[Authorizer])
   private val controller: KafkaController = createNiceMock(classOf[KafkaController])
+  private val metrics: Metrics = new Metrics()
   private val aclList: util.List[AclBinding] = new util.ArrayList[AclBinding]()
   val migrateAllAclsJson: String =
     """{
@@ -103,6 +105,7 @@ class ClusterLinkSyncAclsTest {
   def tearDown(): Unit = {
     scheduler.shutdown()
     aclList.clear()
+    metrics.close()
   }
 
   private def setupMock(): Unit = {
@@ -143,7 +146,9 @@ class ClusterLinkSyncAclsTest {
     val config = newConfig(Map(ClusterLinkConfig.AclSyncEnableProp -> "true",
       ClusterLinkConfig.AclFiltersProp -> migrateAllAclsJson))
 
-    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller)
+    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller, metrics,
+      Collections.emptyMap())
+    syncAclsTask.startup()
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
 
     verifyMock()
@@ -189,7 +194,9 @@ class ClusterLinkSyncAclsTest {
     val config = newConfig(Map(ClusterLinkConfig.AclSyncEnableProp -> "true",
       ClusterLinkConfig.AclFiltersProp -> multipleAclFiltersJson))
 
-    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller)
+    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller, metrics,
+      Collections.emptyMap())
+    syncAclsTask.startup()
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
 
     verifyMock()
@@ -226,7 +233,9 @@ class ClusterLinkSyncAclsTest {
     val config = newConfig(Map(ClusterLinkConfig.AclSyncEnableProp -> "true",
       ClusterLinkConfig.AclFiltersProp -> migrateAllAclsJson))
 
-    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller)
+    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller, metrics,
+      Collections.emptyMap())
+    syncAclsTask.startup()
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
 
@@ -273,7 +282,9 @@ class ClusterLinkSyncAclsTest {
     val config = newConfig(Map(ClusterLinkConfig.AclSyncEnableProp -> "true",
       ClusterLinkConfig.AclFiltersProp -> multipleAclFiltersJson))
 
-    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller)
+    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller, metrics,
+      Collections.emptyMap())
+    syncAclsTask.startup()
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
 
@@ -325,7 +336,9 @@ class ClusterLinkSyncAclsTest {
     val config = newConfig(Map(ClusterLinkConfig.AclSyncEnableProp -> "true",
       ClusterLinkConfig.AclFiltersProp -> migrateAllAclsJson))
 
-    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller)
+    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller, metrics,
+      Collections.emptyMap())
+    syncAclsTask.startup()
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
 
@@ -377,7 +390,9 @@ class ClusterLinkSyncAclsTest {
     val config = newConfig(Map(ClusterLinkConfig.AclSyncEnableProp -> "true",
       ClusterLinkConfig.AclFiltersProp -> multipleAclFiltersJson))
 
-    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller)
+    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller, metrics,
+      Collections.emptyMap())
+    syncAclsTask.startup()
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
 
@@ -439,7 +454,9 @@ class ClusterLinkSyncAclsTest {
     val config = newConfig(Map(ClusterLinkConfig.AclSyncEnableProp -> "true",
       ClusterLinkConfig.AclFiltersProp -> migrateAllAclsJson))
 
-    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller)
+    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller, metrics,
+      Collections.emptyMap())
+    syncAclsTask.startup()
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
 
@@ -500,7 +517,9 @@ class ClusterLinkSyncAclsTest {
     val config = newConfig(Map(ClusterLinkConfig.AclSyncEnableProp -> "true",
       ClusterLinkConfig.AclFiltersProp -> multipleAclFiltersJson))
 
-    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller)
+    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller, metrics,
+      Collections.emptyMap())
+    syncAclsTask.startup()
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
 
@@ -527,7 +546,9 @@ class ClusterLinkSyncAclsTest {
 
     val config = newConfig(Map(ClusterLinkConfig.AclSyncEnableProp -> "true",
       ClusterLinkConfig.AclFiltersProp -> migrateAllAclsJson))
-    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller)
+    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller, metrics,
+      Collections.emptyMap())
+    syncAclsTask.startup()
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
 
     verifyMock()
@@ -572,7 +593,9 @@ class ClusterLinkSyncAclsTest {
     val config = newConfig(Map(ClusterLinkConfig.AclSyncEnableProp -> "true",
       ClusterLinkConfig.AclFiltersProp -> multipleAclFiltersJson))
 
-    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller)
+    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller, metrics,
+      Collections.emptyMap())
+    syncAclsTask.startup()
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
 
     verifyMock()
@@ -622,7 +645,9 @@ class ClusterLinkSyncAclsTest {
     val config = newConfig(Map(ClusterLinkConfig.AclSyncEnableProp -> "true",
       ClusterLinkConfig.AclFiltersProp -> multipleAclFiltersJson))
 
-    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller)
+    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller, metrics,
+      Collections.emptyMap())
+    syncAclsTask.startup()
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
 
@@ -669,7 +694,9 @@ class ClusterLinkSyncAclsTest {
     val config = newConfig(Map(ClusterLinkConfig.AclSyncEnableProp -> "true",
       ClusterLinkConfig.AclFiltersProp -> multipleAclFiltersJson))
 
-    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller)
+    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller, metrics,
+      Collections.emptyMap())
+    syncAclsTask.startup()
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
 
     verifyMock()
@@ -720,7 +747,9 @@ class ClusterLinkSyncAclsTest {
     val config = newConfig(Map(ClusterLinkConfig.AclSyncEnableProp -> "true",
       ClusterLinkConfig.AclFiltersProp -> multipleAclFiltersJson))
 
-    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller)
+    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller, metrics,
+      Collections.emptyMap())
+    syncAclsTask.startup()
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
 

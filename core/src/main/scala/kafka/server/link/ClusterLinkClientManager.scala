@@ -12,10 +12,11 @@ import kafka.zk.{AdminZkClient, ClusterLinkData, KafkaZkClient}
 import org.apache.kafka.clients.admin._
 import org.apache.kafka.common.KafkaFuture
 import org.apache.kafka.common.config.ConfigResource
+import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.requests.ApiError
 import org.apache.kafka.server.authorizer.Authorizer
 
-import scala.collection.{Set, mutable}
+import scala.collection.{Map, Set, mutable}
 import scala.jdk.CollectionConverters._
 
 object ClusterLinkClientManager {
@@ -35,6 +36,7 @@ class ClusterLinkClientManager(val linkData: ClusterLinkData,
                                private var config: ClusterLinkConfig,
                                authorizer: Option[Authorizer],
                                controller: KafkaController,
+                               metrics: Metrics,
                                linkAdminFactory: ClusterLinkConfig => ConfluentAdmin,
                                destAdminFactory: () => Admin) extends Logging {
 
@@ -54,12 +56,17 @@ class ClusterLinkClientManager(val linkData: ClusterLinkData,
   val adminZkClient = new AdminZkClient(zkClient)
 
   def startup(): Unit = {
+    val tags = Map(
+      "link-name" -> linkData.linkName,
+      "link-id" -> linkData.linkId.toString)
     setAdmin(Some(linkAdminFactory(config)))
 
-    clusterLinkSyncOffsets = Some(new ClusterLinkSyncOffsets(this, linkData, config, controller,destAdminFactory))
+    clusterLinkSyncOffsets = Some(new ClusterLinkSyncOffsets(this, linkData, config,
+      controller, destAdminFactory, metrics, tags.asJava))
     clusterLinkSyncOffsets.get.startup()
 
-    clusterLinkSyncTopicConfigs = new ClusterLinkSyncTopicsConfigs(this, config.topicConfigSyncMs)
+    clusterLinkSyncTopicConfigs = new ClusterLinkSyncTopicsConfigs(this,
+      config.topicConfigSyncMs, metrics, tags.asJava)
     clusterLinkSyncTopicConfigs.startup()
 
     if (config.aclSyncEnable) {
@@ -68,12 +75,16 @@ class ClusterLinkClientManager(val linkData: ClusterLinkData,
         + "migration."))
       config.aclFilters.getOrElse(throw new IllegalArgumentException("ACL migration is enabled "
         + "but acl.filters is not set. Please set acl.filters to proceed with ACL migration."))
-      clusterLinkSyncAcls = Some(new ClusterLinkSyncAcls(this, config, controller))
+      clusterLinkSyncAcls = Some(new ClusterLinkSyncAcls(this, config, controller,
+        metrics, tags.asJava))
       clusterLinkSyncAcls.get.startup()
     }
   }
 
   def shutdown(): Unit = {
+    if (clusterLinkSyncTopicConfigs != null) {
+      clusterLinkSyncTopicConfigs.shutdown()
+    }
     clusterLinkSyncOffsets.foreach(_.shutdown())
     clusterLinkSyncAcls.foreach(_.shutdown())
     setAdmin(None)
