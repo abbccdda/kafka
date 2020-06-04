@@ -81,11 +81,15 @@ public class WorkerConnector {
     }
 
     public void initialize(ConnectorConfig connectorConfig) {
+        initialize(connectorConfig.originalsStrings());
+    }
+
+    public void initialize(Map<String, String> connectorConfig) {
         try {
             if (!isSourceConnector() && !isSinkConnector()) {
                 throw new ConnectException("Connector implementations must be a subclass of either SourceConnector or SinkConnector");
             }
-            this.config = connectorConfig.originalsStrings();
+            this.config = connectorConfig;
             log.debug("{} Initializing connector {}", this, connName);
             if (isSinkConnector()) {
                 SinkConnectorConfig.validate(config);

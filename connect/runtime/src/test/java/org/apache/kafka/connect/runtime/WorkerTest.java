@@ -214,6 +214,8 @@ public class WorkerTest extends ThreadedTest {
                 .andReturn(delegatingLoader)
                 .times(2);
 
+        EasyMock.expect(sourceConnector.config()).andReturn(WorkerTestConnector.CONFIG_DEF);
+        EasyMock.expectLastCall();
         sourceConnector.initialize(anyObject(ConnectorContext.class));
         EasyMock.expectLastCall();
         sourceConnector.start(props);
@@ -342,6 +344,8 @@ public class WorkerTest extends ThreadedTest {
         EasyMock.expect(plugins.compareAndSwapLoaders(sinkConnector))
                 .andReturn(delegatingLoader)
                 .times(2);
+        EasyMock.expect(sinkConnector.config()).andReturn(WorkerTestConnector.CONFIG_DEF);
+        EasyMock.expectLastCall();
         sinkConnector.initialize(anyObject(ConnectorContext.class));
         EasyMock.expectLastCall();
         sinkConnector.start(props);
@@ -409,6 +413,8 @@ public class WorkerTest extends ThreadedTest {
         EasyMock.expect(plugins.compareAndSwapLoaders(sinkConnector))
                 .andReturn(delegatingLoader)
                 .times(2);
+        EasyMock.expect(sinkConnector.config()).andReturn(WorkerTestConnector.CONFIG_DEF);
+        EasyMock.expectLastCall();
         sinkConnector.initialize(anyObject(ConnectorContext.class));
         EasyMock.expectLastCall();
         sinkConnector.start(props);
@@ -492,6 +498,8 @@ public class WorkerTest extends ThreadedTest {
         EasyMock.expect(plugins.compareAndSwapLoaders(sinkConnector))
                 .andReturn(delegatingLoader)
                 .times(3);
+        EasyMock.expect(sinkConnector.config()).andReturn(WorkerTestConnector.CONFIG_DEF);
+        EasyMock.expectLastCall();
         sinkConnector.initialize(anyObject(ConnectorContext.class));
         EasyMock.expectLastCall();
         sinkConnector.start(props);

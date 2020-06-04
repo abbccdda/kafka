@@ -203,8 +203,11 @@ public class DistributedConfig extends WorkerConfig {
         () -> "Positive number, or -1 to use the broker's default"
     );
 
+    private static final ConfigDef CONFIG = configDef();
+
     @SuppressWarnings("unchecked")
-    private static final ConfigDef CONFIG = baseConfigDef()
+    public static final ConfigDef configDef() {
+        return baseConfigDef()
             .define(GROUP_ID_CONFIG,
                     ConfigDef.Type.STRING,
                     ConfigDef.Importance.HIGH,
@@ -395,6 +398,7 @@ public class DistributedConfig extends WorkerConfig {
                     ),
                     ConfigDef.Importance.LOW,
                     INTER_WORKER_VERIFICATION_ALGORITHMS_DOC);
+    }
 
     @Override
     public Integer getRebalanceTimeout() {
@@ -460,6 +464,7 @@ public class DistributedConfig extends WorkerConfig {
         return topicSettings(STATUS_STORAGE_PREFIX);
     }
 
+    @SuppressWarnings("unchecked")
     private void validateKeyAlgorithmAndVerificationAlgorithms() {
         String keyAlgorithm = getString(INTER_WORKER_KEY_GENERATION_ALGORITHM_CONFIG);
         List<String> verificationAlgorithms = getList(INTER_WORKER_VERIFICATION_ALGORITHMS_CONFIG);
