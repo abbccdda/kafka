@@ -144,7 +144,7 @@ versions += [
   spotbugs: "4.0.2",
   spotbugsPlugin: "4.0.5",
   spotlessPlugin: "3.28.1",
-  telemetry: "1.87.0",
+  telemetry: "1.98.0",
   testRetryPlugin: "1.1.5",
   zkclient: "0.11",
   zinc: "1.3.5",
