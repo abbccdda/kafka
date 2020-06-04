@@ -1681,6 +1681,20 @@ object KafkaConfig {
       .defineInternal(ConfluentConfigs.HTTP_SERVER_STOP_TIMEOUT_MS_CONFIG, LONG,
                       ConfluentConfigs.HTTP_SERVER_STOP_TIMEOUT_MS_DEFAULT, LOW,
                       ConfluentConfigs.HTTP_SERVER_STOP_TIMEOUT_MS_DOC)
+
+      /********** Broker Quotas **********/
+      .defineInternal(ConfluentConfigs.MAX_BROKER_TENANT_PRODUCER_BYTE_RATE_CONFIG, LONG,
+                      ConfluentConfigs.MAX_BROKER_TENANT_PRODUCER_BYTE_RATE_DEFAULT, HIGH,
+                      ConfluentConfigs.MAX_BROKER_TENANT_PRODUCER_BYTE_RATE_DOC)
+      .defineInternal(ConfluentConfigs.MAX_BROKER_TENANT_CONSUMER_BYTE_RATE_CONFIG, LONG,
+                      ConfluentConfigs.MAX_BROKER_TENANT_CONSUMER_BYTE_RATE_DEFAULT, HIGH,
+                      ConfluentConfigs.MAX_BROKER_TENANT_CONSUMER_BYTE_RATE_DOC)
+      .defineInternal(ConfluentConfigs.MIN_FOLLOWER_BROKER_TENANT_PRODUCER_BYTE_RATE_CONFIG, LONG,
+                      ConfluentConfigs.MIN_FOLLOWER_BROKER_TENANT_PRODUCER_BYTE_RATE_DEFAULT, HIGH,
+                      ConfluentConfigs.MIN_FOLLOWER_BROKER_TENANT_PRODUCER_BYTE_RATE_DOC)
+      .defineInternal(ConfluentConfigs.MIN_FOLLOWER_BROKER_TENANT_CONSUMER_BYTE_RATE_CONFIG, LONG,
+                      ConfluentConfigs.MIN_FOLLOWER_BROKER_TENANT_CONSUMER_BYTE_RATE_DEFAULT, HIGH,
+                      ConfluentConfigs.MIN_FOLLOWER_BROKER_TENANT_CONSUMER_BYTE_RATE_DOC)
   }
 
   def configNames() = configDef.names().asScala.toList.sorted

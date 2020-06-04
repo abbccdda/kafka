@@ -14,6 +14,7 @@ import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.config.ConfigException;
+import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.server.quota.ClientQuotaCallback;
 import org.apache.kafka.server.quota.ClientQuotaEntity;
@@ -32,30 +33,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class TenantQuotaCallback implements ClientQuotaCallback {
   private static final Logger log = LoggerFactory.getLogger(TenantQuotaCallback.class);
 
-  static final String MAX_BROKER_TENANT_PRODUCER_BYTE_RATE_CONFIG =
-      "confluent.quota.tenant.broker.max.producer.rate";
-  static final String MAX_BROKER_TENANT_CONSUMER_BYTE_RATE_CONFIG =
-      "confluent.quota.tenant.broker.max.consumer.rate";
-  static final String MIN_BROKER_TENANT_PRODUCER_BYTE_RATE_CONFIG =
-      "confluent.quota.tenant.broker.min.producer.rate";
-  static final String MIN_BROKER_TENANT_CONSUMER_BYTE_RATE_CONFIG =
-      "confluent.quota.tenant.broker.min.consumer.rate";
-
-  // Default cap on tenant quota that can be assigned to a single broker for produce and consume
-  // quotas: 12.5MB/sec each. With 100MB/sec cluster-wide tenant quota, a tenant needs to send
-  // load to at least 8 partitions (on 8 brokers) to get the full produce and consume quota.
-  public static final long DEFAULT_MAX_BROKER_TENANT_PRODUCER_BYTE_RATE = 13107200;
-  public static final long DEFAULT_MAX_BROKER_TENANT_CONSUMER_BYTE_RATE = 13107200;
-
-  // Default minimum quota that can be assigned to a single broker: 10 MB/s
-  // Per-broker tenant quota is always greater than zero to avoid excessive throttling of
-  // requests received before cluster metadata or quota configs are refreshed.
-  // The default is somewhat high to ensure that the broker does not over-throttle during the roll;
-  // if the tenant quota results in a lower per-broker quota, it will be updated as soon as the
-  // broker gets cluster metadata, and there maybe a small window where a tenant may get a bit more bandwidth
-  public static final long DEFAULT_MIN_BROKER_TENANT_PRODUCER_BYTE_RATE = 10 * 1024 * 1024;
-  public static final long DEFAULT_MIN_BROKER_TENANT_CONSUMER_BYTE_RATE = 10 * 1024 * 1024;
-
   // TODO: This is a temporary workaround to track TenantQuotaCallbacks.
   // This is used by interceptors to find a partition assignor that has access to
   // the cluster metadata from the configured quota callback. This is also used
@@ -71,8 +48,8 @@ public class TenantQuotaCallback implements ClientQuotaCallback {
   private volatile int brokerId;
   private volatile long maxPerTenantBrokerProducerRate;
   private volatile long maxPerTenantBrokerConsumerRate;
-  private volatile long minPerTenantBrokerProducerRate;
-  private volatile long minPerTenantBrokerConsumerRate;
+  private volatile long minPerTenantFollowerBrokerProducerRate;
+  private volatile long minPerTenantFollowerBrokerConsumerRate;
   private volatile Cluster cluster;
   private volatile QuotaConfig defaultTenantQuota;
 
@@ -92,25 +69,25 @@ public class TenantQuotaCallback implements ClientQuotaCallback {
       INSTANCES.put(brokerId, this);
     }
 
-    minPerTenantBrokerProducerRate = loadPerTenantBrokerByteRateConfig(
-        configs, MIN_BROKER_TENANT_PRODUCER_BYTE_RATE_CONFIG,
-        DEFAULT_MIN_BROKER_TENANT_PRODUCER_BYTE_RATE, 1L);
-    minPerTenantBrokerConsumerRate = loadPerTenantBrokerByteRateConfig(
-        configs, MIN_BROKER_TENANT_CONSUMER_BYTE_RATE_CONFIG,
-        DEFAULT_MIN_BROKER_TENANT_CONSUMER_BYTE_RATE, 1L);
+    minPerTenantFollowerBrokerProducerRate = loadPerTenantBrokerByteRateConfig(
+        configs, ConfluentConfigs.MIN_FOLLOWER_BROKER_TENANT_PRODUCER_BYTE_RATE_CONFIG,
+            ConfluentConfigs.MIN_FOLLOWER_BROKER_TENANT_PRODUCER_BYTE_RATE_DEFAULT, 1L);
+    minPerTenantFollowerBrokerConsumerRate = loadPerTenantBrokerByteRateConfig(
+        configs, ConfluentConfigs.MIN_FOLLOWER_BROKER_TENANT_CONSUMER_BYTE_RATE_CONFIG,
+        ConfluentConfigs.MIN_FOLLOWER_BROKER_TENANT_CONSUMER_BYTE_RATE_DEFAULT, 1L);
     maxPerTenantBrokerProducerRate = loadPerTenantBrokerByteRateConfig(
-        configs, MAX_BROKER_TENANT_PRODUCER_BYTE_RATE_CONFIG,
-        DEFAULT_MAX_BROKER_TENANT_PRODUCER_BYTE_RATE, minPerTenantBrokerProducerRate);
+        configs, ConfluentConfigs.MAX_BROKER_TENANT_PRODUCER_BYTE_RATE_CONFIG,
+        ConfluentConfigs.MAX_BROKER_TENANT_PRODUCER_BYTE_RATE_DEFAULT, minPerTenantFollowerBrokerProducerRate);
     maxPerTenantBrokerConsumerRate = loadPerTenantBrokerByteRateConfig(
-        configs, MAX_BROKER_TENANT_CONSUMER_BYTE_RATE_CONFIG,
-        DEFAULT_MAX_BROKER_TENANT_CONSUMER_BYTE_RATE, minPerTenantBrokerConsumerRate);
+        configs, ConfluentConfigs.MAX_BROKER_TENANT_CONSUMER_BYTE_RATE_CONFIG,
+        ConfluentConfigs.MAX_BROKER_TENANT_CONSUMER_BYTE_RATE_DEFAULT, minPerTenantFollowerBrokerConsumerRate);
 
     log.info("Configured tenant quota callback for broker {} with {}={}, {}={}, {}={}, {}={}",
              brokerId,
-             MIN_BROKER_TENANT_PRODUCER_BYTE_RATE_CONFIG, minPerTenantBrokerProducerRate,
-             MIN_BROKER_TENANT_CONSUMER_BYTE_RATE_CONFIG, minPerTenantBrokerConsumerRate,
-             MAX_BROKER_TENANT_PRODUCER_BYTE_RATE_CONFIG, maxPerTenantBrokerProducerRate,
-             MAX_BROKER_TENANT_CONSUMER_BYTE_RATE_CONFIG, maxPerTenantBrokerConsumerRate);
+            ConfluentConfigs.MIN_FOLLOWER_BROKER_TENANT_PRODUCER_BYTE_RATE_CONFIG, minPerTenantFollowerBrokerProducerRate,
+            ConfluentConfigs.MIN_FOLLOWER_BROKER_TENANT_CONSUMER_BYTE_RATE_CONFIG, minPerTenantFollowerBrokerConsumerRate,
+            ConfluentConfigs.MAX_BROKER_TENANT_PRODUCER_BYTE_RATE_CONFIG, maxPerTenantBrokerProducerRate,
+            ConfluentConfigs.MAX_BROKER_TENANT_CONSUMER_BYTE_RATE_CONFIG, maxPerTenantBrokerConsumerRate);
   }
 
   @Override
@@ -462,10 +439,10 @@ public class TenantQuotaCallback implements ClientQuotaCallback {
       Long produceQuota = null;
       if (clusterQuotaConfig.hasQuotaLimit(ClientQuotaType.PRODUCE)) {
         produceQuota = leaderPartitions == 0 ?
-                       minPerTenantBrokerProducerRate :
+                       minPerTenantFollowerBrokerProducerRate :
                        Math.min(clusterQuotaConfig.equalQuotaPerBrokerOrUnlimited(
                                     ClientQuotaType.PRODUCE,
-                                    brokersWithLeaders, minPerTenantBrokerProducerRate),
+                                    brokersWithLeaders, minPerTenantFollowerBrokerProducerRate),
                                 maxPerTenantBrokerProducerRate);
       }
 
@@ -473,10 +450,10 @@ public class TenantQuotaCallback implements ClientQuotaCallback {
       Long consumeQuota = null;
       if (clusterQuotaConfig.hasQuotaLimit(ClientQuotaType.FETCH)) {
         consumeQuota = leaderPartitions == 0 ?
-                       minPerTenantBrokerConsumerRate :
+                       minPerTenantFollowerBrokerConsumerRate :
                        Math.min(clusterQuotaConfig.equalQuotaPerBrokerOrUnlimited(
                                     ClientQuotaType.FETCH,
-                                    brokersWithLeaders, minPerTenantBrokerConsumerRate),
+                                    brokersWithLeaders, minPerTenantFollowerBrokerConsumerRate),
                                 maxPerTenantBrokerConsumerRate);
       }
 

@@ -6,6 +6,7 @@ import io.confluent.kafka.multitenant.TenantMetadata;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.server.quota.ClientQuotaType;
+import org.apache.kafka.common.config.internals.ConfluentConfigs;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -83,12 +84,12 @@ public class TenantQuotaCallbackTest {
     // there are no partition leaders, so expecting minimum produce & consume quotas
     assertTrue(tenantQuota.hasQuotaLimit(ClientQuotaType.PRODUCE));
     assertEquals("Unexpected PRODUCE quota",
-                 TenantQuotaCallback.DEFAULT_MIN_BROKER_TENANT_PRODUCER_BYTE_RATE,
+                 ConfluentConfigs.MIN_FOLLOWER_BROKER_TENANT_PRODUCER_BYTE_RATE_DEFAULT,
                  tenantQuota.quotaLimit(ClientQuotaType.PRODUCE), EPS);
 
     assertTrue(tenantQuota.hasQuotaLimit(ClientQuotaType.FETCH));
     assertEquals("Unexpected FETCH quota",
-                 TenantQuotaCallback.DEFAULT_MIN_BROKER_TENANT_CONSUMER_BYTE_RATE,
+                 ConfluentConfigs.MIN_FOLLOWER_BROKER_TENANT_CONSUMER_BYTE_RATE_DEFAULT,
                  tenantQuota.quotaLimit(ClientQuotaType.FETCH), EPS);
 
     assertTrue(tenantQuota.hasQuotaLimit(ClientQuotaType.REQUEST));
@@ -440,13 +441,13 @@ public class TenantQuotaCallbackTest {
   private Map<String, Object> quotaCallbackProps() {
     Map<String, Object> configs = new HashMap<>();
     configs.put("broker.id", String.valueOf(brokerId));
-    configs.put(TenantQuotaCallback.MIN_BROKER_TENANT_PRODUCER_BYTE_RATE_CONFIG,
+    configs.put(ConfluentConfigs.MIN_FOLLOWER_BROKER_TENANT_PRODUCER_BYTE_RATE_CONFIG,
                 MIN_BROKER_PRODUCE_QUOTA.toString());
-    configs.put(TenantQuotaCallback.MAX_BROKER_TENANT_PRODUCER_BYTE_RATE_CONFIG,
+    configs.put(ConfluentConfigs.MAX_BROKER_TENANT_PRODUCER_BYTE_RATE_CONFIG,
                 MAX_BROKER_PRODUCE_QUOTA.toString());
-    configs.put(TenantQuotaCallback.MIN_BROKER_TENANT_CONSUMER_BYTE_RATE_CONFIG,
+    configs.put(ConfluentConfigs.MIN_FOLLOWER_BROKER_TENANT_CONSUMER_BYTE_RATE_CONFIG,
                 MIN_BROKER_CONSUME_QUOTA.toString());
-    configs.put(TenantQuotaCallback.MAX_BROKER_TENANT_CONSUMER_BYTE_RATE_CONFIG,
+    configs.put(ConfluentConfigs.MAX_BROKER_TENANT_CONSUMER_BYTE_RATE_CONFIG,
                 MAX_BROKER_CONSUME_QUOTA.toString());
     return configs;
   }

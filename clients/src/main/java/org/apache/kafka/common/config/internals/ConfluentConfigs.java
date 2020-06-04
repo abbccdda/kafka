@@ -415,6 +415,50 @@ public class ConfluentConfigs {
     public static final String RESOURCE_LABEL_VERSION = RESOURCE_LABEL_PREFIX + "version";
     public static final String RESOURCE_LABEL_COMMIT_ID = RESOURCE_LABEL_PREFIX + "commit.id";
 
+    // Configuration for broker quotas in a cluster (for both single and multi-tenant)
+    // TL;DR - The quotas are configured with a minimum and a maximum per producer/consumer
+    //         per tenant per broker. The maximum is universal and is applicable to both
+    //         followers and leaders. However, only the brokers hosting at least one leader of
+    //         the tenant's topic partitions ever reach the maximum quota.
+    //         The minimum is exclusively followed by the brokers that have no replica leaders for
+    //         the tenant's topic partitions for cases when the cluster needs to roll
+    //         (i.e. follower becomes a leader). During this transition, it's necessary to maintain
+    //         the throughput before the quota configuration is refreshed.
+    // Default cap on tenant quota that can be assigned to a single broker for produce and consume
+    // quotas: 12.5MB/sec each. With 100MB/sec cluster-wide tenant quota, a tenant needs to send
+    // load to at least 8 partitions (on 8 brokers) to get the full produce and consume quota.
+    public static final String MAX_BROKER_TENANT_PRODUCER_BYTE_RATE_CONFIG =
+            "confluent.quota.tenant.broker.max.producer.rate";
+    public static final String MAX_BROKER_TENANT_PRODUCER_BYTE_RATE_DOC =
+            "Maximum producer quota in bytes/s per tenant per broker";
+    public static final long MAX_BROKER_TENANT_PRODUCER_BYTE_RATE_DEFAULT = 13107200;
+
+    public static final String MAX_BROKER_TENANT_CONSUMER_BYTE_RATE_CONFIG =
+            "confluent.quota.tenant.broker.max.consumer.rate";
+    public static final String MAX_BROKER_TENANT_CONSUMER_BYTE_RATE_DOC =
+            "Maximum consumer quota in bytes/s per tenant per broker";
+    public static final long MAX_BROKER_TENANT_CONSUMER_BYTE_RATE_DEFAULT = 13107200;
+
+    // The following define the minimum quota to be assigned for a broker when it's not a leader.
+    // Per-broker tenant quota is always greater than zero to avoid excessive throttling of
+    // requests received before cluster metadata or quota configs are refreshed.
+    // These expose the configuration allowing this to be tuned at broker startup.
+    // See: https://confluentinc.atlassian.net/browse/CNKAF-697
+    // Default cap on tenant quota that can be assigned to a single follower broker for produce and consume
+    // quotas: 10MB/sec each.
+    // The default is somewhat high to ensure that the broker does not over-throttle during the roll;
+    public static final String MIN_FOLLOWER_BROKER_TENANT_PRODUCER_BYTE_RATE_CONFIG =
+            "confluent.quota.tenant.follower.broker.min.producer.rate";
+    public static final String MIN_FOLLOWER_BROKER_TENANT_PRODUCER_BYTE_RATE_DOC =
+            "Minimum producer quota in bytes/s per tenant per broker that has no leaders for tenant's partitions";
+    public static final long MIN_FOLLOWER_BROKER_TENANT_PRODUCER_BYTE_RATE_DEFAULT = 10 * 1024 * 1024;
+
+    public static final String MIN_FOLLOWER_BROKER_TENANT_CONSUMER_BYTE_RATE_CONFIG =
+            "confluent.quota.tenant.follower.broker.min.consumer.rate";
+    public static final String MIN_FOLLOWER_BROKER_TENANT_CONSUMER_BYTE_RATE_DOC =
+            "Minimum consumer quota in bytes/s per tenant per broker that has no leaders for tenant's partitions";
+    public static final long MIN_FOLLOWER_BROKER_TENANT_CONSUMER_BYTE_RATE_DEFAULT = 10 * 1024 * 1024;
+
     public enum ClientType {
         PRODUCER("producer", ProducerConfig.configNames()),
         CONSUMER("consumer", ConsumerConfig.configNames()),
