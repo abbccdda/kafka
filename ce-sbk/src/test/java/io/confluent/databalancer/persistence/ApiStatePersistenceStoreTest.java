@@ -39,11 +39,12 @@ import java.util.concurrent.Semaphore;
 public class ApiStatePersistenceStoreTest {
 
     private static final String API_STATE_TOPIC = "_ApiStatePersistenceTestStore";
+    private static final long TEST_TIMEOUT = 60_000;
 
     private EmbeddedKafkaCluster kafkaCluster;
 
     @Rule
-    final public Timeout globalTimeout = Timeout.millis(60_000);
+    final public Timeout globalTimeout = Timeout.millis(TEST_TIMEOUT);
 
     private MockTime time = new MockTime();
 
@@ -248,8 +249,11 @@ public class ApiStatePersistenceStoreTest {
             // At this point, no topics should exist
             // First pass should fail, and instantiate the topics
             Assert.assertFalse(ApiStatePersistenceStore.checkTopicCreated(configMap, topicConfig));
-            Set<String> topics = adminClient.listTopics().names().get();
-            Assert.assertTrue(topics.contains(API_STATE_TOPIC));
+            TestUtils.waitForCondition(() -> {
+                Set<String> topics = adminClient.listTopics().names().get();
+                return topics.contains(API_STATE_TOPIC);
+            }, TEST_TIMEOUT / 2, API_STATE_TOPIC + " can't be created.");
+
             // Topic creation is not instantaneous; wait for completion.
             // This is rather yucky but the test doesn't control the topic creation components.
             TestUtils.waitForCondition(() -> ApiStatePersistenceStore.checkTopicCreated(configMap, topicConfig),

@@ -67,6 +67,17 @@ public class BrokerRemovalStatus {
         this.lastUpdateTime = lastUpdateTime;
     }
 
+    /**
+     * Returns a boolean indicating if this broker removal is already complete (successful or failed) and
+     * is not in an in-progress/pending state.
+     */
+    public boolean isDone() {
+        return partitionReassignmentsStatus == BrokerRemovalDescription.PartitionReassignmentsStatus.FAILED ||
+               partitionReassignmentsStatus == BrokerRemovalDescription.PartitionReassignmentsStatus.CANCELED ||
+               partitionReassignmentsStatus == BrokerRemovalDescription.PartitionReassignmentsStatus.COMPLETE ||
+               brokerShutdownStatus == BrokerRemovalDescription.BrokerShutdownStatus.FAILED;
+    }
+
     @Override
     public String toString() {
         return "BrokerRemovalStatus{" +
