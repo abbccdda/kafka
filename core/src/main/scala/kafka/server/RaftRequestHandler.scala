@@ -93,7 +93,8 @@ class RaftRequestHandler(networkChannel: KafkaNetworkChannel,
         case ApiKeys.PRODUCE =>
 
           val produceRequest = request.body[ProduceRequest]
-          produceRequest.partitionRecordsOrFail()
+          counter.incrementByRecords(
+            produceRequest.partitionRecordsOrFail().get(metadataPartition))
           counter.increment().whenComplete{ (_, exception) =>
             val error = if (exception == null)
               Errors.NONE

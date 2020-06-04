@@ -2,9 +2,10 @@
 
 NUM_RUNS=5
 NUM_RECORDS=5000000
-RECORD_SIZE=1000
+RECORD_SIZE=100
 
+TIMESTAMP=$(date '+%Y%m%d%H%M%S')
 for ((run=1; run<=$NUM_RUNS; run++));
 do
-    ./bin/kafka-producer-perf-test.sh --topic __cluster_metadata --num-records $NUM_RECORDS --throughput -1 --record-size $RECORD_SIZE --producer.config config/raft-producer.properties >> raft-fsync-num-records-${NUM_RECORDS}-record-size-${RECORD_SIZE}.out
+    ./bin/kafka-producer-perf-test.sh --topic __cluster_metadata --num-records $NUM_RECORDS --throughput -1 --record-size $RECORD_SIZE --producer.config config/raft-producer.properties >> results/raft-num-records-${NUM_RECORDS}-record-size-${RECORD_SIZE}-${TIMESTAMP}.out
 done

@@ -93,6 +93,7 @@ class RaftServer(val config: KafkaConfig,
       logContext,
       logDir
     )
+    raftClient.initialize(counter)
 
     val requestHandler = new RaftRequestHandler(
       networkChannel,
@@ -118,8 +119,6 @@ class RaftServer(val config: KafkaConfig,
 
     val shutdown = new AtomicBoolean(false)
     try {
-      raftClient.initialize(counter)
-
       if (selfIncrement) {
         info("Start self increment thread")
         val incrementThread = new Thread() {

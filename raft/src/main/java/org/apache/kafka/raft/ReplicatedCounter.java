@@ -132,7 +132,19 @@ public class ReplicatedCounter implements ReplicatedStateMachine {
         Records records = MemoryRecords.withRecords(CompressionType.NONE, serialize(incremented));
         CompletableFuture<OffsetAndEpoch> future = appender.append(records);
         return future.thenApply(offsetAndEpoch -> incremented);
+    }
 
+    public synchronized CompletableFuture<Integer> incrementByRecords(MemoryRecords records) {
+        if (appender == null) {
+            throw new IllegalStateException("The record appender is not initialized");
+        }
+
+        int incremented = uncommitted != null ?
+                              uncommitted.get() + 1:
+                              value() + 1;
+        log.trace("Attempt to increment counter from: {} -> {}", uncommitted.get(), incremented);
+        CompletableFuture<OffsetAndEpoch> future = appender.append(records);
+        return future.thenApply(offsetAndEpoch -> incremented);
     }
 
     public synchronized boolean isLeader() {
