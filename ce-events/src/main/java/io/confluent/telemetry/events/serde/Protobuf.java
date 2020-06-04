@@ -15,7 +15,7 @@ import com.google.protobuf.MessageLite;
 import com.google.protobuf.Parser;
 import com.hubspot.jackson.datatype.protobuf.ProtobufModule;
 import io.cloudevents.json.ZonedDateTimeDeserializer;
-import io.cloudevents.v03.CloudEventImpl;
+import io.cloudevents.v1.CloudEventImpl;
 import java.time.ZonedDateTime;
 
 /**

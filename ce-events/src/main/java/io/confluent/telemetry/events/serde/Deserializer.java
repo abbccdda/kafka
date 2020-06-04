@@ -5,7 +5,7 @@ package io.confluent.telemetry.events.serde;
 
 import io.cloudevents.CloudEvent;
 import io.cloudevents.format.builder.HeadersStep;
-import io.cloudevents.v03.AttributesImpl;
+import io.cloudevents.v1.AttributesImpl;
 import java.util.AbstractMap.SimpleEntry;
 import java.util.Map;
 import java.util.Map.Entry;

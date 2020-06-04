@@ -5,7 +5,7 @@ import static org.junit.Assert.assertTrue;
 
 import io.cloudevents.CloudEvent;
 import io.confluent.crn.ConfluentServerCrnAuthority;
-import io.cloudevents.v03.AttributesImpl;
+import io.cloudevents.v1.AttributesImpl;
 import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 import io.confluent.kafka.multitenant.TenantMetadata;
 import io.confluent.telemetry.events.serde.Protobuf;

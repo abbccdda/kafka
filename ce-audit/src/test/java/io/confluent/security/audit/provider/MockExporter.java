@@ -4,7 +4,7 @@
 package io.confluent.security.audit.provider;
 
 import io.cloudevents.CloudEvent;
-import io.cloudevents.v03.AttributesImpl;
+import io.cloudevents.v1.AttributesImpl;
 import io.confluent.telemetry.events.exporter.Exporter;
 import java.util.ArrayList;
 import java.util.Collections;

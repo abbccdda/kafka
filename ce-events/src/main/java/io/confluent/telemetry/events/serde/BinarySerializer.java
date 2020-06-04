@@ -8,9 +8,9 @@ import io.cloudevents.format.BinaryMarshaller;
 import io.cloudevents.format.Wire;
 import io.cloudevents.format.builder.EventStep;
 import io.cloudevents.fun.DataMarshaller;
-import io.cloudevents.v03.Accessor;
-import io.cloudevents.v03.AttributesImpl;
-import io.cloudevents.v03.kafka.HeaderMapper;
+import io.cloudevents.v1.Accessor;
+import io.cloudevents.v1.AttributesImpl;
+import io.cloudevents.v1.kafka.HeaderMapper;
 
 public class BinarySerializer<T> extends Serializer<T> {
 

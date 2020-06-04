@@ -11,7 +11,7 @@ import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_LO
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.ENABLE_AUTHENTICATION_AUDIT_LOGS;
 
 import io.cloudevents.CloudEvent;
-import io.cloudevents.v03.AttributesImpl;
+import io.cloudevents.v1.AttributesImpl;
 import io.confluent.crn.ConfluentServerCrnAuthority;
 import io.confluent.crn.CrnAuthorityConfig;
 import io.confluent.crn.CrnSyntaxException;

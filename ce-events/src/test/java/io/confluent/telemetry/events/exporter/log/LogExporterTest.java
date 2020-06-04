@@ -7,7 +7,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import io.cloudevents.CloudEvent;
-import io.cloudevents.v03.AttributesImpl;
+import io.cloudevents.v1.AttributesImpl;
 import io.confluent.telemetry.events.Event;
 import io.confluent.telemetry.events.EventLogger;
 import io.confluent.telemetry.events.EventLoggerConfig;

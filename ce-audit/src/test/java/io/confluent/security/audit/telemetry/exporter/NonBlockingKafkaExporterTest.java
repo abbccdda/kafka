@@ -8,7 +8,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.cloudevents.CloudEvent;
-import io.cloudevents.v03.AttributesImpl;
+import io.cloudevents.v1.AttributesImpl;
 import io.confluent.kafka.test.cluster.EmbeddedKafkaCluster;
 import io.confluent.telemetry.events.serde.Protobuf;
 import io.confluent.telemetry.events.Event;

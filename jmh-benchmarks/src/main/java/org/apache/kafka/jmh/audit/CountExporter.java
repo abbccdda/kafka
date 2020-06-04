@@ -2,7 +2,7 @@ package org.apache.kafka.jmh.audit;
 
 import com.google.protobuf.MessageLite;
 import io.cloudevents.CloudEvent;
-import io.cloudevents.v03.AttributesImpl;
+import io.cloudevents.v1.AttributesImpl;
 import io.confluent.telemetry.events.serde.Protobuf;
 import io.confluent.telemetry.events.cloudevents.extensions.RouteExtension;
 import io.confluent.telemetry.events.serde.Serializer;

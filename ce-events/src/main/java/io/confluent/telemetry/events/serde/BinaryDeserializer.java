@@ -7,11 +7,14 @@ import io.cloudevents.extensions.DistributedTracingExtension;
 import io.cloudevents.format.BinaryUnmarshaller;
 import io.cloudevents.format.builder.HeadersStep;
 import io.cloudevents.fun.DataUnmarshaller;
-import io.cloudevents.v03.AttributesImpl;
-import io.cloudevents.v03.CloudEventBuilder;
-import io.cloudevents.v03.kafka.AttributeMapper;
-import io.cloudevents.v03.kafka.ExtensionMapper;
+import io.cloudevents.v1.AttributesImpl;
+import io.cloudevents.v1.CloudEventBuilder;
+import io.cloudevents.v1.ContextAttributes;
+import io.cloudevents.v1.kafka.AttributeMapper;
+import io.cloudevents.v1.kafka.ExtensionMapper;
 import io.confluent.telemetry.events.cloudevents.extensions.RouteExtension;
+import java.util.Map;
+import org.apache.kafka.common.serialization.Serdes;
 
 public class BinaryDeserializer<T> extends Deserializer<T> {
 
@@ -40,7 +43,7 @@ public class BinaryDeserializer<T> extends Deserializer<T> {
         /*
          * Step 1. Map headers Map to attributes Map
          */
-        .map(AttributeMapper::map)
+        .map(BinaryDeserializer::map)
         /*
          * Step 2. The attributes ummarshalling - unmarshal a Map of attributes into
          *   an instance of Attributes
@@ -67,5 +70,17 @@ public class BinaryDeserializer<T> extends Deserializer<T> {
         .builder(CloudEventBuilder.builder());
   }
 
+  public static Map<String, String> map(Map<String, Object> headers) {
+    Map<String, String> result = AttributeMapper.map(headers);
+
+    // Add content-type like https://github.com/cloudevents/sdk-java/blob/1.x/api/src/main/java/io/cloudevents/v1/http/AttributeMapper.java#L61-L75
+    // TODO: Submit a bug report / PR upstream for this.
+    if (headers.containsKey("content-type")) {
+      String contentType = Serdes.String().deserializer().deserialize(null,
+          (byte[]) headers.get("content-type"));
+      result.put(ContextAttributes.datacontenttype.name(), contentType);
+    }
+    return result;
+  }
 
 }
