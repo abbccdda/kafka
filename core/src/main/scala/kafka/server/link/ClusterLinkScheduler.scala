@@ -113,8 +113,12 @@ object ClusterLinkScheduler {
       *
       * @param callback the callback to be invoked
       */
-    protected def scheduleOnce(callback: () => Boolean): Unit = {
-      scheduler.scheduleOnce(name, wrap(callback))
+    protected def scheduleOnce(callback: () => Boolean, delayMs: Long = 0): Unit = {
+      if (delayMs <= 0) {
+        scheduler.scheduleOnce(name, wrap(callback))
+      } else {
+        scheduler.schedule(name, wrap(callback), delayMs, period = -1, TimeUnit.MILLISECONDS)
+      }
     }
 
     /**

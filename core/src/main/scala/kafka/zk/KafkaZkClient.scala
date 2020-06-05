@@ -1506,7 +1506,23 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
    */
   def createClusterLink(clusterLinkData: ClusterLinkData): Unit =
     createRecursive(ClusterLinkZNode.path(clusterLinkData.linkId),
-      ClusterLinkZNode.encode(clusterLinkData.linkName, clusterLinkData.clusterId, clusterLinkData.tenantPrefix))
+      ClusterLinkZNode.encode(clusterLinkData))
+
+  /**
+   * Sets an existing cluster link with the provided data.
+   *
+   * @param clusterLinkData the cluster link's data
+   */
+  def setClusterLink(clusterLinkData: ClusterLinkData): Unit = {
+    val linkId = clusterLinkData.linkId
+    val setDataRequest = SetDataRequest(ClusterLinkZNode.path(linkId),
+      ClusterLinkZNode.encode(clusterLinkData), ZkVersion.MatchAnyVersion)
+    val setDataResponse = retryRequestUntilConnected(setDataRequest)
+    setDataResponse.resultCode match {
+      case Code.NONODE => throw new IllegalStateException(s"Cluster link with ID '$linkId' not found")
+      case _ => setDataResponse.maybeThrow
+    }
+  }
 
   /**
    * Gets cluster link data for a set of link IDs.

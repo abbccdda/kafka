@@ -6,6 +6,7 @@ package org.apache.kafka.common.requests;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.internals.KafkaFutureImpl;
 import org.apache.kafka.common.message.AlterMirrorsResponseData;
+import org.apache.kafka.common.message.AlterMirrorsResponseData.ClearTopicMirrorData;
 import org.apache.kafka.common.message.AlterMirrorsResponseData.OpData;
 import org.apache.kafka.common.message.AlterMirrorsResponseData.StopTopicMirrorData;
 import org.apache.kafka.common.protocol.Errors;
@@ -55,6 +56,10 @@ public class AlterMirrorsResponse extends AbstractResponse {
         // Empty.
     }
 
+    public static class ClearTopicMirrorResult implements Result {
+        // Empty.
+    }
+
     private final AlterMirrorsResponseData data;
 
     public AlterMirrorsResponse(List<Result.OrError> results, int throttleTimeMs) {
@@ -66,6 +71,8 @@ public class AlterMirrorsResponse extends AbstractResponse {
 
             if (result.result() instanceof StopTopicMirrorResult) {
                 opData.setStopTopicMirror(Collections.singletonList(new StopTopicMirrorData()));
+            } else if (result.result() instanceof ClearTopicMirrorResult) {
+                opData.setClearTopicMirror(Collections.singletonList(new ClearTopicMirrorData()));
             } else if (result.result() != null) {
                 throw new InvalidRequestException("Unexpected mirror control op type");
             }
@@ -113,12 +120,22 @@ public class AlterMirrorsResponse extends AbstractResponse {
                 continue;
             }
 
+            if ((opData.stopTopicMirror() != null ? 1 : 0) +
+                (opData.clearTopicMirror() != null ? 1 : 0) != 1) {
+              throw new IllegalArgumentException("Unexpected request data");
+            }
+
             Result opResult;
             if (opData.stopTopicMirror() != null) {
                 if (opData.stopTopicMirror().size() != 1) {
                     throw new IllegalArgumentException("Unexpected result size");
                 }
                 opResult = new StopTopicMirrorResult();
+            } else if (opData.clearTopicMirror() != null) {
+                if (opData.clearTopicMirror().size() != 1) {
+                    throw new IllegalArgumentException("Unexpected result size");
+                }
+                opResult = new ClearTopicMirrorResult();
             } else {
                 throw new InvalidRequestException("Unexpected mirror control op type");
             }

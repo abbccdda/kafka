@@ -7,6 +7,7 @@ import java.util.Optional
 import java.util.concurrent.ExecutionException
 
 import kafka.api.IntegrationTestHarness
+import kafka.server.link.ClusterLinkTopicState
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.clients.admin.{Admin, ConfluentAdmin, CreateClusterLinksOptions, CreateTopicsOptions, NewTopic, NewTopicMirror}
 import org.apache.kafka.common.KafkaFuture
@@ -18,7 +19,6 @@ import org.junit.Test
 import org.scalatest.Assertions.intercept
 
 import scala.jdk.CollectionConverters._
-import scala.reflect.ClassTag
 
 class AlterMirrorsRequestTest extends BaseRequestTest {
 
@@ -46,30 +46,69 @@ class AlterMirrorsRequestTest extends BaseRequestTest {
       createTopicWith(remoteAdmin, topic)
       createTopicWith(localAdmin, topic, Some("test-link"), Some(topic))
 
-      val results1 = alterMirrors(List(new AlterMirrorsRequest.StopTopicMirrorOp(topic)))
-      val res = results1(0).get
-      assertTrue(res.isInstanceOf[AlterMirrorsResponse.StopTopicMirrorResult])
-
-      val results2 = alterMirrors(List(new AlterMirrorsRequest.StopTopicMirrorOp(topic)))
-      interceptExecutionException[InvalidRequestException] {
-        results2(0).get
+      stopTopicMirror(topic)
+      intercept[InvalidRequestException] {
+        stopTopicMirror(topic)
       }
     })
   }
 
   @Test
   def testStopTopicMirrorInvalidTopic(): Unit = {
-    val results = alterMirrors(List(new AlterMirrorsRequest.StopTopicMirrorOp("topic!")))
-    interceptExecutionException[InvalidTopicException] {
-      results(0).get
+    intercept[InvalidTopicException] {
+      stopTopicMirror("topic!")
     }
   }
 
   @Test
   def testStopTopicMirrorNonexistentTopic(): Unit = {
-    val results = alterMirrors(List(new AlterMirrorsRequest.StopTopicMirrorOp("unknown-topic")))
-    interceptExecutionException[UnknownTopicOrPartitionException] {
-      results(0).get
+    intercept[UnknownTopicOrPartitionException] {
+      stopTopicMirror("unknown-topic")
+    }
+  }
+
+  @Test
+  def testClearTopicMirror(): Unit = {
+    val activeTopic = "active-topic"
+    val stoppedTopic = "stopped-topic"
+    val localAdmin = createAdminClient()
+
+    def hasClusterLink(topic: String): Boolean = getClusterLinkForTopic(topic).nonEmpty
+
+    runWithRemoteCluster((remoteCluster: IntegrationTestHarness) => {
+      val remoteAdmin = remoteCluster.createAdminClient()
+
+      createClusterLinkWith(localAdmin, "test-link", remoteCluster.brokerList)
+      createTopicWith(remoteAdmin, activeTopic)
+      createTopicWith(localAdmin, activeTopic, Some("test-link"), Some(activeTopic))
+
+      assertTrue(topicIsActiveMirror(activeTopic))
+      clearTopicMirror(activeTopic)
+      assertFalse(hasClusterLink(activeTopic))
+      clearTopicMirror(activeTopic)  // OK, idempotent
+      assertFalse(hasClusterLink(activeTopic))
+
+      createTopicWith(remoteAdmin, stoppedTopic)
+      createTopicWith(localAdmin, stoppedTopic, Some("test-link"), Some(stoppedTopic))
+      assertTrue(topicIsActiveMirror(stoppedTopic))
+      stopTopicMirror(stoppedTopic)
+      assertTrue(topicIsStoppedMirror(stoppedTopic))
+      clearTopicMirror(stoppedTopic)
+      assertFalse(hasClusterLink(stoppedTopic))
+    })
+  }
+
+  @Test
+  def testClearTopicMirrorInvalidTopic(): Unit = {
+    intercept[InvalidTopicException] {
+      clearTopicMirror("topic!")
+    }
+  }
+
+  @Test
+  def testClearTopicMirrorNonexistentTopic(): Unit = {
+    intercept[UnknownTopicOrPartitionException] {
+      clearTopicMirror("unknown-topic")
     }
   }
 
@@ -99,13 +138,21 @@ class AlterMirrorsRequestTest extends BaseRequestTest {
     admin.createTopics(Seq(newTopic).asJavaCollection, new CreateTopicsOptions().timeoutMs(1000)).all.get
   }
 
-  private def interceptExecutionException[T <: AnyRef : ClassTag](callable: () => Unit): Unit = {
-    intercept[T] {
-      try {
-        callable()
-      } catch {
-        case e: ExecutionException => throw e.getCause
-      }
+  private def stopTopicMirror(topic: String): Unit = {
+    try {
+      val res = alterMirrors(List(new AlterMirrorsRequest.StopTopicMirrorOp(topic)))(0).get
+      assertTrue(res.isInstanceOf[AlterMirrorsResponse.StopTopicMirrorResult])
+    } catch {
+      case e: ExecutionException => throw e.getCause
+    }
+  }
+
+  private def clearTopicMirror(topic: String): Unit = {
+    try {
+      val res = alterMirrors(List(new AlterMirrorsRequest.ClearTopicMirrorOp(topic)))(0).get
+      assertTrue(res.isInstanceOf[AlterMirrorsResponse.ClearTopicMirrorResult])
+    } catch {
+      case e: ExecutionException => throw e.getCause
     }
   }
 
@@ -123,4 +170,12 @@ class AlterMirrorsRequestTest extends BaseRequestTest {
     connectAndReceive[AlterMirrorsResponse](request, destination = controllerSocketServer)
   }
 
+  private def getClusterLinkForTopic(topic: String): Option[ClusterLinkTopicState] =
+    zkClient.getClusterLinkForTopics(Set(topic)).get(topic)
+
+  private def topicIsActiveMirror(topic: String): Boolean =
+    getClusterLinkForTopic(topic).map(_.isInstanceOf[ClusterLinkTopicState.Mirror]).getOrElse(false)
+
+  private def topicIsStoppedMirror(topic: String): Boolean =
+    getClusterLinkForTopic(topic).map(_.isInstanceOf[ClusterLinkTopicState.StoppedMirror]).getOrElse(false)
 }

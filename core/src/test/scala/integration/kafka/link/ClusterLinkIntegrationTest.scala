@@ -25,7 +25,7 @@ import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer, OffsetA
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, ProducerRecord}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.{Config => _, _}
-import org.apache.kafka.common.errors.{InvalidConfigurationException, InvalidPartitionsException, InvalidRequestException}
+import org.apache.kafka.common.errors.{ClusterLinkInUseException, InvalidConfigurationException, InvalidPartitionsException, InvalidRequestException}
 import org.apache.kafka.common.requests.{AlterMirrorsRequest, NewClusterLink}
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.security.scram.ScramCredential
@@ -487,6 +487,27 @@ class ClusterLinkIntegrationTest extends Logging {
     // Produce more records to the source and verify we see no additional records.
     produceToSourceCluster(4)
     waitForMirror(topic)
+
+    destCluster.unlinkTopic(topic, linkName, false)
+    destCluster.deleteClusterLink(linkName)
+  }
+
+  @Test
+  def testDeleteClusterLinkCleanup(): Unit = {
+    destCluster.createClusterLink(linkName, sourceCluster, metadataMaxAgeMs = 10000L)
+
+    val topics = { for (idx <- 0 until 5) yield s"topic-$idx" }.toSet
+    topics.foreach { topic =>
+      sourceCluster.createTopic(topic, numPartitions, replicationFactor = 2)
+      destCluster.linkTopic(topic, replicationFactor = 2, linkName)
+    }
+    assertEquals(topics.size, destCluster.zkClient.getClusterLinkForTopics(topics).size)
+
+    intercept[ClusterLinkInUseException] {
+      destCluster.deleteClusterLink(linkName)
+    }
+    destCluster.deleteClusterLink(linkName, force = true)
+    assertTrue(destCluster.zkClient.getClusterLinkForTopics(topics).isEmpty)
   }
 
   private def verifyMirror(topic: String): Unit = {
@@ -701,11 +722,11 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
     linkId
   }
 
-  def deleteClusterLink(linkName: String): Unit = {
+  def deleteClusterLink(linkName: String, force: Boolean = false): Unit = {
     val linkId = servers.head.clusterLinkManager.resolveLinkIdOrThrow(linkName)
 
     withAdmin((admin: ConfluentAdmin) => {
-      val options = new DeleteClusterLinksOptions().timeoutMs(adminTimeoutMs)
+      val options = new DeleteClusterLinksOptions().force(force).timeoutMs(adminTimeoutMs)
       admin.deleteClusterLinks(Collections.singleton(linkName), options)
         .all.get(waitTimeMs, TimeUnit.MILLISECONDS)
     })

@@ -75,10 +75,11 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
 
   private val adminZkClient = new AdminZkClient(zkClient)
 
-  // Protects `managers` and `linkData`.
+  // Protects `managers`, `linkData`, and `clearTopicMirrors`.
   private val lock = new Object
   private val managers = mutable.Map[UUID, Managers]()
   private val linkData = mutable.Map[String, ClusterLinkData]()
+  private val clearTopicMirrors = mutable.Map[UUID, ClusterLinkClearTopicMirrors]()
 
   // Lock that must be acquired to ensure consistency between persistent metadata and in-memory
   // data structures for cluster links.
@@ -94,7 +95,7 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
   private var controller: KafkaController = _
   private var authorizer: Option[Authorizer] = _
   private var interBrokerEndpoint: Endpoint = _
-  private var destAdminClient: Admin = _
+  private var destAdminClient: ConfluentAdmin = _
 
   def startup(interBrokerEndpoint: Endpoint,
               replicaManager: ReplicaManager,
@@ -121,23 +122,44 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
     * are processed.
     */
   def processClusterLinkChanges(linkId: UUID, persistentProps: Properties): Unit = {
-    val newConfig = configEncoder.clusterLinkConfig(persistentProps)
+    val clusterLinkData = zkClient.getClusterLinks(Set(linkId)).get(linkId)
+
+    clusterLinkData match {
+      case Some(cld) =>
+        if (!cld.isDeleted && persistentProps.isEmpty)
+          throw new IllegalStateException(s"Cluster link configuration properties not found for '$linkId'")
+      case None =>
+        if (!persistentProps.isEmpty)
+          throw new IllegalStateException(s"Cluster link configuration properties found for deleted cluster link '$linkId'")
+    }
 
     updateLock synchronized {
       val existingManager = lock synchronized {
         managers.get(linkId)
       }
       existingManager match {
-        case Some(manager) =>
-          if (persistentProps.isEmpty)
-            removeClusterLink(linkId)
-          else
-            reconfigureClusterLink(manager, newConfig)
-        case None =>
-          if (!persistentProps.isEmpty)
-            zkClient.getClusterLinks(Set(linkId)).get(linkId).foreach { clusterLinkData =>
-              addClusterLink(clusterLinkData, newConfig)
+        case Some(manager) => clusterLinkData match {
+          case Some(cld) if cld.isDeleted =>
+            lock synchronized {
+              if (linkData.get(cld.linkName).exists(_.linkId == linkId))
+                removeClusterLink(linkId)
             }
+          case Some(cld) =>
+            reconfigureClusterLink(manager, configEncoder.clusterLinkConfig(persistentProps))
+          case None =>
+            if (!persistentProps.isEmpty)
+              throw new IllegalStateException(s"Found config properties for cluster link '$linkId' with no metadata")
+            // OK, the cluster link has been deleted by the controller, but the local purge task has not
+            // yet detected it. It will eventually discover the cluster link is gone and remove the manager.
+        }
+        case None => clusterLinkData match {
+          case Some(cld) if cld.isDeleted =>
+            startPurgeClusterLink(linkId)
+          case Some(cld) =>
+            addClusterLink(cld, configEncoder.clusterLinkConfig(persistentProps))
+          case None =>
+            // OK, cluster link has been deleted and is already removed.
+        }
       }
     }
   }
@@ -203,10 +225,21 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
     * @throws ClusterLinkNotFoundException if the cluster link name doesn't resolve to the given ID
     */
   def deleteClusterLink(linkName: String, linkId: UUID): Unit = updateLock synchronized {
-    if (resolveLinkIdOrThrow(linkName) != linkId)
-      throw new ClusterLinkNotFoundException(s"Cluster link '$linkName' not found")
+    val clusterLinkData = lock synchronized {
+      linkData.get(linkName) match {
+        case Some(cld) if cld.linkId != linkId =>
+          debug(s"Found cluster link for name '$linkName' with ID '${cld.linkId}' that doesn't match expected '$linkId'")
+          throw new ClusterLinkNotFoundException(s"Cluster link '$linkName' with ID '$linkId' not found")
+        case Some(cld) if cld.isDeleted =>
+          throw new IllegalStateException(s"Unexpected deleted cluster link '$linkId'")
+        case Some(cld) =>
+          ClusterLinkData(cld.linkName, cld.linkId, cld.clusterId, cld.tenantPrefix, isDeleted = true)
+        case None =>
+          throw new ClusterLinkNotFoundException(s"Cluster link '$linkName' not found")
+      }
+    }
     info(s"Deleting cluster link with name '$linkName' and ID '$linkId'")
-    adminZkClient.deleteClusterLink(linkId)
+    adminZkClient.setClusterLink(clusterLinkData)
     removeClusterLink(linkId)
   }
 
@@ -225,10 +258,12 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
     val linkName = clusterLinkData.linkName
     val linkId = clusterLinkData.linkId
     lock synchronized {
+      if (clusterLinkData.isDeleted)
+        throw new IllegalStateException(s"Cluster link with ID '$linkId' is already deleted")
       if (managers.contains(linkId))
-        throw new IllegalStateException(s"Cluster link with ID $linkId already exists")
+        throw new IllegalStateException(s"Cluster link with ID '$linkId' already exists")
       if (linkData.contains(linkName))
-        throw new IllegalStateException(s"Cluster link with name $linkName already exists")
+        throw new IllegalStateException(s"Cluster link with name '$linkName' already exists")
 
       val clientInterceptor = clusterLinkData.tenantPrefix.map(tenantInterceptor)
       val clientManager = new ClusterLinkClientManager(clusterLinkData, scheduler, zkClient, config,
@@ -264,18 +299,19 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
     */
   private def removeClusterLink(linkId: UUID): Unit = {
     lock synchronized {
+      val linkName = linkData.values.find(_.linkId == linkId).map(_.linkName).getOrElse(
+        throw new IllegalStateException(s"Attempted to remove non-existent cluster link with ID '$linkId'"))
+      linkData.remove(linkName)
       managers.get(linkId) match {
         case Some(Managers(fetcherManager, clientManager)) =>
-          if (!fetcherManager.isEmpty)
-            warn("Removing cluster link with local topics that are currently linked to this cluster")
-          linkData.find(_._2.linkId == linkId).map(_._2.linkName).foreach(linkData.remove)
-          managers.remove(linkId)
           fetcherManager.shutdown()
           clientManager.shutdown()
         case None =>
           throw new IllegalStateException(s"Attempted to remove non-existent cluster link with ID '$linkId'")
       }
     }
+
+    startPurgeClusterLink(linkId)
   }
 
   /**
@@ -377,6 +413,7 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
         fetcherManager.shutdown()
         clientManager.shutdown()
       }
+      clearTopicMirrors.values.foreach(_.shutdown())
     }
     if (scheduler != null)
       scheduler.shutdown()
@@ -452,15 +489,50 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
     confluentAdmin
   }
 
-  private def getOrCreateDestAdmin(): Admin = {
+  private def getOrCreateDestAdmin(): ConfluentAdmin = {
     // Create an admin client for the destination cluster using the inter-broker listener
     if (destAdminClient == null) {
       val adminConfigs = ConfluentConfigs.interBrokerClientConfigs(brokerConfig, interBrokerEndpoint)
       adminConfigs.remove(AdminClientConfig.METRIC_REPORTER_CLASSES_CONFIG)
       adminConfigs.put(CommonClientConfigs.CLIENT_ID_CONFIG, s"cluster-link-admin-${brokerConfig.brokerId}")
-      destAdminClient = Admin.create(adminConfigs)
+      destAdminClient = Admin.create(adminConfigs).asInstanceOf[ConfluentAdmin]
     }
     destAdminClient
   }
 
+  /**
+    * Begins the removal of all references to the cluster link in the cluster if not already active.
+    *
+    * @param linkId the cluster link ID
+    */
+  private def startPurgeClusterLink(linkId: UUID): Unit = {
+    lock synchronized {
+      if (controller != null) {
+        if (!clearTopicMirrors.contains(linkId)) {
+          val task = new ClusterLinkClearTopicMirrors(linkId, scheduler, zkClient, controller,
+            getOrCreateDestAdmin(), () => purgeClusterLink(linkId))
+          clearTopicMirrors.put(linkId, task)
+          task.startup()
+        }
+      } else {
+        purgeClusterLink(linkId)
+      }
+    }
+  }
+
+  /**
+    * Removes all references to a cluster link from the manager.
+    *
+    * @param linkId the cluster link ID
+    */
+  private def purgeClusterLink(linkId: UUID): Unit = updateLock synchronized {
+    debug(s"Purging cluster link '$linkId'")
+
+    // In the event of failure, purging will be retried on next controller restart.
+    zkClient.deleteClusterLink(linkId)
+    lock synchronized {
+      managers.remove(linkId)
+      clearTopicMirrors.remove(linkId)
+    }
+  }
 }

@@ -401,7 +401,7 @@ class ClusterLinkSyncOffsetsTest {
   }
 
   private def linkData(tenantPrefix: Option[String] = None): ClusterLinkData =
-    ClusterLinkData("testLink", UUID.randomUUID, None, tenantPrefix)
+    ClusterLinkData("testLink", UUID.randomUUID, None, tenantPrefix, false)
 
 
   private def mockListGroups(groups: String*): ListConsumerGroupsResult = {

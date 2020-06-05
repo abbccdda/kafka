@@ -199,7 +199,7 @@ class ClusterLinkClientManagerTest {
                                controller: KafkaController) = {
     expect(scheduler.schedule(anyString(), anyObject(), anyLong(), anyLong(), anyObject())).andReturn(null).anyTimes()
     replay(scheduler)
-    val linkData = ClusterLinkData(linkName, UUID.randomUUID, None, None)
+    val linkData = ClusterLinkData(linkName, UUID.randomUUID, None, None, false)
     new ClusterLinkClientManager(linkData, scheduler, zkClient, config,  authorizer, controller,
       metrics, adminFactory, () => destAdmin)
   }

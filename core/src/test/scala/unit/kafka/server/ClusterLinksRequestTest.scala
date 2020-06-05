@@ -3,10 +3,11 @@
  */
 package kafka.server
 
+import java.util.{Collections, Optional}
 import java.util.concurrent.ExecutionException
 
 import kafka.api.IntegrationTestHarness
-import org.apache.kafka.clients.admin.DescribeClusterOptions
+import org.apache.kafka.clients.admin.{ConfluentAdmin, DescribeClusterOptions, NewTopic, NewTopicMirror}
 import org.apache.kafka.common.internals.KafkaFutureImpl
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.{ClusterLinkListing, CreateClusterLinksRequest, CreateClusterLinksResponse, DeleteClusterLinksRequest, DeleteClusterLinksResponse, ListClusterLinksRequest, ListClusterLinksResponse, NewClusterLink}
@@ -34,7 +35,7 @@ class ClusterLinksRequestTest extends BaseRequestTest {
 
   @Test
   def testCreateClusterLinksWithRemote(): Unit = {
-    runWithRemoteCluster((remoteBootstrapServers: String, remoteClusterId: Option[String]) => {
+    runWithRemoteCluster((remoteBootstrapServers: String, remoteClusterId: Option[String], _) => {
       val newClusterLinks = Seq(
         newNewClusterLink("cluster-1", None, Map.empty[String, String], remoteBootstrapServers),
         newNewClusterLink("cluster-2", remoteClusterId, Map.empty[String, String], remoteBootstrapServers),
@@ -245,6 +246,35 @@ class ClusterLinksRequestTest extends BaseRequestTest {
   }
 
   @Test
+  def testDeleteClusterLinksWithRemote(): Unit = {
+    val topic = "mirror-topic"
+    val linkName = "remote"
+
+    val localAdmin = createAdminClient().asInstanceOf[ConfluentAdmin]
+    runWithRemoteCluster((remoteBootstrapServers: String, remoteClusterId: Option[String], remoteAdmin: ConfluentAdmin) => {
+      val newClusterLinks = Seq(newNewClusterLink(linkName, None, Map.empty[String, String], remoteBootstrapServers))
+      val results = createClusterLinks(newClusterLinks, validateOnly = false, validateLink = true)
+      assertEquals(Some(Errors.NONE), results.get(linkName))
+
+      createLinkedTopic(remoteAdmin, topic, None)
+      createLinkedTopic(localAdmin, topic, Some(linkName))
+
+      assertEquals(Map(linkName -> Errors.CLUSTER_LINK_IN_USE),
+        deleteClusterLinks(Seq(linkName), validateOnly = true, force = false))
+      assertEquals(Map(linkName -> Errors.NONE),
+        deleteClusterLinks(Seq(linkName), validateOnly = true, force = true))
+
+      assertEquals(Map(linkName -> Errors.CLUSTER_LINK_IN_USE),
+        deleteClusterLinks(Seq(linkName), validateOnly = false, force = false))
+      assertEquals(Map(linkName -> Errors.NONE),
+        deleteClusterLinks(Seq(linkName), validateOnly = false, force = true))
+
+      assertEquals(Map(linkName -> Errors.CLUSTER_LINK_NOT_FOUND),
+        deleteClusterLinks(Seq(linkName), validateOnly = true, force = true))
+    })
+  }
+
+  @Test
   def testClusterLinksDisabled(): Unit = {
     servers.head.shutdown()
     serverConfig.setProperty(KafkaConfig.ClusterLinkEnableProp, "false")
@@ -266,14 +296,15 @@ class ClusterLinksRequestTest extends BaseRequestTest {
     assertEquals((Set.empty, Errors.CLUSTER_AUTHORIZATION_FAILED), listClusterLinks())
   }
 
-  private def runWithRemoteCluster(callback: (String, Option[String]) => Unit): Unit = {
+  private def runWithRemoteCluster(callback: (String, Option[String], ConfluentAdmin) => Unit): Unit = {
     val remoteCluster = new IntegrationTestHarness() {
       override def brokerCount: Int = 1
     }
     remoteCluster.setUp()
     try {
-      val clusterId = remoteCluster.createAdminClient().describeCluster(new DescribeClusterOptions().timeoutMs(1000)).clusterId.get
-      callback(remoteCluster.brokerList, Option(clusterId))
+      val admin = remoteCluster.createAdminClient()
+      val clusterId = admin.describeCluster(new DescribeClusterOptions().timeoutMs(1000)).clusterId.get
+      callback(remoteCluster.brokerList, Option(clusterId), admin.asInstanceOf[ConfluentAdmin])
     } finally {
       remoteCluster.tearDown()
     }
@@ -283,6 +314,12 @@ class ClusterLinksRequestTest extends BaseRequestTest {
     val (clusterLinks, error) = listClusterLinks()
     assertEquals(error, Errors.NONE)
     assertEquals(linkNames.toSet, clusterLinks.map(_.linkName).toSet)
+  }
+
+  private def createLinkedTopic(admin: ConfluentAdmin, topic: String, linkName: Option[String]): Unit = {
+    val newTopic = new NewTopic(topic, Optional.empty[Integer], Optional.empty[java.lang.Short])
+    linkName.foreach(ln => newTopic.mirror(Optional.of(new NewTopicMirror(ln, topic))))
+    admin.createTopics(Collections.singleton(newTopic)).all.get
   }
 
   private def newNewClusterLink(linkName: String, clusterId: Option[String], configs: Map[String, String],

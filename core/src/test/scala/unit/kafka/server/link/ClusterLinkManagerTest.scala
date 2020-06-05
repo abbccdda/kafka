@@ -52,7 +52,7 @@ class ClusterLinkManagerTest {
     val linkName = "testLink"
     val linkId = UUID.randomUUID()
     val clusterId = "testClusterId"
-    val clusterLinkData = ClusterLinkData(linkName, linkId, Some(clusterId), None)
+    val clusterLinkData = ClusterLinkData(linkName, linkId, Some(clusterId), None, false)
     val topic = "testTopic"
     val tp0 = new TopicPartition(topic, 0)
     val partition0: Partition = createNiceMock(classOf[Partition])
@@ -85,7 +85,7 @@ class ClusterLinkManagerTest {
     val clientManager = clusterLinkManager.clientManager(linkId).get
 
     intercept[ClusterLinkExistsException] {
-      clusterLinkManager.createClusterLink(ClusterLinkData(linkName, UUID.randomUUID(), Some(clusterId), None),
+      clusterLinkManager.createClusterLink(ClusterLinkData(linkName, UUID.randomUUID(), Some(clusterId), None, false),
         clusterLinkConfig, clusterLinkPersistentProps)
     }
 
@@ -143,15 +143,13 @@ class ClusterLinkManagerTest {
 
     reset(zkClient)
     expect(zkClient.clusterLinkExists(linkId)).andReturn(true).times(1)
+    expect(zkClient.setClusterLink(ClusterLinkData(linkName, linkId, Some(clusterId), None, true)))
     replay(zkClient)
     clusterLinkManager.deleteClusterLink(linkName, linkId)
     assertEquals(None, clusterLinkManager.fetcherManager(linkId))
     assertEquals(None, clusterLinkManager.clientManager(linkId))
     assertEquals(None, clusterLinkManager.resolveLinkId(linkName))
 
-    reset(zkClient)
-    expect(zkClient.clusterLinkExists(linkId)).andReturn(false).times(1)
-    replay(zkClient)
     intercept[ClusterLinkNotFoundException] {
       clusterLinkManager.deleteClusterLink(linkName, linkId)
     }
@@ -168,12 +166,12 @@ class ClusterLinkManagerTest {
 
     expect(zkClient.clusterLinkExists(linkId)).andReturn(false).times(1)
     expect(zkClient.getClusterLinks(Set(linkId)))
-      .andReturn(Map(linkId -> ClusterLinkData(linkName, linkId, None, None)))
+      .andReturn(Map(linkId -> ClusterLinkData(linkName, linkId, None, None, false)))
       .anyTimes()
     replay(zkClient)
 
     assertEquals(None, clusterLinkManager.fetcherManager(linkId))
-    clusterLinkManager.createClusterLink(ClusterLinkData(linkName, linkId, None, None),
+    clusterLinkManager.createClusterLink(ClusterLinkData(linkName, linkId, None, None, false),
       clusterLinkConfig, clusterLinkPersistentProps)
     val fetcherManager = clusterLinkManager.fetcherManager(linkId).get
     assertEquals(Collections.singletonList("localhost:1234"), fetcherManager.currentConfig.bootstrapServers)

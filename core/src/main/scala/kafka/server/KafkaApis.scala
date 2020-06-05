@@ -3333,6 +3333,11 @@ class KafkaApis(val requestChannel: RequestChannel,
   def handleAlterMirrorsRequest(request: RequestChannel.Request): Unit = {
     val alterMirrorsRequest = request.body[AlterMirrorsRequest]
 
+    def authorizeAlterTopicOperation(request: RequestChannel.Request, topic: String): Unit = {
+      if (!authorize(request.context, ALTER, TOPIC, topic))
+        throw new TopicAuthorizationException(s"Failed to authorize topic '$topic'")
+    }
+
     if (!controller.isActive) {
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         alterMirrorsRequest.getErrorResponse(requestThrottleMs, Errors.NOT_CONTROLLER.exception))
@@ -3341,12 +3346,15 @@ class KafkaApis(val requestChannel: RequestChannel,
       val timeoutMs = alterMirrorsRequest.timeoutMs
       val futures = alterMirrorsRequest.ops.asScala.map { op =>
         try {
-          val topic = op match {
-            case subOp: AlterMirrorsRequest.StopTopicMirrorOp => Some(subOp.topic())
-            case _ => None
+          op match {
+            case subOp: AlterMirrorsRequest.StopTopicMirrorOp =>
+              authorizeAlterTopicOperation(request, subOp.topic)
+            case subOp: AlterMirrorsRequest.ClearTopicMirrorOp =>
+              authorizeClusterOperation(request, CLUSTER_ACTION)
+              authorizeAlterTopicOperation(request, subOp.topic)
+            case _ =>
+              throw new UnsupportedVersionException(s"Unknown alter mirrors op type")
           }
-          if (!topic.forall(t => authorize(request.context, ALTER, TOPIC, t)))
-            throw new TopicAuthorizationException(s"Failed to authorize topic '$topic'")
           clusterLinkAdminManager.alterMirror(op, alterMirrorsRequest.validateOnly)
         } catch {
           case e: Throwable =>

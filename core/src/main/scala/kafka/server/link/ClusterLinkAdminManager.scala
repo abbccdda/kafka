@@ -89,22 +89,19 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
     ClusterLinkUtils.validateLinkName(linkName)
 
     val linkId = clusterLinkManager.resolveLinkIdOrThrow(linkName)
-    val allTopics = zkClient.getAllTopicsInCluster()
-    if (allTopics.nonEmpty) {
-      val topicsInUse = zkClient.getClusterLinkForTopics(allTopics).filter { case (_, state) =>
-        state.mirrorIsEstablished && state.linkId == linkId
-      }.keys
-      if (topicsInUse.nonEmpty) {
-        if (force)
-          throw new UnsupportedVersionException("Force deletion not yet implemented")
-        else
+    if (!force) {
+      val allTopics = zkClient.getAllTopicsInCluster()
+      if (allTopics.nonEmpty) {
+        val topicsInUse = zkClient.getClusterLinkForTopics(allTopics).filter { case (_, state) =>
+          state.mirrorIsEstablished && state.linkId == linkId
+        }.keys
+        if (topicsInUse.nonEmpty)
           throw new ClusterLinkInUseException(s"Cluster link '$linkName' with ID '$linkId' in used by topics: $topicsInUse")
       }
     }
 
-    if (!validateOnly) {
+    if (!validateOnly)
       clusterLinkManager.deleteClusterLink(linkName, linkId)
-    }
   }
 
   def alterMirror(op: AlterMirrorsRequest.Op, validateOnly: Boolean): CompletableFuture[AlterMirrorsResponse.Result] = {
@@ -118,7 +115,7 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
           throw new UnknownTopicOrPartitionException(s"Topic $topic not found")
 
         // Validate the mirror can be stopped.
-        val newClusterLink = zkClient.getClusterLinkForTopics(Set(subOp.topic)).get(subOp.topic) match {
+        val newClusterLink = zkClient.getClusterLinkForTopics(Set(topic)).get(topic) match {
           case Some(clusterLink) =>
             val linkName = clusterLink.linkName
             clusterLink match {
@@ -126,16 +123,28 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
                 // TODO: Save the log end offsets. For now, an empty array is a valid state.
                 new ClusterLinkTopicState.StoppedMirror(linkName, clusterLink.linkId, List.empty[Long])
               case _: ClusterLinkTopicState.StoppedMirror =>
-                throw new InvalidRequestException(s"Topic '${subOp.topic}' has already stopped its mirror from '$linkName'")
+                throw new InvalidRequestException(s"Topic '$topic' has already stopped its mirror from '$linkName'")
             }
 
           case None =>
-            throw new InvalidRequestException(s"Topic '${subOp.topic}' is not mirrored")
+            throw new InvalidRequestException(s"Topic '$topic' is not mirrored")
         }
 
         if (!validateOnly)
-          zkClient.setTopicClusterLink(subOp.topic, Some(newClusterLink))
+          zkClient.setTopicClusterLink(topic, Some(newClusterLink))
         result.complete(new AlterMirrorsResponse.StopTopicMirrorResult())
+
+      case subOp: AlterMirrorsRequest.ClearTopicMirrorOp =>
+        val topic = subOp.topic
+        Topic.validate(topic)
+        if (!clusterLinkManager.adminManager.metadataCache.contains(topic))
+          throw new UnknownTopicOrPartitionException(s"Topic $topic not found")
+
+        // Note we return success if the cluster link is already cleared.
+        if (!validateOnly && zkClient.getClusterLinkForTopics(Set(topic)).get(topic).nonEmpty) {
+          zkClient.setTopicClusterLink(topic, clusterLink = None)
+        }
+        result.complete(new AlterMirrorsResponse.ClearTopicMirrorResult())
 
       case _ =>
         throw new UnsupportedVersionException(s"Unknown alter mirrors op type")
@@ -151,7 +160,7 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
                                       persistentProps: Properties,
                                       validateOnly: Boolean): Unit = {
     if (!validateOnly) {
-      val clusterLinkData = ClusterLinkData(linkName, UUID.randomUUID(), linkClusterId, tenantPrefix)
+      val clusterLinkData = ClusterLinkData(linkName, UUID.randomUUID(), linkClusterId, tenantPrefix, isDeleted = false)
       clusterLinkManager.createClusterLink(clusterLinkData, linkConfig, persistentProps)
     }
   }

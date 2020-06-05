@@ -8,10 +8,12 @@ import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.annotation.InterfaceStability;
 import org.apache.kafka.common.requests.AlterMirrorsResponse;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 
 /**
- * The result of {@link ConfluentAdmin#alterMirrors(Collection, AlterMirrorsOptions)}.
+ * The result of {@link ConfluentAdmin#alterMirrors(List, AlterMirrorsOptions)}.
  *
  * The API of this class is evolving, see {@link Admin} for details.
  */
@@ -35,7 +37,22 @@ public class AlterMirrorsResult {
     /**
      * Returns a future which succeeds only if all mirror control operations succeed.
      */
-    public KafkaFuture<Void> all() {
-        return KafkaFuture.allOf(result.toArray(new KafkaFuture[0]));
+    public KafkaFuture<List<AlterMirrorsResponse.Result>> all() {
+        return KafkaFuture.allOf(result.toArray(new KafkaFuture[0])).thenApply(
+            new KafkaFuture.BaseFunction<Void, List<AlterMirrorsResponse.Result>>() {
+                @Override
+                public List<AlterMirrorsResponse.Result> apply(Void v) {
+                    List<AlterMirrorsResponse.Result> entries = new ArrayList<>(result.size());
+                    for (KafkaFuture<AlterMirrorsResponse.Result> entry : result) {
+                        try {
+                            entries.add(entry.get());
+                        } catch (InterruptedException | ExecutionException e) {
+                            // This should be unreachable, because allOf ensured that all the futures completed successfully.
+                            throw new RuntimeException(e);
+                        }
+                    }
+                    return entries;
+                }
+            });
     }
 }

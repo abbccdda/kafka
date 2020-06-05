@@ -805,16 +805,18 @@ object ClusterLinksZNode {
   def path = "/cluster_links"
 }
 
-case class ClusterLinkData(linkName: String, linkId: UUID, clusterId: Option[String], tenantPrefix: Option[String])
+case class ClusterLinkData(linkName: String, linkId: UUID, clusterId: Option[String],
+  tenantPrefix: Option[String], isDeleted: Boolean)
 
 object ClusterLinkZNode {
   def path(linkId: UUID) = s"${ClusterLinksZNode.path}/$linkId"
 
-  def encode(linkName: String, clusterId: Option[String], tenantPrefix: Option[String]): Array[Byte] = {
-    val config = mutable.Map.empty[String, String]
-    config += "link_name" -> linkName
-    clusterId.foreach(cid => config += "cluster_id" -> cid)
-    tenantPrefix.foreach(prefix => config += "tenant_prefix" -> prefix)
+  def encode(clusterLinkData: ClusterLinkData): Array[Byte] = {
+    val config = mutable.Map.empty[String, Any]
+    config += "link_name" -> clusterLinkData.linkName
+    clusterLinkData.clusterId.foreach(cid => config += "cluster_id" -> cid)
+    clusterLinkData.tenantPrefix.foreach(prefix => config += "tenant_prefix" -> prefix)
+    if (clusterLinkData.isDeleted) config += "is_deleted" -> true
     Json.encodeAsBytes(config.asJava)
   }
 
@@ -823,7 +825,8 @@ object ClusterLinkZNode {
       val linkName = json("link_name").to[String]
       val clusterId = json.get("cluster_id").map(_.to[String])
       val tenantPrefix = json.get("tenant_prefix").map(_.to[String])
-      ClusterLinkData(linkName, linkId, clusterId, tenantPrefix)
+      val isDeleted = json.get("is_deleted").map(_.to[Boolean]).getOrElse(false)
+      ClusterLinkData(linkName, linkId, clusterId, tenantPrefix, isDeleted)
     }
   }
 }
