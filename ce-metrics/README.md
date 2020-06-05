@@ -4,13 +4,26 @@
 
 - [confluent-metrics](#confluent-metrics)
   - [Local testing](#local-testing)
-    - [Build and deploy a distribution](#build-and-deploy-a-distribution)
-    - [Create a local `server.properties` file](#create-a-local-serverproperties-file)
-    - [Start a local Zookeeper](#start-a-local-zookeeper)
-    - [Start Kafka broker](#start-kafka-broker)
-    - [Read metrics](#read-metrics)
+    - [Sending Metrics to kafka locally](#sending-metrics-to-kafka-locally)
+      - [Build and deploy a distribution](#build-and-deploy-a-distribution)
+      - [Create a local `server.properties` file](#create-a-local-serverproperties-file)
+      - [Start a local Zookeeper](#start-a-local-zookeeper)
+      - [Start Kafka broker](#start-kafka-broker)
+      - [Read metrics](#read-metrics)
+    - [Sending Metrics to Sandbox Environment](#sending-metrics-to-sandbox-environment)
+      - [Build and deploy a distribution](#build-and-deploy-a-distribution-1)
+      - [Create a local `server.properties` file](#create-a-local-serverproperties-file-1)
+        - [Using Kafka Exporter](#using-kafka-exporter)
+        - [Using HTTP Exporter](#using-http-exporter)
+      - [Start a local Zookeeper](#start-a-local-zookeeper-1)
+      - [Start Kafka broker](#start-kafka-broker-1)
+      - [Read Metrics from Sandbox Environment](#read-metrics-from-sandbox-environment)
   - [Testing in CPD](#testing-in-cpd)
-  - [Sending Metrics to Sandbox Environment](#sending-metrics-to-sandbox-environment)
+    - [Sending Metrics to Sandbox Environment from CPD](#sending-metrics-to-sandbox-environment-from-cpd)
+      - [Using Kafka Exporter](#using-kafka-exporter-1)
+      - [Using Http Exporter](#using-http-exporter)
+      - [Read Metrics from Sandbox Environment](#read-metrics-from-sandbox-environment-1)
+    - [Sending Metrics to an LKC in CPD](#sending-metrics-to-an-lkc-in-cpd)
   - [Shadow JAR notes](#shadow-jar-notes)
     - [Gradle Shadow Plugin Configuration](#gradle-shadow-plugin-configuration)
     - [Verifying the contents of the shaded jar](#verifying-the-contents-of-the-shaded-jar)
@@ -22,7 +35,15 @@
 
 ## Local testing
 
-### Build and deploy a distribution
+There are 2 ways to perform local testing
+1. [Publish metrics to kafka locally and consume it using kafka consumer](#sending-metrics-to-kafka-locally)
+2. [Publish metrics to sandbox environment and consume it from sandbox Druid/Metrics API](#sending-metrics-to-sandbox-environment)
+
+Steps for both these options are explained below.
+
+### Sending Metrics to kafka locally
+
+#### Build and deploy a distribution
 From the root of your `ce-kafka` workspace:
 ```shell
 $ rm -rf core/build/distributions \
@@ -35,7 +56,7 @@ $ rm -rf /tmp/kafka* ; tar -xf core/build/distributions/kafka_*-SNAPSHOT.tgz --d
 You should now have a kafka distribution installed in `/tmp` (e.g. `/tmp/kafka_2.12-6.0.0-ce-SNAPSHOT`).
 > TIP: You can refer to this directory using a wildcard `/tmp/kafka_*` for a more reusable command history.
 
-### Create a local `server.properties` file
+#### Create a local `server.properties` file
 Create a local `server.properties` file with contents similar to the following
 ```ini
 ##################### Miscellaneous #######################
@@ -46,16 +67,15 @@ confluent.metadata.topic.replication.factor=1
 log.dirs=/tmp/kafka/data
 zookeeper.connect=localhost:2181
 
-##################### Confluent Metrics Reporter #######################
+##################### Telemetry Reporter #######################
 metric.reporters=io.confluent.telemetry.reporter.TelemetryReporter
 
 confluent.telemetry.labels.kafka.physical_cluster_id=pkc-foo
 
-confluent.telemetry.exporter.kafka.topic.replicas=1
-confluent.telemetry.exporter.kafka.producer.bootstrap.servers=localhost:9092
+confluent.telemetry.exporter._confluent.enabled=false
 
-confluent.telemetry.exporter.file.enabled=true
-confluent.telemetry.exporter.file.dir=/tmp/kafka/metrics
+confluent.telemetry.exporter._local.enabled=true
+confluent.telemetry.exporter._local.topic.replicas=1
 
 confluent.telemetry.debug.enabled=true
 ```
@@ -67,7 +87,7 @@ To also test the legacy `ConfluentMetricsReporter` include the following in your
    confluent.metrics.reporter.topic.replicas=1
 ```
 
-### Start a local Zookeeper
+#### Start a local Zookeeper
 You can run Zookeeper from a local [Confluent Platform](https://www.confluent.io/download) install:
 ```shell
 $ /opt/confluent-5.3.1/bin/zookeeper-server-start
@@ -78,13 +98,13 @@ Or using docker:
 $ docker run --env ZOOKEEPER_CLIENT_PORT=2181 --env ZOOKEEPER_TICK_TIME=2000 --publish 2181:2181 confluentinc/cp-zookeeper
 ```
 
-### Start Kafka broker
+#### Start Kafka broker
 Finally, start the kafka broker:
 ```shell
 $ LOG_DIR=/tmp/kafka/logs /tmp/kafka_*/bin/kafka-server-start /path/to/your/server.properties
 ```
 
-### Read metrics
+#### Read metrics
 Read out the `_confluent-telemetry-metrics` data with:
 
 ```
@@ -103,10 +123,114 @@ $ ./bin/kafka-console-consumer.sh --from-beginning \
    --formatter io.confluent.metrics.reporter.ConfluentMetricsFormatter
 ```
 
-## Testing in CPD
-Kafka cluster provisioned within [CPD](https://github.com/confluentinc/cpd) environments do **not** have the new telemetry reporter (`TelemetryReporter`) enabled.
+### Sending Metrics to Sandbox Environment
 
-With some hacking, it is possible to get a Kafka broker provisioned with CPD to emit metrics using the new telemetry reporter, **however this is not recommended**.
+#### [Build and deploy a distribution](#build-and-deploy-a-distribution)
+
+#### Create a local `server.properties` file
+There are 2 ways to publish metrics to our sandbox environment:
+1. Export metrics directly to sandbox kafka using the kafka metrics exporter
+2. Export metrics to sandbox http endpoint using http exporter
+
+##### Using Kafka Exporter
+
+Use the following `server.properties` to send metrics to our sandbox kafka using the kafka exporter
+```
+# Telemetry Reporter
+metric.reporters=io.confluent.telemetry.reporter.TelemetryReporter
+confluent.telemetry.exporter._confluent.enabled=false
+confluent.telemetry.exporter._local.enabled=false
+confluent.telemetry.exporter.kafka.type=kafka
+confluent.telemetry.exporter.kafka.enabled=true
+confluent.telemetry.exporter.kafka.producer.ssl.endpoint.identification.algorithm=https
+confluent.telemetry.exporter.kafka.producer.sasl.mechanism=PLAIN
+confluent.telemetry.exporter.kafka.producer.request.timeout.ms=20000
+confluent.telemetry.exporter.kafka.producer.bootstrap.servers=pkc-43k0e.us-west-2.aws.confluent.cloud:9092
+confluent.telemetry.exporter.kafka.producer.retry.backoff.ms=500
+confluent.telemetry.exporter.kafka.producer.sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required \
+   username="P7O4P4YF4VGRQPWA" \
+   password="<GET FROM LASTPASS: Shared-Observability/Sandbox metrics lkc-l9rd5>";
+confluent.telemetry.exporter.kafka.producer.security.protocol=SASL_SSL
+```
+
+##### Using HTTP Exporter
+
+Use the following `server.properties` to send metrics to sandbox HTTP endpoint using http exporter
+```
+# Telemetry Reporter
+metric.reporters=io.confluent.telemetry.reporter.TelemetryReporter
+confluent.telemetry.exporter._local.enabled=false
+confluent.telemetry.exporter._confluent.enabled=false
+confluent.telemetry.exporter.http.type=http
+confluent.telemetry.exporter.http.enabled=true
+confluent.telemetry.exporter.http.client.base.url=https://devel-sandbox-collector.telemetry.aws.confluent.cloud
+confluent.telemetry.exporter.http.api.key=<valid-devel-cloud-login-username>
+confluent.telemetry.exporter.http.api.secret=<valid-devel-cloud-login-password>
+confluent.telemetry.debug.enabled=true
+```
+
+#### [Start a local Zookeeper](#start-a-local-zookeeper)
+
+#### [Start Kafka broker](#start-kafka-broker)
+
+#### Read Metrics from Sandbox Environment
+ 
+These metrics will then be accessible via the following backends:
+* Druid: https://druid-preprod.telemetry.aws.confluent.cloud:8888/
+* Metrics API: https://devel-sandbox-api.telemetry.confluent.cloud (Currently Metrics API only serves data pushed using Kafka Exporter. Data published to http endpoint can be accessed only from Druid)
+
+## Testing in CPD
+
+There are 2 ways to perform testing in CPD
+1. [Publish metrics to sandbox environment and consume it from sandbox Druid/Metrics API](#sending-metrics-to-sandbox-environment-from-cpd)
+2. [Publish metrics to an LKC running within CPD and consume it using kafka console consumer](#sending-metrics-to-an-lkc-in-cpd)
+
+Steps for both these options are explained below.
+
+### Sending Metrics to Sandbox Environment from CPD
+There are 2 ways to publish metrics to our sandbox environment:
+1. Export metrics directly to sandbox kafka using the kafka metrics exporter
+2. Export metrics to sandbox http endpoint using http exporter
+
+#### Using Kafka Exporter
+
+By default the Telemetry Reporter running in CPD sends metrics to our sandbox kafka using the kafka exporter.
+
+#### Using Http Exporter
+
+Manually edit the config map of the PKC running in the CPD...
+```
+   $ kubectl -n pkc-foobar edit configmap kafka-shared-config
+```
+...and enable the telemetry reporter
+    
+```
+  data:
+    server-common.properties: |
+      ...
+
+      # Telemetry Reporter
+      metric.reporters=io.confluent.telemetry.reporter.TelemetryReporter
+      confluent.telemetry.exporter._local.enabled=false
+      confluent.telemetry.exporter._confluent.enabled=false
+      confluent.telemetry.exporter.http.type=http
+      confluent.telemetry.exporter.http.enabled=true
+      confluent.telemetry.exporter.http.client.base.url=https://devel-sandbox-collector.telemetry.aws.confluent.cloud
+      confluent.telemetry.exporter.http.api.key=<valid-devel-cloud-login-username>
+      confluent.telemetry.exporter.http.api.secret=<valid-devel-cloud-login-password>
+      confluent.telemetry.debug.enabled=true
+```
+Restart the `kafka-0` pod
+   ```
+   $ kubectl -n pkc-foobar delete pod kafka-0
+   ```
+
+#### [Read Metrics from Sandbox Environment](#read-metrics-from-sandbox-environment) 
+
+### Sending Metrics to an LKC in CPD
+
+Kafka clusters provisioned within [CPD](https://github.com/confluentinc/cpd) environments send Telemetry data to our sandbox kafka by default(which can then be consumed from Druid/Metrics API).
+But as a part of testing, if you want to publish metrics to one of the LKCs running within CPD, it can be achieved with the following instructions.
 
 1. Follow the in the [CPD README](https://github.com/confluentinc/cpd) to create a CPD
    environment and provision a Kafka cluster within that environment.  You should have
@@ -127,7 +251,7 @@ With some hacking, it is possible to get a Kafka broker provisioned with CPD to 
    Save the API key and secret. The secret is not retrievable later.
    +---------+------------------------------------------------------------------+
    | API Key | 6M3P6NEBYCS4UDAN                                                 |
-   | Secret  | +mGnHOXI+5u8RpiqmJcLulScT51sE8YjkWD5J3nPiwAAiIYYhw+2bMQvyW9tE74Z |
+   | Secret  | xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx                                |
    +---------+------------------------------------------------------------------+
    ```
 
@@ -150,17 +274,21 @@ With some hacking, it is possible to get a Kafka broker provisioned with CPD to 
 
        # Telemetry Reporter
        metric.reporters=io.confluent.telemetry.reporter.TelemetryReporter
+       confluent.telemetry.exporter._confluent.enabled=false
+       confluent.telemetry.exporter._local.enabled=false
+       confluent.telemetry.exporter.kafka.type=kafka
+       confluent.telemetry.exporter.kafka.enabled=true
        confluent.telemetry.exporter.kafka.topic.replicas=3
        confluent.telemetry.exporter.kafka.topic.name=telemetry
        confluent.telemetry.exporter.kafka.topic.max.message.bytes=8388608
-       confluent.telemetry.exporter.kafka.producer.ssl.endpoint.identification. algorithm=https
+       confluent.telemetry.exporter.kafka.producer.ssl.endpoint.identification.algorithm=https
        confluent.telemetry.exporter.kafka.producer.sasl.mechanism=PLAIN
        confluent.telemetry.exporter.kafka.producer.request.timeout.ms=20000
-       confluent.telemetry.exporter.kafka.producer.bootstrap.servers=pkc-empj6vn. us-central1.gcp.priv.cpdev.cloud:9092
+       confluent.telemetry.exporter.kafka.producer.bootstrap.servers=pkc-empj6vn.us-central1.gcp.priv.cpdev.cloud:9092
        confluent.telemetry.exporter.kafka.producer.retry.backoff.ms=500
-       confluent.telemetry.exporter.kafka.producer.sasl.jaas.config=org.apache.kafka.common. security.plain.PlainLoginModule required \
+       confluent.telemetry.exporter.kafka.producer.sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required \
           username="6M3P6NEBYCS4UDAN" \
-          password="+mGnHOXI+5u8RpiqmJcLulScT51sE8YjkWD5J3nPiwAAiIYYhw+2bMQvyW9tE74Z";
+          password="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
        confluent.telemetry.exporter.kafka.producer.security.protocol=SASL_SSL
        confluent.telemetry.debug.enabled=true
    ```
@@ -195,25 +323,6 @@ Now you can inspect the metrics protobuf messages using the `ccloud` and `kafka-
       | head -1
    {"metricDescriptor":{"name":"io.confluent.kafka.server/request/local_time_ms/time/delta","type":"GAUGE_DOUBLE","labelKeys":[{"key":"kafka.cluster.id"},{"key":"request"},{"key":"cluster_id"},{"key":"library"},{"key":"java.version"},{"key":"broker_id"},{"key":"java.version.extended"},{"key":"kafka.id"},{"key":"host.hostname"},{"key":"kafka.broker.id"},{"key":"metric_name_original"},{"key":"kafka.version"}]},"timeseries":[{"startTimestamp":"2020-02-20T22:58:34.273564Z","labelValues":[{"value":"ut53nsiMSaem1vKZ6XVvQQ"},{"value":"LeaveGroup"},{"value":"ut53nsiMSaem1vKZ6XVvQQ"},{"value":"yammer"},{"value":"11.0.5"},{"value":"0"},{"value":"11.0.5+10"},{"value":"ut53nsiMSaem1vKZ6XVvQQ"},{"value":"kafka-0"},{"value":"0"},{"value":"kafka.network:RequestMetrics:LocalTimeMs"},{"value":"5.5.0-ce-SNAPSHOT"}],"points":[{"timestamp":"2020-02-20T22:58:50.952301Z","doubleValue":0.0}]}],"resource":{"type":"kafka","labels":{"java.version":"11.0.5","java.version.extended":"11.0.5+10","host.hostname":"kafka-0","kafka.version":"5.5.0-ce-SNAPSHOT","kafka.id":"ut53nsiMSaem1vKZ6XVvQQ","kafka.cluster.id":"ut53nsiMSaem1vKZ6XVvQQ","kafka.broker.id":"0","cluster_id":"ut53nsiMSaem1vKZ6XVvQQ","broker_id":"0"}}}
    ```
-
-## Sending Metrics to Sandbox Environment
-You can also configure your Kafka broker to send metrics to the observability sandbox environment:
-```
-metric.reporters=io.confluent.telemetry.reporter.TelemetryReporter
-confluent.telemetry.exporter.kafka.producer.ssl.endpoint.identification.algorithm=https
-confluent.telemetry.exporter.kafka.producer.sasl.mechanism=PLAIN
-confluent.telemetry.exporter.kafka.producer.request.timeout.ms=20000
-confluent.telemetry.exporter.kafka.producer.bootstrap.servers=pkc-43k0e.us-west-2.aws.confluent.cloud:9092
-confluent.telemetry.exporter.kafka.producer.retry.backoff.ms=500
-confluent.telemetry.exporter.kafka.producer.sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required \
-   username="P7O4P4YF4VGRQPWA" \
-   password="<GET FROM LASTPASS: Shared-Observability/Sandbox metrics lkc-l9rd5>";
-confluent.telemetry.exporter.kafka.producer.security.protocol=SASL_SSL
-```
-
-These metrics will then be accessible via the following backends:
-* Metrics API: https://devel-sandbox-api.telemetry.confluent.cloud
-* Druid: https://druid-preprod.telemetry.aws.confluent.cloud:8888/
 
 ## Shadow JAR notes
 
