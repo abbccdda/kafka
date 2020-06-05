@@ -4,6 +4,7 @@
 package io.confluent.databalancer;
 
 import io.confluent.databalancer.operation.BrokerRemovalProgressListener;
+import io.confluent.databalancer.operation.BalanceOpExecutionCompletionCallback;
 import kafka.server.KafkaConfig;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.slf4j.Logger;
@@ -63,7 +64,7 @@ public class NoOpDataBalanceEngine implements DataBalanceEngine {
     }
 
     @Override
-    public void addBrokers(Set<Integer> brokersToAdd, String uid) {
+    public void addBrokers(Set<Integer> brokersToAdd, BalanceOpExecutionCompletionCallback onExecutionCompletion, String uid) {
         String msg = String.format("Received request to add brokers {} while SBK is not started.", brokersToAdd);
         LOG.debug(msg);
     }

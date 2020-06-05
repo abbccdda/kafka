@@ -7,12 +7,12 @@ package io.confluent.databalancer;
 import com.yammer.metrics.core.MetricName;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import io.confluent.databalancer.operation.BrokerRemovalProgressListener;
+import io.confluent.databalancer.operation.BalanceOpExecutionCompletionCallback;
 import io.confluent.databalancer.persistence.ApiStatePersistenceStore;
 import kafka.common.BrokerRemovalStatus;
 import kafka.controller.DataBalanceManager;
 import kafka.metrics.KafkaYammerMetrics;
 import kafka.server.KafkaConfig;
-import org.apache.kafka.clients.admin.BrokerRemovalDescription;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.utils.SystemTime;
 import org.apache.kafka.common.utils.Time;
@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.HashSet;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class KafkaDataBalanceManager implements DataBalanceManager {
@@ -35,6 +36,9 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
     public static final String ACTIVE_BALANCER_COUNT_METRIC_NAME = "ActiveBalancerCount";
     public static final String BROKER_REMOVAL_STATE_METRIC_NAME = "BrokerRemovalOperationState";
 
+    // package private for testing
+    // the whole set is used for brokerAdd operations so the whole set must be synchronized
+    Set<Integer> brokersToAdd;
     private KafkaConfig kafkaConfig;
     // Visible for testing
     DataBalanceEngine balanceEngine;
@@ -126,6 +130,10 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
         this.balanceEngine = dbeFactory.getInactiveDataBalanceEngine();
         this.dataBalancerMetricsRegistry.newGauge(KafkaDataBalanceManager.class, "ActiveBalancerCount",
                 () -> balanceEngine.isActive() ? 1 : 0, false);
+        // Since multiple adds can be ongoing at one time, and correct generation of the add Requests means knowing which ones
+        // are actually truly currently pending, synchronize on the brokersToAdd object rather than use a Concurrent
+        // object, which may be in the middle of updates.
+        this.brokersToAdd = new HashSet<>();
     }
 
     /**
@@ -209,9 +217,9 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
     }
 
     @Override
-    public void scheduleBrokerAdd(Set<Integer> brokersToAdd) {
+    public void scheduleBrokerAdd(Set<Integer> newBrokers) {
         // No new brokers
-        if (brokersToAdd.isEmpty()) {
+        if (newBrokers.isEmpty()) {
             return;
         }
         if (!balanceEngine.isActive()) {
@@ -220,20 +228,31 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
             return;
         }
 
+        // Skip adding brokers if any removal is ongoing.
+        // TODO: when operation arbitration logic is added in the DataBalanceEngine, that can decide what
+        // should be executed next, instead of doing it here. (CNKAF-757)
 
-        // HACK: Don't issue any adds if a remove is currently running.
-        // XXX: This is directly looking at reassignment status values; there should be a "not terminal" status but then again,
-        // this is For Right Now.
-        if (brokerRemovalsInProgress()) {
-        LOG.warn("Unable to process broker addition of {} as a broker removal is ongoing.");
-        return;
+        Set<Integer> addingBrokers;
+        synchronized (brokersToAdd) {
+            brokersToAdd.addAll(newBrokers);
+            addingBrokers = new HashSet<>(brokersToAdd);
         }
+        String operationUid = String.format("addBroker-%d", time.milliseconds());
 
-        // TODO: Place brokers on pending lits
-        // If OK to proceed (no drain running), then merge with current addition list and then
-        // initiate the updated merge.
-        String operationUid = String.format("addBrokers-%d", time.milliseconds());
-        balanceEngine.addBrokers(brokersToAdd, operationUid);
+        // On completion, clear set of brokers being added
+        BalanceOpExecutionCompletionCallback onAddComplete = (opSuccess, ex) -> {
+            // A successful completion should clear the added brokers. An exceptional completion should, as well.
+            LOG.info("Add Operation completed with success value {}", opSuccess);
+            if (opSuccess || ex != null) {
+                synchronized (brokersToAdd) {
+                    brokersToAdd.removeAll(addingBrokers);
+                    LOG.info("Broker Add op (of brokers {}) completion, remaining brokers to add: {}",
+                            addingBrokers, brokersToAdd);
+                }
+            }
+        };
+
+        balanceEngine.addBrokers(addingBrokers, onAddComplete, operationUid);
     }
 
     @Override
@@ -282,16 +301,6 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
 
         LOG.info("Submitting broker removal operation with UUID {} for broker {} (epoch {})", uid, brokerToRemove, brokerToRemoveEpoch);
         balanceEngine.removeBroker(brokerToRemove, brokerEpochOpt, registerBrokerRemovalMetric, listener, uid);
-    }
-
-    /*
-     * Identify if any removal operations are ongoing.
-     */
-    private boolean brokerRemovalsInProgress() {
-        return brokerRemovals().stream().anyMatch(brs ->
-                brs.partitionReassignmentsStatus() == BrokerRemovalDescription.PartitionReassignmentsStatus.IN_PROGRESS ||
-                        brs.partitionReassignmentsStatus() == BrokerRemovalDescription.PartitionReassignmentsStatus.PENDING);
-
     }
 
     /**

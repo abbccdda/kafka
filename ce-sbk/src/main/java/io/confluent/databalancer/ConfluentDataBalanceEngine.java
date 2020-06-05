@@ -16,6 +16,7 @@ import com.linkedin.kafka.cruisecontrol.monitor.sampling.MetricSampler;
 import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSampler;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import io.confluent.databalancer.operation.BrokerRemovalProgressListener;
+import io.confluent.databalancer.operation.BalanceOpExecutionCompletionCallback;
 import io.confluent.databalancer.operation.BrokerRemovalStateTracker;
 import io.confluent.databalancer.persistence.ApiStatePersistenceStore;
 import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
@@ -35,6 +36,7 @@ import scala.collection.JavaConverters;
 
 import java.time.Duration;
 import java.util.HashMap;
+import javax.annotation.Nonnull;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -251,15 +253,25 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     }
 
     @Override
-    public void addBrokers(Set<Integer> brokersToAdd, String uid) {
+    public void addBrokers(Set<Integer> brokersToAdd, @Nonnull BalanceOpExecutionCompletionCallback onExecutionCompletion, String uid) {
         if (!canAcceptRequests) {
             String msg = String.format("Received request to add brokers {} while SBK is not started.", brokersToAdd);
             LOG.error(msg);
             throw new InvalidRequestException(msg);
         }
 
+        // Check to make sure this can proceed (no ongoing removals)
+        ApiStatePersistenceStore persistenceStore = context.getPersistenceStore();
+        Map<Integer, BrokerRemovalStatus> existingBrokerRemovalStatus = persistenceStore.getAllBrokerRemovalStatus();
+        if (existingBrokerRemovalStatus.values().stream().anyMatch(s -> !s.isDone())) {
+            LOG.warn("Broker removals ongoing, will not add new brokers {}", brokersToAdd);
+            return;
+        }
+
         LOG.info("DataBalancer: Scheduling DataBalanceEngine broker addition: {}", brokersToAdd);
-        ccRunner.submit(() -> doAddBrokers(brokersToAdd, uid));
+        submitToCcRunner(() -> doAddBrokers(brokersToAdd, onExecutionCompletion, uid),
+                "Broker addition operation with UID " + uid + " was not initiated" +
+                " due to the data balance engine not being initialized");
     }
 
     /**
@@ -293,7 +305,9 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
                 uid, brokerToRemove, brokerToRemoveEpoch);
         try {
             BrokerRemovalPhaseBuilder.BrokerRemovalExecution removalExecutor = context.getCruiseControl().removeBroker(
-                    brokerToRemove, brokerToRemoveEpoch, stateTracker, uid);
+                    brokerToRemove, brokerToRemoveEpoch,
+                    (success, ex) -> { }, // CNKAF-757 -- do something when the operation completes
+                    stateTracker, uid);
             // TODO: Persist removalExecutor.chainedFutures to be able to cancel them
             removalExecutor.execute(Duration.ofMinutes(60));
         } catch (InterruptedException ex) {
@@ -341,7 +355,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
             context.closeAndClearState();
         }
     }
-
+    
     // This method abstracts "new" call so that unit test can mock this part out
     // and test startCruiseControl method
     private KafkaCruiseControl createKafkaCruiseControl(KafkaConfig kafkaConfig) {
@@ -392,21 +406,14 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         LOG.info("DataBalancer: DataBalanceEngine shutdown completed.");
     }
 
-    void doAddBrokers(Set<Integer> brokersToAdd, String operationUid) {
+    void doAddBrokers(Set<Integer> brokersToAdd, BalanceOpExecutionCompletionCallback executionCompletionCallback, String operationUid) {
         if (brokersToAdd.isEmpty()) {
             return;
         }
 
         LOG.info("DataBalancer: Starting addBrokers call");
-        // TODO: simplify the addbrokers call to have fewer required arguments; we're not modifying anything,
-        // just using the defaults.
-        // Among the things:
-        // -- model completeness requirements? What do we need for this? Maybe it's ok to have just a few windows?
-        // XXX: Eventually replace with executor abort and reserve inside CC
-        // XXX Bad UID
         try {
-            context.getCruiseControl().userTriggeredStopExecution();
-            context.getCruiseControl().addBrokers(brokersToAdd, operationUid);
+            context.getCruiseControl().addBrokers(brokersToAdd, executionCompletionCallback, operationUid);
         } catch (Exception ex) {
             // Report error up?
             LOG.warn("Broker addition of {} failed", brokersToAdd, ex);

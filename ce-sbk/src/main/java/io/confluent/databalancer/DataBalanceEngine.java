@@ -5,6 +5,7 @@
 package io.confluent.databalancer;
 
 import io.confluent.databalancer.operation.BrokerRemovalProgressListener;
+import io.confluent.databalancer.operation.BalanceOpExecutionCompletionCallback;
 import kafka.server.KafkaConfig;
 
 import java.util.Optional;
@@ -67,5 +68,5 @@ public interface DataBalanceEngine {
                       BrokerRemovalProgressListener progressListener,
                       String uid);
 
-    void addBrokers(Set<Integer> brokersToAdd, String uid);
+    void addBrokers(Set<Integer> brokersToAdd, BalanceOpExecutionCompletionCallback onExecutionCompletion, String uid);
 }

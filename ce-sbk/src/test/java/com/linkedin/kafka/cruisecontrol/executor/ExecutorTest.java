@@ -17,7 +17,7 @@ import com.linkedin.kafka.cruisecontrol.monitor.LoadMonitor;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.NoopSampler;
 import com.yammer.metrics.core.MetricsRegistry;
 import java.time.Duration;
-import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback;
+import io.confluent.databalancer.operation.BalanceOpExecutionCompletionCallback;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -184,6 +184,52 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
       return true;
     },  5000, "Reassignment cancellation should be reflected in the metrics");
   }
+
+  @Test
+  public void testExecutionProposalCompletionCbHandlesCompletion() throws InterruptedException, ExecutionException {
+    KafkaCruiseControlConfig config = new KafkaCruiseControlConfig(getExecutorProperties());
+    ConfluentAdmin admin = KafkaCruiseControlUtils.createAdmin(config.originals());
+    try {
+      Map<String, TopicDescription> topicDescriptions = createTopics();
+      BalanceOpExecutionCompletionCallback mockCb = Mockito.mock(BalanceOpExecutionCompletionCallback.class);
+
+      ExecutionProposal proposal = getBasicTopicPartition0Proposal();
+      Executor executor =  executeProposals(executor(), Collections.singletonList(proposal), 1L, mockCb);
+
+      waitUntilExecutionFinishes(executor);
+
+      Mockito.verify(mockCb).accept(Mockito.eq(true), Mockito.isNull());
+      executor.shutdown();
+    } finally {
+      KafkaCruiseControlUtils.closeAdminClientWithTimeout(admin);
+    }
+  }
+
+  @Test
+  public void testExecutionProposalCompletionCbHandlesStop() throws InterruptedException, ExecutionException {
+    KafkaCruiseControlConfig config = new KafkaCruiseControlConfig(getExecutorProperties());
+    ConfluentAdmin admin = KafkaCruiseControlUtils.createAdmin(config.originals());
+    try {
+      Map<String, TopicDescription> topicDescriptions = createTopics();
+      int initialLeader = topicDescriptions.get(TP0.topic()).partitions().get(TP0.partition()).leader().id();
+      // TODO: Icky suppression check. Make a general interface?
+      BalanceOpExecutionCompletionCallback mockCb = Mockito.mock(BalanceOpExecutionCompletionCallback.class);
+      ExecutionProposal proposal = getBasicTopicPartition0Proposal();
+      produceData(TP0.topic(), REPLICA_FETCH_MAX_BYTES * 3);
+
+      Executor executor =  executeProposals(executor(), Collections.singletonList(proposal), 1L, mockCb);
+
+      assertReassignmentsStarted(admin, 1);
+      executor.stopExecution();
+
+      waitUntilExecutionFinishes(executor);
+      Mockito.verify(mockCb).accept(Mockito.eq(false), Mockito.isNull());
+      executor.shutdown();
+    } finally {
+      KafkaCruiseControlUtils.closeAdminClientWithTimeout(admin);
+    }
+  }
+
 
   /**
    * Assert that the reservation cannot be acquired by another thread while it is held by the testing thread.
@@ -455,7 +501,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
 
       // Execute the proposal
       executor.startExecution(
-          executor.new ProposalExecutionRunnable(loadMonitor, null, null, 1024L)
+          executor.new ProposalExecutionRunnable(loadMonitor, null, null, 1024L, null)
       );
 
       waitAndVerifyProposals(kafkaZkClient, executor, proposalsToCheck);
@@ -510,7 +556,8 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
                               null,
                               null,
                               NO_THROTTLE,
-                              RANDOM_UUID);
+                              RANDOM_UUID,
+                              null);
     // Wait until the execution to start so the task timestamp is set to time.milliseconds.
     while (executor.state().state() != ExecutorState.State.LEADER_MOVEMENT_TASK_IN_PROGRESS) {
       Thread.sleep(10);
@@ -581,7 +628,8 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
                 null,
                 null,
                 override,
-            RANDOM_UUID);
+            RANDOM_UUID,
+                null);
         String expectedThrottle = override == null ? null : override.toString();
         String expectedReplicaLeaderThrottle = override == null ? null : "0:0,0:1";
         String expectedReplicaFollowerThrottle = override == null ? null : "0:0,0:1";
@@ -670,7 +718,8 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
                 1,
                 null,
                 initialThrottle,
-            RANDOM_UUID);
+            RANDOM_UUID,
+                null);
 
         String expectedThrottle = initialThrottle == null ? null : Long.toString(initialThrottle);
         waitForAssert(() -> {
@@ -738,6 +787,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     verifyThrottleInZk(kafkaZkClient, entityType, entityName, expectedThrottle, expectedThrottle);
   }
 
+  @SuppressWarnings("unchecked")
   @Test
   public void testRemoveBroker() throws InterruptedException {
     KafkaZkClient kafkaZkClient = KafkaCruiseControlUtils.createKafkaZkClient(zookeeper().connectionString(),
@@ -760,35 +810,28 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
         }
       }
 
-      BrokerRemovalCallback mockCallback = Mockito.mock(BrokerRemovalCallback.class);
-
+      BalanceOpExecutionCompletionCallback mockCallback = Mockito.mock(BalanceOpExecutionCompletionCallback.class);
       Executor executor = executor();
       executor.setExecutionMode(false);
-      executor.executeRemoveBrokerProposals(removeBrokerProposals, Collections.emptySet(), null, EasyMock.mock(LoadMonitor.class), null,
+      executor.executeProposals(removeBrokerProposals, Collections.emptySet(), null, EasyMock.mock(LoadMonitor.class), null,
           null, null, null,
           NO_THROTTLE, RANDOM_UUID, mockCallback);
 
       verifyProposals(executor, kafkaZkClient, removeBrokerProposals);
-      Mockito.verify(mockCallback).registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_EXECUTION_SUCCESS);
+      Mockito.verify(mockCallback).accept(true, null);
     } finally {
       KafkaCruiseControlUtils.closeKafkaZkClientWithTimeout(kafkaZkClient);
     }
   }
 
   @Test
-  public void testBrokerRemovalProposalExecutionRunnableCallsCallbackWithException() {
-    Exception expectedException = new Exception("!!!");
-
+  public void testProposalExecutionRunnableCallsCallbackWithException() {
     AnomalyDetector mockAnomalyDetector = Mockito.mock(AnomalyDetector.class);
     LoadMonitor mockLoadMonitor = Mockito.mock(LoadMonitor.class);
     // Throw one catchable exception during the execution.
     Mockito.doAnswer(invocation -> {
       throw new NullPointerException("haha got you");
     }).when(mockLoadMonitor).pauseMetricSampling(Mockito.anyString());
-    // Once execution has finished, throw a different exception to make sure we catch the right one.
-    Mockito.doAnswer(invocation -> {
-      throw expectedException;
-    }).when(mockLoadMonitor).resumeMetricSampling(Mockito.anyString());
 
     Executor executor = createExecutor(mockAnomalyDetector);
 
@@ -796,19 +839,12 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     executor.initProposalExecution(Collections.emptySet(), Collections.emptySet(), null, null, null,
             null, RANDOM_UUID);
 
-    BrokerRemovalCallback callbackMock = Mockito.mock(BrokerRemovalCallback.class);
+    BalanceOpExecutionCompletionCallback callbackMock = Mockito.mock(BalanceOpExecutionCompletionCallback.class);
     // pass in some nulls to trigger an NPE in the run() method,
     // and the null LoadMonitor will result in another in the finally() cleanup.
-    Executor.BrokerRemovalProposalExecutionRunnable runnable = executor.new BrokerRemovalProposalExecutionRunnable(mockLoadMonitor, null, null, null, callbackMock);
-    try {
-      runnable.run();
-      fail("Expected the BrokerRemovalProposalExecutionRunnable to throw an exception");
-    } catch (Exception e) {
-      // expected
-      Mockito.verify(callbackMock).registerEvent(
-          Mockito.eq(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_EXECUTION_FAILURE),
-          Mockito.isA(NullPointerException.class));
-    }
+    Executor.ProposalExecutionRunnable runnable = executor.new ProposalExecutionRunnable(mockLoadMonitor, null, null, null, callbackMock);
+    runnable.run();
+    Mockito.verify(callbackMock).accept(Mockito.eq(false), Mockito.any(NullPointerException.class));
   }
 
   @Test
@@ -837,7 +873,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
             null, 86400000L, 43200000L, mockExecutorNotifier, getMockAnomalyDetector(uuid));
     executor.setExecutionMode(false);
     executor.executeProposals(proposalsToExecute, Collections.emptySet(), null, EasyMock.mock(LoadMonitor.class), null,
-                              null, null, null, NO_THROTTLE, uuid);
+                              null, null, null, NO_THROTTLE, uuid, null);
     waitUntilExecutionFinishes(executor);
 
     executor.shutdown();
@@ -872,7 +908,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     ExecutionProposal proposal = getBasicTopicPartition0Proposal();
     produceData(TP0.topic(), REPLICA_FETCH_MAX_BYTES * 3);
 
-    return executeProposals(executor, Collections.singletonList(proposal), replicationThrottle);
+    return executeProposals(executor, Collections.singletonList(proposal), replicationThrottle, null);
   }
 
   private ExecutionProposal getBasicTopicPartition0Proposal() throws InterruptedException {
@@ -905,12 +941,12 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
             null, 86400000L, 43200000L, null, getMockAnomalyDetector(RANDOM_UUID));
     executor.setExecutionMode(false);
     executor.executeProposals(proposals, Collections.emptySet(), null, EasyMock.mock(LoadMonitor.class), null,
-            null, null, null, NO_THROTTLE, RANDOM_UUID);
+            null, null, null, NO_THROTTLE, RANDOM_UUID, null);
     waitUntilExecutionFinishes(executor);
 
     // Execute proposals again with userTriggeredExecution set to true to bypass self-healing pause. Should not raise an IllegalStateException
     executor.executeProposals(proposals, Collections.emptySet(), null, EasyMock.mock(LoadMonitor.class), null,
-            null, null, null, NO_THROTTLE, RANDOM_UUID);
+            null, null, null, NO_THROTTLE, RANDOM_UUID, null);
 
     executor.shutdown();
   }
@@ -1019,7 +1055,8 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
             null,
             null,
             AUTO_THROTTLE,
-            RANDOM_UUID);
+            RANDOM_UUID,
+            null);
     waitUntilExecutionFinishes(executor);
 
     assertFalse(testNotification.get().executionSucceeded());
@@ -1088,7 +1125,8 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
             null,
             null,
             AUTO_THROTTLE,
-            RANDOM_UUID);
+            RANDOM_UUID,
+            null);
     waitUntilExecutionFinishes(executor);
 
     // Execution should have succeeded and the throttle helper value should have been reset to AUTO_THROTTLE
@@ -1220,10 +1258,14 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
   }
 
   private Executor executeProposals(Executor executor, Collection<ExecutionProposal> proposalsToExecute, Long replicationThrottle) {
+    return executeProposals(executor, proposalsToExecute, replicationThrottle, null);
+  }
+  private Executor executeProposals(Executor executor, Collection<ExecutionProposal> proposalsToExecute, Long replicationThrottle,
+                                    BalanceOpExecutionCompletionCallback completionCb) {
     executor.setExecutionMode(false);
     executor.executeProposals(proposalsToExecute, Collections.emptySet(), null, EasyMock.mock(LoadMonitor.class), null,
         null, null, null,
-        replicationThrottle, RANDOM_UUID);
+        replicationThrottle, RANDOM_UUID, completionCb);
 
     return executor;
   }
