@@ -1170,6 +1170,7 @@ public class WorkerTest extends ThreadedTest {
         expectedConfigs.put("metrics.context.resource.type", WorkerConfig.CONNECT_RESOURCE_TYPE);
 
         EasyMock.expect(connectorConfig.originalsWithPrefix(ConnectorConfig.CONNECTOR_CLIENT_CONSUMER_OVERRIDES_PREFIX)).andReturn(new HashMap<>());
+
         PowerMock.replayAll();
         assertEquals(expectedConfigs, Worker.consumerConfigs(new ConnectorTaskId("test", 1), config, connectorConfig,
             null, noneConnectorClientConfigOverridePolicy, CLUSTER_ID));

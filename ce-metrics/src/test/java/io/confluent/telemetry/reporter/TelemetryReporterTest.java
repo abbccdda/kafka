@@ -1,5 +1,8 @@
 package io.confluent.telemetry.reporter;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
@@ -9,35 +12,62 @@ import io.confluent.telemetry.exporter.http.HttpExporter;
 import io.confluent.telemetry.exporter.http.HttpExporterConfig;
 import io.confluent.telemetry.exporter.kafka.KafkaExporter;
 import io.confluent.telemetry.exporter.kafka.KafkaExporterConfig;
+import io.confluent.telemetry.provider.ProviderRegistry;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
+
+import io.confluent.telemetry.provider.Utils;
+
+import java.util.HashSet;
 import java.util.Set;
 
 import kafka.server.KafkaConfig;
+import org.apache.kafka.common.config.internals.ConfluentConfigs;
+import org.apache.kafka.common.metrics.KafkaMetricsContext;
 import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.config.ConfigException;
+import org.apache.kafka.common.metrics.MetricsContext;
 
 import org.assertj.core.api.Condition;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+public class TelemetryReporterTest {
 
-public class KafkaServerMetricsReporterTest {
-
-    KafkaServerMetricsReporter reporter;
+    TelemetryReporter reporter;
     Map<String, Object> configs;
+
+    MetricsContext ctx = null;
+    MetricsContext ctxWithCluster = null;
 
     @Before
     public void setUp() {
-        reporter = new KafkaServerMetricsReporter();
+        reporter = new TelemetryReporter();
         configs = new HashMap<>();
         configs.put(KafkaConfig.BrokerIdProp(), "1");
         configs.put(KafkaConfig.LogDirsProp(), System.getProperty("java.io.tmpdir"));
+
+        ProviderRegistry.registerProvider(MockProvider.NAMESPACE, MockProvider.class.getCanonicalName());
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.putAll(ImmutableMap.of(
+                ConfluentConfigs.RESOURCE_LABEL_TYPE, "MOCK",
+                Utils.RESOURCE_LABEL_CLUSTER_ID, "foo",
+                ConfluentConfigs.RESOURCE_LABEL_VERSION, "v1"
+        ));
+        ctx = new KafkaMetricsContext(MockProvider.NAMESPACE, metadata);
+
+        Map<String, Object> metadataWtihCluster = new HashMap<>();
+        metadataWtihCluster.putAll(ImmutableMap.of(
+                ConfluentConfigs.RESOURCE_LABEL_TYPE, "MOCK",
+                Utils.RESOURCE_LABEL_CLUSTER_ID, "foo",
+                ConfluentConfigs.RESOURCE_LABEL_VERSION, "v1",
+                Utils.KAFKA_CLUSTER_ID, "clusterid",
+                Utils.KAFKA_BROKER_ID, "brokerid"
+        ));
+        ctxWithCluster = new KafkaMetricsContext(MockProvider.NAMESPACE, metadataWtihCluster);
+
     }
 
     @After
@@ -59,11 +89,12 @@ public class KafkaServerMetricsReporterTest {
         assertThatThrownBy(() -> reporter.configure(configs)).isInstanceOf(ConfigException.class);
     }
 
+
     @Test
     public void testInitConfigsNoExporters() {
         disableDefaultExporters();
         reporter.configure(configs);
-        reporter.onUpdate(new ClusterResource("clusterid"));
+        reporter.contextChange(ctx);
         assertThat(reporter.getExporters()).hasSize(0);
     }
 
@@ -105,7 +136,9 @@ public class KafkaServerMetricsReporterTest {
             "127.0.0.1:9092"
         );
         reporter.configure(configs);
-        reporter.onUpdate(new ClusterResource("clusterid"));
+        //set cluster id: clusterid
+
+        reporter.contextChange(ctxWithCluster);
         assertThat(reporter.getExporters())
             .hasEntrySatisfying("name", new Condition<>(c -> c instanceof KafkaExporter, "is KafkaExporter"));
     }
@@ -132,7 +165,8 @@ public class KafkaServerMetricsReporterTest {
             ExporterConfig.ExporterType.http.name()
         );
         reporter.configure(configs);
-        reporter.onUpdate(new ClusterResource("clusterid"));
+        reporter.contextChange(ctxWithCluster);
+
         assertThat(reporter.getExporters())
             .hasEntrySatisfying("name", new Condition<>(c -> c instanceof HttpExporter, "is HttpExporter"));
     }
@@ -145,7 +179,7 @@ public class KafkaServerMetricsReporterTest {
             ExporterConfig.ExporterType.http.name()
         );
         reporter.configure(configs);
-        reporter.onUpdate(new ClusterResource("clusterid"));
+        reporter.contextChange(ctxWithCluster);
         assertThat(reporter.getCollectors())
             .filteredOn(c -> c.getClass().getEnclosingClass() != null)
             .extracting(c -> c.getClass().getEnclosingClass().toString())

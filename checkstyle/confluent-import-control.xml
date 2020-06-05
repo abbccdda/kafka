@@ -85,6 +85,10 @@
     <allow pkg="org.apache.kafka.clients" />
     <allow pkg="org.apache.kafka.common" />
     <allow pkg="org.apache.kafka.test" />
+    <allow pkg="org.apache.kafka.streams" />
+    <allow pkg="org.apache.kafka.connect" />
+    <allow pkg="io.confluent.ksql" />
+    <allow pkg="io.confluent.kafka.schemaregistry" />
     <allow pkg="io.cloudevents" />
     <allow pkg="org.apache.log4j" />
   </subpackage>

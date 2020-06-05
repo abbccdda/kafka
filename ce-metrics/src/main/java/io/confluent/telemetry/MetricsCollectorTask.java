@@ -60,7 +60,10 @@ public class MetricsCollectorTask implements MetricsCollector {
     }
 
     public void start() {
-        log.info("Starting Confluent telemetry reporter with an interval of {} ms", this.collectIntervalMs);
+        log.info("Starting Confluent telemetry reporter with an interval of {} ms for resource = (type = {})",
+            this.collectIntervalMs,
+            context.getResource().getType());
+        log.debug("Telemetry reporter resource labels: {}", context.getResource().getLabelsMap());
         schedule();
     }
 
@@ -97,7 +100,9 @@ public class MetricsCollectorTask implements MetricsCollector {
             log.trace("Collected {} metrics from {}", metricCount, collector);
             buildMetricsCollectedMetric(collector, metricCount).ifPresent(m -> exporter.emit(m));
         } catch (Throwable t) {
-            log.error("Error while collecting metrics for {}", collector, t);
+            log.error("Error while collecting metrics for collector = {})",
+                collector,
+                t);
         }
     }
 

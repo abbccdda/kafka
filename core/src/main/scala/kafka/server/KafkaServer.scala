@@ -235,7 +235,6 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
   private val KAFKA_CLUSTER_ID: String = "kafka.cluster.id"
   private val KAFKA_BROKER_ID: String = "kafka.broker.id"
 
-
   private var logContext: LogContext = null
 
   var kafkaYammerMetrics: KafkaYammerMetrics = null
