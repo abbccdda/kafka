@@ -8,8 +8,9 @@ import com.linkedin.cruisecontrol.monitor.sampling.aggregator.AggregatedMetricVa
 import com.linkedin.cruisecontrol.monitor.sampling.aggregator.Extrapolation;
 import com.linkedin.cruisecontrol.monitor.sampling.aggregator.MetricValues;
 import com.linkedin.cruisecontrol.monitor.sampling.aggregator.ValuesAndExtrapolations;
-import com.linkedin.kafka.cruisecontrol.common.Resource;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.Goal;
+import com.linkedin.kafka.cruisecontrol.common.MetadataClient;
+import com.linkedin.kafka.cruisecontrol.common.Resource;
 import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityConfigResolver;
 import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityInfo;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
@@ -17,8 +18,20 @@ import com.linkedin.kafka.cruisecontrol.model.Broker;
 import com.linkedin.kafka.cruisecontrol.model.ClusterModel;
 import com.linkedin.kafka.cruisecontrol.model.ModelUtils;
 import com.linkedin.kafka.cruisecontrol.monitor.metricdefinition.KafkaMetricDef;
-import com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.PartitionEntity;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.aggregator.SampleExtrapolation;
+import com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.PartitionEntity;
+import kafka.zk.KafkaZkClient;
+import org.apache.kafka.clients.admin.ConfluentAdmin;
+import org.apache.kafka.common.Cluster;
+import org.apache.kafka.common.KafkaFuture;
+import org.apache.kafka.common.Node;
+import org.apache.kafka.common.PartitionInfo;
+import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.protocol.Errors;
+import org.apache.kafka.common.requests.DescribeLogDirsResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -31,17 +44,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
-import kafka.zk.KafkaZkClient;
-import org.apache.kafka.clients.admin.ConfluentAdmin;
-import org.apache.kafka.common.Cluster;
-import org.apache.kafka.common.KafkaFuture;
-import org.apache.kafka.common.Node;
-import org.apache.kafka.common.PartitionInfo;
-import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.protocol.Errors;
-import org.apache.kafka.common.requests.DescribeLogDirsResponse;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import static com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig.LOGDIR_RESPONSE_TIMEOUT_MS_CONFIG;
 import static com.linkedin.kafka.cruisecontrol.model.Disk.State.DEAD;
@@ -106,33 +108,42 @@ public class MonitorUtils {
   /**
    * Check whether the metadata has changed.
    */
-  public static boolean metadataChanged(Cluster prev, Cluster curr) {
+  public static boolean metadataChanged(MetadataClient.ClusterAndPlacements prev, MetadataClient.ClusterAndPlacements curr) {
+    Cluster prevCluster = prev.cluster();
+    Cluster currCluster = curr.cluster();
+
     // Broker has changed.
-    Set<Node> prevNodeSet = new HashSet<>(prev.nodes());
-    if (prevNodeSet.size() != curr.nodes().size()) {
+    Set<Node> prevNodeSet = new HashSet<>(prevCluster.nodes());
+    if (prevNodeSet.size() != currCluster.nodes().size()) {
       return true;
     }
-    prevNodeSet.removeAll(curr.nodes());
+    prevNodeSet.removeAll(currCluster.nodes());
     if (!prevNodeSet.isEmpty()) {
       return true;
     }
     // Topic has changed
-    if (!prev.topics().equals(curr.topics())) {
+    if (!prevCluster.topics().equals(currCluster.topics())) {
       return true;
     }
 
     // partition has changed.
-    for (String topic : prev.topics()) {
-      if (!prev.partitionCountForTopic(topic).equals(curr.partitionCountForTopic(topic))) {
+    for (String topic : prevCluster.topics()) {
+      if (!prevCluster.partitionCountForTopic(topic).equals(currCluster.partitionCountForTopic(topic))) {
         return true;
       }
-      for (PartitionInfo prevPartInfo : prev.partitionsForTopic(topic)) {
-        PartitionInfo currPartInfo = curr.partition(new TopicPartition(prevPartInfo.topic(), prevPartInfo.partition()));
+      for (PartitionInfo prevPartInfo : prevCluster.partitionsForTopic(topic)) {
+        PartitionInfo currPartInfo = currCluster.partition(new TopicPartition(prevPartInfo.topic(), prevPartInfo.partition()));
         if (leaderChanged(prevPartInfo, currPartInfo) || replicaListChanged(prevPartInfo, currPartInfo)) {
           return true;
         }
       }
     }
+
+    // topic placement constraints have changed
+    if (!prev.topicPlacements().equals(curr.topicPlacements())) {
+      return true;
+    }
+
     return false;
   }
 
@@ -144,11 +155,17 @@ public class MonitorUtils {
   }
 
   private static boolean replicaListChanged(PartitionInfo prevPartInfo, PartitionInfo currPartInfo) {
-    if (prevPartInfo.replicas().length != currPartInfo.replicas().length) {
+    if (prevPartInfo.replicas().length != currPartInfo.replicas().length
+            || prevPartInfo.observers().length != currPartInfo.observers().length) {
       return true;
     }
     for (int i = 0; i < prevPartInfo.replicas().length; i++) {
       if (prevPartInfo.replicas()[i].id() != currPartInfo.replicas()[i].id()) {
+        return true;
+      }
+    }
+    for (int i = 0; i < prevPartInfo.observers().length; i++) {
+      if (prevPartInfo.observers()[i].id() != currPartInfo.observers()[i].id()) {
         return true;
       }
     }
@@ -428,13 +445,15 @@ public class MonitorUtils {
         } else {
           isLeader = replica.id() == partitionInfo.leader().id();
         }
+        boolean isObserver = Arrays.stream(partitionInfo.observers())
+                                   .anyMatch(observer -> observer.id() == replica.id());
         boolean isOffline = Arrays.stream(partitionInfo.offlineReplicas())
                                   .anyMatch(offlineReplica -> offlineReplica.id() == replica.id());
 
         String logdir = replicaPlacementInfo == null ? null : replicaPlacementInfo.get(tp).get(replica.id());
         // If the replica's logdir is null, it is either because replica placement information is not populated for the cluster
         // model or this replica is hosted on a dead disk and is not considered for intra-broker replica operations.
-        clusterModel.createReplica(rack, replica.id(), tp, index, isLeader, isOffline, logdir, false);
+        clusterModel.createReplica(rack, replica.id(), tp, index, isLeader, isOffline, logdir, false, isObserver);
         clusterModel.setReplicaLoad(rack,
                                     replica.id(),
                                     tp,

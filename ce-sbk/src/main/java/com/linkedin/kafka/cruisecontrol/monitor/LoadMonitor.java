@@ -4,34 +4,45 @@
 
 package com.linkedin.kafka.cruisecontrol.monitor;
 
-import com.yammer.metrics.core.Timer;
 import com.linkedin.cruisecontrol.exception.NotEnoughValidWindowsException;
 import com.linkedin.cruisecontrol.metricdef.MetricDef;
 import com.linkedin.cruisecontrol.monitor.sampling.aggregator.AggregatedMetricValues;
+import com.linkedin.cruisecontrol.monitor.sampling.aggregator.MetricSampleAggregationResult;
 import com.linkedin.cruisecontrol.monitor.sampling.aggregator.MetricSampleCompleteness;
 import com.linkedin.cruisecontrol.monitor.sampling.aggregator.ValuesAndExtrapolations;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils;
 import com.linkedin.kafka.cruisecontrol.analyzer.AnalyzerUtils;
+import com.linkedin.kafka.cruisecontrol.async.progress.GeneratingClusterModel;
+import com.linkedin.kafka.cruisecontrol.async.progress.OperationProgress;
+import com.linkedin.kafka.cruisecontrol.async.progress.WaitingForClusterModel;
 import com.linkedin.kafka.cruisecontrol.common.KafkaCruiseControlThreadFactory;
 import com.linkedin.kafka.cruisecontrol.common.MetadataClient;
 import com.linkedin.kafka.cruisecontrol.common.Resource;
 import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityConfigResolver;
 import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityInfo;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
-import com.linkedin.kafka.cruisecontrol.async.progress.GeneratingClusterModel;
-import com.linkedin.kafka.cruisecontrol.async.progress.OperationProgress;
-import com.linkedin.kafka.cruisecontrol.async.progress.WaitingForClusterModel;
 import com.linkedin.kafka.cruisecontrol.config.TopicConfigProvider;
 import com.linkedin.kafka.cruisecontrol.model.ClusterModel;
-import com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.BrokerEntity;
-import com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.PartitionEntity;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.aggregator.KafkaBrokerMetricSampleAggregator;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.aggregator.KafkaPartitionMetricSampleAggregator;
-import com.linkedin.cruisecontrol.monitor.sampling.aggregator.MetricSampleAggregationResult;
-import com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.PartitionMetricSample;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.aggregator.SampleExtrapolation;
+import com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.BrokerEntity;
+import com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.PartitionEntity;
+import com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.PartitionMetricSample;
 import com.linkedin.kafka.cruisecontrol.monitor.task.LoadMonitorTaskRunner;
 import com.linkedin.kafka.cruisecontrol.servlet.response.stats.BrokerStats;
+import com.linkedin.kafka.cruisecontrol.servlet.response.stats.SingleBrokerStats;
+import com.yammer.metrics.core.Timer;
+import com.yammer.metrics.core.TimerContext;
+import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
+import org.apache.kafka.clients.admin.ConfluentAdmin;
+import org.apache.kafka.common.Cluster;
+import org.apache.kafka.common.Node;
+import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.utils.Time;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -47,17 +58,6 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import com.linkedin.kafka.cruisecontrol.servlet.response.stats.SingleBrokerStats;
-import com.yammer.metrics.core.TimerContext;
-import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
-import org.apache.kafka.clients.admin.ConfluentAdmin;
-import org.apache.kafka.common.Cluster;
-import org.apache.kafka.common.Node;
-import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.utils.Time;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import static com.linkedin.kafka.cruisecontrol.monitor.MonitorUtils.getRackHandleNull;
 import static com.linkedin.kafka.cruisecontrol.monitor.MonitorUtils.getReplicaPlacementInfo;
@@ -466,6 +466,8 @@ public class LoadMonitor {
       }
       // Set the state of bad brokers in clusterModel based on the Kafka cluster state.
       setBadBrokerState(clusterModel, cluster);
+
+      clusterModel.setTopicPlacements(clusterAndGeneration.topicPlacements());
 
       if (LOG.isDebugEnabled()) {
         LOG.debug("Generated cluster model in {} ms", System.currentTimeMillis() - start);

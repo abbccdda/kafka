@@ -427,6 +427,7 @@ public class GoalOptimizer implements Runnable {
     BrokerStats brokerStatsBeforeOptimization = clusterModel.brokerStats(null);
     Map<TopicPartition, List<ReplicaPlacementInfo>> initReplicaDistribution = clusterModel.getReplicaDistribution();
     Map<TopicPartition, ReplicaPlacementInfo> initLeaderDistribution = clusterModel.getLeaderDistribution();
+    Map<TopicPartition, List<ReplicaPlacementInfo>> initObserverDistribution = clusterModel.getObserverDistribution();
     boolean isSelfHealing = !clusterModel.selfHealingEligibleReplicas().isEmpty();
 
     // Set of balancing proposals that will be applied to the given cluster state to satisfy goals (leadership
@@ -437,6 +438,7 @@ public class GoalOptimizer implements Runnable {
     LinkedHashMap<Goal, ClusterModelStats> statsByGoalPriority = new LinkedHashMap<>(goalsByPriority.size());
     Map<TopicPartition, List<ReplicaPlacementInfo>> preOptimizedReplicaDistribution = null;
     Map<TopicPartition, ReplicaPlacementInfo> preOptimizedLeaderDistribution = null;
+    Map<TopicPartition, List<ReplicaPlacementInfo>> preOptimizedObserverDistribution = null;
     Set<String> excludedTopics = excludedTopics(clusterModel, requestedExcludedTopics);
     LOG.debug("Topics excluded from partition movement: {}", excludedTopics);
     OptimizationOptions optimizationOptions = new OptimizationOptions(excludedTopics,
@@ -448,6 +450,7 @@ public class GoalOptimizer implements Runnable {
     for (Goal goal : goalsByPriority) {
       preOptimizedReplicaDistribution = preOptimizedReplicaDistribution == null ? initReplicaDistribution : clusterModel.getReplicaDistribution();
       preOptimizedLeaderDistribution = preOptimizedLeaderDistribution == null ? initLeaderDistribution : clusterModel.getLeaderDistribution();
+      preOptimizedObserverDistribution = preOptimizedObserverDistribution == null ? initObserverDistribution : clusterModel.getObserverDistribution();
       OptimizationForGoal step = new OptimizationForGoal(goal.name());
       operationProgress.addStep(step);
       LOG.debug("Optimizing goal {}", goal.name());
@@ -457,6 +460,7 @@ public class GoalOptimizer implements Runnable {
 
       Set<ExecutionProposal> goalProposals = AnalyzerUtils.getDiff(preOptimizedReplicaDistribution,
                                                                    preOptimizedLeaderDistribution,
+                                                                   preOptimizedObserverDistribution,
                                                                    clusterModel);
       if (!goalProposals.isEmpty() || !succeeded) {
         violatedGoalNamesBeforeOptimization.add(goal.name());
@@ -483,6 +487,7 @@ public class GoalOptimizer implements Runnable {
         AnalyzerUtils.getDiff(initReplicaDistributionForProposalGeneration != null ? initReplicaDistributionForProposalGeneration
                                                                                    : initReplicaDistribution,
                               initLeaderDistribution,
+                              initObserverDistribution,
                               clusterModel,
                               true);
     return new OptimizerResult(statsByGoalPriority,

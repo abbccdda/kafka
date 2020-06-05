@@ -9,13 +9,14 @@ import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityInfo;
 import com.linkedin.kafka.cruisecontrol.model.Broker;
 import com.linkedin.kafka.cruisecontrol.model.ClusterModel;
 import com.linkedin.kafka.cruisecontrol.monitor.ModelGeneration;
+import org.apache.kafka.common.TopicPartition;
+
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.apache.kafka.common.TopicPartition;
 
 import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUnitTestUtils.getAggregatedMetricValues;
 
@@ -281,6 +282,99 @@ public class DeterministicCluster {
     cluster.setReplicaLoad(RACK_BY_BROKER.get(1).toString(), 1, pInfoT22, createLoad(8.0, 45.0, 0.0, 95.0), windows);
 
     return cluster;
+  }
+
+  /**
+   * Cluster model with the following configuration, used to test action acceptance:
+   *
+   * Rack   | Brokers
+   * R0     | B0, B1
+   * R1     | B2
+   *
+   * Broker | Replicas
+   * B0     | T1_P0_leader, T2_P2_leader, T2_P1_leader
+   * B1     | T1_P1_leader, T2_P0_leader, T2_P2_follower
+   * B2     | T2_P1_follower, T1_P0_follower, T2_P0_follower, T1_P1_follower
+   *
+   * Topic1 already satisfies placement constraints s.t. one replica is on r0, one replica is on r1
+   * Topic2 can satisfy a placement constraint s.t. one replica is on r0, one replica is on r1 by moving T2_P2_follower
+   * from B1 to B2
+   */
+  public static ClusterModel topicPlacementClusterModel(Map<Resource, Double> brokerCapacity) {
+    ClusterModel clusterModel = DeterministicCluster.getHomogeneousCluster(DeterministicCluster.RACK_BY_BROKER, brokerCapacity);
+    TopicPartition pInfoT10 = new TopicPartition(DeterministicCluster.T1, 0);
+    TopicPartition pInfoT11 = new TopicPartition(DeterministicCluster.T1, 1);
+    TopicPartition pInfoT20 = new TopicPartition(DeterministicCluster.T2, 0);
+    TopicPartition pInfoT21 = new TopicPartition(DeterministicCluster.T2, 1);
+    TopicPartition pInfoT22 = new TopicPartition(DeterministicCluster.T2, 2);
+    // Create replicas for topic: T1.
+    clusterModel.createReplica(DeterministicCluster.RACK_BY_BROKER.get(0).toString(), 0, pInfoT10, 0, true);
+    clusterModel.createReplica(DeterministicCluster.RACK_BY_BROKER.get(2).toString(), 2, pInfoT10, 1, false);
+    clusterModel.createReplica(DeterministicCluster.RACK_BY_BROKER.get(1).toString(), 1, pInfoT11, 0, true);
+    clusterModel.createReplica(DeterministicCluster.RACK_BY_BROKER.get(2).toString(), 2, pInfoT11, 1, false);
+    // Create replicas for topic: T2.
+    clusterModel.createReplica(DeterministicCluster.RACK_BY_BROKER.get(1).toString(), 1, pInfoT20, 0, true);
+    clusterModel.createReplica(DeterministicCluster.RACK_BY_BROKER.get(2).toString(), 2, pInfoT20, 1, false);
+    clusterModel.createReplica(DeterministicCluster.RACK_BY_BROKER.get(0).toString(), 0, pInfoT21, 0, true);
+    clusterModel.createReplica(DeterministicCluster.RACK_BY_BROKER.get(2).toString(), 2, pInfoT21, 1, false);
+    clusterModel.createReplica(DeterministicCluster.RACK_BY_BROKER.get(0).toString(), 0, pInfoT22, 0, true);
+    clusterModel.createReplica(DeterministicCluster.RACK_BY_BROKER.get(1).toString(), 1, pInfoT22, 1, false);
+
+    // Create snapshots and push them to the cluster.
+    List<Long> windows = Collections.singletonList(1L);
+    clusterModel.setReplicaLoad(RACK_BY_BROKER.get(0).toString(), 0, pInfoT10, createLoad(20.0, 100.0, 130.0, 75.0), windows);
+    clusterModel.setReplicaLoad(RACK_BY_BROKER.get(2).toString(), 2, pInfoT10, createLoad(5.0, 100.0, 0.0, 75.0), windows);
+    clusterModel.setReplicaLoad(RACK_BY_BROKER.get(1).toString(), 1, pInfoT11, createLoad(15.0, 90.0, 110.0, 55.0), windows);
+    clusterModel.setReplicaLoad(RACK_BY_BROKER.get(2).toString(), 2, pInfoT11, createLoad(4.5, 90.0, 0.0, 55.0), windows);
+    clusterModel.setReplicaLoad(RACK_BY_BROKER.get(1).toString(), 1, pInfoT20, createLoad(5.0, 5.0, 6.0, 5.0), windows);
+    clusterModel.setReplicaLoad(RACK_BY_BROKER.get(2).toString(), 2, pInfoT20, createLoad(4.0, 5.0, 0.0, 5.0), windows);
+    clusterModel.setReplicaLoad(RACK_BY_BROKER.get(0).toString(), 0, pInfoT21, createLoad(25.0, 25.0, 45.0, 55.0), windows);
+    clusterModel.setReplicaLoad(RACK_BY_BROKER.get(2).toString(), 2, pInfoT21, createLoad(10.5, 25.0, 0.0, 55.0), windows);
+    clusterModel.setReplicaLoad(RACK_BY_BROKER.get(0).toString(), 0, pInfoT22, createLoad(20.0, 45.0, 120.0, 95.0), windows);
+    clusterModel.setReplicaLoad(RACK_BY_BROKER.get(1).toString(), 1, pInfoT22, createLoad(8.0, 45.0, 0.0, 95.0), windows);
+
+    return clusterModel;
+  }
+
+  /**
+   * Creates a cluster model with the following configuration:
+   * Rack   | Brokers
+   * R0     | B0, B1
+   * R1     | B2, B3
+   * R2     | B4
+   *
+   * Broker | Replicas
+   * B0     | T1_P0_leader
+   * B1     | T1_P0_follower
+   * B2     | T1_P0_observer
+   * B3     | T1_P0_observer
+   * B4     | Empty
+   */
+  public static ClusterModel observerClusterModel(Map<Resource, Double> brokerCapacity) {
+    Map<Integer, Integer> racksByBrokerIds = new HashMap<>();
+    racksByBrokerIds.put(0, 0);
+    racksByBrokerIds.put(1, 0);
+    racksByBrokerIds.put(2, 1);
+    racksByBrokerIds.put(3, 1);
+    racksByBrokerIds.put(4, 2);
+    ClusterModel clusterModel = DeterministicCluster.getHomogeneousCluster(racksByBrokerIds, brokerCapacity);
+    TopicPartition pInfoT10 = new TopicPartition(DeterministicCluster.T1, 0);
+    clusterModel.createReplica(racksByBrokerIds.get(0).toString(), 0, pInfoT10, 0, true);
+    clusterModel.createReplica(racksByBrokerIds.get(1).toString(), 1, pInfoT10, 1, false);
+
+    clusterModel.createReplica(racksByBrokerIds.get(2).toString(), 2, pInfoT10, 2, false,
+            false, null, false, true);
+    clusterModel.createReplica(racksByBrokerIds.get(3).toString(), 3, pInfoT10, 3, false,
+            false, null, false, true);
+
+    // Create snapshots and push them to the cluster.
+    List<Long> windows = Collections.singletonList(1L);
+    clusterModel.setReplicaLoad(racksByBrokerIds.get(0).toString(), 0, pInfoT10, createLoad(20.0, 100.0, 200.0, 100.0), windows);
+    clusterModel.setReplicaLoad(racksByBrokerIds.get(1).toString(), 1, pInfoT10, createLoad(15.0, 100.0, 0.0, 100.0), windows);
+    clusterModel.setReplicaLoad(racksByBrokerIds.get(2).toString(), 2, pInfoT10, createLoad(15.0, 100.0, 0.0, 100.0), windows);
+    clusterModel.setReplicaLoad(racksByBrokerIds.get(3).toString(), 3, pInfoT10, createLoad(15.0, 100.0, 0.0, 100.0), windows);
+
+    return clusterModel;
   }
 
   /**

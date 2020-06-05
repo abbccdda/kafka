@@ -21,8 +21,8 @@ import com.linkedin.kafka.cruisecontrol.analyzer.goals.TopicReplicaDistributionG
 import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback;
 import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalPhaseBuilder;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
+import io.confluent.cruisecontrol.analyzer.goals.ReplicaPlacementGoal;
 import com.linkedin.kafka.cruisecontrol.exception.KafkaCruiseControlException;
-import io.confluent.cruisecontrol.analyzer.goals.CrossRackMovementGoal;
 import io.confluent.cruisecontrol.analyzer.goals.SequentialReplicaMovementGoal;
 import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsSamplerBase;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
@@ -30,6 +30,7 @@ import io.confluent.databalancer.operation.BrokerRemovalProgressListener;
 import io.confluent.databalancer.operation.BalanceOpExecutionCompletionCallback;
 import io.confluent.databalancer.persistence.ApiStatePersistenceStore;
 import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
+
 import kafka.common.BrokerRemovalStatus;
 import kafka.server.KafkaConfig;
 import kafka.server.KafkaConfig$;
@@ -242,7 +243,7 @@ public class ConfluentDataBalanceEngineTest  {
 
         // Goals Config should be this
         List<String> expectedGoalsConfig = new ArrayList<>(Arrays.asList(
-                CrossRackMovementGoal.class.getName(),
+                ReplicaPlacementGoal.class.getName(),
                 SequentialReplicaMovementGoal.class.getName(),
                 ReplicaCapacityGoal.class.getName(),
                 DiskCapacityGoal.class.getName(),
@@ -326,7 +327,7 @@ public class ConfluentDataBalanceEngineTest  {
         // Goals Config should be this -- not overridden
         List<String> expectedGoalsConfig = new ArrayList<>(
                 Arrays.asList(
-                        CrossRackMovementGoal.class.getName(),
+                        ReplicaPlacementGoal.class.getName(),
                         SequentialReplicaMovementGoal.class.getName(),
                         ReplicaCapacityGoal.class.getName(),
                         DiskCapacityGoal.class.getName(),
@@ -345,7 +346,7 @@ public class ConfluentDataBalanceEngineTest  {
         // Test a limited subset of default goals.
         List<String> testDefaultGoalsConfig = new ArrayList<>(
                 Arrays.asList(
-                        CrossRackMovementGoal.class.getName(),
+                        ReplicaPlacementGoal.class.getName(),
                         ReplicaCapacityGoal.class.getName(),
                         ReplicaDistributionGoal.class.getName(),
                         DiskCapacityGoal.class.getName()

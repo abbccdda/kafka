@@ -172,6 +172,7 @@ public class ReplicationFactorChangeTest {
     prepareContext();
     Map<TopicPartition, List<ReplicaPlacementInfo>> initReplicaDistribution = _clusterModel.getReplicaDistribution();
     Map<TopicPartition, ReplicaPlacementInfo> initLeaderDistribution = _clusterModel.getLeaderDistribution();
+    Map<TopicPartition, List<ReplicaPlacementInfo>> initObserverDistribution = _clusterModel.getObserverDistribution();
 
     _clusterModel.createOrDeleteReplicas(Collections.singletonMap(_replicationFactor, _topics), _brokersByRack, _rackByBroker,
                                          _cluster);
@@ -184,7 +185,7 @@ public class ReplicationFactorChangeTest {
                     _goal.optimize(_clusterModel, Collections.emptySet(), _optimizationOptions));
       }
       Set<ExecutionProposal> goalProposals =
-          AnalyzerUtils.getDiff(initReplicaDistribution, initLeaderDistribution, _clusterModel, true);
+          AnalyzerUtils.getDiff(initReplicaDistribution, initLeaderDistribution, initObserverDistribution, _clusterModel, true);
 
       for (ExecutionProposal proposal : goalProposals) {
         // Replication factor change should only be applied to specified topics.

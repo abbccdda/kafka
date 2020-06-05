@@ -96,6 +96,7 @@ public abstract class CCKafkaIntegrationTestHarness extends CCAbstractZookeeperT
           throw new AssertionError("security protocol not set yet trust store file provided");
         }
       }
+      builder.rack(rackForNode(i));
       Map<Object, Object> config = builder.buildConfig();
       config.putAll(overridingProps());
       configs.add(config);
@@ -117,5 +118,9 @@ public abstract class CCKafkaIntegrationTestHarness extends CCAbstractZookeeperT
 
   protected Map<Object, Object> overridingProps() {
     return Collections.emptyMap();
+  }
+
+  protected String rackForNode(int nodeId) {
+    return null;
   }
 }

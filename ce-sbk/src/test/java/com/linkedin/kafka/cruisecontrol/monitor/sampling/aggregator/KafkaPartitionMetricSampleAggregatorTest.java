@@ -93,7 +93,7 @@ public class KafkaPartitionMetricSampleAggregatorTest {
 
     // Verify the metric completeness checker state
     MetadataClient.ClusterAndGeneration clusterAndGeneration =
-        new MetadataClient.ClusterAndGeneration(cluster, 1);
+        new MetadataClient.ClusterAndGeneration(new MetadataClient.ClusterAndPlacements(cluster, Collections.emptyMap()), 1);
     assertEquals(NUM_WINDOWS, metricSampleAggregator.validWindows(clusterAndGeneration, 1.0).size());
     Map<Long, Float> monitoredPercentages = metricSampleAggregator.validPartitionRatioByWindows(clusterAndGeneration);
     for (double percentage : monitoredPercentages.values()) {
@@ -575,7 +575,8 @@ public class KafkaPartitionMetricSampleAggregatorTest {
   }
 
   private MetadataClient.ClusterAndGeneration clusterAndGeneration(Cluster cluster) {
-    return new MetadataClient.ClusterAndGeneration(cluster, 0);
+    MetadataClient.ClusterAndPlacements clusterAndPlacements = new MetadataClient.ClusterAndPlacements(cluster, Collections.emptyMap());
+    return new MetadataClient.ClusterAndGeneration(clusterAndPlacements, 0);
   }
 
   private void populateSampleAggregator(int numWindows,
@@ -633,7 +634,8 @@ public class KafkaPartitionMetricSampleAggregatorTest {
     }
 
     private MetadataClient.ClusterAndGeneration clusterAndGeneration(int generation) {
-      return new MetadataClient.ClusterAndGeneration(_cluster, generation);
+      MetadataClient.ClusterAndPlacements clusterAndPlacements = new MetadataClient.ClusterAndPlacements(_cluster, Collections.emptyMap());
+      return new MetadataClient.ClusterAndGeneration(clusterAndPlacements, generation);
     }
 
     private KafkaPartitionMetricSampleAggregator aggregator() {

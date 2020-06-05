@@ -257,7 +257,7 @@ public class ExcludedBrokersForReplicaMoveTest {
     if (_exceptionClass == null) {
       Map<TopicPartition, List<ReplicaPlacementInfo>> initReplicaDistribution = _clusterModel.getReplicaDistribution();
       Map<TopicPartition, ReplicaPlacementInfo> initLeaderDistribution = _clusterModel.getLeaderDistribution();
-
+      Map<TopicPartition, List<ReplicaPlacementInfo>> initObserverDistribution = _clusterModel.getObserverDistribution();
       Set<Integer> excludedBrokersForReplicaMove = _optimizationOptions.excludedBrokersForReplicaMove();
       if (_expectedToOptimize) {
         assertTrue("Failed to optimize " + _goal.name() + " with excluded brokers for replica move.",
@@ -269,7 +269,7 @@ public class ExcludedBrokersForReplicaMoveTest {
       // Generated proposals cannot move replicas to the excluded brokers for replica move.
       if (!excludedBrokersForReplicaMove.isEmpty()) {
         Set<ExecutionProposal> goalProposals =
-            AnalyzerUtils.getDiff(initReplicaDistribution, initLeaderDistribution, _clusterModel);
+            AnalyzerUtils.getDiff(initReplicaDistribution, initLeaderDistribution, initObserverDistribution, _clusterModel);
         for (ExecutionProposal proposal : goalProposals) {
           if (proposal.hasReplicaAction() && violatesExcludedBrokersForReplicaMove(excludedBrokersForReplicaMove, proposal)) {
             fail(String.format("A replica move in %s to an excluded broker for replica move %s.",

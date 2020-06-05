@@ -25,12 +25,15 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
+
+import kafka.controller.ReplicaAssignment;
 import kafka.server.ConfigType;
 import kafka.server.ConfigType$;
 import kafka.server.KafkaConfig;
@@ -38,6 +41,7 @@ import kafka.server.KafkaConfig$;
 import kafka.zk.KafkaZkClient;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.admin.CreateTopicsResult;
 import org.apache.kafka.clients.admin.DeleteTopicsResult;
 import org.apache.kafka.clients.admin.KafkaAdminClient;
 import org.apache.kafka.clients.admin.NewTopic;
@@ -47,6 +51,7 @@ import org.apache.kafka.common.Node;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.TopicPartitionInfo;
+import org.apache.kafka.common.config.ConfluentTopicConfig;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.SystemTime;
 import org.apache.kafka.common.utils.Time;
@@ -58,6 +63,7 @@ import org.easymock.EasyMock;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import scala.collection.JavaConverters;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
@@ -91,7 +97,6 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
   private static final TopicPartition TP3 = new TopicPartition(TOPIC3, PARTITION);
   private static final String RANDOM_UUID = "random_uuid";
   private static final String DESCRIBE_TOPICS_RESPONSE_TIMEOUT_MS = "10000";
-
   private MetricsRegistry metricsRegistry;
   private Map<String, TopicDescription> topicsCreated = new HashMap<>();
 
@@ -107,6 +112,11 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     props.put(KafkaConfig.DeleteTopicEnableProp(), "true");
     props.put(KafkaConfig.ReplicaFetchMaxBytesProp(), String.valueOf(REPLICA_FETCH_MAX_BYTES));
     return props;
+  }
+
+  @Override
+  protected String rackForNode(int nodeId) {
+    return String.valueOf(nodeId);
   }
 
   @Before
@@ -134,6 +144,21 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
       KafkaCruiseControlUtils.closeKafkaZkClientWithTimeout(kafkaZkClient);
     }
   }
+
+  @Test
+  public void testRebalanceObserverMovement() throws InterruptedException {
+    KafkaZkClient kafkaZkClient = KafkaCruiseControlUtils.createKafkaZkClient(zookeeper().connectionString(),
+            "ExecutorTestMetricGroup",
+            "BasicBalanceMovement",
+            false);
+    try {
+      Collection<ExecutionProposal> proposals = getTopicPlacementProposals(kafkaZkClient);
+      executeAndVerifyProposals(kafkaZkClient, proposals, proposals).shutdown();
+    } finally {
+      KafkaCruiseControlUtils.closeKafkaZkClientWithTimeout(kafkaZkClient);
+    }
+  }
+
 
   @Test
   public void testRebalanceCancellation() throws InterruptedException, ExecutionException {
@@ -430,7 +455,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
           new ExecutionProposal(TP0, 0, new ReplicaPlacementInfo(initialLeader0),
                                 Collections.singletonList(new ReplicaPlacementInfo(initialLeader0)),
                                 Collections.singletonList(initialLeader0 == 0 ? new ReplicaPlacementInfo(1) :
-                                                                                new ReplicaPlacementInfo(0)));
+                                                                                new ReplicaPlacementInfo(0)), Collections.emptyList(), Collections.emptyList());
       ExecutionProposal proposal1 =
           new ExecutionProposal(TP1, 0, new ReplicaPlacementInfo(initialLeader1),
                                 Arrays.asList(new ReplicaPlacementInfo(initialLeader1),
@@ -438,12 +463,12 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
                                                                     new ReplicaPlacementInfo(0)),
                                 Arrays.asList(initialLeader1 == 0 ? new ReplicaPlacementInfo(1) :
                                                                     new ReplicaPlacementInfo(0),
-                                              new ReplicaPlacementInfo(initialLeader1)));
+                                              new ReplicaPlacementInfo(initialLeader1)), Collections.emptyList(), Collections.emptyList());
       ExecutionProposal proposal2 =
           new ExecutionProposal(TP2, 0, new ReplicaPlacementInfo(initialLeader0),
                                 Collections.singletonList(new ReplicaPlacementInfo(initialLeader0)),
                                 Collections.singletonList(initialLeader0 == 0 ? new ReplicaPlacementInfo(1) :
-                                                                                new ReplicaPlacementInfo(0)));
+                                                                                new ReplicaPlacementInfo(0)), Collections.emptyList(), Collections.emptyList());
       ExecutionProposal proposal3 =
           new ExecutionProposal(TP3, 0, new ReplicaPlacementInfo(initialLeader1),
                                 Arrays.asList(new ReplicaPlacementInfo(initialLeader1),
@@ -451,7 +476,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
                                                                     new ReplicaPlacementInfo(0)),
                                 Arrays.asList(initialLeader1 == 0 ? new ReplicaPlacementInfo(1) :
                                                                     new ReplicaPlacementInfo(0),
-                                              new ReplicaPlacementInfo(initialLeader1)));
+                                              new ReplicaPlacementInfo(initialLeader1)), Collections.emptyList(), Collections.emptyList());
 
       Collection<ExecutionProposal> proposalsToExecute = Arrays.asList(proposal0, proposal1, proposal2, proposal3);
       Collection<ExecutionProposal> proposalsToCheck = Arrays.asList(proposal0, proposal1);
@@ -476,7 +501,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
           new ExecutionProposal(TP0, 0, new ReplicaPlacementInfo(initialLeader0),
               Collections.singletonList(new ReplicaPlacementInfo(initialLeader0)),
               Collections.singletonList(initialLeader0 == 0 ? new ReplicaPlacementInfo(1) :
-                  new ReplicaPlacementInfo(0)));
+                  new ReplicaPlacementInfo(0)), Collections.emptyList(), Collections.emptyList());
       ExecutionProposal proposal1 =
           new ExecutionProposal(TP1, 0, new ReplicaPlacementInfo(initialLeader1),
               Arrays.asList(new ReplicaPlacementInfo(initialLeader1),
@@ -484,7 +509,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
                       new ReplicaPlacementInfo(0)),
               Arrays.asList(initialLeader1 == 0 ? new ReplicaPlacementInfo(1) :
                       new ReplicaPlacementInfo(0),
-                  new ReplicaPlacementInfo(initialLeader1)));
+                  new ReplicaPlacementInfo(initialLeader1)), Collections.emptyList(), Collections.emptyList());
 
       Collection<ExecutionProposal> proposalsToExecute = Arrays.asList(proposal0, proposal1);
       Collection<ExecutionProposal> proposalsToCheck = Arrays.asList(proposal1);
@@ -520,7 +545,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     ExecutionProposal proposal =
         new ExecutionProposal(TP1, 0, new ReplicaPlacementInfo(1),
                               Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(1)),
-                              Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(1)));
+                              Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(1)), Collections.emptyList(), Collections.emptyList());
 
     KafkaCruiseControlConfig configs = new KafkaCruiseControlConfig(getExecutorProperties());
     Time time = new MockTime();
@@ -534,7 +559,8 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     PartitionInfo partitionInfo = new PartitionInfo(TP1.topic(), TP1.partition(), node1, replicas, replicas);
     Cluster cluster = new Cluster("id", Arrays.asList(node0, node1), Collections.singleton(partitionInfo),
                                   Collections.emptySet(), Collections.emptySet());
-    MetadataClient.ClusterAndGeneration clusterAndGeneration = new MetadataClient.ClusterAndGeneration(cluster, 0);
+    MetadataClient.ClusterAndPlacements clusterAndPlacements = new MetadataClient.ClusterAndPlacements(cluster, Collections.emptyMap());
+    MetadataClient.ClusterAndGeneration clusterAndGeneration = new MetadataClient.ClusterAndGeneration(clusterAndPlacements, 0);
     EasyMock.expect(mockMetadataClient.refreshMetadata()).andReturn(clusterAndGeneration).anyTimes();
     EasyMock.expect(mockMetadataClient.cluster()).andReturn(clusterAndGeneration.cluster()).anyTimes();
     mockMetadataClient.close();
@@ -603,7 +629,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
         ExecutionProposal proposal =
                 new ExecutionProposal(TP0, 0, new ReplicaPlacementInfo(oldReplica),
                         Collections.singletonList(new ReplicaPlacementInfo(oldReplica)),
-                        Collections.singletonList(new ReplicaPlacementInfo(newReplica)));
+                        Collections.singletonList(new ReplicaPlacementInfo(newReplica)), Collections.emptyList(), Collections.emptyList());
 
         Time time = new MockTime();
         MetadataClient metadataClient = new MetadataClient(config,
@@ -689,11 +715,11 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
         ExecutionProposal proposal0 =
                 new ExecutionProposal(TP0, 0, new ReplicaPlacementInfo(leader0),
                         Collections.singletonList(new ReplicaPlacementInfo(leader0)),
-                        Collections.singletonList(new ReplicaPlacementInfo(leader0 == 0 ? 1 : 0)));
+                        Collections.singletonList(new ReplicaPlacementInfo(leader0 == 0 ? 1 : 0)), Collections.emptyList(), Collections.emptyList());
         ExecutionProposal proposal1 =
                 new ExecutionProposal(TP1, 0, new ReplicaPlacementInfo(leader1),
                         Collections.singletonList(new ReplicaPlacementInfo(leader1)),
-                        Collections.singletonList(new ReplicaPlacementInfo(leader1 == 0 ? 1 : 0)));
+                        Collections.singletonList(new ReplicaPlacementInfo(leader1 == 0 ? 1 : 0)), Collections.emptyList(), Collections.emptyList());
 
         // Set concurrency such that multiple batches are submitted, to ensure that the requested throttle is not overwritten
         // Because the Executor doesn't update ZK if nothing has changed, only one update with the new value will be seen
@@ -805,7 +831,9 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
               0,
               new ReplicaPlacementInfo(partitionInfo.leader().id()),
               partitionInfo.replicas().stream().map(node -> new ReplicaPlacementInfo(node.id())).collect(Collectors.toList()),
-              Collections.singletonList(new ReplicaPlacementInfo(0))
+              Collections.singletonList(new ReplicaPlacementInfo(0)),
+              Collections.emptyList(),
+              Collections.emptyList()
           ));
         }
       }
@@ -817,7 +845,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
           null, null, null,
           NO_THROTTLE, RANDOM_UUID, mockCallback);
 
-      verifyProposals(executor, kafkaZkClient, removeBrokerProposals);
+      waitAndVerifyProposals(kafkaZkClient, executor, removeBrokerProposals);
       Mockito.verify(mockCallback).accept(true, null);
     } finally {
       KafkaCruiseControlUtils.closeKafkaZkClientWithTimeout(kafkaZkClient);
@@ -896,8 +924,28 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
                                                                   new ReplicaPlacementInfo(0)),
                               Arrays.asList(initialLeader1 == 0 ? new ReplicaPlacementInfo(1) :
                                                                   new ReplicaPlacementInfo(0),
-                              new ReplicaPlacementInfo(initialLeader1)));
+                              new ReplicaPlacementInfo(initialLeader1)), Collections.emptyList(), Collections.emptyList());
     return Arrays.asList(proposal0, proposal1);
+  }
+
+  private Collection<ExecutionProposal> getTopicPlacementProposals(KafkaZkClient kafkaZkClient) throws InterruptedException {
+    String initialPlacement = "{\"version\":1,\"replicas\":[{\"count\": 1, \"constraints\":{\"rack\":\"0\"}}]," +
+            " \"observers\": [{\"count\": 1, \"constraints\":{\"rack\":\"1\"}}]}";
+    TopicDescription topicDescription = createTopicWithPlacement(TOPIC1, initialPlacement).get(TOPIC1);
+    Properties topicConfig = kafkaZkClient.getEntityConfigs(ConfigType.Topic(), TOPIC1);
+    // flip placements so that we can execute a movement
+    String finalPlacement = "{\"version\":1,\"replicas\":[{\"count\": 1, \"constraints\":{\"rack\":\"1\"}}]," +
+            " \"observers\": [{\"count\": 1, \"constraints\":{\"rack\":\"0\"}}]}";
+    topicConfig.put(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG, finalPlacement);
+    kafkaZkClient.setOrCreateEntityConfigs(ConfigType.Topic(), TOPIC1, topicConfig);
+    int initialLeader = topicDescription.partitions().get(TP1.partition()).leader().id();
+    List<ReplicaPlacementInfo> oldReplicas = Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(1));
+    // observers must be suffix of replicas
+    List<ReplicaPlacementInfo> newReplicas = Arrays.asList(new ReplicaPlacementInfo(1), new ReplicaPlacementInfo(0));
+    List<ReplicaPlacementInfo> oldObservers = Collections.singletonList(new ReplicaPlacementInfo(1));
+    List<ReplicaPlacementInfo> newObservers = Collections.singletonList(new ReplicaPlacementInfo(0));
+    return Arrays.asList(new ExecutionProposal(TP1, 0, new ReplicaPlacementInfo(initialLeader),
+            oldReplicas, newReplicas, oldObservers, newObservers));
   }
 
   private Executor fillUpAndMoveBasicTopicPartition0(long replicationThrottle) throws InterruptedException, ExecutionException {
@@ -916,7 +964,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     return new ExecutionProposal(TP0, 0, new ReplicaPlacementInfo(initialLeader),
         Collections.singletonList(new ReplicaPlacementInfo(initialLeader)),
         Collections.singletonList(initialLeader == 0 ? new ReplicaPlacementInfo(1) :
-            new ReplicaPlacementInfo(0)));
+            new ReplicaPlacementInfo(0)), Collections.emptyList(), Collections.emptyList());
   }
 
   @Test
@@ -928,11 +976,11 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     ExecutionProposal proposal0 =
             new ExecutionProposal(TP0, 0, new ReplicaPlacementInfo(initialLeader0),
                     Collections.singletonList(new ReplicaPlacementInfo(initialLeader0)),
-                    Collections.singletonList(new ReplicaPlacementInfo(initialLeader0 == 0 ? 1 : 0)));
+                    Collections.singletonList(new ReplicaPlacementInfo(initialLeader0 == 0 ? 1 : 0)), Collections.emptyList(), Collections.emptyList());
     ExecutionProposal proposal1 =
             new ExecutionProposal(TP1, 0, new ReplicaPlacementInfo(initialLeader1),
                     Arrays.asList(new ReplicaPlacementInfo(initialLeader1), new ReplicaPlacementInfo(initialLeader1 == 0 ? 1 : 0)),
-                    Arrays.asList(new ReplicaPlacementInfo(initialLeader1 == 0 ? 1 : 0), new ReplicaPlacementInfo(initialLeader1)));
+                    Arrays.asList(new ReplicaPlacementInfo(initialLeader1 == 0 ? 1 : 0), new ReplicaPlacementInfo(initialLeader1)), Collections.emptyList(), Collections.emptyList());
 
     Collection<ExecutionProposal> proposals = Arrays.asList(proposal0, proposal1);
 
@@ -1024,7 +1072,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     ExecutionProposal proposal =
             new ExecutionProposal(TP1, 0, new ReplicaPlacementInfo(oldReplica),
                     Collections.singletonList(new ReplicaPlacementInfo(oldReplica)),
-                    Collections.singletonList(new ReplicaPlacementInfo(newReplica)));
+                    Collections.singletonList(new ReplicaPlacementInfo(newReplica)), Collections.emptyList(), Collections.emptyList());
 
     Time time = new MockTime();
     MetadataClient metadataClient = new MetadataClient(config,
@@ -1085,7 +1133,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     ExecutionProposal proposal =
             new ExecutionProposal(TP1, 0, new ReplicaPlacementInfo(oldReplica),
                     Collections.singletonList(new ReplicaPlacementInfo(oldReplica)),
-                    Collections.singletonList(new ReplicaPlacementInfo(newReplica)));
+                    Collections.singletonList(new ReplicaPlacementInfo(newReplica)), Collections.emptyList(), Collections.emptyList());
 
     Time time = new MockTime();
     MetadataClient metadataClient = new MetadataClient(config,
@@ -1135,20 +1183,24 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     EasyMock.verify(mockLoadMonitor);
   }
 
-  private Map<String, TopicDescription> createTopics() throws InterruptedException {
-    if (topicsCreated.size() != 0) {
-      return topicsCreated;
-    }
-
+  private Map<String, TopicDescription> createTopicWithPlacement(String topic, String topicPlacement) throws InterruptedException {
     ConfluentAdmin adminClient = KafkaCruiseControlUtils.createAdmin(Collections.singletonMap(
-                              AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, broker(0).plaintextAddr()));
+            AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, broker(0).plaintextAddr()));
     try {
-      adminClient.createTopics(Arrays.asList(new NewTopic(TOPIC0, 1, (short) 1),
-                                             new NewTopic(TOPIC1, 1, (short) 2)));
+      NewTopic topicWithPlacement = new NewTopic(topic, Optional.of(1), Optional.empty());
+      topicWithPlacement.configs(Collections.singletonMap(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG, topicPlacement));
+      CreateTopicsResult topicsResult = adminClient.createTopics(Arrays.asList(topicWithPlacement));
+      // make sure topic creation succeeded
+      assertEquals(topicsResult.numPartitions(topic).get(), Integer.valueOf(1));
+    } catch (ExecutionException ee) {
+      throw new RuntimeException(ee.getMessage());
     } finally {
       KafkaCruiseControlUtils.closeAdminClientWithTimeout(adminClient);
     }
+    return waitForTopicMetadataPropagation(Arrays.asList(topic));
+  }
 
+  private Map<String, TopicDescription> waitForTopicMetadataPropagation(List<String> topics) throws InterruptedException {
     // We need to use the admin clients to query the metadata from two different brokers to make sure that
     // both brokers have the latest metadata. Otherwise the Executor may get confused when it does not
     // see expected topics in the metadata.
@@ -1156,12 +1208,12 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     Map<String, TopicDescription> topicDescriptions1 = null;
     do {
       ConfluentAdmin adminClient0 = KafkaCruiseControlUtils.createAdmin(Collections.singletonMap(
-                                 AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, broker(0).plaintextAddr()));
+              AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, broker(0).plaintextAddr()));
       ConfluentAdmin adminClient1 = KafkaCruiseControlUtils.createAdmin(Collections.singletonMap(
-                                 AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, broker(1).plaintextAddr()));
+              AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, broker(1).plaintextAddr()));
       try {
-        topicDescriptions0 = adminClient0.describeTopics(Arrays.asList(TOPIC0, TOPIC1)).all().get();
-        topicDescriptions1 = adminClient1.describeTopics(Arrays.asList(TOPIC0, TOPIC1)).all().get();
+        topicDescriptions0 = adminClient0.describeTopics(topics).all().get();
+        topicDescriptions1 = adminClient1.describeTopics(topics).all().get();
         try {
           Thread.sleep(100);
         } catch (InterruptedException e) {
@@ -1173,11 +1225,27 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
         KafkaCruiseControlUtils.closeAdminClientWithTimeout(adminClient0);
         KafkaCruiseControlUtils.closeAdminClientWithTimeout(adminClient1);
       }
-    } while (topicDescriptions0 == null || topicDescriptions0.size() < 2
-        || topicDescriptions1 == null || topicDescriptions1.size() < 2);
+    } while (topicDescriptions0 == null || topicDescriptions0.size() < topics.size()
+            || topicDescriptions1 == null || topicDescriptions1.size() < topics.size());
 
     topicsCreated = topicDescriptions0;
     return topicsCreated;
+  }
+
+  private Map<String, TopicDescription> createTopics() throws InterruptedException {
+    if (topicsCreated.size() != 0) {
+      return topicsCreated;
+    }
+    ConfluentAdmin adminClient = KafkaCruiseControlUtils.createAdmin(Collections.singletonMap(
+                              AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, broker(0).plaintextAddr()));
+    try {
+      adminClient.createTopics(Arrays.asList(new NewTopic(TOPIC0, 1, (short) 1),
+                                             new NewTopic(TOPIC1, 1, (short) 2)));
+    } finally {
+      KafkaCruiseControlUtils.closeAdminClientWithTimeout(adminClient);
+    }
+
+    return waitForTopicMetadataPropagation(Arrays.asList(TOPIC0, TOPIC1));
   }
 
   private void deleteTopics(Collection<String> topics) throws ExecutionException, InterruptedException {
@@ -1211,30 +1279,8 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
                                          Collection<ExecutionProposal> proposalsToCheck,
                                          Executor executor) {
     executeProposals(executor, proposalsToExecute);
-
-    verifyProposals(executor, kafkaZkClient, proposalsToCheck);
-
+    waitAndVerifyProposals(kafkaZkClient, executor, proposalsToCheck);
     return executor;
-  }
-
-  private void verifyProposals(Executor executor, KafkaZkClient kafkaZkClient, Collection<ExecutionProposal> proposalsToCheck) {
-    waitUntilExecutionFinishes(executor);
-
-    for (ExecutionProposal proposal : proposalsToCheck) {
-      TopicPartition tp = new TopicPartition(proposal.topic(), proposal.partitionId());
-      int expectedReplicationFactor = proposal.newReplicas().size();
-      assertEquals("Replication factor for partition " + tp + " should be " + expectedReplicationFactor,
-          expectedReplicationFactor, kafkaZkClient.getReplicasForPartition(tp).size());
-
-      if (proposal.hasReplicaAction()) {
-        for (ReplicaPlacementInfo r : proposal.newReplicas()) {
-          assertTrue("The partition should have moved for " + tp,
-              kafkaZkClient.getReplicasForPartition(tp).contains(r.brokerId()));
-        }
-      }
-      assertEquals("The leader should have moved for " + tp,
-          proposal.newLeader().brokerId(), kafkaZkClient.getLeaderForPartition(tp).get());
-    }
   }
 
   /**
@@ -1277,13 +1323,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
             null, 86400000L, 43200000L, null, getMockAnomalyDetector(RANDOM_UUID));
   }
 
-  private Executor executor(ConfluentAdmin adminClient) {
-    KafkaCruiseControlConfig configs = new KafkaCruiseControlConfig(getExecutorProperties());
-
-    return new Executor(configs, new SystemTime(), KafkaCruiseControlUnitTestUtils.getMetricsRegistry(metricsRegistry),
-            null, 86400000L, 43200000L, null, getMockAnomalyDetector(RANDOM_UUID), adminClient, null);
-  }
-
+  @SuppressWarnings("deprecation")
   private void waitAndVerifyProposals(KafkaZkClient kafkaZkClient,
                                       Executor executor,
                                       Collection<ExecutionProposal> proposalsToCheck) {
@@ -1297,17 +1337,25 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     waitUntilExecutionFinishes(executor);
 
     for (ExecutionProposal proposal : proposalsToCheck) {
+      scala.collection.immutable.Set<String> topics = JavaConverters.asScalaSet(Collections.singleton(proposal.topic())).toSet();
+      Map<TopicPartition, ReplicaAssignment> replicaAssignments = JavaConverters.mapAsJavaMap(kafkaZkClient.getFullReplicaAssignmentForTopics(topics));
       TopicPartition tp = new TopicPartition(proposal.topic(), proposal.partitionId());
-      int expectedReplicationFactor = replicationFactors.get(tp);
+      ReplicaAssignment replicaAssignment = replicaAssignments.get(tp);
+
+      int expectedReplicationFactor = proposal.newReplicas().size();
       assertEquals("Replication factor for partition " + tp + " should be " + expectedReplicationFactor,
-                   expectedReplicationFactor, kafkaZkClient.getReplicasForPartition(tp).size());
+                   expectedReplicationFactor, replicaAssignment.replicas().size());
 
       if (proposal.hasReplicaAction()) {
         for (ReplicaPlacementInfo r : proposal.newReplicas()) {
-          assertTrue("The partition should have moved for " + tp,
-                     kafkaZkClient.getReplicasForPartition(tp).contains(r.brokerId()));
+          assertTrue("The partition should have moved for " + tp, replicaAssignment.replicas().contains(r.brokerId()));
         }
       }
+
+      for (ReplicaPlacementInfo r : proposal.newObservers()) {
+        assertTrue("The observer should have been moved for " + tp, replicaAssignment.observers().contains(r.brokerId()));
+      }
+
       assertEquals("The leader should have moved for " + tp,
                    proposal.newLeader().brokerId(), kafkaZkClient.getLeaderForPartition(tp).get());
     }
@@ -1319,7 +1367,6 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
 
   private Executor createExecutor(AnomalyDetector mockAnomalyDetector) {
     KafkaCruiseControlConfig configs = new KafkaCruiseControlConfig(getExecutorProperties());
-
     Executor executor = new Executor(configs, new SystemTime(), KafkaCruiseControlUnitTestUtils.getMetricsRegistry(metricsRegistry),
         null, 86400000L, 43200000L, null, mockAnomalyDetector);
     executor.setExecutionMode(false);

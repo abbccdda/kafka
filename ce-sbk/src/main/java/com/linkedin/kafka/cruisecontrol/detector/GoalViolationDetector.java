@@ -254,6 +254,7 @@ public class GoalViolationDetector implements Runnable {
     }
     Map<TopicPartition, List<ReplicaPlacementInfo>> initReplicaDistribution = clusterModel.getReplicaDistribution();
     Map<TopicPartition, ReplicaPlacementInfo> initLeaderDistribution = clusterModel.getLeaderDistribution();
+    Map<TopicPartition, List<ReplicaPlacementInfo>> initObserverDistribution = clusterModel.getObserverDistribution();
     try {
       goal.optimize(clusterModel, new HashSet<>(), new OptimizationOptions(excludedTopics(clusterModel),
                                                                            excludedBrokersForLeadership,
@@ -267,7 +268,8 @@ public class GoalViolationDetector implements Runnable {
       goalViolations.addViolation(goal.name(), false);
       return true;
     }
-    Set<ExecutionProposal> proposals = AnalyzerUtils.getDiff(initReplicaDistribution, initLeaderDistribution, clusterModel);
+    Set<ExecutionProposal> proposals = AnalyzerUtils.getDiff(initReplicaDistribution, initLeaderDistribution,
+            initObserverDistribution, clusterModel);
     LOG.trace("{} generated {} proposals", goal.name(), proposals.size());
     if (!proposals.isEmpty()) {
       // A goal violation that can be optimized by applying the generated proposals.

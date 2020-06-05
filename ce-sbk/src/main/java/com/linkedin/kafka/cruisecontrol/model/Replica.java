@@ -7,8 +7,9 @@ package com.linkedin.kafka.cruisecontrol.model;
 import com.linkedin.cruisecontrol.monitor.sampling.aggregator.AggregatedMetricValues;
 import com.linkedin.cruisecontrol.monitor.sampling.aggregator.MetricValues;
 import com.linkedin.kafka.cruisecontrol.common.Resource;
-
 import com.linkedin.kafka.cruisecontrol.monitor.metricdefinition.KafkaMetricDef;
+import org.apache.kafka.common.TopicPartition;
+
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.Serializable;
@@ -16,9 +17,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
 import java.util.Objects;
-import org.apache.kafka.common.TopicPartition;
 
 /**
  * A class that holds the information of the replica, including its load, leader, topic partition, and broker. A replica
@@ -34,6 +33,7 @@ public class Replica implements Serializable, Comparable<Replica> {
   private boolean _isOriginalOffline;
   private Broker _broker;
   private boolean _isLeader;
+  private boolean _isObserver;
   private final Disk _originalDisk;
   private Disk _disk;
 
@@ -45,19 +45,19 @@ public class Replica implements Serializable, Comparable<Replica> {
    * @param isLeader A flag to represent whether the replica is the isLeader or not.
    */
   Replica(TopicPartition tp, Broker broker, boolean isLeader) {
-    this(tp, broker, isLeader, false, null);
+    this(tp, broker, isLeader, false, null, false);
   }
 
   /**
    * A constructor for a replica.
-   *
    * @param tp Topic partition information of the replica.
    * @param broker The broker of the replica.
    * @param isLeader A flag to represent whether the replica is the isLeader or not.
    * @param isOriginalOffline True if the replica is offline in its original location, false otherwise.
    * @param disk The disk of the replica. If replica placement over disk information is not populated, this parameter is null.
+   * @param isObserver A flag to represent whether the replica is an observer
    */
-  Replica(TopicPartition tp, Broker broker, boolean isLeader, boolean isOriginalOffline, Disk disk) {
+  Replica(TopicPartition tp, Broker broker, boolean isLeader, boolean isOriginalOffline, Disk disk, boolean isObserver) {
     _tp = tp;
     _load = new Load();
     _originalBroker = broker;
@@ -66,6 +66,7 @@ public class Replica implements Serializable, Comparable<Replica> {
     _isOriginalOffline = isOriginalOffline;
     _originalDisk = disk;
     _disk = disk;
+    _isObserver = isObserver;
   }
 
   /**
@@ -132,6 +133,13 @@ public class Replica implements Serializable, Comparable<Replica> {
   }
 
   /**
+   * Check whether the replica is an observer.
+   */
+  public boolean isObserver() {
+    return _isObserver;
+  }
+
+  /**
    * Check whether the replica is an immigrant replica of the broker.
    */
   public boolean isImmigrant() {
@@ -154,6 +162,13 @@ public class Replica implements Serializable, Comparable<Replica> {
    */
   void setDisk(Disk disk) {
     _disk = disk;
+  }
+
+  /**
+   * Set observership status of the replica
+   */
+  public void setObservership(boolean isObserver) {
+    _isObserver = isObserver;
   }
 
   /**
@@ -337,9 +352,9 @@ public class Replica implements Serializable, Comparable<Replica> {
   @Override
   public String toString() {
     return String.format(
-        "Replica[isLeader=%s,rack=%s,broker=%d,TopicPartition=%s,origBroker=%d,isOriginalOffline=%s,isCurrentOffline=%s]",
+        "Replica[isLeader=%s,rack=%s,broker=%d,TopicPartition=%s,origBroker=%d,isOriginalOffline=%s,isCurrentOffline=%s,isObserver=%s]",
         _isLeader, _broker.rack().id(), _broker.id(), _tp,
-        _originalBroker == null ? -1 : _originalBroker.id(), isOriginalOffline(), isCurrentOffline());
+        _originalBroker == null ? -1 : _originalBroker.id(), isOriginalOffline(), isCurrentOffline(), isObserver());
   }
 
   /**

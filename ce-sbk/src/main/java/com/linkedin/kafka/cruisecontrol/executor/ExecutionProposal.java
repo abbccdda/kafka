@@ -29,6 +29,8 @@ public class ExecutionProposal {
   private final ReplicaPlacementInfo _oldLeader;
   private final List<ReplicaPlacementInfo> _oldReplicas;
   private final List<ReplicaPlacementInfo> _newReplicas;
+  private final List<ReplicaPlacementInfo> _oldObservers;
+  private final List<ReplicaPlacementInfo> _newObservers;
   // Replicas to add are the replicas which are originally not hosted by the broker.
   private final Set<ReplicaPlacementInfo> _replicasToAdd;
   // Replicas to remove are the replicas which are no longer hosted by the broker.
@@ -45,18 +47,24 @@ public class ExecutionProposal {
    * @param oldLeader the old leader of the partition to determine if leader movement is needed.
    * @param oldReplicas the old replicas for rollback. (Rollback is not supported until KAFKA-6304)
    * @param newReplicas the new replicas of the partition in this order.
+   * @param oldObservers the old observers for rollback.
+   * @param newObservers the new observers for the partition.
    */
   public ExecutionProposal(TopicPartition tp,
                            long partitionSize,
                            ReplicaPlacementInfo oldLeader,
                            List<ReplicaPlacementInfo> oldReplicas,
-                           List<ReplicaPlacementInfo> newReplicas) {
+                           List<ReplicaPlacementInfo> newReplicas,
+                           List<ReplicaPlacementInfo> oldObservers,
+                           List<ReplicaPlacementInfo> newObservers) {
     _tp = tp;
     _partitionSize = partitionSize;
     _oldLeader = oldLeader;
     // Allow the old replicas to be empty for partition addition.
     _oldReplicas = oldReplicas == null ? Collections.emptyList() : oldReplicas;
     _newReplicas = newReplicas;
+    _oldObservers = oldObservers;
+    _newObservers = newObservers;
     validate();
 
     // Populate replicas to add, to remove and to move across disk.
@@ -95,8 +103,8 @@ public class ExecutionProposal {
    * @param currentOrderedReplicas Current ordered replica list from the cluster.
    * @return True if successfully completed, false otherwise.
    */
-  public boolean isInterBrokerMovementCompleted(Node[] currentOrderedReplicas) {
-    return brokerOrderMatched(currentOrderedReplicas, _newReplicas);
+  public boolean isInterBrokerMovementCompleted(Node[] currentOrderedReplicas, Node[] currentOrderedObservers) {
+    return brokerOrderMatched(currentOrderedReplicas, _newReplicas) && brokerOrderMatched(currentOrderedObservers, _newObservers);
   }
 
   /**
@@ -108,8 +116,9 @@ public class ExecutionProposal {
    * @param currentOrderedReplicas Current ordered replica list from the cluster.
    * @return True if aborted, false otherwise.
    */
-  public boolean isInterBrokerMovementAborted(Node[] currentOrderedReplicas) {
-    return isInterBrokerMovementCompleted(currentOrderedReplicas) || brokerOrderMatched(currentOrderedReplicas, _oldReplicas);
+  public boolean isInterBrokerMovementAborted(Node[] currentOrderedReplicas, Node[] currentOrderedObservers) {
+    return isInterBrokerMovementCompleted(currentOrderedReplicas, currentOrderedObservers)
+            || brokerOrderMatched(currentOrderedReplicas, _oldReplicas) && brokerOrderMatched(currentOrderedObservers, _oldObservers);
   }
 
   /**
@@ -159,6 +168,20 @@ public class ExecutionProposal {
    */
   public List<ReplicaPlacementInfo> newReplicas() {
     return _newReplicas;
+  }
+
+  /**
+   * @return the old observer list of the partition before executing the proposal.
+   */
+  public List<ReplicaPlacementInfo> oldObservers() {
+    return _oldObservers;
+  }
+
+  /**
+   * @return the new observer list of the partition before executing the proposal.
+   */
+  public List<ReplicaPlacementInfo> newObservers() {
+    return _newObservers;
   }
 
   /**
@@ -231,9 +254,16 @@ public class ExecutionProposal {
       throw new IllegalArgumentException("The new replica list " + _newReplicas + " cannot be empty.");
     }
     // Verify duplicates
-    Set<ReplicaPlacementInfo> checkSet = new HashSet<>(_newReplicas);
-    if (checkSet.size() != _newReplicas.size()) {
+    Set<ReplicaPlacementInfo> replicaSet = new HashSet<>(_newReplicas);
+    if (replicaSet.size() != _newReplicas.size()) {
       throw new IllegalArgumentException("The new replicas list " + _newReplicas + " has duplicate replica.");
+    }
+    // Verify that observers are a suffix of replicas
+    int numSyncReplicas = _newReplicas.size() - _newObservers.size();
+    List<ReplicaPlacementInfo> replicaSuffix = _newReplicas.subList(numSyncReplicas, _newReplicas.size());
+    if (!replicaSuffix.equals(_newObservers)) {
+      throw new IllegalArgumentException(String.format("The new observers list %s is not a suffix of the " +
+              "new replicas list %s", _newObservers, _newReplicas));
     }
   }
 
@@ -254,9 +284,11 @@ public class ExecutionProposal {
 
   @Override
   public String toString() {
-    return String.format("{%s, oldLeader: %d, %s -> %s}", _tp, _oldLeader.brokerId(),
+    return String.format("{%s, oldLeader: %d, replicas: %s -> %s, observers: %s -> %s}", _tp, _oldLeader.brokerId(),
                          _oldReplicas.stream().mapToInt(ReplicaPlacementInfo::brokerId).boxed().collect(Collectors.toList()),
-                         _newReplicas.stream().mapToInt(ReplicaPlacementInfo::brokerId).boxed().collect(Collectors.toList()));
+                         _newReplicas.stream().mapToInt(ReplicaPlacementInfo::brokerId).boxed().collect(Collectors.toList()),
+                         _oldObservers.stream().mapToInt(ReplicaPlacementInfo::brokerId).boxed().collect(Collectors.toList()),
+                         _newObservers.stream().mapToInt(ReplicaPlacementInfo::brokerId).boxed().collect(Collectors.toList()));
   }
 
   @Override
@@ -274,7 +306,9 @@ public class ExecutionProposal {
     return _tp.equals(otherProposal._tp)
         && _oldLeader == otherProposal._oldLeader
         && _oldReplicas.equals(otherProposal._oldReplicas)
-        && _newReplicas.equals(otherProposal._newReplicas);
+        && _newReplicas.equals(otherProposal._newReplicas)
+        && _oldObservers.equals(otherProposal._oldObservers)
+        && _newObservers.equals(otherProposal._newObservers);
   }
 
   @Override
@@ -285,7 +319,13 @@ public class ExecutionProposal {
       result = 31 * result + replica.hashCode();
     }
     for (ReplicaPlacementInfo replica : _newReplicas) {
-      result = 31 * replica.hashCode();
+      result = 31 * result + replica.hashCode();
+    }
+    for (ReplicaPlacementInfo replica : _oldObservers) {
+      result = 31 * result + replica.hashCode();
+    }
+    for (ReplicaPlacementInfo replica : _newObservers) {
+      result = 31 * result + replica.hashCode();
     }
     return result;
   }

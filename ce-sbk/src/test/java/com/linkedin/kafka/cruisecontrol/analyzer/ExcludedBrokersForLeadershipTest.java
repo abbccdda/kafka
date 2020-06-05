@@ -252,7 +252,7 @@ public class ExcludedBrokersForLeadershipTest {
     if (_exceptionClass == null) {
       Map<TopicPartition, List<ReplicaPlacementInfo>> initReplicaDistribution = _clusterModel.getReplicaDistribution();
       Map<TopicPartition, ReplicaPlacementInfo> initLeaderDistribution = _clusterModel.getLeaderDistribution();
-
+      Map<TopicPartition, List<ReplicaPlacementInfo>> initObserverDistribution = _clusterModel.getObserverDistribution();
       Set<Integer> excludedBrokersForLeadership = _optimizationOptions.excludedBrokersForLeadership();
       if (_expectedToOptimize) {
         assertTrue("Failed to optimize " + _goal.name() + " with excluded brokers for leadership.",
@@ -264,7 +264,7 @@ public class ExcludedBrokersForLeadershipTest {
       // Generated proposals cannot move leadership to the excluded brokers for leadership.
       if (!excludedBrokersForLeadership.isEmpty()) {
         Set<ExecutionProposal> goalProposals =
-            AnalyzerUtils.getDiff(initReplicaDistribution, initLeaderDistribution, _clusterModel);
+            AnalyzerUtils.getDiff(initReplicaDistribution, initLeaderDistribution, initObserverDistribution, _clusterModel);
         for (ExecutionProposal proposal : goalProposals) {
           if (proposal.hasLeaderAction() && excludedBrokersForLeadership.contains(proposal.newLeader().brokerId())
               && _clusterModel.broker(proposal.oldLeader().brokerId()).isAlive()) {

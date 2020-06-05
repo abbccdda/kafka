@@ -79,6 +79,21 @@ public final class TopicPlacement {
             ")";
     }
 
+    @Override
+    public boolean equals(Object o) {
+        if (o == this)
+            return true;
+        if (!(o instanceof TopicPlacement))
+            return false;
+        TopicPlacement tp = (TopicPlacement) o;
+        return Objects.equals(tp.version(), version) && Objects.equals(tp.replicas(), replicas) && Objects.equals(tp.observers(), observers);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(version, replicas, observers);
+    }
+
     @JsonProperty(value = "version", required = true)
     public int version() {
         return version;
@@ -216,6 +231,21 @@ public final class TopicPlacement {
                 "count=" + count +
                 ",constraints=" + constraints +
                 ")";
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (o == this)
+                return true;
+            if (!(o instanceof ConstraintCount))
+                return false;
+            ConstraintCount cc = (ConstraintCount) o;
+            return Objects.equals(cc.count(), count) && Objects.equals(cc.constraints(), constraints);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(count, constraints);
         }
 
         public static ConstraintCount of(int count, Map<String, String> constraint) {

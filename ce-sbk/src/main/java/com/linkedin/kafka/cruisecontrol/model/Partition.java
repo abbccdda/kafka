@@ -10,6 +10,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.apache.kafka.common.TopicPartition;
 
@@ -207,6 +208,20 @@ public class Partition implements Serializable {
   }
 
   /**
+   * Get the set of brokers that contain observer replicas of the partition.
+   */
+  public Set<Broker> partitionObserverBrokers() {
+    return _replicas.stream().filter(Replica::isObserver).map(Replica::broker).collect(Collectors.toSet());
+  }
+
+  /**
+   * Get the set of brokers that contain sync(non-observer) replicas of the partition
+   */
+  public Set<Broker> partitionSyncBrokers() {
+    return _replicas.stream().filter(replica -> !replica.isObserver()).map(Replica::broker).collect(Collectors.toSet());
+  }
+
+  /**
    * Returns a boolean indicating if replica of this partition are on rack
    * passed in as argument.
    */
@@ -262,8 +277,11 @@ public class Partition implements Serializable {
     StringBuilder partition = new StringBuilder().append(String.format("<Partition>%n<Leader>%s</Leader>%n", _leader));
 
     for (Replica replica : _replicas) {
-      if (!replica.isLeader()) {
+      if (!replica.isLeader() && !replica.isObserver()) {
         partition.append(String.format("<Follower>%s</Follower>%n", replica));
+      }
+      if (replica.isObserver()) {
+        partition.append(String.format("<Observer>%s</Observer>%n", replica));
       }
     }
     return partition.append("</Partition>%n").toString();

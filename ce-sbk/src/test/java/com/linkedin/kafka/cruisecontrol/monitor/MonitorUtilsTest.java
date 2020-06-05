@@ -8,6 +8,8 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
+
+import com.linkedin.kafka.cruisecontrol.common.MetadataClient;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.PartitionInfo;
@@ -66,12 +68,18 @@ public class MonitorUtilsTest {
     PartitionInfo t0p0DifferentIsr = new PartitionInfo(topic0, 0, node0, nodesWithOrder1, new Node[]{node0});
     Cluster cluster7 = cluster1.withPartitions(Collections.singletonMap(new TopicPartition(topic0, 0), t0p0DifferentIsr));
 
-    assertTrue(MonitorUtils.metadataChanged(cluster1, cluster2));
-    assertTrue(MonitorUtils.metadataChanged(cluster1, cluster3));
-    assertTrue(MonitorUtils.metadataChanged(cluster1, cluster4));
-    assertTrue(MonitorUtils.metadataChanged(cluster1, cluster5));
-    assertTrue(MonitorUtils.metadataChanged(cluster1, cluster6));
-    assertFalse(MonitorUtils.metadataChanged(cluster1, cluster7));
+    assertTrue(MonitorUtils.metadataChanged(new MetadataClient.ClusterAndPlacements(cluster1, Collections.emptyMap()),
+            new MetadataClient.ClusterAndPlacements(cluster2, Collections.emptyMap())));
+    assertTrue(MonitorUtils.metadataChanged(new MetadataClient.ClusterAndPlacements(cluster1, Collections.emptyMap()),
+            new MetadataClient.ClusterAndPlacements(cluster3, Collections.emptyMap())));
+    assertTrue(MonitorUtils.metadataChanged(new MetadataClient.ClusterAndPlacements(cluster1, Collections.emptyMap()),
+            new MetadataClient.ClusterAndPlacements(cluster4, Collections.emptyMap())));
+    assertTrue(MonitorUtils.metadataChanged(new MetadataClient.ClusterAndPlacements(cluster1, Collections.emptyMap()),
+            new MetadataClient.ClusterAndPlacements(cluster5, Collections.emptyMap())));
+    assertTrue(MonitorUtils.metadataChanged(new MetadataClient.ClusterAndPlacements(cluster1, Collections.emptyMap()),
+            new MetadataClient.ClusterAndPlacements(cluster6, Collections.emptyMap())));
+    assertFalse(MonitorUtils.metadataChanged(new MetadataClient.ClusterAndPlacements(cluster1, Collections.emptyMap()),
+            new MetadataClient.ClusterAndPlacements(cluster7, Collections.emptyMap())));
 
   }
 }

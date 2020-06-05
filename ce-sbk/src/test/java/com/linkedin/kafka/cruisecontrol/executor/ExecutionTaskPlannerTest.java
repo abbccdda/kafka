@@ -52,22 +52,22 @@ public class ExecutionTaskPlannerTest {
   private ReplicaPlacementInfo _r3 = new ReplicaPlacementInfo(3);
 
   private final ExecutionProposal _leaderMovement1 =
-      new ExecutionProposal(new TopicPartition(TOPIC1, 0), 0, _r1, Arrays.asList(_r1, _r0), Arrays.asList(_r0, _r1));
+      new ExecutionProposal(new TopicPartition(TOPIC1, 0), 0, _r1, Arrays.asList(_r1, _r0), Arrays.asList(_r0, _r1), Collections.emptyList(), Collections.emptyList());
   private final ExecutionProposal _leaderMovement2 =
-      new ExecutionProposal(new TopicPartition(TOPIC1, 1), 0, _r1, Arrays.asList(_r1, _r0), Arrays.asList(_r0, _r1));
+      new ExecutionProposal(new TopicPartition(TOPIC1, 1), 0, _r1, Arrays.asList(_r1, _r0), Arrays.asList(_r0, _r1), Collections.emptyList(), Collections.emptyList());
   private final ExecutionProposal _leaderMovement3 =
-      new ExecutionProposal(new TopicPartition(TOPIC1, 2), 0, _r1, Arrays.asList(_r1, _r2), Arrays.asList(_r2, _r1));
+      new ExecutionProposal(new TopicPartition(TOPIC1, 2), 0, _r1, Arrays.asList(_r1, _r2), Arrays.asList(_r2, _r1), Collections.emptyList(), Collections.emptyList());
   private final ExecutionProposal _leaderMovement4 =
-      new ExecutionProposal(new TopicPartition(TOPIC1, 3), 0, _r3, Arrays.asList(_r3, _r2), Arrays.asList(_r2, _r3));
+      new ExecutionProposal(new TopicPartition(TOPIC1, 3), 0, _r3, Arrays.asList(_r3, _r2), Arrays.asList(_r2, _r3), Collections.emptyList(), Collections.emptyList());
 
   private final ExecutionProposal _partitionMovement1 =
-      new ExecutionProposal(new TopicPartition(TOPIC2, 0), 4, _r0, Arrays.asList(_r0, _r2), Arrays.asList(_r2, _r1));
+      new ExecutionProposal(new TopicPartition(TOPIC2, 0), 4, _r0, Arrays.asList(_r0, _r2), Arrays.asList(_r2, _r1), Collections.emptyList(), Collections.emptyList());
   private final ExecutionProposal _partitionMovement2 =
-      new ExecutionProposal(new TopicPartition(TOPIC2, 1), 3, _r1, Arrays.asList(_r1, _r3), Arrays.asList(_r3, _r2));
+      new ExecutionProposal(new TopicPartition(TOPIC2, 1), 3, _r1, Arrays.asList(_r1, _r3), Arrays.asList(_r3, _r2), Collections.emptyList(), Collections.emptyList());
   private final ExecutionProposal _partitionMovement3 =
-      new ExecutionProposal(new TopicPartition(TOPIC2, 2), 2, _r2, Arrays.asList(_r2, _r1), Arrays.asList(_r1, _r3));
+      new ExecutionProposal(new TopicPartition(TOPIC2, 2), 2, _r2, Arrays.asList(_r2, _r1), Arrays.asList(_r1, _r3), Collections.emptyList(), Collections.emptyList());
   private final ExecutionProposal _partitionMovement4 =
-      new ExecutionProposal(new TopicPartition(TOPIC2, 3), 1, _r3, Arrays.asList(_r3, _r2), Arrays.asList(_r2, _r0));
+      new ExecutionProposal(new TopicPartition(TOPIC2, 3), 1, _r3, Arrays.asList(_r3, _r2), Arrays.asList(_r2, _r0), Collections.emptyList(), Collections.emptyList());
 
   private final List<Node> _expectedNodes = Arrays.asList(new Node(0, "null", -1),
                                                           new Node(1, "null", -1),
@@ -233,7 +233,7 @@ public class ExecutionTaskPlannerTest {
                                                                                         4,
                                                                                         r0d0,
                                                                                         Arrays.asList(r0d0, r1d1),
-                                                                                        Arrays.asList(r1d0, r0d1)));
+                                                                                        Arrays.asList(r1d0, r0d1), Collections.emptyList(), Collections.emptyList()));
 
     TopicPartitionReplica tpr0 = new TopicPartitionReplica(TOPIC2, 0, 0);
     TopicPartitionReplica tpr1 = new TopicPartitionReplica(TOPIC2, 0, 1);

@@ -270,6 +270,7 @@ public class ExcludedTopicsTest {
     if (_exceptionClass == null) {
       Map<TopicPartition, List<ReplicaPlacementInfo>> initReplicaDistribution = _clusterModel.getReplicaDistribution();
       Map<TopicPartition, ReplicaPlacementInfo> initLeaderDistribution = _clusterModel.getLeaderDistribution();
+      Map<TopicPartition, List<ReplicaPlacementInfo>> initObserverDistribution = _clusterModel.getObserverDistribution();
 
       Set<String> excludedTopics = _optimizationOptions.excludedTopics();
       if (_expectedToOptimize) {
@@ -282,7 +283,7 @@ public class ExcludedTopicsTest {
       // Generated proposals cannot have the excluded topic.
       if (!excludedTopics.isEmpty()) {
         Set<ExecutionProposal> goalProposals =
-            AnalyzerUtils.getDiff(initReplicaDistribution, initLeaderDistribution, _clusterModel);
+            AnalyzerUtils.getDiff(initReplicaDistribution, initLeaderDistribution, initObserverDistribution, _clusterModel);
 
         for (ExecutionProposal proposal : goalProposals) {
           if (excludedTopics.contains(proposal.topic())) {

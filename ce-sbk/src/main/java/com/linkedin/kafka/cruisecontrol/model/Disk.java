@@ -127,7 +127,7 @@ public class Disk implements Comparable<Disk> {
 
   /**
    * Add replica load to the disk. This is used in cluster model initialization. When first adding replica to disk in
-   * {@link ClusterModel#createReplica(String, int, TopicPartition, int, boolean, boolean, String, boolean)}, the
+   * {@link ClusterModel#createReplica(String, int, TopicPartition, int, boolean, boolean, String, boolean, boolean)}, the
    * replica load is not initialized. The disk utilization will later be updated by
    * {@link ClusterModel#setReplicaLoad(String, int, TopicPartition, AggregatedMetricValues, List)} with the initialized
    * replica load.
