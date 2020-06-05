@@ -12,6 +12,7 @@ import kafka.common.BrokerRemovalStatus;
 import kafka.controller.DataBalanceManager;
 import kafka.metrics.KafkaYammerMetrics;
 import kafka.server.KafkaConfig;
+import org.apache.kafka.clients.admin.BrokerRemovalDescription;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.utils.SystemTime;
 import org.apache.kafka.common.utils.Time;
@@ -209,7 +210,30 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
 
     @Override
     public void scheduleBrokerAdd(Set<Integer> brokersToAdd) {
-        // CNKAF-730: No-op for now
+        // No new brokers
+        if (brokersToAdd.isEmpty()) {
+            return;
+        }
+        if (!balanceEngine.isActive()) {
+            // Return nothing; this is completely ok
+            LOG.warn("Notified of broker additions {} but SBK is disabled -- ignoring for now");
+            return;
+        }
+
+
+        // HACK: Don't issue any adds if a remove is currently running.
+        // XXX: This is directly looking at reassignment status values; there should be a "not terminal" status but then again,
+        // this is For Right Now.
+        if (brokerRemovalsInProgress()) {
+        LOG.warn("Unable to process broker addition of {} as a broker removal is ongoing.");
+        return;
+        }
+
+        // TODO: Place brokers on pending lits
+        // If OK to proceed (no drain running), then merge with current addition list and then
+        // initiate the updated merge.
+        String operationUid = String.format("addBrokers-%d", time.milliseconds());
+        balanceEngine.addBrokers(brokersToAdd, operationUid);
     }
 
     @Override
@@ -258,6 +282,16 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
 
         LOG.info("Submitting broker removal operation with UUID {} for broker {} (epoch {})", uid, brokerToRemove, brokerToRemoveEpoch);
         balanceEngine.removeBroker(brokerToRemove, brokerEpochOpt, registerBrokerRemovalMetric, listener, uid);
+    }
+
+    /*
+     * Identify if any removal operations are ongoing.
+     */
+    private boolean brokerRemovalsInProgress() {
+        return brokerRemovals().stream().anyMatch(brs ->
+                brs.partitionReassignmentsStatus() == BrokerRemovalDescription.PartitionReassignmentsStatus.IN_PROGRESS ||
+                        brs.partitionReassignmentsStatus() == BrokerRemovalDescription.PartitionReassignmentsStatus.PENDING);
+
     }
 
     /**

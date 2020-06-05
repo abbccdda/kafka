@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.Set;
 
 /**
  * The NoOpDataBalancer is what's used for handling DataBalanceEngine requests
@@ -59,5 +60,11 @@ public class NoOpDataBalanceEngine implements DataBalanceEngine {
             brokerToRemove, uid);
         LOG.error(msg);
         throw new InvalidRequestException(msg);
+    }
+
+    @Override
+    public void addBrokers(Set<Integer> brokersToAdd, String uid) {
+        String msg = String.format("Received request to add brokers {} while SBK is not started.", brokersToAdd);
+        LOG.debug(msg);
     }
 }

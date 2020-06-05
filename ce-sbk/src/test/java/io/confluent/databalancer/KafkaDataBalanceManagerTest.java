@@ -11,6 +11,9 @@ import com.yammer.metrics.core.MetricsRegistry;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import io.confluent.databalancer.operation.BrokerRemovalProgressListener;
 import io.confluent.databalancer.persistence.ApiStatePersistenceStore;
+import java.util.HashSet;
+import java.util.Set;
+
 import kafka.common.BrokerRemovalStatus;
 import kafka.controller.DataBalanceManager;
 import kafka.metrics.KafkaYammerMetrics;
@@ -42,6 +45,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
@@ -94,6 +98,8 @@ public class KafkaDataBalanceManagerTest {
             brokerRemovalStatusMap.put(brokerRemovalStatus.brokerId(), brokerRemovalStatus);
             return null;
         }).when(mockPersistenceStore).save(any(BrokerRemovalStatus.class), anyBoolean());
+
+        when(mockPersistenceStore.getAllBrokerRemovalStatus()).thenReturn(brokerRemovalStatusMap);
     }
 
     @Test
@@ -451,4 +457,79 @@ public class KafkaDataBalanceManagerTest {
 
         assertEquals(Arrays.asList(broker1Status, broker2Status), new ArrayList<>(brokerRemovalStatusMap.values()));
     }
+
+    /**
+     * Confirm that add performed after a successful remove starts
+     */
+    @Test
+    public void testAddAfterSuccessfulRemove() throws InterruptedException {
+        KafkaDataBalanceManager dataBalancer = new KafkaDataBalanceManager(initConfig,
+                new KafkaDataBalanceManager.DataBalanceEngineFactory(mockActiveDataBalanceEngine, mockInactiveDataBalanceEngine),
+                mockDbMetrics, time);
+        dataBalancer.onElection();
+
+        assertEquals(Collections.emptyList(), dataBalancer.brokerRemovals());
+
+        BrokerRemovalStatus broker2Status = new BrokerRemovalStatus(2,
+                BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE,
+                BrokerRemovalDescription.PartitionReassignmentsStatus.COMPLETE,
+                null
+        );
+        dataBalancer.balanceEngine.getDataBalanceEngineContext().getPersistenceStore().save(broker2Status, true);
+
+        Set<Integer> newBrokers = new HashSet<>();
+        newBrokers.add(10);
+        dataBalancer.scheduleBrokerAdd(newBrokers);
+        verify(mockActiveDataBalanceEngine).addBrokers(eq(newBrokers), anyString());
+    }
+
+    /**
+     * Confirm that add while a remove is ongoing does not start
+     */
+    @Test
+    public void testAddWithActiveRemove() throws InterruptedException {
+        KafkaDataBalanceManager dataBalancer = new KafkaDataBalanceManager(initConfig,
+                new KafkaDataBalanceManager.DataBalanceEngineFactory(mockActiveDataBalanceEngine, mockInactiveDataBalanceEngine),
+                mockDbMetrics, time);
+        dataBalancer.onElection();
+
+        assertEquals(Collections.emptyList(), dataBalancer.brokerRemovals());
+
+        BrokerRemovalStatus broker1Status = new BrokerRemovalStatus(1,
+                BrokerRemovalDescription.BrokerShutdownStatus.PENDING,
+                BrokerRemovalDescription.PartitionReassignmentsStatus.PENDING,
+                new Exception("Partition reassignment failed!")
+        );
+        dataBalancer.balanceEngine.getDataBalanceEngineContext().getPersistenceStore().save(broker1Status, true);
+
+        Set<Integer> newBrokers = new HashSet<>();
+        newBrokers.add(10);
+        dataBalancer.scheduleBrokerAdd(newBrokers);
+        verify(mockActiveDataBalanceEngine, never()).addBrokers(eq(newBrokers), anyString());
+    }
+
+    /**
+     * Confirm that addition with only failed removes proceeds
+     */
+    @Test
+    public void testAddAfterFailedlRemove() throws InterruptedException {
+        KafkaDataBalanceManager dataBalancer = new KafkaDataBalanceManager(initConfig,
+                new KafkaDataBalanceManager.DataBalanceEngineFactory(mockActiveDataBalanceEngine, mockInactiveDataBalanceEngine),
+                mockDbMetrics, time);
+        dataBalancer.onElection();
+
+        assertEquals(Collections.emptyList(), dataBalancer.brokerRemovals());
+        BrokerRemovalStatus broker1Status = new BrokerRemovalStatus(1,
+                BrokerRemovalDescription.BrokerShutdownStatus.PENDING,
+                BrokerRemovalDescription.PartitionReassignmentsStatus.FAILED,
+                new Exception("Partition reassignment failed!")
+        );
+        dataBalancer.balanceEngine.getDataBalanceEngineContext().getPersistenceStore().save(broker1Status, true);
+
+        Set<Integer> newBrokers = new HashSet<>();
+        newBrokers.add(10);
+        dataBalancer.scheduleBrokerAdd(newBrokers);
+        verify(mockActiveDataBalanceEngine).addBrokers(eq(newBrokers), anyString());
+    }
+
 }

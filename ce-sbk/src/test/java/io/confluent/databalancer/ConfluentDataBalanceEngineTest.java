@@ -789,7 +789,7 @@ public class ConfluentDataBalanceEngineTest  {
         dbe.onActivation(config);
         BrokerRemovalPhaseBuilder.BrokerRemovalExecution exec = mock(BrokerRemovalPhaseBuilder.BrokerRemovalExecution.class);
         when(mockCruiseControl.removeBroker(Mockito.eq(brokerToRemove), Mockito.eq(brokerEpoch),
-            any(BrokerRemovalCallback.class), anyString())).thenReturn(exec);
+                any(BrokerRemovalCallback.class), anyString())).thenReturn(exec);
 
         BrokerRemovalProgressListener mockListener = mock(BrokerRemovalProgressListener.class);
 
@@ -802,7 +802,7 @@ public class ConfluentDataBalanceEngineTest  {
 
         verify(executorService, times(2)).submit(any(Runnable.class));
         verify(mockCruiseControl).removeBroker(Mockito.eq(brokerToRemove), Mockito.eq(brokerEpoch),
-            any(BrokerRemovalCallback.class), anyString());
+                any(BrokerRemovalCallback.class), anyString());
         verify(exec, only()).execute(Duration.ofMinutes(60));
 
         assertTrue("DatabalanceEngine is not started", dbe.canAcceptRequests);

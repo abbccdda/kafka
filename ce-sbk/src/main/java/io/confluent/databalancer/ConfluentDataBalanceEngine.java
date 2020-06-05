@@ -250,6 +250,18 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         });
     }
 
+    @Override
+    public void addBrokers(Set<Integer> brokersToAdd, String uid) {
+        if (!canAcceptRequests) {
+            String msg = String.format("Received request to add brokers {} while SBK is not started.", brokersToAdd);
+            LOG.error(msg);
+            throw new InvalidRequestException(msg);
+        }
+
+        LOG.info("DataBalancer: Scheduling DataBalanceEngine broker addition: {}", brokersToAdd);
+        ccRunner.submit(() -> doAddBrokers(brokersToAdd, uid));
+    }
+
     /**
      * Returns if CruiseControl is active and can work on balancing cluster. Its different to
      * {@code #canAcceptRequests} in the sense we can accept requests even though CruiseControl hasn't
@@ -378,6 +390,27 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
             LOG.warn("Unable to stop DataBalanceEngine", ex);
         }
         LOG.info("DataBalancer: DataBalanceEngine shutdown completed.");
+    }
+
+    void doAddBrokers(Set<Integer> brokersToAdd, String operationUid) {
+        if (brokersToAdd.isEmpty()) {
+            return;
+        }
+
+        LOG.info("DataBalancer: Starting addBrokers call");
+        // TODO: simplify the addbrokers call to have fewer required arguments; we're not modifying anything,
+        // just using the defaults.
+        // Among the things:
+        // -- model completeness requirements? What do we need for this? Maybe it's ok to have just a few windows?
+        // XXX: Eventually replace with executor abort and reserve inside CC
+        // XXX Bad UID
+        try {
+            context.getCruiseControl().userTriggeredStopExecution();
+            context.getCruiseControl().addBrokers(brokersToAdd, operationUid);
+        } catch (Exception ex) {
+            // Report error up?
+            LOG.warn("Broker addition of {} failed", brokersToAdd, ex);
+        }
     }
 
     /**

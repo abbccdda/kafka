@@ -72,6 +72,7 @@ import static com.linkedin.kafka.cruisecontrol.servlet.response.CruiseControlSta
  */
 public class KafkaCruiseControl {
   private static final Logger LOG = LoggerFactory.getLogger(KafkaCruiseControl.class);
+  private final static Integer MD_MAX_REFRESH_ATTEMPTS = 100;
   protected final KafkaCruiseControlConfig _config;
   private final LoadMonitor _loadMonitor;
   private final GoalOptimizer _goalOptimizer;
@@ -482,41 +483,32 @@ public class KafkaCruiseControl {
 
 
   /**
-   * Add brokers
+   * Add brokers.
    * @param brokerIds The broker ids.
-   * @param requirements The cluster model completeness requirements.
-   * @param operationProgress The progress of the job to update.
-   * @param allowCapacityEstimation Allow capacity estimation in cluster model if the requested broker capacity is unavailable.
-   * @param concurrentInterBrokerPartitionMovements The maximum number of concurrent inter-broker partition movements per broker
-   *                                                (if null, use num.concurrent.partition.movements.per.broker).
-   * @param concurrentLeaderMovements The maximum number of concurrent leader movements
-   *                                  (if null, use num.concurrent.leader.movements).
-   * @param replicaMovementStrategy The strategy used to determine the execution order of generated replica movement tasks
-   *                                (if null, use default.replica.movement.strategies).
-   * @param replicationThrottle The replication throttle (bytes/second) to apply to both leaders and followers
-   *                            when adding brokers (if null, no throttling is applied).
    * @param uuid UUID of the execution.
-   * @param excludeRecentlyRemovedBrokers Exclude recently removed brokers from proposal generation for replica transfer.
    * @return The optimization result.
-   * @throws KafkaCruiseControlException When any exception occurred during the broker addition.
+   * @throws InterruptedException if the thread was interrupted.
+   * @throws KafkaCruiseControlException When any exception other than InterruptedException occurred during the broker addition.
    */
   public OptimizerResult addBrokers(Set<Integer> brokerIds,
-                                    ModelCompletenessRequirements requirements,
-                                    OperationProgress operationProgress,
-                                    boolean allowCapacityEstimation,
-                                    Integer concurrentInterBrokerPartitionMovements,
-                                    Integer concurrentLeaderMovements,
-                                    ReplicaMovementStrategy replicaMovementStrategy,
-                                    Long replicationThrottle,
-                                    String uuid,
-                                    boolean excludeRecentlyRemovedBrokers) throws KafkaCruiseControlException {
-    List<String> goals = Collections.emptyList();
+                                    String uuid)
+          throws KafkaCruiseControlException, InterruptedException {
+    // Metadata is infrequently refreshed, so use its max_age configuration to set up
+    // our criteria for checking when the broker is added.
+    int mdWaitMs = _config.getInt(KafkaCruiseControlConfig.METADATA_MAX_AGE_CONFIG) / 2;
+    int mdMaxWaitMs = _config.getInt(KafkaCruiseControlConfig.METADATA_MAX_AGE_CONFIG) * 2;
 
+    List<String> goals = Collections.emptyList();
     List<Goal> goalsByPriority = goalsByPriority(goals);
     ModelCompletenessRequirements modelCompletenessRequirements =
-        modelCompletenessRequirements(goalsByPriority).weaker(requirements);
+        modelCompletenessRequirements(goalsByPriority);
+    OperationProgress operationProgress = new OperationProgress();
+    PlanComputationOptions planComputationOptions = _defaultPlanComputationOptions;
+
     try (AutoCloseable ignored = _loadMonitor.acquireForModelGeneration(operationProgress)) {
-      sanityCheckBrokerPresence(brokerIds);
+      KafkaCruiseControlUtils.backoff(() -> brokersAreKnown(brokerIds),
+              MD_MAX_REFRESH_ATTEMPTS, mdWaitMs, mdMaxWaitMs, _time);
+
       ClusterModel clusterModel = _loadMonitor.clusterModel(_time.milliseconds(),
           modelCompletenessRequirements,
           operationProgress);
@@ -526,85 +518,29 @@ public class KafkaCruiseControl {
       OptimizerResult result = getProposals(clusterModel,
           goalsByPriority,
           operationProgress,
-          allowCapacityEstimation,
+          planComputationOptions.toAllowCapacityEstimation(),
           null,
           true,
-          excludeRecentlyRemovedBrokers,
+          planComputationOptions.toExcludeRecentlyRemovedBrokers(),
           false,
           Collections.emptySet());
 
       executeProposals(result.goalProposals(),
           Collections.emptySet(),
           isKafkaAssignerMode(goals),
-          concurrentInterBrokerPartitionMovements,
           null,
-          concurrentLeaderMovements,
-          replicaMovementStrategy,
-          replicationThrottle,
+          null,
+          null,
+          null,
+          _replicationThrottle,
           uuid);
       return result;
     } catch (KafkaCruiseControlException kcce) {
+      LOG.warn("AddBroker operation for brokers {} failed with exception ", brokerIds, kcce);
       throw kcce;
-    } catch (Exception e) {
-      throw new KafkaCruiseControlException(e);
-    }
-  }
-
-  /**
-   * Get the cluster model cutting off at a certain timestamp.
-   * @param now The current time in millisecond.
-   * @param requirements the model completeness requirements.
-   * @param operationProgress the progress of the job to report.
-   * @param allowCapacityEstimation Allow capacity estimation in cluster model if the requested broker capacity is unavailable.
-   * @param populateDiskInfo Whether populate disk information for each broker or not.
-   * @return the cluster workload model.
-   * @throws KafkaCruiseControlException When the cluster model generation encounter errors.
-   */
-  public ClusterModel clusterModel(long now,
-                                   ModelCompletenessRequirements requirements,
-                                   OperationProgress operationProgress,
-                                   boolean allowCapacityEstimation,
-                                   boolean populateDiskInfo)
-      throws KafkaCruiseControlException {
-    try (AutoCloseable ignored = _loadMonitor.acquireForModelGeneration(operationProgress)) {
-      ClusterModel clusterModel = _loadMonitor.clusterModel(-1, now, requirements, populateDiskInfo, operationProgress);
-      sanityCheckCapacityEstimation(allowCapacityEstimation, clusterModel.capacityEstimationInfoByBrokerId());
-      return clusterModel;
-    } catch (KafkaCruiseControlException kcce) {
-      throw kcce;
-    } catch (Exception e) {
-      throw new KafkaCruiseControlException(e);
-    }
-  }
-
-  /**
-   * Get the cluster model for a given time window.
-   * @param from the start time of the window
-   * @param to the end time of the window
-   * @param minValidPartitionRatio the minimum valid partition ratio requirement of model
-   * @param operationProgress the progress of the job to report.
-   * @param allowCapacityEstimation Allow capacity estimation in cluster model if the requested broker capacity is unavailable.
-   * @param populateDiskInfo Whether populate disk information for each broker or not.
-   * @return the cluster workload model.
-   * @throws KafkaCruiseControlException When the cluster model generation encounter errors.
-   */
-  public ClusterModel clusterModel(long from,
-                                   long to,
-                                   Double minValidPartitionRatio,
-                                   OperationProgress operationProgress,
-                                   boolean allowCapacityEstimation,
-                                   boolean populateDiskInfo)
-      throws KafkaCruiseControlException {
-    try (AutoCloseable ignored = _loadMonitor.acquireForModelGeneration(operationProgress)) {
-      if (minValidPartitionRatio == null) {
-        minValidPartitionRatio = _config.getDouble(KafkaCruiseControlConfig.MIN_VALID_PARTITION_RATIO_CONFIG);
-      }
-      ModelCompletenessRequirements requirements = new ModelCompletenessRequirements(1, minValidPartitionRatio, false);
-      ClusterModel clusterModel = _loadMonitor.clusterModel(from, to, requirements, populateDiskInfo, operationProgress);
-      sanityCheckCapacityEstimation(allowCapacityEstimation, clusterModel.capacityEstimationInfoByBrokerId());
-      return clusterModel;
-    } catch (KafkaCruiseControlException kcce) {
-      throw kcce;
+    } catch (InterruptedException ie) {
+      // Nothing to do at this level, but we should make sure not to swallow it.
+      throw ie;
     } catch (Exception e) {
       throw new KafkaCruiseControlException(e);
     }
@@ -956,11 +892,21 @@ public class KafkaCruiseControl {
    * @param brokerIds A set of broker ids.
    */
   public void sanityCheckBrokerPresence(Set<Integer> brokerIds) {
+    if (!brokersAreKnown(brokerIds))
+      throw new IllegalArgumentException(String.format("Not all brokers in %s are known", brokerIds));
+    }
+
+  /**
+   * Helper to see if all brokers in brokerIds are present in current cluster metadata.
+   * Package-private for testing
+   * @param brokerIds
+   * @return true if all brokers in the set are present in the cluster metadata
+   */
+   boolean brokersAreKnown(Set<Integer> brokerIds) {
     Cluster cluster = _loadMonitor.refreshClusterAndGeneration().cluster();
     Set<Integer> invalidBrokerIds = brokerIds.stream().filter(id -> cluster.nodeById(id) == null).collect(Collectors.toSet());
-    if (!invalidBrokerIds.isEmpty()) {
-      throw new IllegalArgumentException(String.format("Broker %s does not exist.", invalidBrokerIds));
-    }
+    LOG.info("Search for brokers {} has invalid brokers {}", brokerIds, invalidBrokerIds);
+    return invalidBrokerIds.isEmpty();
   }
 
   /**

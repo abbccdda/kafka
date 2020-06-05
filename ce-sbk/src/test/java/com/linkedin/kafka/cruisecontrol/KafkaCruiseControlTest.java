@@ -5,19 +5,23 @@ import com.linkedin.cruisecontrol.exception.NotEnoughValidWindowsException;
 import com.linkedin.kafka.cruisecontrol.analyzer.GoalOptimizer;
 import com.linkedin.kafka.cruisecontrol.analyzer.OptimizerResult;
 import com.linkedin.kafka.cruisecontrol.async.progress.OperationProgress;
+import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback;
 import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalPhaseBuilder;
+import com.linkedin.kafka.cruisecontrol.common.MetadataClient;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.detector.AnomalyDetector;
 import com.linkedin.kafka.cruisecontrol.exception.KafkaCruiseControlException;
 import com.linkedin.kafka.cruisecontrol.executor.ExecutionProposal;
 import com.linkedin.kafka.cruisecontrol.executor.Executor;
+import com.linkedin.kafka.cruisecontrol.executor.ExecutorState;
 import com.linkedin.kafka.cruisecontrol.model.Broker;
 import com.linkedin.kafka.cruisecontrol.model.ClusterModel;
 import com.linkedin.kafka.cruisecontrol.monitor.LoadMonitor;
 import com.linkedin.kafka.cruisecontrol.monitor.ModelCompletenessRequirements;
 import com.linkedin.kafka.cruisecontrol.server.BrokerShutdownManager;
-import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback;
 import java.time.Duration;
+
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -26,6 +30,8 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import org.apache.kafka.common.Cluster;
+import org.apache.kafka.common.Node;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.test.TestUtils;
 import org.junit.Before;
@@ -38,7 +44,6 @@ import java.util.Collections;
 import java.util.concurrent.ExecutorService;
 import org.mockito.junit.MockitoJUnitRunner;
 
-
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
@@ -50,9 +55,11 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.only;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
@@ -92,6 +99,9 @@ public class KafkaCruiseControlTest {
 
     @Mock
     private Executor executor;
+
+    @Mock
+    private ExecutorState executorState;
 
     @Mock
     private ClusterModel clusterModel;
@@ -469,4 +479,75 @@ public class KafkaCruiseControlTest {
     private void verifyNoProposalsExecuted() {
         verify(executor, never()).executeProposals(anySet(), anySet(), any(), any(), any(), any(), any(), any(), any(), any());
     }
+
+    @Test
+    public void addBroker_metadataNotReady() throws Exception {
+        Node mockNode1 = mock(Node.class);
+        when(mockNode1.id()).thenReturn(1);
+
+        List<Node> clusterNodes = Arrays.asList(mockNode1);
+        Cluster mockCluster = new Cluster("testCluster", clusterNodes, Collections.emptySet(), Collections.emptySet(), Collections.emptySet());
+        MetadataClient.ClusterAndGeneration mockCandG = mock(MetadataClient.ClusterAndGeneration.class);
+        when(loadMonitor.refreshClusterAndGeneration()).thenReturn(mockCandG);
+        when(mockCandG.cluster()).thenReturn(mockCluster);
+
+        when(goalOptimizer.defaultModelCompletenessRequirements()).thenReturn(STRONGER_REQUIREMENTS);
+
+        Set<Integer> newBrokers = new HashSet<>();
+        newBrokers.add(1);
+        newBrokers.add(2);
+
+        TimeoutException expectedException = new TimeoutException("Exceeded time");
+
+        KafkaCruiseControlException thrownException = assertThrows(KafkaCruiseControlException.class,
+                () -> kafkaCruiseControl.addBrokers(newBrokers, "testOpId")
+        );
+
+        assertEquals(expectedException.getClass(), thrownException.getCause().getClass());
+        verifyNoProposalsExecuted();
+    }
+
+    @Test
+    public void addBroker_metadataNotReadyInitially() throws Exception {
+        KafkaCruiseControl kcc = spy(kafkaCruiseControl);
+        Node mockNode1 = mock(Node.class);
+        when(mockNode1.id()).thenReturn(1);
+        Node mockNode2 = mock(Node.class);
+        when(mockNode2.id()).thenReturn(2);
+
+        List<Node> clusterNodesInitial = Arrays.asList(mockNode1);
+        List<Node> clusterNodesSubsequent = Arrays.asList(mockNode1, mockNode2);
+        Cluster mockClusterInitial = new Cluster("testCluster", clusterNodesInitial, Collections.emptySet(), Collections.emptySet(), Collections.emptySet());
+        Cluster mockClusterSubsequent = new Cluster("testCluster", clusterNodesSubsequent, Collections.emptySet(), Collections.emptySet(), Collections.emptySet());
+        MetadataClient.ClusterAndGeneration mockCandG = mock(MetadataClient.ClusterAndGeneration.class);
+        when(loadMonitor.refreshClusterAndGeneration()).thenReturn(mockCandG);
+        when(mockCandG.cluster()).thenReturn(mockClusterInitial).thenReturn(mockClusterInitial).thenReturn(mockClusterSubsequent);
+
+        when(goalOptimizer.defaultModelCompletenessRequirements()).thenReturn(STRONGER_REQUIREMENTS);
+
+        Set<Integer> newBrokers = new HashSet<>();
+        newBrokers.add(1);
+        newBrokers.add(2);
+
+        when(loadMonitor.clusterModel(anyLong(), any(), any())).thenReturn(clusterModel);
+        Set<ExecutionProposal> proposals = new HashSet<>();
+        proposals.add(mock(ExecutionProposal.class));
+        when(optimizerResult.goalProposals()).thenReturn(proposals);
+
+        when(goalOptimizer.optimizations(
+                eq(clusterModel), eq(Collections.emptyList()), any(), isNull(),
+                eq(Collections.emptySet()), eq(Collections.emptySet()), eq(false),
+                any(), isNull(), eq(false))).thenReturn(optimizerResult);
+        when(executor.state()).thenReturn(executorState);
+        when(executorState.recentlyDemotedBrokers()).thenReturn(Collections.emptySet());
+
+        kcc.addBrokers(newBrokers, "testOpId");
+        verify(clusterModel).setBrokerState(1, Broker.State.NEW); // verify plan-computation
+        verify(clusterModel).setBrokerState(2, Broker.State.NEW); // verify plan-computation
+        verify(executor).executeProposals(eq(proposals), eq(Collections.emptySet()), eq(null), eq(loadMonitor),
+                isNull(), any(), isNull(), isNull(), any(), any());
+        verify(mockCandG, atLeast(3)).cluster();
+        verify(kcc, atLeast(3)).brokersAreKnown(newBrokers);
+    }
+
 }

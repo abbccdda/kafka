@@ -9,6 +9,7 @@ import kafka.server.KafkaConfig;
 
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.Set;
 
 /**
  * Interface to expose CruiseControl operations to users of that functionality (the KafkaDataBalanceManager). This is a limited subset of all the
@@ -65,4 +66,6 @@ public interface DataBalanceEngine {
                       AtomicReference<String> registerBrokerRemovalMetric,
                       BrokerRemovalProgressListener progressListener,
                       String uid);
+
+    void addBrokers(Set<Integer> brokersToAdd, String uid);
 }

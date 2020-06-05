@@ -23,6 +23,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeoutException;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import kafka.zk.KafkaZkClient;
 import org.apache.kafka.clients.admin.AdminClientConfig;
@@ -38,6 +40,7 @@ import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.utils.SystemTime;
+import org.apache.kafka.common.utils.Time;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.Option;
@@ -514,5 +517,34 @@ public class KafkaCruiseControlUtils {
     }
 
     return balancednessCostByGoal;
+  }
+  
+  /**
+   * Run some boolean operation with exponential backoff until it succeeds or maxTimeout is hit.
+   * Success is indicated by a non-exceptional return.
+   * @param f Boolean-returning function which is executed until it succeeds or #{@code maxRetries} is hit
+   * @param maxRetries Maxmimum number of times this should be executed.
+   * @param initialWaitMs How long to sleep at first.
+   * @param maxWaitMs Maximum length of a single wait in ms. If 0, no upper bound.
+   * @param time time source (useful for test mocks)
+   *
+   * @throws InterruptedException
+   * @throws TimeoutException if the function never succeeded after #{@code maxRetries}
+   */
+  public static void backoff(Supplier<Boolean> f, int maxRetries, int initialWaitMs, int maxWaitMs, Time time) throws InterruptedException, TimeoutException {
+    int waitMsBound = maxWaitMs > 0 ? maxWaitMs : Integer.MAX_VALUE;
+    int currentWaitMs = initialWaitMs;
+    if (f.get()) {
+      return;
+    }
+    for (int currentRetry = 1; currentRetry < maxRetries; currentRetry++) {
+      time.sleep(currentWaitMs);
+      currentWaitMs = Math.min(2 * currentWaitMs, waitMsBound);
+      if (f.get()) {
+        return;
+      }
+    }
+    // Made it here, no luck.
+    throw new TimeoutException(String.format("Exceeded max retry count (%d)", maxRetries));
   }
 }
