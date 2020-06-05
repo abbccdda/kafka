@@ -400,4 +400,7 @@
     <!-- ce-broker-plugins tests exclusion -->
     <suppress checks="CyclomaticComplexity" files="MultiTenantAuditLogTest.java"/>
 
+    <!-- ce-sbk telemetry sampler exlcusion -->
+    <suppress checks="CyclomaticComplexity" files="ConfluentTelemetryReporterSampler.java"/>
+
 </suppressions>

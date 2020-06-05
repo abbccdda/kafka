@@ -2134,6 +2134,7 @@ project(':ce-sbk') {
     testCompile project(':ce-broker-plugins')
     testCompile project(':ce-broker-plugins').sourceSets.test.output
     testCompile project(':ce-metrics')
+    testCompile project(':ce-metrics').sourceSets.test.output
 
     testCompile libs.commonsIo
     testCompile libs.mockitoCore

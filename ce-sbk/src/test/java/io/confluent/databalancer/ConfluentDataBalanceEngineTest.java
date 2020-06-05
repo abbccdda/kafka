@@ -24,7 +24,7 @@ import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.exception.KafkaCruiseControlException;
 import io.confluent.cruisecontrol.analyzer.goals.CrossRackMovementGoal;
 import io.confluent.cruisecontrol.analyzer.goals.SequentialReplicaMovementGoal;
-import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSampler;
+import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsSamplerBase;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import io.confluent.databalancer.operation.BrokerRemovalProgressListener;
 import io.confluent.databalancer.operation.BalanceOpExecutionCompletionCallback;
@@ -310,7 +310,7 @@ public class ConfluentDataBalanceEngineTest  {
         // Expect nothing to be present as no overrides were present in this config
         Map<String, Object> ccOriginals = ccConfig.originals();
         assertFalse("ConfluentMetricsReporterSampler.METRIC_REPORTER_TOPIC_PATTERN found in config",
-                ccOriginals.containsKey(ConfluentMetricsReporterSampler.METRIC_REPORTER_TOPIC_PATTERN));
+                ccOriginals.containsKey(ConfluentMetricsSamplerBase.METRIC_REPORTER_TOPIC_PATTERN));
         assertFalse("ConfluentConfigs.BALANCER_TOPICS_REPLICATION_FACTOR_CONFIG found in config",
                 ccOriginals.containsKey(ConfluentConfigs.BALANCER_TOPICS_REPLICATION_FACTOR_CONFIG));
     }
@@ -403,7 +403,7 @@ public class ConfluentDataBalanceEngineTest  {
         // Not all properties go into the KafkaCruiseControlConfig. Extract everything for validation.
         Map<String, Object> ccOriginals = ccConfig.originals();
 
-        Object actualMetricsTopic = ccOriginals.get(ConfluentMetricsReporterSampler.METRIC_REPORTER_TOPIC_PATTERN);
+        Object actualMetricsTopic = ccOriginals.get(ConfluentMetricsSamplerBase.METRIC_REPORTER_TOPIC_PATTERN);
         assertEquals(actualMetricsTopic + " is not same as expected " + testMetricsTopic,
                 testMetricsTopic, actualMetricsTopic);
         Object actualTopicRf = ccOriginals.get(ConfluentConfigs.BALANCER_TOPICS_REPLICATION_FACTOR_CONFIG);

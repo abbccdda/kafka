@@ -1,5 +1,15 @@
 package io.confluent.telemetry.exporter.kafka;
 
+import io.confluent.telemetry.ConfluentTelemetryConfig;
+import io.confluent.telemetry.Context;
+import io.confluent.telemetry.MetricKey;
+import io.confluent.telemetry.MetricsUtils;
+import io.confluent.telemetry.collector.MetricsCollector;
+import io.confluent.telemetry.collector.MetricsCollectorProvider;
+import io.confluent.telemetry.exporter.Exporter;
+import io.opencensus.proto.metrics.v1.Metric;
+import io.opencensus.proto.metrics.v1.MetricDescriptor.Type;
+import io.opencensus.proto.metrics.v1.Point;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.producer.KafkaProducer;
@@ -19,17 +29,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
-
-import io.confluent.telemetry.ConfluentTelemetryConfig;
-import io.confluent.telemetry.Context;
-import io.confluent.telemetry.MetricKey;
-import io.confluent.telemetry.MetricsUtils;
-import io.confluent.telemetry.collector.MetricsCollector;
-import io.confluent.telemetry.collector.MetricsCollectorProvider;
-import io.confluent.telemetry.exporter.Exporter;
-import io.opencensus.proto.metrics.v1.Metric;
-import io.opencensus.proto.metrics.v1.MetricDescriptor.Type;
-import io.opencensus.proto.metrics.v1.Point;
 
 public class KafkaExporter implements Exporter, MetricsCollectorProvider {
 
@@ -71,6 +70,7 @@ public class KafkaExporter implements Exporter, MetricsCollectorProvider {
             } catch (ExecutionException e) {
                 if (!(e.getCause() instanceof UnknownTopicOrPartitionException)) {
                     // something bad happened
+                    log.warn(e.getMessage());
                     throw e;
                 }
 

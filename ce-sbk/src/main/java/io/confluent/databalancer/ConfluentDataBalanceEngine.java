@@ -14,6 +14,7 @@ import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.MetricSampler;
 import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSampler;
+import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsSamplerBase;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import io.confluent.databalancer.operation.BrokerRemovalProgressListener;
 import io.confluent.databalancer.operation.BalanceOpExecutionCompletionCallback;
@@ -367,8 +368,8 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
 
         KafkaCruiseControlConfig config = generateCruiseControlConfig(kafkaConfig);
         MetricSampler sampler = config.getConfiguredInstance(KafkaCruiseControlConfig.METRIC_SAMPLER_CLASS_CONFIG, MetricSampler.class);
-        if (sampler instanceof ConfluentMetricsReporterSampler) {
-            STARTUP_COMPONENTS.add(new StartupComponent(ConfluentMetricsReporterSampler.class.getSimpleName(), ConfluentMetricsReporterSampler::checkStartupCondition));
+        if (sampler instanceof ConfluentMetricsSamplerBase) {
+            STARTUP_COMPONENTS.add(new StartupComponent(ConfluentMetricsReporterSampler.class.getSimpleName(), ((ConfluentMetricsSamplerBase) sampler)::checkStartupCondition));
         }
 
         checkStartupComponentsReady(config);
@@ -498,7 +499,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         // Our metrics reporter sampler pulls from the Metrics Reporter Sampler. Copy that over if needed.
         String metricsReporterTopic = (String) kccProps.get(ConfluentMetricsReporterConfig.TOPIC_CONFIG);
         if (metricsReporterTopic != null && metricsReporterTopic.length() > 0) {
-            ccConfigProps.putIfAbsent(ConfluentMetricsReporterSampler.METRIC_REPORTER_TOPIC_PATTERN, metricsReporterTopic);
+            ccConfigProps.putIfAbsent(ConfluentMetricsSamplerBase.METRIC_REPORTER_TOPIC_PATTERN, metricsReporterTopic);
         }
 
         String metricsReporterReplFactor = (String) kccProps.get(ConfluentMetricsReporterConfig.TOPIC_REPLICAS_CONFIG);
