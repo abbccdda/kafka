@@ -29,14 +29,15 @@ import org.apache.kafka.common.message.MetadataResponseData.{MetadataResponsePar
 import org.apache.kafka.common.protocol.{ApiKeys, Errors}
 import org.apache.kafka.common.requests.{AbstractRequest, AbstractResponse, ApiVersionsResponse, MetadataResponse, ProduceRequest, ProduceResponse}
 import org.apache.kafka.common.utils.Time
-import org.apache.kafka.raft.{KafkaRaftClient, ReplicatedCounter}
+//import org.apache.kafka.raft.{KafkaRaftClient, MockStateMachine, ReplicatedCounter, ReplicatedStateMachine}
+import org.apache.kafka.raft.{KafkaRaftClient, MockStateMachine}
 
 import scala.jdk.CollectionConverters._
 
 class RaftRequestHandler(networkChannel: KafkaNetworkChannel,
                          requestChannel: RequestChannel,
                          time: Time,
-                         counter: ReplicatedCounter,
+                         counter: MockStateMachine,
                          metadataPartition: TopicPartition,
                          raftClient: KafkaRaftClient,
                          config: KafkaConfig)
@@ -93,20 +94,28 @@ class RaftRequestHandler(networkChannel: KafkaNetworkChannel,
         case ApiKeys.PRODUCE =>
 
           val produceRequest = request.body[ProduceRequest]
-          counter.incrementByRecords(
-            produceRequest.partitionRecordsOrFail().get(metadataPartition))
-          counter.increment().whenComplete{ (_, exception) =>
-            val error = if (exception == null)
-              Errors.NONE
-            else
-              Errors.forException(exception)
+//          counter.incrementByRecords(
+//            produceRequest.partitionRecordsOrFail().get(metadataPartition))
+//          counter.increment().whenComplete{ (_, exception) =>
+//            val error = if (exception == null)
+//              Errors.NONE
+//            else
+//              Errors.forException(exception)
 
-            if (error != Errors.NONE)
-              warn(s"Encountered error $error")
-            sendResponse(request, Option(new ProduceResponse(
-              Collections.singletonMap(metadataPartition,
-                new ProduceResponse.PartitionResponse(error)))))
-          }
+            counter.append(produceRequest.partitionRecordsOrFail().get(metadataPartition))
+            .whenComplete { (_, exception) =>
+              val error = if (exception == null)
+                Errors.NONE
+              else
+                Errors.forException(exception)
+
+
+              if (error != Errors.NONE)
+                warn(s"Encountered error $error")
+              sendResponse(request, Option(new ProduceResponse(
+                Collections.singletonMap(metadataPartition,
+                  new ProduceResponse.PartitionResponse(error)))))
+            }
 
         case _ => throw new IllegalArgumentException(s"Unsupported api key: ${request.header.apiKey}")
       }

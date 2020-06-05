@@ -71,7 +71,7 @@ public class MockStateMachine implements ReplicatedStateMachine {
         return true;
     }
 
-    CompletableFuture<OffsetAndEpoch> append(Records records) {
+    public CompletableFuture<OffsetAndEpoch> append(Records records) {
         if (recordAppender == null) {
             throw new IllegalStateException("Record appender is not set");
         }

@@ -39,7 +39,7 @@ import org.apache.kafka.common.security.JaasContext
 import org.apache.kafka.common.security.scram.internals.ScramMechanism
 import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache
 import org.apache.kafka.common.utils.{LogContext, Time, Utils}
-import org.apache.kafka.raft.{FileBasedStateStore, KafkaRaftClient, QuorumState, RaftConfig, ReplicatedCounter}
+import org.apache.kafka.raft.{FileBasedStateStore, KafkaRaftClient, QuorumState, RaftConfig, MockStateMachine}
 
 import scala.jdk.CollectionConverters._
 
@@ -76,7 +76,7 @@ class RaftServer(val config: KafkaConfig,
     val metadataLog = buildMetadataLog(logDir)
     val networkChannel = buildNetworkChannel(raftConfig, logContext)
 
-    val counter = new ReplicatedCounter(config.brokerId, logContext, true)
+//    val counter = new ReplicatedCounter(config.brokerId, logContext, true)
 
     val quorumState = new QuorumState(
       config.brokerId,
@@ -93,6 +93,8 @@ class RaftServer(val config: KafkaConfig,
       logContext,
       logDir
     )
+
+    val counter = new MockStateMachine()
     raftClient.initialize(counter)
 
     val requestHandler = new RaftRequestHandler(
@@ -124,10 +126,10 @@ class RaftServer(val config: KafkaConfig,
         val incrementThread = new Thread() {
           override def run(): Unit = {
             while (!shutdown.get()) {
-              if (counter.isLeader) {
-                counter.increment()
-                Thread.sleep(500)
-              }
+//              if (counter.isLeader) {
+//                counter.increment()
+//                Thread.sleep(500)
+//              }
             }
           }
         }
