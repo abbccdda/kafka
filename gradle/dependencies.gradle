@@ -55,8 +55,7 @@ if ( !versions.scala.contains('-') ) {
 
 versions += [
   activation: "1.1.1",
-  amazonS3Client: "1.11.784",
-  amazonStsClient: "1.11.784",
+  amazonSdkVersion: "1.11.784",
   apacheda: "1.0.2",
   apachedaLdapCodec: "1.0.0",
   apacheds: "2.0.0-M24",
@@ -152,11 +151,8 @@ versions += [
   zstd: "1.4.4-7"
 ]
 libs += [
-  opencensusProto: "io.opencensus:opencensus-proto:$versions.opencensusProtoVersion",
-  cloudEventsKafka: "io.cloudevents:cloudevents-kafka:$versions.cloudEventsKafka",
-  jacksonProtobufDatatype: "com.hubspot.jackson:jackson-datatype-protobuf:$versions.jacksonProtobufDatatype",
-  amazonS3Client: "com.amazonaws:aws-java-sdk-s3:$versions.amazonS3Client",
-  amazonStsClient: "com.amazonaws:aws-java-sdk-sts:$versions.amazonStsClient",
+  amazonS3Client: "com.amazonaws:aws-java-sdk-s3:$versions.amazonSdkVersion",
+  amazonStsClient: "com.amazonaws:aws-java-sdk-sts:$versions.amazonSdkVersion",
   activation: "javax.activation:activation:$versions.activation",
   apacheda: "org.apache.directory.api:api-all:$versions.apacheda",
   apachedaLdapCodec: "org.apache.directory.api:api-ldap-codec-standalone:$versions.apachedaLdapCodec",
