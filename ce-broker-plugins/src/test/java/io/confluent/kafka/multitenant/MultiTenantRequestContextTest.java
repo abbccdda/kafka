@@ -1629,7 +1629,7 @@ public class MultiTenantRequestContextTest {
       StopReplicaResponse response = (StopReplicaResponse) context.intercept(request, 0);
       Struct struct = parseResponse(ApiKeys.STOP_REPLICA, ver, context.buildResponse(response));
       StopReplicaResponse outbound = new StopReplicaResponse(struct, ver);
-      assertEquals(Optional.of(Errors.CLUSTER_AUTHORIZATION_FAILED.code()), outbound.partitionErrors()
+      assertEquals(Optional.of(Errors.CLUSTER_AUTHORIZATION_FAILED.code()), outbound.partitions()
           .stream()
           .filter(pe -> pe.topicName().equals(partition.topic()) && pe.partitionIndex() == partition.partition())
           .findFirst()

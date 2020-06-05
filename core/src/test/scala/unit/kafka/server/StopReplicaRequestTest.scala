@@ -68,7 +68,7 @@ class StopReplicaRequestTest extends BaseRequestTest {
         server.config.brokerId, server.replicaManager.controllerEpoch, server.kafkaController.brokerEpoch,
         false, topicStates).build()
       val response1 = connectAndReceive[StopReplicaResponse](request1, destination = controllerSocketServer)
-      val partitionErrors1 = response1.partitionErrors.asScala
+      val partitionErrors1 = response1.partitions.asScala
       assertEquals(Some(Errors.NONE.code),
         partitionErrors1.find(pe => pe.topicName == tp0.topic && pe.partitionIndex == tp0.partition).map(_.errorCode))
       assertEquals(Some(Errors.KAFKA_STORAGE_ERROR.code),

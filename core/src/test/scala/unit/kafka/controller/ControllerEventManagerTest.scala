@@ -24,9 +24,7 @@ import com.yammer.metrics.core.{Histogram, MetricName, Timer}
 import kafka.controller
 import kafka.metrics.KafkaYammerMetrics
 import kafka.utils.TestUtils
-import org.apache.kafka.common.message.UpdateMetadataResponseData
 import org.apache.kafka.common.protocol.Errors
-import org.apache.kafka.common.requests.UpdateMetadataResponse
 import org.apache.kafka.common.utils.MockTime
 import org.junit.Assert.{assertEquals, assertTrue, fail}
 import org.junit.{After, Test}
@@ -83,10 +81,7 @@ class ControllerEventManagerTest {
       time, controllerStats.rateAndTimeMetrics)
     controllerEventManager.start()
 
-    val updateMetadataResponse = new UpdateMetadataResponse(
-      new UpdateMetadataResponseData().setErrorCode(Errors.NONE.code)
-    )
-    val updateMetadataResponseEvent = controller.UpdateMetadataResponseReceived(updateMetadataResponse, brokerId = 1)
+    val updateMetadataResponseEvent = controller.UpdateMetadataResponseReceived(Errors.NONE, brokerId = 1)
     controllerEventManager.put(updateMetadataResponseEvent)
     TestUtils.waitUntilTrue(() => processedEvents.size == 1,
       "Failed to process expected event before timing out")

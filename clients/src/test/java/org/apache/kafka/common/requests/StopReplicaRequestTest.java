@@ -73,7 +73,7 @@ public class StopReplicaRequestTest {
             StopReplicaResponse response = request.getErrorResponse(0,
                     new ClusterAuthorizationException("Not authorized"));
             assertEquals(Errors.CLUSTER_AUTHORIZATION_FAILED, response.error());
-            assertEquals(expectedPartitions, new HashSet<>(response.partitionErrors()));
+            assertEquals(expectedPartitions, new HashSet<>(response.partitions()));
         }
     }
 

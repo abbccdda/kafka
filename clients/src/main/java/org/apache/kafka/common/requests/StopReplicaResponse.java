@@ -16,6 +16,8 @@
  */
 package org.apache.kafka.common.requests;
 
+import java.util.HashMap;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.message.StopReplicaResponseData;
 import org.apache.kafka.common.message.StopReplicaResponseData.StopReplicaPartitionError;
 import org.apache.kafka.common.protocol.ApiKeys;
@@ -27,7 +29,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
-public class StopReplicaResponse extends AbstractResponse {
+public class StopReplicaResponse extends AbstractControlResponse {
 
     /**
      * Possible error code:
@@ -46,12 +48,23 @@ public class StopReplicaResponse extends AbstractResponse {
         data = new StopReplicaResponseData(struct, version);
     }
 
-    public List<StopReplicaPartitionError> partitionErrors() {
+    public List<StopReplicaPartitionError> partitions() {
         return data.partitionErrors();
     }
 
     public Errors error() {
         return Errors.forCode(data.errorCode());
+    }
+
+    @Override
+    public Map<TopicPartition, Errors> partitionErrors() {
+        Map<TopicPartition, Errors> partitionsErrors = new HashMap<>();
+        data.partitionErrors().forEach(partitionError ->
+            partitionsErrors.put(
+                new TopicPartition(partitionError.topicName(), partitionError.partitionIndex()),
+                Errors.forCode(partitionError.errorCode()))
+            );
+        return partitionsErrors;
     }
 
     @Override

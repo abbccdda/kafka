@@ -21,17 +21,16 @@ import org.apache.kafka.common.TopicPartition
 
 import scala.jdk.CollectionConverters._
 import kafka.api.LeaderAndIsr
-import org.apache.kafka.common.requests._
 import org.junit.Assert._
 import kafka.utils.TestUtils
 import kafka.cluster.Broker
-import kafka.controller.{ControllerChannelManager, ControllerContext, StateChangeLogger}
+import kafka.controller.{ControllerChannelManager, ControllerContext, LeaderAndIsrBatch, StateChangeLogger}
 import kafka.utils.TestUtils._
 import kafka.zk.ZooKeeperTestHarness
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.network.ListenerName
-import org.apache.kafka.common.protocol.{ApiKeys, Errors}
+import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.utils.Time
 import org.junit.{After, Before, Test}
@@ -41,8 +40,6 @@ class LeaderElectionTest extends ZooKeeperTestHarness {
   val brokerId2 = 1
 
   var servers: Seq[KafkaServer] = Seq.empty[KafkaServer]
-
-  var staleControllerEpochDetected = false
 
   @Before
   override def setUp(): Unit = {
@@ -141,8 +138,11 @@ class LeaderElectionTest extends ZooKeeperTestHarness {
     controllerChannelManager.startup()
     try {
       val staleControllerEpoch = 0
-      val partitionStates = Seq(
-        new LeaderAndIsrPartitionState()
+      val batch = new LeaderAndIsrBatch(brokerId2)
+        .setControllerId(controllerId)
+        .setControllerEpoch(staleControllerEpoch)
+        .setBrokerEpoch(servers(brokerId2).kafkaController.brokerEpoch)
+        .addPartitionState(new TopicPartition(topic, partitionId), new LeaderAndIsrPartitionState()
           .setTopicName(topic)
           .setPartitionIndex(partitionId)
           .setControllerEpoch(2)
@@ -151,27 +151,18 @@ class LeaderElectionTest extends ZooKeeperTestHarness {
           .setIsr(Seq(brokerId1, brokerId2).map(Integer.valueOf).asJava)
           .setZkVersion(LeaderAndIsr.initialZKVersion)
           .setReplicas(Seq(0, 1).map(Integer.valueOf).asJava)
-          .setIsNew(false)
-      )
-      val requestBuilder = new LeaderAndIsrRequest.Builder(
-        ApiKeys.LEADER_AND_ISR.latestVersion, controllerId, staleControllerEpoch,
-        servers(brokerId2).kafkaController.brokerEpoch, partitionStates.asJava, nodes.toSet.asJava,
-        false)
+          .setIsNew(false))
+        .addLiveLeaders(nodes.toSet)
 
-      controllerChannelManager.sendRequest(brokerId2, requestBuilder, staleControllerEpochCallback)
+      var staleControllerEpochDetected = false
+      controllerChannelManager.sendControlMetadataBatch(brokerId2, batch, (_, result) => {
+        staleControllerEpochDetected = result.error == Errors.STALE_CONTROLLER_EPOCH
+      })
       TestUtils.waitUntilTrue(() => staleControllerEpochDetected, "Controller epoch should be stale")
       assertTrue("Stale controller epoch not detected by the broker", staleControllerEpochDetected)
     } finally {
       controllerChannelManager.shutdown()
       metrics.close()
-    }
-  }
-
-  private def staleControllerEpochCallback(response: AbstractResponse): Unit = {
-    val leaderAndIsrResponse = response.asInstanceOf[LeaderAndIsrResponse]
-    staleControllerEpochDetected = leaderAndIsrResponse.error match {
-      case Errors.STALE_CONTROLLER_EPOCH => true
-      case _ => false
     }
   }
 }
