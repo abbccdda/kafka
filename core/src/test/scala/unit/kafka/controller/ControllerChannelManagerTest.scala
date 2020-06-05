@@ -62,7 +62,7 @@ class ControllerChannelManagerTest {
     batch.newBatch()
     partitions.foreach { case (partition, leaderAndIsr) =>
       val leaderIsrAndControllerEpoch = LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch)
-      context.partitionLeadershipInfo.put(partition, leaderIsrAndControllerEpoch)
+      context.putPartitionLeadershipInfo(partition, leaderIsrAndControllerEpoch)
       batch.addLeaderAndIsrRequestForBrokers(Seq(2), partition, leaderIsrAndControllerEpoch, replicaAssignment(Seq(1, 2, 3)), isNew = false)
     }
     batch.sendRequestsToBrokers(controllerEpoch)
@@ -113,7 +113,7 @@ class ControllerChannelManagerTest {
     batch.newBatch()
     partitions.foreach { case (partition, leaderAndIsr) =>
       val leaderIsrAndControllerEpoch = LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch)
-      context.partitionLeadershipInfo.put(partition, leaderIsrAndControllerEpoch)
+      context.putPartitionLeadershipInfo(partition, leaderIsrAndControllerEpoch)
       batch.addLeaderAndIsrRequestForBrokers(
         Seq(2),
         partition,
@@ -161,7 +161,7 @@ class ControllerChannelManagerTest {
     val leaderAndIsr = LeaderAndIsr(1, List(1, 2), isUnclean = false)
 
     val leaderIsrAndControllerEpoch = LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch)
-    context.partitionLeadershipInfo.put(partition, leaderIsrAndControllerEpoch)
+    context.putPartitionLeadershipInfo(partition, leaderIsrAndControllerEpoch)
 
     batch.newBatch()
     batch.addLeaderAndIsrRequestForBrokers(Seq(2), partition, leaderIsrAndControllerEpoch, replicaAssignment(Seq(1, 2, 3)), isNew = true)
@@ -191,7 +191,7 @@ class ControllerChannelManagerTest {
     val leaderAndIsr = LeaderAndIsr(1, List(1, 2), isUnclean = false)
 
     val leaderIsrAndControllerEpoch = LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch)
-    context.partitionLeadershipInfo.put(partition, leaderIsrAndControllerEpoch)
+    context.putPartitionLeadershipInfo(partition, leaderIsrAndControllerEpoch)
 
     batch.newBatch()
     batch.addLeaderAndIsrRequestForBrokers(allBrokers, partition, leaderIsrAndControllerEpoch, replicaAssignment(Seq(1, 2, 3)), isNew = false)
@@ -224,7 +224,7 @@ class ControllerChannelManagerTest {
     val leaderAndIsr = LeaderAndIsr(1, List(1, 2), isUnclean = false)
 
     val leaderIsrAndControllerEpoch = LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch)
-    context.partitionLeadershipInfo.put(partition, leaderIsrAndControllerEpoch)
+    context.putPartitionLeadershipInfo(partition, leaderIsrAndControllerEpoch)
 
     batch.newBatch()
     batch.addLeaderAndIsrRequestForBrokers(Seq(1, 2, 3), partition, leaderIsrAndControllerEpoch, replicaAssignment(Seq(1, 2, 3)), isNew = false)
@@ -271,7 +271,7 @@ class ControllerChannelManagerTest {
     val leaderAndIsr = LeaderAndIsr(1, List(1, 2), isUnclean = false)
 
     val leaderIsrAndControllerEpoch = LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch)
-    context.partitionLeadershipInfo.put(partition, leaderIsrAndControllerEpoch)
+    context.putPartitionLeadershipInfo(partition, leaderIsrAndControllerEpoch)
 
     batch.newBatch()
     batch.addLeaderAndIsrRequestForBrokers(Seq(2), partition, leaderIsrAndControllerEpoch, replicaAssignment(Seq(1, 2, 3)), isNew = false)
@@ -296,7 +296,7 @@ class ControllerChannelManagerTest {
     )
 
     partitions.foreach { case (partition, leaderAndIsr) =>
-      context.partitionLeadershipInfo.put(partition, LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch))
+      context.putPartitionLeadershipInfo(partition, LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch))
     }
 
     batch.newBatch()
@@ -369,7 +369,7 @@ class ControllerChannelManagerTest {
     )
 
     partitions.foreach { case (partition, leaderAndIsr) =>
-      context.partitionLeadershipInfo.put(partition, LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch))
+      context.putPartitionLeadershipInfo(partition, LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch))
     }
 
     context.queueTopicDeletion(Set("foo"))
@@ -480,7 +480,7 @@ class ControllerChannelManagerTest {
 
     batch.newBatch()
     partitions.foreach { case (partition, LeaderAndDelete(leaderAndIsr, deletePartition)) =>
-      context.partitionLeadershipInfo.put(partition, LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch))
+      context.putPartitionLeadershipInfo(partition, LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch))
       batch.addStopReplicaRequestForBrokers(Seq(2), partition, deletePartition)
     }
     batch.sendRequestsToBrokers(controllerEpoch)
@@ -510,7 +510,7 @@ class ControllerChannelManagerTest {
 
     val partition = new TopicPartition("foo", 0)
     val leaderAndIsr = LeaderAndIsr(1, List(1, 2), false)
-    context.partitionLeadershipInfo.put(partition, LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch))
+    context.putPartitionLeadershipInfo(partition, LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch))
 
     batch.newBatch()
     batch.addStopReplicaRequestForBrokers(Seq(2), partition, deletePartition = true)
@@ -549,7 +549,7 @@ class ControllerChannelManagerTest {
 
     batch.newBatch()
     partitions.foreach { case (partition, LeaderAndDelete(leaderAndIsr, deletePartition)) =>
-      context.partitionLeadershipInfo.put(partition, LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch))
+      context.putPartitionLeadershipInfo(partition, LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch))
       batch.addStopReplicaRequestForBrokers(Seq(2), partition, deletePartition)
     }
     batch.sendRequestsToBrokers(controllerEpoch)
@@ -597,7 +597,7 @@ class ControllerChannelManagerTest {
 
     batch.newBatch()
     partitions.foreach { case (partition, LeaderAndDelete(leaderAndIsr, deletePartition)) =>
-      context.partitionLeadershipInfo.put(partition, LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch))
+      context.putPartitionLeadershipInfo(partition, LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch))
       batch.addStopReplicaRequestForBrokers(Seq(2), partition, deletePartition)
     }
     batch.sendRequestsToBrokers(controllerEpoch)
@@ -653,7 +653,7 @@ class ControllerChannelManagerTest {
 
     batch.newBatch()
     partitions.foreach { case (partition, LeaderAndDelete(leaderAndIsr, deletePartition)) =>
-      context.partitionLeadershipInfo.put(partition, LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch))
+      context.putPartitionLeadershipInfo(partition, LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch))
       batch.addStopReplicaRequestForBrokers(Seq(2), partition, deletePartition)
     }
     batch.sendRequestsToBrokers(controllerEpoch)
@@ -713,11 +713,11 @@ class ControllerChannelManagerTest {
 
     batch.newBatch()
     deletePartitions.foreach { case (partition, LeaderAndDelete(leaderAndIsr, deletePartition)) =>
-      context.partitionLeadershipInfo.put(partition, LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch))
+      context.putPartitionLeadershipInfo(partition, LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch))
       batch.addStopReplicaRequestForBrokers(Seq(2), partition, deletePartition)
     }
     nonDeletePartitions.foreach { case (partition, LeaderAndDelete(leaderAndIsr, deletePartition)) =>
-      context.partitionLeadershipInfo.put(partition, LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch))
+      context.putPartitionLeadershipInfo(partition, LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch))
       batch.addStopReplicaRequestForBrokers(Seq(2), partition, deletePartition)
     }
     batch.sendRequestsToBrokers(controllerEpoch)
@@ -768,7 +768,7 @@ class ControllerChannelManagerTest {
 
     batch.newBatch()
     partitions.foreach { case (partition, LeaderAndDelete(leaderAndIsr, deletePartition)) =>
-      context.partitionLeadershipInfo.put(partition, LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch))
+      context.putPartitionLeadershipInfo(partition, LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch))
       batch.addStopReplicaRequestForBrokers(Seq(2, 3), partition, deletePartition)
     }
     batch.sendRequestsToBrokers(controllerEpoch)
@@ -811,7 +811,7 @@ class ControllerChannelManagerTest {
 
     batch.newBatch()
     partitions.foreach { case (partition, LeaderAndDelete(leaderAndIsr, deletePartition)) =>
-      context.partitionLeadershipInfo.put(partition, LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch))
+      context.putPartitionLeadershipInfo(partition, LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch))
       batch.addStopReplicaRequestForBrokers(Seq(2, 3), partition, deletePartition)
     }
     batch.sendRequestsToBrokers(controllerEpoch)
@@ -856,7 +856,7 @@ class ControllerChannelManagerTest {
     val partition = new TopicPartition("foo", 0)
     val leaderAndIsr = LeaderAndIsr(1, List(1, 2), false)
 
-    context.partitionLeadershipInfo.put(partition, LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch))
+    context.putPartitionLeadershipInfo(partition, LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch))
 
     batch.newBatch()
     batch.addStopReplicaRequestForBrokers(Seq(2), partition, deletePartition = false)
