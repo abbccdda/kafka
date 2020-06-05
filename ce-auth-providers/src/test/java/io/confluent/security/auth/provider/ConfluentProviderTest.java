@@ -525,7 +525,7 @@ public class ConfluentProviderTest {
 
       @Override
       protected AuthStore createAuthStore(Scope scope, ConfluentAuthorizerServerInfo serverInfo, Map<String, ?> configs) {
-        return new MockAuthStore(RbacRoles.loadDefaultPolicy(), scope);
+        return new MockAuthStore(RbacRoles.loadDefaultPolicy(true), scope);
       }
     };
     rbacProvider.onUpdate(new ClusterResource(clusterId));

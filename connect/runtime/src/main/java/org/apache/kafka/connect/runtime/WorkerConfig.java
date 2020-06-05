@@ -457,7 +457,7 @@ public class WorkerConfig extends AbstractConfig {
     }
 
     public WorkerConfig(ConfigDef definition, Map<String, String> props) {
-        super(definition, props);
+        super(WorkerConfigDecorator.decorateWorkerConfig(definition, props), props);
         logInternalConverterDeprecationWarnings(props);
     }
 

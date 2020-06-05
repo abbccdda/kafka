@@ -4,30 +4,20 @@
 
 package kafka.server.link
 
-import java.util.Properties
-
-import org.apache.kafka.clients.CommonClientConfigs
-import org.apache.kafka.common.config.ConfigException
+import org.apache.kafka.clients.admin.AdminClientConfig
 import org.junit.Assert._
 import org.junit.Test
+
+import scala.jdk.CollectionConverters._
 
 class ClusterLinkConfigTest {
 
   @Test
-  def testTenantPrefix(): Unit = {
-    val props = new Properties
-    props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "localhost:1234")
-    props.put(ClusterLinkConfig.TenantPrefixProp, "prefix")
-    assertThrows(classOf[ConfigException], () => ClusterLinkConfig.validate(props))
-    assertThrows(classOf[ConfigException], () => new ClusterLinkConfig(props))
-
-    props.put(ClusterLinkConfig.TenantPrefixProp, "")
-    assertThrows(classOf[ConfigException], () => ClusterLinkConfig.validate(props))
-    assertThrows(classOf[ConfigException], () => new ClusterLinkConfig(props))
-
-    props.remove(ClusterLinkConfig.TenantPrefixProp)
-    ClusterLinkConfig.validate(props)
-    val config = new ClusterLinkConfig(props)
-    assertNull(config.getString(ClusterLinkConfig.TenantPrefixProp))
+  def testConfigCategories(): Unit = {
+    val allProps = ClusterLinkConfig.configNames.toSet
+    val replicationProps = ClusterLinkConfig.ReplicationProps
+    val migrationProps = ClusterLinkConfig.PeriodicMigrationProps
+    val notCategorizedProps = allProps -- replicationProps -- migrationProps -- AdminClientConfig.configNames.asScala
+    assertEquals(Set.empty, notCategorizedProps)
   }
 }

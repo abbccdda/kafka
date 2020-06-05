@@ -47,7 +47,7 @@ log.dirs=/tmp/kafka/data
 zookeeper.connect=localhost:2181
 
 ##################### Confluent Metrics Reporter #######################
-metric.reporters=io.confluent.telemetry.reporter.KafkaServerMetricsReporter
+metric.reporters=io.confluent.telemetry.reporter.TelemetryReporter
 
 confluent.telemetry.labels.kafka.physical_cluster_id=pkc-foo
 
@@ -62,7 +62,7 @@ confluent.telemetry.debug.enabled=true
 
 To also test the legacy `ConfluentMetricsReporter` include the following in your `server.properties`:
 ```ini
-   metric.reporters=io.confluent.telemetry.reporter.KafkaServerMetricsReporter,io.confluent.metrics.reporter.ConfluentMetricsReporter
+   metric.reporters=io.confluent.telemetry.reporter.TelemetryReporter,io.confluent.metrics.reporter.ConfluentMetricsReporter
    confluent.metrics.reporter.bootstrap.servers=localhost:9092
    confluent.metrics.reporter.topic.replicas=1
 ```
@@ -104,7 +104,7 @@ $ ./bin/kafka-console-consumer.sh --from-beginning \
 ```
 
 ## Testing in CPD
-Kafka cluster provisioned within [CPD](https://github.com/confluentinc/cpd) environments do **not** have the new telemetry reporter (`KafkaServerMetricsReporter`) enabled.
+Kafka cluster provisioned within [CPD](https://github.com/confluentinc/cpd) environments do **not** have the new telemetry reporter (`TelemetryReporter`) enabled.
 
 With some hacking, it is possible to get a Kafka broker provisioned with CPD to emit metrics using the new telemetry reporter, **however this is not recommended**.
 
@@ -149,7 +149,7 @@ With some hacking, it is possible to get a Kafka broker provisioned with CPD to 
        ...
 
        # Telemetry Reporter
-       metric.reporters=io.confluent.telemetry.reporter.KafkaServerMetricsReporter
+       metric.reporters=io.confluent.telemetry.reporter.TelemetryReporter
        confluent.telemetry.exporter.kafka.topic.replicas=3
        confluent.telemetry.exporter.kafka.topic.name=telemetry
        confluent.telemetry.exporter.kafka.topic.max.message.bytes=8388608
@@ -199,7 +199,7 @@ Now you can inspect the metrics protobuf messages using the `ccloud` and `kafka-
 ## Sending Metrics to Sandbox Environment
 You can also configure your Kafka broker to send metrics to the observability sandbox environment:
 ```
-metric.reporters=io.confluent.telemetry.reporter.KafkaServerMetricsReporter
+metric.reporters=io.confluent.telemetry.reporter.TelemetryReporter
 confluent.telemetry.exporter.kafka.producer.ssl.endpoint.identification.algorithm=https
 confluent.telemetry.exporter.kafka.producer.sasl.mechanism=PLAIN
 confluent.telemetry.exporter.kafka.producer.request.timeout.ms=20000

@@ -112,6 +112,7 @@ public class Worker {
     private SourceTaskOffsetCommitter sourceTaskOffsetCommitter;
     private final WorkerConfigTransformer workerConfigTransformer;
     private final ConnectorClientConfigOverridePolicy connectorClientConfigOverridePolicy;
+    private final WorkerConfigDecorator workerConfigDecorator;
 
     public Worker(
         String workerId,
@@ -159,7 +160,7 @@ public class Worker {
         this.offsetBackingStore.configure(config);
 
         this.workerConfigTransformer = initConfigTransformer();
-
+        this.workerConfigDecorator = WorkerConfigDecorator.initialize(this.config, this.workerConfigTransformer);
     }
 
     private WorkerConfigTransformer initConfigTransformer() {
@@ -178,6 +179,10 @@ public class Worker {
 
     public WorkerConfigTransformer configTransformer() {
         return workerConfigTransformer;
+    }
+
+    public WorkerConfigDecorator configDecorator() {
+        return workerConfigDecorator;
     }
 
     protected Herder herder() {
@@ -282,7 +287,8 @@ public class Worker {
 
                 log.info("Instantiated connector {} with version {} of type {}", connName, connector.version(), connector.getClass());
                 savedLoader = plugins.compareAndSwapLoaders(connector);
-                workerConnector.initialize(connConfig);
+                connProps = configDecorator().decorateConnectorConfig(connName, connector, connector.config(), connProps);
+                workerConnector.initialize(connProps);
                 workerConnector.transitionTo(initialState);
                 Plugins.compareAndSwapLoaders(savedLoader);
             } catch (Throwable t) {

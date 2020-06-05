@@ -6,7 +6,7 @@ package io.confluent.security.audit.provider;
 import static org.junit.Assert.assertTrue;
 
 import io.cloudevents.CloudEvent;
-import io.cloudevents.v03.AttributesImpl;
+import io.cloudevents.v1.AttributesImpl;
 import io.confluent.crn.ConfluentResourceName;
 import io.confluent.kafka.security.authorizer.ConfluentServerAuthorizer;
 import io.confluent.kafka.test.utils.KafkaTestUtils;

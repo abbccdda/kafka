@@ -58,20 +58,19 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
       throw new InvalidRequestException(s"Requested cluster ID matches local cluster ID '$clusterId' - cannot create cluster link to self")
 
     val result = new CompletableFuture[Void]
-    val clusterLinkProps = ClusterLinkProps(linkConfig, tenantPrefix)
-    val persistentProps = clusterLinkManager.configEncoder.encode(props, clusterLinkProps.tenantPrefix)
+    val persistentProps = clusterLinkManager.configEncoder.encode(props)
     if (validateLink) {
       clusterLinkManager.scheduler.schedule("CreateClusterLink",
         () => try {
           val linkClusterId = validateClusterLink(expectedClusterId, props, timeoutMs)
-          finishCreateClusterLink(linkName, linkClusterId, clusterLinkProps, persistentProps, validateOnly)
+          finishCreateClusterLink(linkName, linkClusterId, tenantPrefix, linkConfig, persistentProps, validateOnly)
           result.complete(null)
         } catch {
           case e: Throwable => result.completeExceptionally(e)
         })
     } else {
       try {
-        finishCreateClusterLink(linkName, expectedClusterId, clusterLinkProps, persistentProps, validateOnly)
+        finishCreateClusterLink(linkName, expectedClusterId, tenantPrefix, linkConfig, persistentProps, validateOnly)
         result.complete(null)
       } catch {
         case e: Throwable => result.completeExceptionally(e)
@@ -147,12 +146,13 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
 
   private def finishCreateClusterLink(linkName: String,
                                       linkClusterId: Option[String],
-                                      props: ClusterLinkProps,
+                                      tenantPrefix: Option[String],
+                                      linkConfig: ClusterLinkConfig,
                                       persistentProps: Properties,
                                       validateOnly: Boolean): Unit = {
     if (!validateOnly) {
-      val clusterLinkData = ClusterLinkData(linkName, UUID.randomUUID(), linkClusterId)
-      clusterLinkManager.createClusterLink(clusterLinkData, props, persistentProps)
+      val clusterLinkData = ClusterLinkData(linkName, UUID.randomUUID(), linkClusterId, tenantPrefix)
+      clusterLinkManager.createClusterLink(clusterLinkData, linkConfig, persistentProps)
     }
   }
 

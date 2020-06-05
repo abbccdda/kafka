@@ -341,15 +341,6 @@ public abstract class AbstractHerder implements Herder, TaskStatus.Listener, Con
             Set<String> allGroups = new LinkedHashSet<>(enrichedConfigDef.groups());
 
             // do custom connector-specific validation
-            Config config = connector.validate(connectorProps);
-            if (null == config) {
-                throw new BadRequestException(
-                    String.format(
-                        "%s.validate() must return a Config that is not null.",
-                        connector.getClass().getName()
-                    )
-                );
-            }
             ConfigDef configDef = connector.config();
             if (null == configDef) {
                 throw new BadRequestException(
@@ -359,13 +350,26 @@ public abstract class AbstractHerder implements Herder, TaskStatus.Listener, Con
                     )
                 );
             }
+            String connName = connectorProps.get(ConnectorConfig.NAME_CONFIG);
+            // Decorate the properties before validating them
+            Map<String, String> decoratedConnectorProps = worker.configDecorator().decorateConnectorConfig(connName, connector, configDef, connectorProps);
+            Config config = connector.validate(decoratedConnectorProps);
+            if (null == config) {
+                throw new BadRequestException(
+                    String.format(
+                        "%s.validate() must return a Config that is not null.",
+                        connector.getClass().getName()
+                    )
+                );
+            }
             configKeys.putAll(configDef.configKeys());
             allGroups.addAll(configDef.groups());
             configValues.addAll(config.configValues());
             ConfigInfos configInfos =  generateResult(connType, configKeys, configValues, new ArrayList<>(allGroups));
+            // Filter out any config info from the response
+            configInfos = worker.configDecorator().decorateValidationResult(connName, connector, configDef, connectorProps, configInfos);
 
             AbstractConfig connectorConfig = new AbstractConfig(new ConfigDef(), connectorProps, doLog);
-            String connName = connectorProps.get(ConnectorConfig.NAME_CONFIG);
             ConfigInfos producerConfigInfos = null;
             ConfigInfos consumerConfigInfos = null;
             ConfigInfos adminConfigInfos = null;

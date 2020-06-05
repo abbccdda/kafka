@@ -66,6 +66,9 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static org.apache.kafka.connect.runtime.AbstractHerder.keysWithVariableValues;
+import static org.easymock.EasyMock.anyObject;
+import static org.easymock.EasyMock.anyString;
+import static org.easymock.EasyMock.capture;
 import static org.powermock.api.easymock.PowerMock.verifyAll;
 import static org.powermock.api.easymock.PowerMock.replayAll;
 import static org.easymock.EasyMock.strictMock;
@@ -133,6 +136,7 @@ public class AbstractHerderTest {
     private final ConnectorClientConfigOverridePolicy noneConnectorClientConfigOverridePolicy = new NoneConnectorClientConfigOverridePolicy();
 
     @MockStrict private Worker worker;
+    @MockStrict private WorkerConfigDecorator decorator;
     @MockStrict private WorkerConfigTransformer transformer;
     @MockStrict private Plugins plugins;
     @MockStrict private ClassLoader classLoader;
@@ -586,6 +590,7 @@ public class AbstractHerderTest {
         assertEquals(String.format("%s should have matched regex", rawConnConfig), expected, actual);
     }
 
+    @SuppressWarnings("unchecked")
     private AbstractHerder createConfigValidationHerder(Class<? extends Connector> connectorClass,
                                                         ConnectorClientConfigOverridePolicy connectorClientConfigOverridePolicy) {
 
@@ -614,6 +619,17 @@ public class AbstractHerderTest {
         }
         EasyMock.expect(plugins.newConnector(connectorClass.getName())).andReturn(connector);
         EasyMock.expect(plugins.compareAndSwapLoaders(connector)).andReturn(classLoader);
+
+        // Expect the decorator to be called and to return undecorated configs and validation results
+        EasyMock.expect(worker.configDecorator()).andReturn(decorator).times(2);
+        final Capture<Map<String, String>> propCapture = EasyMock.newCapture();
+        EasyMock.expect(decorator.decorateConnectorConfig(
+                anyString(), anyObject(Connector.class), anyObject(ConfigDef.class), capture(propCapture))
+        ).andAnswer(propCapture::getValue);
+        final Capture<ConfigInfos> infosCapture = EasyMock.newCapture();
+        EasyMock.expect(decorator.decorateValidationResult(
+                anyString(), anyObject(Connector.class), anyObject(ConfigDef.class), anyObject(Map.class), capture(infosCapture))
+        ).andAnswer(infosCapture::getValue);
         return herder;
     }
 

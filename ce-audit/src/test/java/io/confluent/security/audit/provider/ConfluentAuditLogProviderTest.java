@@ -16,7 +16,7 @@ import static org.mockito.Mockito.mock;
 
 import com.google.protobuf.MessageLite;
 import io.cloudevents.CloudEvent;
-import io.cloudevents.v03.AttributesImpl;
+import io.cloudevents.v1.AttributesImpl;
 import io.confluent.security.audit.AuditLogConfig;
 import io.confluent.security.audit.AuditLogEntry;
 import io.confluent.security.audit.telemetry.exporter.NonBlockingKafkaExporter;
@@ -251,7 +251,7 @@ public class ConfluentAuditLogProviderTest {
     assertEquals("crn://mds.example.com/kafka=63REM3VWREiYtMuVxZeplA",
         event.getAttributes().getSource().toString());
     assertEquals(Protobuf.APPLICATION_JSON, event.getAttributes().getDatacontenttype().get());
-    assertEquals("0.3", event.getAttributes().getSpecversion());
+    assertEquals("1.0", event.getAttributes().getSpecversion());
     assertEquals("io.confluent.kafka.server/authentication", event.getAttributes().getType());
 
     // Data

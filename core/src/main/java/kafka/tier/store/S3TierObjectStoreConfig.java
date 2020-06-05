@@ -19,7 +19,9 @@ public class S3TierObjectStoreConfig extends TierObjectStoreConfig {
     public Optional<String> s3EndpointOverride;
     public Optional<String> s3SignerOverride;
     public String s3SseAlgorithm;
+    public String s3SseCustomerEncryptionKey;
     public Integer s3AutoAbortThresholdBytes;
+    public Optional<String> assumeRoleArn;
 
     public S3TierObjectStoreConfig(Optional<String> clusterIdOpt, KafkaConfig config) {
         super(clusterIdOpt, config);
@@ -33,7 +35,9 @@ public class S3TierObjectStoreConfig extends TierObjectStoreConfig {
         this.s3SignerOverride = OptionConverters.toJava(config.tierS3SignerOverride());
         if (!config.tierS3SseAlgorithm().equals(KafkaConfig.TIER_S3_SSE_ALGORITHM_NONE()))
             this.s3SseAlgorithm = config.tierS3SseAlgorithm();
+        this.s3SseCustomerEncryptionKey = config.s3SseCustomerEncryptionKey();
         this.s3AutoAbortThresholdBytes = config.tierS3AutoAbortThresholdBytes();
+        this.assumeRoleArn = OptionConverters.toJava(config.tierS3AssumeRoleArn());
     }
 
     protected S3TierObjectStoreConfig(Optional<String> clusterIdOpt,
@@ -45,8 +49,10 @@ public class S3TierObjectStoreConfig extends TierObjectStoreConfig {
                                       String endpointOverride,
                                       String signerOverride,
                                       String sseAlgorithm,
+                                      String s3SseCustomerEncryptionKey,
                                       Integer s3AutoAbortThresholdBytes,
-                                      String s3Prefix) {
+                                      String s3Prefix,
+                                      String assumeRoleArn) {
         super(clusterIdOpt, brokerIdOpt);
         this.s3Bucket = bucket;
         this.s3Region = region;
@@ -55,8 +61,10 @@ public class S3TierObjectStoreConfig extends TierObjectStoreConfig {
         this.s3EndpointOverride = Optional.ofNullable(endpointOverride);
         this.s3SignerOverride = Optional.ofNullable(signerOverride);
         this.s3SseAlgorithm = sseAlgorithm;
+        this.s3SseCustomerEncryptionKey = s3SseCustomerEncryptionKey;
         this.s3AutoAbortThresholdBytes = s3AutoAbortThresholdBytes;
         this.s3Prefix = s3Prefix;
+        this.assumeRoleArn = Optional.ofNullable(assumeRoleArn);
     }
 
     // used for testing
@@ -67,10 +75,12 @@ public class S3TierObjectStoreConfig extends TierObjectStoreConfig {
                                                                     String endpointOverride,
                                                                     String signerOverride,
                                                                     String sseAlgorithm,
+                                                                    String s3SseCustomerEncryptionKey,
                                                                     Integer s3AutoAbortThresholdBytes,
-                                                                    String s3Prefix) {
+                                                                    String s3Prefix,
+                                                                    String assumeRoleArn) {
         return new S3TierObjectStoreConfig(Optional.empty(), Optional.empty(), bucket, region, secretAccessKey, accessKeyId,
-                endpointOverride, signerOverride, sseAlgorithm, s3AutoAbortThresholdBytes, s3Prefix);
+                endpointOverride, signerOverride, sseAlgorithm, s3SseCustomerEncryptionKey, s3AutoAbortThresholdBytes, s3Prefix, assumeRoleArn);
     }
 
     private void validateConfig(KafkaConfig config) {

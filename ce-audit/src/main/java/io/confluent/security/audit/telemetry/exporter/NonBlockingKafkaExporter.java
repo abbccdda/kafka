@@ -11,7 +11,7 @@ import static io.confluent.telemetry.events.EventLoggerConfig.CLOUD_EVENT_STRUCT
 
 import com.google.protobuf.MessageLite;
 import io.cloudevents.CloudEvent;
-import io.cloudevents.v03.AttributesImpl;
+import io.cloudevents.v1.AttributesImpl;
 import io.confluent.telemetry.events.EventLoggerConfig;
 import io.confluent.telemetry.events.cloudevents.extensions.RouteExtension;
 import io.confluent.telemetry.events.serde.Protobuf;

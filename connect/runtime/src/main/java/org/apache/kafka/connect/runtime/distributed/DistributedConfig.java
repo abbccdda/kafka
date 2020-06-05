@@ -193,8 +193,20 @@ public class DistributedConfig extends WorkerConfig {
     public static final String INTER_WORKER_VERIFICATION_ALGORITHMS_DOC = "A list of permitted algorithms for verifying internal requests";
     public static final List<String> INTER_WORKER_VERIFICATION_ALGORITHMS_DEFAULT = Collections.singletonList(INTER_WORKER_SIGNATURE_ALGORITHM_DEFAULT);
 
+    private static final Validator REPLICATION_FACTOR_VALIDATOR = LambdaValidator.with(
+        (name, value) -> validateReplicationFactor(name, (short) value),
+        () -> "Positive number, or -1 to use the broker's default"
+    );
+    private static final Validator PARTITIONS_VALIDATOR = LambdaValidator.with(
+        (name, value) -> validatePartitions(name, (int) value),
+        () -> "Positive number, or -1 to use the broker's default"
+    );
+
+    private static final ConfigDef CONFIG = configDef();
+
     @SuppressWarnings("unchecked")
-    private static final ConfigDef CONFIG = baseConfigDef()
+    public static final ConfigDef configDef() {
+        return baseConfigDef()
             .define(GROUP_ID_CONFIG,
                     ConfigDef.Type.STRING,
                     ConfigDef.Importance.HIGH,
@@ -385,6 +397,7 @@ public class DistributedConfig extends WorkerConfig {
                     ),
                     ConfigDef.Importance.LOW,
                     INTER_WORKER_VERIFICATION_ALGORITHMS_DOC);
+    }
 
     @Override
     public Integer getRebalanceTimeout() {
@@ -450,6 +463,7 @@ public class DistributedConfig extends WorkerConfig {
         return topicSettings(STATUS_STORAGE_PREFIX);
     }
 
+    @SuppressWarnings("unchecked")
     private void validateKeyAlgorithmAndVerificationAlgorithms() {
         String keyAlgorithm = getString(INTER_WORKER_KEY_GENERATION_ALGORITHM_CONFIG);
         List<String> verificationAlgorithms = getList(INTER_WORKER_VERIFICATION_ALGORITHMS_CONFIG);

@@ -229,7 +229,16 @@ class ClusterLinkFetcherManagerTest {
     val newDynamicProps = new util.HashMap[String, String]
     newDynamicProps.putAll(fetcherManager.currentConfig.originalsStrings())
     newDynamicProps.put(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG, "truststore.jks")
-    fetcherManager.reconfigure(new ClusterLinkConfig(newDynamicProps))
+    fetcherManager.reconfigure(new ClusterLinkConfig(newDynamicProps), Set(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG))
+    assertEquals(1, fetcherManager.fetcherThreadMap.size)
+    assertSame(fetcherThread1, fetcherManager.fetcherThreadMap.values.head)
+    assertSame(metadata1, fetcherManager.currentMetadata)
+    verify(fetcherClient1)
+
+    val newPeriodicMigrationProps = new util.HashMap[String, String]
+    newDynamicProps.putAll(fetcherManager.currentConfig.originalsStrings())
+    newDynamicProps.put(ClusterLinkConfig.AclSyncMsProp, "120000")
+    fetcherManager.reconfigure(new ClusterLinkConfig(newPeriodicMigrationProps), Set(ClusterLinkConfig.AclSyncMsProp))
     assertEquals(1, fetcherManager.fetcherThreadMap.size)
     assertSame(fetcherThread1, fetcherManager.fetcherThreadMap.values.head)
     assertSame(metadata1, fetcherManager.currentMetadata)
@@ -241,7 +250,7 @@ class ClusterLinkFetcherManagerTest {
     reset(fetcherThread1.clusterLinkClient)
     expect(fetcherClient1.close()).once()
     replay(fetcherClient1)
-    fetcherManager.reconfigure(new ClusterLinkConfig(newNonDynamicProps))
+    fetcherManager.reconfigure(new ClusterLinkConfig(newNonDynamicProps), Set(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG))
     assertEquals(0, fetcherManager.fetcherThreadMap.size)
     assertNotSame(metadata1, fetcherManager.currentMetadata)
     assertEquals(Set(topic), metadataTopics)

@@ -3,7 +3,6 @@ package io.confluent.telemetry.collector;
 import com.google.common.base.Strings;
 import com.google.protobuf.DoubleValue;
 import com.google.protobuf.Int64Value;
-
 import com.yammer.metrics.core.Counter;
 import com.yammer.metrics.core.Gauge;
 import com.yammer.metrics.core.Histogram;
@@ -12,7 +11,17 @@ import com.yammer.metrics.core.MetricName;
 import com.yammer.metrics.core.MetricsRegistry;
 import com.yammer.metrics.core.MetricsRegistryListener;
 import com.yammer.metrics.core.Timer;
-
+import io.confluent.metrics.YammerMetricsUtils;
+import io.confluent.telemetry.Context;
+import io.confluent.telemetry.MetricKey;
+import io.confluent.telemetry.MetricsUtils;
+import io.confluent.telemetry.collector.LastValueTracker.InstantAndValue;
+import io.confluent.telemetry.exporter.Exporter;
+import io.opencensus.proto.metrics.v1.Metric;
+import io.opencensus.proto.metrics.v1.MetricDescriptor;
+import io.opencensus.proto.metrics.v1.MetricDescriptor.Type;
+import io.opencensus.proto.metrics.v1.Point;
+import io.opencensus.proto.metrics.v1.SummaryValue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,18 +34,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
-
-import io.confluent.metrics.YammerMetricsUtils;
-import io.confluent.telemetry.Context;
-import io.confluent.telemetry.MetricKey;
-import io.confluent.telemetry.MetricsUtils;
-import io.confluent.telemetry.collector.LastValueTracker.InstantAndValue;
-import io.confluent.telemetry.exporter.Exporter;
-import io.opencensus.proto.metrics.v1.Metric;
-import io.opencensus.proto.metrics.v1.MetricDescriptor;
-import io.opencensus.proto.metrics.v1.MetricDescriptor.Type;
-import io.opencensus.proto.metrics.v1.Point;
-import io.opencensus.proto.metrics.v1.SummaryValue;
 
 // Yammer -> Opencensus is based on : https://github.com/census-instrumentation/opencensus-java/blob/master/contrib/dropwizard/src/main/java/io/opencensus/contrib/dropwizard/DropWizardMetrics.java
 public class YammerMetricsCollector implements MetricsCollector {
@@ -295,7 +292,7 @@ public class YammerMetricsCollector implements MetricsCollector {
         }
 
         return Optional.of(collectSnapshotAndCount(
-                metricName, labels, DEFAULT_UNIT, histogram.getSnapshot(), histogram.count()));
+                metricName, labels, DEFAULT_UNIT, histogram.getSnapshot(), histogram.count(), histogram.max()));
     }
 
     private Optional<Metric> collectTimer(String metricName, Map<String, String> labels, Timer timer) {
@@ -304,7 +301,7 @@ public class YammerMetricsCollector implements MetricsCollector {
         }
 
         return Optional.of(collectSnapshotAndCount(
-                metricName, labels, NS_UNIT, timer.getSnapshot(), timer.count()));
+                metricName, labels, NS_UNIT, timer.getSnapshot(), timer.count(), timer.max()));
     }
 
     private Metric collectSnapshotAndCount(
@@ -312,7 +309,8 @@ public class YammerMetricsCollector implements MetricsCollector {
             Map<String, String> labels,
             String unit,
             com.yammer.metrics.stats.Snapshot yammerSnapshot,
-            long count) {
+            long count,
+            double max) {
         SummaryValue.Snapshot snapshot = SummaryValue.Snapshot.newBuilder()
                 .setSum(DoubleValue.newBuilder().setValue(yammerSnapshot.size() * yammerSnapshot.getMedian()).build())
                 .addPercentileValues(SummaryValue.Snapshot.ValueAtPercentile.newBuilder()
@@ -338,6 +336,10 @@ public class YammerMetricsCollector implements MetricsCollector {
                 .addPercentileValues(SummaryValue.Snapshot.ValueAtPercentile.newBuilder()
                         .setPercentile(99.9)
                         .setValue(yammerSnapshot.get999thPercentile())
+                        .build())
+                .addPercentileValues(SummaryValue.Snapshot.ValueAtPercentile.newBuilder()
+                        .setPercentile(100.0)
+                        .setValue(max)
                         .build())
                 .build();
 

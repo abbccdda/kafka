@@ -104,7 +104,7 @@
     <suppress checks="ClassFanOutComplexity"
               files="Worker(|Test).java"/>
     <suppress checks="MethodLength"
-              files="(KafkaConfigBackingStore|Values).java"/>
+              files="(KafkaConfigBackingStore|RequestResponseTest|WorkerSinkTaskTest|DistributedConfig).java"/>
     <suppress checks="ParameterNumber"
               files="Worker(SinkTask|SourceTask|Coordinator).java"/>
     <suppress checks="ParameterNumber"
@@ -387,5 +387,8 @@
 
     <!-- ce-broker-plugins tests exclusion -->
     <suppress checks="CyclomaticComplexity" files="MultiTenantAuditLogTest.java"/>
+
+    <!-- ce-sbk telemetry sampler exlcusion -->
+    <suppress checks="CyclomaticComplexity" files="ConfluentTelemetryReporterSampler.java"/>
 
 </suppressions>

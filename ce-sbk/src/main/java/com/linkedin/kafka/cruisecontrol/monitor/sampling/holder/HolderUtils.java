@@ -5,10 +5,11 @@
 package com.linkedin.kafka.cruisecontrol.monitor.sampling.holder;
 
 import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType;
-import java.util.HashMap;
-import java.util.Map;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.PartitionInfo;
+
+import java.util.HashMap;
+import java.util.Map;
 
 import static com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType.ALL_TOPIC_BYTES_IN;
 import static com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType.ALL_TOPIC_BYTES_OUT;
@@ -17,11 +18,11 @@ import static com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricT
 import static com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType.ALL_TOPIC_PRODUCE_REQUEST_RATE;
 import static com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType.ALL_TOPIC_REPLICATION_BYTES_IN;
 import static com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType.ALL_TOPIC_REPLICATION_BYTES_OUT;
-import static com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType.TOPIC_PRODUCE_REQUEST_RATE;
-import static com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType.TOPIC_FETCH_REQUEST_RATE;
-import static com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType.TOPIC_MESSAGES_IN_PER_SEC;
 import static com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType.TOPIC_BYTES_IN;
 import static com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType.TOPIC_BYTES_OUT;
+import static com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType.TOPIC_FETCH_REQUEST_RATE;
+import static com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType.TOPIC_MESSAGES_IN_PER_SEC;
+import static com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType.TOPIC_PRODUCE_REQUEST_RATE;
 import static com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType.TOPIC_REPLICATION_BYTES_IN;
 import static com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType.TOPIC_REPLICATION_BYTES_OUT;
 

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2020 Confluent Inc.
  */
 
@@ -6,15 +6,10 @@ package io.confluent.databalancer;
 
 import com.yammer.metrics.core.MetricName;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import kafka.common.BrokerRemovalStatus;
 import io.confluent.databalancer.operation.BrokerRemovalProgressListener;
-import io.confluent.databalancer.operation.BrokerRemovalStateTracker;
-import java.util.HashMap;
-import java.util.concurrent.atomic.AtomicReference;
+import io.confluent.databalancer.operation.BalanceOpExecutionCompletionCallback;
+import io.confluent.databalancer.persistence.ApiStatePersistenceStore;
+import kafka.common.BrokerRemovalStatus;
 import kafka.controller.DataBalanceManager;
 import kafka.metrics.KafkaYammerMetrics;
 import kafka.server.KafkaConfig;
@@ -25,19 +20,28 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.Option;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.HashSet;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class KafkaDataBalanceManager implements DataBalanceManager {
     private static final Logger LOG = LoggerFactory.getLogger(KafkaDataBalanceManager.class);
     public static final String ACTIVE_BALANCER_COUNT_METRIC_NAME = "ActiveBalancerCount";
     public static final String BROKER_REMOVAL_STATE_METRIC_NAME = "BrokerRemovalOperationState";
 
-    // package-private for testing
-    Map<Integer, BrokerRemovalStatus> brokerRemovalsStatus;
+    // package private for testing
+    // the whole set is used for brokerAdd operations so the whole set must be synchronized
+    Set<Integer> brokersToAdd;
     private KafkaConfig kafkaConfig;
-    private DataBalanceEngine balanceEngine;
+    // Visible for testing
+    DataBalanceEngine balanceEngine;
 
     private final DataBalanceEngineFactory dbeFactory;
     private final DataBalancerMetricsRegistry dataBalancerMetricsRegistry;
@@ -104,7 +108,6 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
 
     /**
      * Create a KafkaDataBalanceManager. The DataBalanceManager is expected to be long-lived (broker lifetime).
-     * @param kafkaConfig
      */
     public KafkaDataBalanceManager(KafkaConfig kafkaConfig) {
         this(kafkaConfig, new DataBalancerMetricsRegistry(KafkaYammerMetrics.defaultRegistry(), getMetricsWhiteList()));
@@ -124,11 +127,13 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
         this.dbeFactory = Objects.requireNonNull(dbeFactory, "DataBalanceEngineFactory must be non-null");
         this.dataBalancerMetricsRegistry = Objects.requireNonNull(metricsRegistry, "MetricsRegistry must be non-null");
         this.time = time;
-        this.brokerRemovalsStatus = new ConcurrentHashMap<>();
         this.balanceEngine = dbeFactory.getInactiveDataBalanceEngine();
         this.dataBalancerMetricsRegistry.newGauge(KafkaDataBalanceManager.class, "ActiveBalancerCount",
                 () -> balanceEngine.isActive() ? 1 : 0, false);
-        this.brokerRemovalsStatus = new ConcurrentHashMap<>();
+        // Since multiple adds can be ongoing at one time, and correct generation of the add Requests means knowing which ones
+        // are actually truly currently pending, synchronize on the brokersToAdd object rather than use a Concurrent
+        // object, which may be in the middle of updates.
+        this.brokersToAdd = new HashSet<>();
     }
 
     /**
@@ -212,13 +217,50 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
     }
 
     @Override
-    public void scheduleBrokerAdd(Set<Integer> brokersToAdd) {
-        // CNKAF-730: No-op for now
+    public void scheduleBrokerAdd(Set<Integer> newBrokers) {
+        // No new brokers
+        if (newBrokers.isEmpty()) {
+            return;
+        }
+        if (!balanceEngine.isActive()) {
+            // Return nothing; this is completely ok
+            LOG.warn("Notified of broker additions {} but SBK is disabled -- ignoring for now");
+            return;
+        }
+
+        // Skip adding brokers if any removal is ongoing.
+        // TODO: when operation arbitration logic is added in the DataBalanceEngine, that can decide what
+        // should be executed next, instead of doing it here. (CNKAF-757)
+
+        Set<Integer> addingBrokers;
+        synchronized (brokersToAdd) {
+            brokersToAdd.addAll(newBrokers);
+            addingBrokers = new HashSet<>(brokersToAdd);
+        }
+        String operationUid = String.format("addBroker-%d", time.milliseconds());
+
+        // On completion, clear set of brokers being added
+        BalanceOpExecutionCompletionCallback onAddComplete = (opSuccess, ex) -> {
+            // A successful completion should clear the added brokers. An exceptional completion should, as well.
+            LOG.info("Add Operation completed with success value {}", opSuccess);
+            if (opSuccess || ex != null) {
+                synchronized (brokersToAdd) {
+                    brokersToAdd.removeAll(addingBrokers);
+                    LOG.info("Broker Add op (of brokers {}) completion, remaining brokers to add: {}",
+                            addingBrokers, brokersToAdd);
+                }
+            }
+        };
+
+        balanceEngine.addBrokers(addingBrokers, onAddComplete, operationUid);
     }
 
     @Override
     public List<BrokerRemovalStatus> brokerRemovals() {
-        return new ArrayList<>(brokerRemovalsStatus.values());
+        DataBalanceEngineContext dataBalanceEngineContext = balanceEngine.getDataBalanceEngineContext();
+        ApiStatePersistenceStore persistenceStore = dataBalanceEngineContext.getPersistenceStore();
+        return persistenceStore == null ? Collections.emptyList() :
+                new ArrayList<>(persistenceStore.getAllBrokerRemovalStatus().values());
     }
 
     @Override
@@ -236,18 +278,29 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
 
         // create listener to update the removal statuses on progress change
         BrokerRemovalProgressListener listener = (shutdownStatus, partitionReassignmentsStatus, e) -> {
-            BrokerRemovalStatus removalStatus = new BrokerRemovalStatus(brokerToRemove,
+            DataBalanceEngineContext dataBalanceEngineContext = balanceEngine.getDataBalanceEngineContext();
+            ApiStatePersistenceStore persistenceStore = dataBalanceEngineContext.getPersistenceStore();
+
+            BrokerRemovalStatus existingRemovalStatus = persistenceStore.getBrokerRemovalStatus(brokerToRemove);
+            BrokerRemovalStatus newRemovalStatus = new BrokerRemovalStatus(brokerToRemove,
                 shutdownStatus, partitionReassignmentsStatus, e);
-            LOG.info("Removal status for broker {} changed from {} to {}",
-                brokerToRemove, brokerRemovalsStatus.get(brokerToRemove), removalStatus);
-            brokerRemovalsStatus.put(brokerToRemove, removalStatus);
+
+            if (existingRemovalStatus != null) {
+                newRemovalStatus.setStartTime(existingRemovalStatus.getStartTime());
+            }
+            try {
+                persistenceStore.save(newRemovalStatus, existingRemovalStatus == null);
+                LOG.info("Removal status for broker {} changed from {} to {}",
+                        brokerToRemove, existingRemovalStatus, newRemovalStatus);
+            } catch (InterruptedException ex) {
+                LOG.error("Interrupted when broker removal state for broker: {}", brokerToRemove, ex);
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(ex);
+            }
         };
 
-        BrokerRemovalStateTracker stateTracker = BrokerRemovalStateTracker.initialize(brokerToRemove, listener,
-            registerBrokerRemovalMetric);
-
         LOG.info("Submitting broker removal operation with UUID {} for broker {} (epoch {})", uid, brokerToRemove, brokerToRemoveEpoch);
-        balanceEngine.removeBroker(brokerToRemove, brokerEpochOpt, stateTracker, uid);
+        balanceEngine.removeBroker(brokerToRemove, brokerEpochOpt, registerBrokerRemovalMetric, listener, uid);
     }
 
     /**

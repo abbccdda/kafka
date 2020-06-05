@@ -6,7 +6,7 @@ package io.confluent.telemetry.events.serde;
 import io.cloudevents.CloudEvent;
 import io.cloudevents.format.Wire;
 import io.cloudevents.format.builder.EventStep;
-import io.cloudevents.v03.AttributesImpl;
+import io.cloudevents.v1.AttributesImpl;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -60,6 +60,11 @@ public abstract class Serializer<T> {
 
   public ProducerRecord<String, byte[]> producerRecord(CloudEvent<AttributesImpl, T> event,
       String topic, Integer partition) {
+    return producerRecord(event, topic, partition, null);
+  }
+
+  public ProducerRecord<String, byte[]> producerRecord(CloudEvent<AttributesImpl, T> event,
+      String topic, Integer partition, String key) {
 
     Wire<byte[], String, byte[]> wire = marshal(() -> event, this.builder);
     Set<Header> headers = marshalHeaders(wire.getHeaders());
@@ -79,8 +84,8 @@ public abstract class Serializer<T> {
         topic,
         partition,
         timestamp,
-        // Get partitionKey from cloudevent extensions once it is supported upstream.
-        null,
+        // TODO: Get partitionKey from cloudevent extensions once it is supported upstream.
+        key,
         payload,
         headers);
   }

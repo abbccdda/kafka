@@ -724,7 +724,9 @@ class KafkaConfigTest {
         case KafkaConfig.TierS3EndpointOverrideProp => // ignore string
         case KafkaConfig.TierS3SignerOverrideProp => // ignore string
         case KafkaConfig.TierS3SseAlgorithmProp => assertPropertyInvalid(getBaseProperties(), name, "notanssealgorithm")
+        case KafkaConfig.TierS3SseCustomerEncryptionKeyProp => // ignore string
         case KafkaConfig.TierS3AutoAbortThresholdBytesProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "-2")
+        case KafkaConfig.TierS3AssumeRoleArnProp => // ignore string
         case KafkaConfig.TierGcsRegionProp => // ignore string
         case KafkaConfig.TierGcsBucketProp => // ignore string
         case KafkaConfig.TierGcsWriteChunkSizeProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "-2")
@@ -881,6 +883,10 @@ class KafkaConfigTest {
         case ConfluentConfigs.INTERNAL_REST_SERVER_BIND_PORT_CONFIG =>
         case ConfluentConfigs.HTTP_SERVER_START_TIMEOUT_MS_CONFIG =>
         case ConfluentConfigs.HTTP_SERVER_STOP_TIMEOUT_MS_CONFIG =>
+        case ConfluentConfigs.MIN_FOLLOWER_BROKER_TENANT_PRODUCER_BYTE_RATE_CONFIG =>
+        case ConfluentConfigs.MIN_FOLLOWER_BROKER_TENANT_CONSUMER_BYTE_RATE_CONFIG =>
+        case ConfluentConfigs.MAX_BROKER_TENANT_PRODUCER_BYTE_RATE_CONFIG =>
+        case ConfluentConfigs.MAX_BROKER_TENANT_CONSUMER_BYTE_RATE_CONFIG =>
 
         case _ => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "-1")
       }

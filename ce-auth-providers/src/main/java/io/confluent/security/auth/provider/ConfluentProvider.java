@@ -52,6 +52,7 @@ import org.apache.kafka.common.Reconfigurable;
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.config.ConfigException;
+import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.errors.ApiException;
 import org.apache.kafka.common.errors.RebalanceInProgressException;
 import org.apache.kafka.common.security.auth.AuthenticateCallbackHandler;
@@ -104,6 +105,7 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
   private Set<KafkaPrincipal> configuredSuperUsers;
   private MetadataServer metadataServer;
   private Metrics kafkaMetrics = null;
+  private boolean isConfluentCloud = false;
 
   public ConfluentProvider() {
     this.authScope = Scope.ROOT_SCOPE;
@@ -138,6 +140,10 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
     // Allow security metadata access for broker's configured super-user in the metadata cluster
     this.configuredSuperUsers =
         ConfluentAuthorizerConfig.parseUsers((String) configs.get(ConfluentAuthorizerConfig.SUPER_USERS_PROP));
+
+    this.isConfluentCloud = ConfluentConfigs.MULTITENANT_AUTHORIZER_CLASS_NAME
+            // Hardcoding KafkaConfig.AuthorizerClassNameProp to avoid scala dependency
+            .equals(configs.get("authorizer.class.name"));
   }
 
   @Override
@@ -325,9 +331,13 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
     return (ConfluentAdmin) Admin.create(adminClientConfigs);
   }
 
+  protected boolean isConfluentCloud() {
+    return isConfluentCloud;
+  }
+
   // Allow override for testing
   protected AuthStore createAuthStore(Scope scope, ConfluentAuthorizerServerInfo serverInfo, Map<String, ?> configs) {
-    KafkaAuthStore authStore = new KafkaAuthStore(scope, serverInfo);
+    KafkaAuthStore authStore = new KafkaAuthStore(isConfluentCloud, scope, serverInfo);
     authStore.configure(configs);
     return authStore;
   }

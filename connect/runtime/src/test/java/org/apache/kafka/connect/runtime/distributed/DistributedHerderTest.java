@@ -37,12 +37,14 @@ import org.apache.kafka.connect.runtime.TaskConfig;
 import org.apache.kafka.connect.runtime.TopicStatus;
 import org.apache.kafka.connect.runtime.Worker;
 import org.apache.kafka.connect.runtime.WorkerConfig;
+import org.apache.kafka.connect.runtime.WorkerConfigDecorator;
 import org.apache.kafka.connect.runtime.WorkerConfigTransformer;
 import org.apache.kafka.connect.runtime.distributed.DistributedHerder.HerderMetrics;
 import org.apache.kafka.connect.runtime.isolation.DelegatingClassLoader;
 import org.apache.kafka.connect.runtime.isolation.PluginClassLoader;
 import org.apache.kafka.connect.runtime.isolation.Plugins;
 import org.apache.kafka.connect.runtime.rest.InternalRequestSignature;
+import org.apache.kafka.connect.runtime.rest.entities.ConfigInfos;
 import org.apache.kafka.connect.runtime.rest.entities.ConnectorInfo;
 import org.apache.kafka.connect.runtime.rest.entities.ConnectorType;
 import org.apache.kafka.connect.runtime.rest.entities.TaskInfo;
@@ -88,6 +90,9 @@ import static javax.ws.rs.core.Response.Status.FORBIDDEN;
 import static org.apache.kafka.connect.runtime.distributed.ConnectProtocol.CONNECT_PROTOCOL_V0;
 import static org.apache.kafka.connect.runtime.distributed.IncrementalCooperativeConnectProtocol.CONNECT_PROTOCOL_V1;
 import static org.apache.kafka.connect.runtime.distributed.IncrementalCooperativeConnectProtocol.CONNECT_PROTOCOL_V2;
+import static org.easymock.EasyMock.anyObject;
+import static org.easymock.EasyMock.anyString;
+import static org.easymock.EasyMock.capture;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -179,6 +184,7 @@ public class DistributedHerderTest {
     private MockConnectMetrics metrics;
     @Mock private Worker worker;
     @Mock private WorkerConfigTransformer transformer;
+    @Mock private WorkerConfigDecorator decorator;
     @Mock private Callback<Herder.Created<ConnectorInfo>> putConnectorCallback;
     @Mock
     private Plugins plugins;
@@ -544,6 +550,7 @@ public class DistributedHerderTest {
         EasyMock.expect(connectorMock.config()).andReturn(new ConfigDef());
         EasyMock.expect(connectorMock.validate(CONN2_CONFIG)).andReturn(new Config(Collections.<ConfigValue>emptyList()));
         EasyMock.expect(Plugins.compareAndSwapLoaders(delegatingLoader)).andReturn(pluginLoader);
+        expectConfigDecoration();
 
         // CONN2 is new, should succeed
         configBackingStore.putConnectorConfig(CONN2, CONN2_CONFIG);
@@ -588,6 +595,7 @@ public class DistributedHerderTest {
         EasyMock.expect(worker.getPlugins()).andReturn(plugins).times(3);
         EasyMock.expect(plugins.compareAndSwapLoaders(connectorMock)).andReturn(delegatingLoader);
         EasyMock.expect(plugins.newConnector(EasyMock.anyString())).andReturn(connectorMock);
+        expectConfigDecoration();
 
         EasyMock.expect(connectorMock.config()).andStubReturn(new ConfigDef());
         ConfigValue validatedValue = new ConfigValue("foo.bar");
@@ -637,6 +645,7 @@ public class DistributedHerderTest {
         EasyMock.expect(worker.getPlugins()).andReturn(plugins).times(3);
         EasyMock.expect(plugins.compareAndSwapLoaders(connectorMock)).andReturn(delegatingLoader);
         EasyMock.expect(plugins.newConnector(EasyMock.anyString())).andReturn(connectorMock);
+        expectConfigDecoration();
 
         ConfigDef configDef = new ConfigDef();
         configDef.define("foo.bar", ConfigDef.Type.STRING, ConfigDef.Importance.HIGH, "foo.bar doc");
@@ -684,6 +693,7 @@ public class DistributedHerderTest {
 
         Map<String, String> config = new HashMap<>(CONN2_CONFIG);
         config.put(ConnectorConfig.NAME_CONFIG, "test-group");
+        expectConfigDecoration();
 
         // config validation
         Connector connectorMock = PowerMock.createMock(SinkConnector.class);
@@ -1607,6 +1617,7 @@ public class DistributedHerderTest {
         EasyMock.expect(connectorMock.validate(CONN1_CONFIG_UPDATED)).andReturn(new Config(Collections.<ConfigValue>emptyList()));
         EasyMock.expect(Plugins.compareAndSwapLoaders(delegatingLoader)).andReturn(pluginLoader);
         EasyMock.expect(configBackingStore.snapshot()).andReturn(SNAPSHOT);
+        expectConfigDecoration();
 
         configBackingStore.putConnectorConfig(CONN1, CONN1_CONFIG_UPDATED);
         PowerMock.expectLastCall().andAnswer(new IAnswer<Object>() {
@@ -1807,6 +1818,21 @@ public class DistributedHerderTest {
 
         assertTrue(Whitebox.<ThreadPoolExecutor>getInternalState(herder, "startAndStopExecutor").
                 getThreadFactory().newThread(EMPTY_RUNNABLE).getName().startsWith("StartAndStopExecutor"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private void expectConfigDecoration() {
+        // Expect the decorator to be called and to return undecorated configs and validation results
+        EasyMock.expect(worker.configDecorator()).andReturn(decorator).times(2);
+        final Capture<Map<String, String>> propCapture = EasyMock.newCapture();
+        EasyMock.expect(decorator.decorateConnectorConfig(
+                anyString(), anyObject(Connector.class), anyObject(ConfigDef.class), capture(propCapture))
+        ).andAnswer(propCapture::getValue);
+        final Capture<ConfigInfos> infosCapture = EasyMock.newCapture();
+        EasyMock.expect(decorator.decorateValidationResult(
+                anyString(), anyObject(Connector.class), anyObject(ConfigDef.class), anyObject(Map.class), capture(infosCapture))
+        ).andAnswer(infosCapture::getValue);
+
     }
 
     private void expectRebalance(final long offset,

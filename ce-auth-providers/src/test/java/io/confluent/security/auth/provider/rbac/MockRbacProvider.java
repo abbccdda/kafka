@@ -35,7 +35,7 @@ public class MockRbacProvider extends ConfluentProvider implements MetadataProvi
 
   @Override
   protected AuthStore createAuthStore(Scope scope, ConfluentAuthorizerServerInfo serverInfo, Map<String, ?> configs) {
-    return new MockAuthStore(RbacRoles.loadDefaultPolicy(), scope);
+    return new MockAuthStore(RbacRoles.loadDefaultPolicy(isConfluentCloud()), scope);
   }
 
   public static class MockAuthStore implements AuthStore {

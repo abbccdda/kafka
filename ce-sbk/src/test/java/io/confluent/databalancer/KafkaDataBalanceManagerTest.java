@@ -1,22 +1,22 @@
-/**
+/*
  * Copyright (C) 2020 Confluent Inc.
  */
 
 package io.confluent.databalancer;
 
+import com.linkedin.kafka.cruisecontrol.exception.KafkaCruiseControlException;
 import com.yammer.metrics.core.Gauge;
 import com.yammer.metrics.core.Metric;
 import com.yammer.metrics.core.MetricName;
 import com.yammer.metrics.core.MetricsRegistry;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
-import java.util.Arrays;
-import java.util.Collections;
+import io.confluent.databalancer.operation.BrokerRemovalProgressListener;
+import io.confluent.databalancer.operation.BalanceOpExecutionCompletionCallback;
 import kafka.common.BrokerRemovalStatus;
-import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback;
-import io.confluent.databalancer.operation.BrokerRemovalStateMachine;
-import io.confluent.databalancer.operation.BrokerRemovalStateTracker;
-import java.util.Optional;
-import java.util.function.Supplier;
+import io.confluent.databalancer.persistence.ApiStatePersistenceStore;
+import java.util.HashSet;
+import java.util.Set;
+
 import kafka.controller.DataBalanceManager;
 import kafka.metrics.KafkaYammerMetrics;
 import kafka.server.KafkaConfig;
@@ -36,15 +36,23 @@ import org.mockito.MockitoAnnotations;
 import scala.Option;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
-
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static io.confluent.databalancer.KafkaDataBalanceManager.BROKER_REMOVAL_STATE_METRIC_NAME;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -67,11 +75,17 @@ public class KafkaDataBalanceManagerTest {
     private DataBalancerMetricsRegistry mockDbMetrics;
     @Mock
     private Time time;
+    @Mock
+    private ApiStatePersistenceStore mockPersistenceStore;
+    @Mock
+    private DataBalanceEngineContext mockDbeContext;
     @Captor
-    private ArgumentCaptor<Supplier<String>> stateMetricSupplierCaptor;
+    private ArgumentCaptor<BalanceOpExecutionCompletionCallback> execCbCaptor;
+
+    private Map<Integer, BrokerRemovalStatus> brokerRemovalStatusMap;
 
     @Before
-    public void setUp() {
+    public void setUp() throws Exception {
         brokerProps = new Properties();
         brokerProps.put(KafkaConfig$.MODULE$.ZkConnectProp(), TestUtils$.MODULE$.MockZkConnect());
         brokerProps.put(ConfluentConfigs.BALANCER_ENABLE_CONFIG, true);
@@ -82,6 +96,17 @@ public class KafkaDataBalanceManagerTest {
         when(mockDataBalanceEngineFactory.getActiveDataBalanceEngine()).thenReturn(mockActiveDataBalanceEngine);
         when(mockDataBalanceEngineFactory.getInactiveDataBalanceEngine()).thenReturn(mockInactiveDataBalanceEngine);
         when(mockActiveDataBalanceEngine.isActive()).thenReturn(true);
+        when(mockActiveDataBalanceEngine.getDataBalanceEngineContext()).thenReturn(mockDbeContext);
+        when(mockDbeContext.getPersistenceStore()).thenReturn(mockPersistenceStore);
+
+        brokerRemovalStatusMap = new ConcurrentHashMap<>();
+        doAnswer(invocation -> {
+            BrokerRemovalStatus brokerRemovalStatus = (BrokerRemovalStatus) invocation.getArguments()[0];
+            brokerRemovalStatusMap.put(brokerRemovalStatus.brokerId(), brokerRemovalStatus);
+            return null;
+        }).when(mockPersistenceStore).save(any(BrokerRemovalStatus.class), anyBoolean());
+
+        when(mockPersistenceStore.getAllBrokerRemovalStatus()).thenReturn(brokerRemovalStatusMap);
     }
 
     @Test
@@ -126,7 +151,7 @@ public class KafkaDataBalanceManagerTest {
 
         dataBalancer.updateConfig(initConfig, initConfig);
         verifyNoMoreInteractions(mockActiveDataBalanceEngine);
-        
+
         // Since it's been inactive this whole time, the active DBE should never have been called
         verify(mockActiveDataBalanceEngine, never()).onActivation(any(KafkaConfig.class));
         verify(mockActiveDataBalanceEngine, never()).onDeactivation();
@@ -189,7 +214,7 @@ public class KafkaDataBalanceManagerTest {
         dataBalancer.updateConfig(updatedConfig, initConfig);
         verify(mockActiveDataBalanceEngine).setAutoHealMode(false);
         verify(mockActiveDataBalanceEngine).updateThrottle(200L);
-        
+
         dataBalancer.updateConfig(initConfig, initConfig);
         verifyNoMoreInteractions(mockActiveDataBalanceEngine);
     }
@@ -223,6 +248,8 @@ public class KafkaDataBalanceManagerTest {
     @Test
     public void testConfluentBalancerEnabledMetric() {
         MetricsRegistry metrics = KafkaYammerMetrics.defaultRegistry();
+
+        cleanMetrics(metrics);
         DataBalancerMetricsRegistry dbMetricsRegistry = new DataBalancerMetricsRegistry(metrics,
                 KafkaDataBalanceManager.getMetricsWhiteList());
         dataBalancer = new KafkaDataBalanceManager(initConfig, mockDataBalanceEngineFactory, dbMetricsRegistry, time);
@@ -295,7 +322,7 @@ public class KafkaDataBalanceManagerTest {
     public void testRemoveBrokerNotActive() {
         dataBalancer = new KafkaDataBalanceManager(initConfig,
                 new KafkaDataBalanceManager.DataBalanceEngineFactory(mockActiveDataBalanceEngine, mockInactiveDataBalanceEngine),
-            mockDbMetrics, time);
+                mockDbMetrics, time);
         dataBalancer.scheduleBrokerRemoval(2, Option.apply(25L));
     }
 
@@ -307,27 +334,25 @@ public class KafkaDataBalanceManagerTest {
         dataBalancer = new KafkaDataBalanceManager(initConfig,
             new KafkaDataBalanceManager.DataBalanceEngineFactory(mockActiveDataBalanceEngine, mockInactiveDataBalanceEngine),
             mockDbMetrics, time);
-        KafkaDataBalanceManager kafkaDataBalanceManager = (KafkaDataBalanceManager) dataBalancer;
-        ArgumentCaptor<BrokerRemovalStateTracker> argument = ArgumentCaptor.forClass(BrokerRemovalStateTracker.class);
+        ArgumentCaptor<BrokerRemovalProgressListener> argument = ArgumentCaptor.forClass(BrokerRemovalProgressListener.class);
         int brokerId = 1;
         Exception expectedListenerException = new Exception("Listener exception!");
 
-        assertRemoveBrokerCalled(brokerId, argument, stateMetricSupplierCaptor);
+        assertRemoveBrokerCalled(brokerId, argument);
 
         // also test that the listener passed to BrokerRemovalStateTracker updates the state in KafkaDataBalanceManager
-        argument.getValue().registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_FAILURE, expectedListenerException);
+        argument.getValue().onProgressChanged(BrokerRemovalDescription.BrokerShutdownStatus.CANCELED,
+                BrokerRemovalDescription.PartitionReassignmentsStatus.FAILED,
+                expectedListenerException);
 
         BrokerRemovalStatus expectedStatus = new BrokerRemovalStatus(brokerId, BrokerRemovalDescription.BrokerShutdownStatus.CANCELED,
-            BrokerRemovalDescription.PartitionReassignmentsStatus.FAILED,
-            expectedListenerException);
+                BrokerRemovalDescription.PartitionReassignmentsStatus.FAILED,
+                expectedListenerException);
         assertEquals("Expected one removal status to be populated",
-            1, kafkaDataBalanceManager.brokerRemovalsStatus.size());
+            1, brokerRemovalStatusMap.size());
         assertTrue("Expected the removed broker's removal status to be populated",
-            kafkaDataBalanceManager.brokerRemovalsStatus.containsKey(brokerId));
-        assertEquals(expectedStatus,
-            kafkaDataBalanceManager.brokerRemovalsStatus.get(brokerId));
-        assertEquals(BrokerRemovalStateMachine.BrokerRemovalState.INITIAL_PLAN_COMPUTATION_FAILED.toString(),
-            stateMetricSupplierCaptor.getValue().get());
+                brokerRemovalStatusMap.containsKey(brokerId));
+        assertEquals(expectedStatus, brokerRemovalStatusMap.get(brokerId));
     }
 
     /**
@@ -338,70 +363,69 @@ public class KafkaDataBalanceManagerTest {
         dataBalancer = new KafkaDataBalanceManager(initConfig,
             new KafkaDataBalanceManager.DataBalanceEngineFactory(mockActiveDataBalanceEngine, mockInactiveDataBalanceEngine),
             mockDbMetrics, time);
-        KafkaDataBalanceManager kafkaDataBalanceManager = (KafkaDataBalanceManager) dataBalancer;
-        ArgumentCaptor<BrokerRemovalStateTracker> argument = ArgumentCaptor.forClass(BrokerRemovalStateTracker.class);
+        ArgumentCaptor<BrokerRemovalProgressListener> argument = ArgumentCaptor.forClass(BrokerRemovalProgressListener.class);
         int brokerId = 1;
 
-        assertRemoveBrokerCalled(brokerId, argument, stateMetricSupplierCaptor);
+        assertRemoveBrokerCalled(brokerId, argument);
 
         // 1. Test that the listener passed to BrokerRemovalStateTracker updates the state in KafkaDataBalanceManager
         Exception expectedListenerException = new Exception("Listener exception!");
 
-        argument.getValue().registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS);
-        argument.getValue().registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_SUCCESS);
+        argument.getValue().onProgressChanged(BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE,
+                BrokerRemovalDescription.PartitionReassignmentsStatus.IN_PROGRESS,
+                null);
 
         BrokerRemovalStatus expectedStatus = new BrokerRemovalStatus(brokerId, BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE,
-            BrokerRemovalDescription.PartitionReassignmentsStatus.IN_PROGRESS,
-            null);
+                BrokerRemovalDescription.PartitionReassignmentsStatus.IN_PROGRESS,
+                null);
 
         assertEquals("Expected one removal status to be populated",
-            1, kafkaDataBalanceManager.brokerRemovalsStatus.size());
+            1, brokerRemovalStatusMap.size());
         assertTrue("Expected the removed broker's removal status to be populated",
-            kafkaDataBalanceManager.brokerRemovalsStatus.containsKey(brokerId));
-        assertEquals(expectedStatus,
-            kafkaDataBalanceManager.brokerRemovalsStatus.get(brokerId));
-        assertEquals(BrokerRemovalStateMachine.BrokerRemovalState.PLAN_COMPUTATION_INITIATED.toString(),
-            stateMetricSupplierCaptor.getValue().get());
+                brokerRemovalStatusMap.containsKey(brokerId));
+        assertEquals(expectedStatus, brokerRemovalStatusMap.get(brokerId));
 
         // 2. Test the listener updates the state again
-        argument.getValue().registerEvent(
-            BrokerRemovalCallback.BrokerRemovalEvent.PLAN_COMPUTATION_FAILURE,
-            expectedListenerException);
+        argument.getValue().onProgressChanged(BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE,
+                BrokerRemovalDescription.PartitionReassignmentsStatus.FAILED,
+                null);
+        // 2. Test the listener updates the state again
+
+        argument.getValue().onProgressChanged(BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE,
+                BrokerRemovalDescription.PartitionReassignmentsStatus.FAILED,
+                expectedListenerException);
 
         BrokerRemovalStatus expectedStatus2 = new BrokerRemovalStatus(brokerId, BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE,
-            BrokerRemovalDescription.PartitionReassignmentsStatus.FAILED,
-            expectedListenerException);
+                BrokerRemovalDescription.PartitionReassignmentsStatus.FAILED,
+                expectedListenerException);
 
         assertEquals("Expected one removal status to be populated",
-            1, kafkaDataBalanceManager.brokerRemovalsStatus.size());
+            1, brokerRemovalStatusMap.size());
         assertTrue("Expected the removed broker's removal status to be populated",
-            kafkaDataBalanceManager.brokerRemovalsStatus.containsKey(brokerId));
+                brokerRemovalStatusMap.containsKey(brokerId));
         assertEquals(expectedStatus2,
-            kafkaDataBalanceManager.brokerRemovalsStatus.get(brokerId));
-        assertEquals(BrokerRemovalStateMachine.BrokerRemovalState.PLAN_COMPUTATION_FAILED.toString(),
-            stateMetricSupplierCaptor.getValue().get());
+                brokerRemovalStatusMap.get(brokerId));
     }
 
     private void assertRemoveBrokerCalled(int brokerId,
-                                          ArgumentCaptor<BrokerRemovalStateTracker> argumentCaptor,
-                                          ArgumentCaptor<Supplier<String>> stateMetricCaptor) {
+                                          ArgumentCaptor<BrokerRemovalProgressListener> argumentCaptor) {
         KafkaDataBalanceManager kafkaDataBalanceManager = (KafkaDataBalanceManager) dataBalancer;
         dataBalancer.onElection();
         long brokerEpoch = 15L;
         Optional<Long> expectedOpt = Optional.of(brokerEpoch);
 
         assertTrue("Expected no broker removal statuses to be populated",
-            kafkaDataBalanceManager.brokerRemovalsStatus.isEmpty());
+                brokerRemovalStatusMap.isEmpty());
 
         dataBalancer.scheduleBrokerRemoval(brokerId, Option.apply(brokerEpoch));
 
-        verify(mockActiveDataBalanceEngine).removeBroker(eq(brokerId), eq(expectedOpt),
+        verify(mockActiveDataBalanceEngine).removeBroker(eq(brokerId), eq(expectedOpt), any(),
             argumentCaptor.capture(), any(String.class));
 
         verify(mockDbMetrics).newGauge(Mockito.eq(ConfluentDataBalanceEngine.class),
-            Mockito.eq(BROKER_REMOVAL_STATE_METRIC_NAME), stateMetricCaptor.capture(),
-            Mockito.eq(true),
-            Mockito.eq(kafkaDataBalanceManager.brokerIdMetricTag(brokerId)));
+                Mockito.eq(BROKER_REMOVAL_STATE_METRIC_NAME), any(),
+                Mockito.eq(true),
+                Mockito.eq(kafkaDataBalanceManager.brokerIdMetricTag(brokerId)));
     }
 
     /**
@@ -416,31 +440,161 @@ public class KafkaDataBalanceManagerTest {
 
         Optional<Long> expectedOpt = Optional.empty();
         dataBalancer.scheduleBrokerRemoval(1, Option.empty());
-        verify(mockActiveDataBalanceEngine).removeBroker(eq(1), eq(expectedOpt),
-            any(BrokerRemovalStateTracker.class), any(String.class));
+        verify(mockActiveDataBalanceEngine).removeBroker(eq(1), eq(expectedOpt), any(),
+            any(BrokerRemovalProgressListener.class), any(String.class));
     }
 
     @Test
-    public void testBrokerRemovals() {
-        KafkaDataBalanceManager dataBalancer = new KafkaDataBalanceManager(initConfig,
-            new KafkaDataBalanceManager.DataBalanceEngineFactory(mockActiveDataBalanceEngine, mockInactiveDataBalanceEngine),
-            mockDbMetrics, time);
+    public void testBrokerRemovals() throws Exception {
+        KafkaDataBalanceManager.DataBalanceEngineFactory dbeFactory =
+                new KafkaDataBalanceManager.DataBalanceEngineFactory(mockActiveDataBalanceEngine, mockInactiveDataBalanceEngine);
 
+        KafkaDataBalanceManager dataBalancer = new KafkaDataBalanceManager(initConfig, dbeFactory,
+            mockDbMetrics, time);
+        dataBalancer.balanceEngine = mockActiveDataBalanceEngine;
         assertEquals(Collections.emptyList(), dataBalancer.brokerRemovals());
 
         BrokerRemovalStatus broker1Status = new BrokerRemovalStatus(1,
-            BrokerRemovalDescription.BrokerShutdownStatus.PENDING,
-            BrokerRemovalDescription.PartitionReassignmentsStatus.FAILED,
-            new Exception("Partition reassignment failed!")
+                BrokerRemovalDescription.BrokerShutdownStatus.PENDING,
+                BrokerRemovalDescription.PartitionReassignmentsStatus.FAILED,
+                new Exception("Partition reassignment failed!")
         );
-        dataBalancer.brokerRemovalsStatus.put(1, broker1Status);
+        dataBalancer.balanceEngine.getDataBalanceEngineContext().getPersistenceStore().save(broker1Status, true);
         BrokerRemovalStatus broker2Status = new BrokerRemovalStatus(2,
-            BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE,
-            BrokerRemovalDescription.PartitionReassignmentsStatus.COMPLETE,
-            null
+                BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE,
+                BrokerRemovalDescription.PartitionReassignmentsStatus.COMPLETE,
+                null
         );
-        dataBalancer.brokerRemovalsStatus.put(2, broker2Status);
+        dataBalancer.balanceEngine.getDataBalanceEngineContext().getPersistenceStore().save(broker2Status, true);
 
-        assertEquals(Arrays.asList(broker1Status, broker2Status), dataBalancer.brokerRemovals());
+        assertEquals(Arrays.asList(broker1Status, broker2Status), new ArrayList<>(brokerRemovalStatusMap.values()));
     }
+    
+    /**
+     * Confirm that add clears pending work after successful completion
+     */
+    @Test
+    public void testAddOfOne_Succeeds() {
+        KafkaDataBalanceManager dataBalancer = new KafkaDataBalanceManager(initConfig,
+                new KafkaDataBalanceManager.DataBalanceEngineFactory(mockActiveDataBalanceEngine, mockInactiveDataBalanceEngine),
+                mockDbMetrics, time);
+        dataBalancer.onElection();
+        Set<Integer> newBrokers = new HashSet<>();
+        newBrokers.add(10);
+        dataBalancer.scheduleBrokerAdd(newBrokers);
+        verify(mockActiveDataBalanceEngine).addBrokers(eq(newBrokers), execCbCaptor.capture(), anyString());
+
+        assertEquals("New brokers not present in DataBalancer", newBrokers, dataBalancer.brokersToAdd);
+
+        execCbCaptor.getValue().accept(true, null);
+
+        assertTrue("Expected brokersToAdd to be cleared", dataBalancer.brokersToAdd.isEmpty());
+    }
+
+    /**
+     * Confirm that add that stops but doesn't actually fail is not considered done yet.
+     */
+    @Test
+    public void testAddOfOne_Pauses() {
+        KafkaDataBalanceManager dataBalancer = new KafkaDataBalanceManager(initConfig,
+                new KafkaDataBalanceManager.DataBalanceEngineFactory(mockActiveDataBalanceEngine, mockInactiveDataBalanceEngine),
+                mockDbMetrics, time);
+        dataBalancer.onElection();
+        Set<Integer> newBrokers = new HashSet<>();
+        newBrokers.add(10);
+        dataBalancer.scheduleBrokerAdd(newBrokers);
+        verify(mockActiveDataBalanceEngine).addBrokers(eq(newBrokers), execCbCaptor.capture(), anyString());
+
+        assertEquals("New brokers not present in DataBalancer", newBrokers, dataBalancer.brokersToAdd);
+
+        execCbCaptor.getValue().accept(false, null);
+
+        assertEquals("Expected brokersToAdd to not get cleared after unsuccessful completion", newBrokers, dataBalancer.brokersToAdd);
+    }
+
+    /**
+     * Confirm that add clears pending work after successful completion
+     */
+    @Test
+    public void testAddOfOne_Threw() {
+        KafkaDataBalanceManager dataBalancer = new KafkaDataBalanceManager(initConfig,
+                new KafkaDataBalanceManager.DataBalanceEngineFactory(mockActiveDataBalanceEngine, mockInactiveDataBalanceEngine),
+                mockDbMetrics, time);
+        dataBalancer.onElection();
+        Set<Integer> newBrokers = new HashSet<>();
+        newBrokers.add(10);
+        dataBalancer.scheduleBrokerAdd(newBrokers);
+        verify(mockActiveDataBalanceEngine).addBrokers(eq(newBrokers), execCbCaptor.capture(), anyString());
+
+        assertEquals("New brokers not present in DataBalancer", newBrokers, dataBalancer.brokersToAdd);
+
+        // Signal an exception. Op failure clears the list.
+        execCbCaptor.getValue().accept(false, new KafkaCruiseControlException("boom"));
+
+        assertTrue("Expected brokersToAdd to be cleared", dataBalancer.brokersToAdd.isEmpty());
+    }
+
+    /**
+     * Confirm that add clears pending work after successful completion
+     */
+    @Test
+    public void testAddOfMultiple_Succeeds() {
+        KafkaDataBalanceManager dataBalancer = new KafkaDataBalanceManager(initConfig,
+                new KafkaDataBalanceManager.DataBalanceEngineFactory(mockActiveDataBalanceEngine, mockInactiveDataBalanceEngine),
+                mockDbMetrics, time);
+        dataBalancer.onElection();
+        Set<Integer> newBrokers1 = new HashSet<>();
+        newBrokers1.add(10);
+        dataBalancer.scheduleBrokerAdd(newBrokers1);
+        assertEquals("New brokers not present in DataBalancer", newBrokers1, dataBalancer.brokersToAdd);
+        verify(mockActiveDataBalanceEngine).addBrokers(eq(newBrokers1), any(BalanceOpExecutionCompletionCallback.class), anyString());
+
+        // Now two more brokers show, hello! All should be merged together.
+        Set<Integer> newBrokers2 = Stream.of(11, 12).collect(Collectors.toSet());
+        dataBalancer.scheduleBrokerAdd(newBrokers2);
+
+        Set<Integer> expectedBrokerList2 = new HashSet<>(newBrokers1);
+        expectedBrokerList2.addAll(newBrokers2);
+
+        verify(mockActiveDataBalanceEngine).addBrokers(eq(expectedBrokerList2), execCbCaptor.capture(), anyString());
+        assertEquals("New brokers not present in DataBalancer", expectedBrokerList2, dataBalancer.brokersToAdd);
+
+        // Success!
+        execCbCaptor.getValue().accept(true, null);
+        assertTrue("Expected brokersToAdd to be cleared", dataBalancer.brokersToAdd.isEmpty());
+    }
+
+    /**
+     * Confirm that add clears pending work after successful completion
+     */
+    @Test
+    public void testAddOfMultiple_SucceedsWithRace() {
+        KafkaDataBalanceManager dataBalancer = new KafkaDataBalanceManager(initConfig,
+                new KafkaDataBalanceManager.DataBalanceEngineFactory(mockActiveDataBalanceEngine, mockInactiveDataBalanceEngine),
+                mockDbMetrics, time);
+        dataBalancer.onElection();
+        Set<Integer> newBrokers1 = new HashSet<>();
+        newBrokers1.add(10);
+        dataBalancer.scheduleBrokerAdd(newBrokers1);
+        assertEquals("New brokers not present in DataBalancer", newBrokers1, dataBalancer.brokersToAdd);
+        verify(mockActiveDataBalanceEngine).addBrokers(eq(newBrokers1), execCbCaptor.capture(), anyString());
+
+        // Now two more brokers show, hello! All should be merged together.
+        Set<Integer> newBrokers2 = Stream.of(11, 12).collect(Collectors.toSet());
+        dataBalancer.scheduleBrokerAdd(newBrokers2);
+
+        Set<Integer> expectedBrokerList2 = new HashSet<>(newBrokers1);
+        expectedBrokerList2.addAll(newBrokers2);
+
+        verify(mockActiveDataBalanceEngine).addBrokers(eq(expectedBrokerList2), execCbCaptor.capture(), anyString());
+        assertEquals("New brokers not present in DataBalancer", expectedBrokerList2, dataBalancer.brokersToAdd);
+
+        // Success for the first op. There was a race in submitting, so it completed.
+        execCbCaptor.getAllValues().get(0).accept(true, null);
+        assertEquals("Expected second brokers to still be present", newBrokers2, dataBalancer.brokersToAdd);
+        // The second one completes
+        execCbCaptor.getAllValues().get(1).accept(true, null);
+        assertTrue("Expected brokersToAdd to be cleared", dataBalancer.brokersToAdd.isEmpty());
+    }
+
 }

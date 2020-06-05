@@ -6,6 +6,7 @@ package io.confluent.databalancer.persistence;
 import com.linkedin.kafka.cruisecontrol.SbkTopicUtils;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import io.confluent.databalancer.StartupCheckInterruptedException;
+import kafka.common.BrokerAddStatus;
 import kafka.common.BrokerRemovalStatus;
 import io.confluent.databalancer.record.ApiStatus;
 import io.confluent.databalancer.record.ApiStatus.ApiStatusKey;
@@ -100,6 +101,7 @@ public class ApiStatePersistenceStore implements AutoCloseable {
     private KafkaBasedLog<ApiStatusKey, ApiStatusMessage> apiStatePersistenceLog;
     private String topic;
     private Map<Integer, BrokerRemovalStatus> brokerRemovalStatusMap = new ConcurrentHashMap<>();
+    private Map<Integer, BrokerAddStatus> brokerAddStatusMap = new ConcurrentHashMap<>();
 
     public ApiStatePersistenceStore(KafkaConfig config, Time time) {
         init(config, time);
@@ -250,6 +252,18 @@ public class ApiStatePersistenceStore implements AutoCloseable {
         brokerRemovalStatusMap.put(status.brokerId(), status);
     }
 
+    public BrokerAddStatus getBrokerAddStatus(int brokerId) {
+        return brokerAddStatusMap.get(brokerId);
+    }
+
+    public Map<Integer, BrokerAddStatus> getAllBrokerAddStatus() {
+        return Collections.unmodifiableMap(brokerAddStatusMap);
+    }
+
+    public void addBrokerAddStatus(BrokerAddStatus status) {
+        brokerAddStatusMap.put(status.brokerId(), status);
+    }
+
     // Visible for testing
     public static class SbkApiStatusKeySerde extends ProtoSerde<ApiStatusKey> {
         public SbkApiStatusKeySerde() {
@@ -368,7 +382,7 @@ public class ApiStatePersistenceStore implements AutoCloseable {
 
     private Map<String, Object> getProducerConfig(KafkaConfig config) {
         return ConfluentConfigs.clientConfigs(config,
-                "", // Config prefix, none for this case
+                ConfluentConfigs.CONFLUENT_BALANCER_PREFIX,
                 ConfluentConfigs.ClientType.PRODUCER,
                 topic,
                 String.valueOf(config.brokerId()));
@@ -376,7 +390,7 @@ public class ApiStatePersistenceStore implements AutoCloseable {
 
     private Map<String, Object> getConsumerConfig(KafkaConfig config) {
         return ConfluentConfigs.clientConfigs(config,
-                "", // Config prefix, none for this case
+                ConfluentConfigs.CONFLUENT_BALANCER_PREFIX,
                 ConfluentConfigs.ClientType.CONSUMER,
                 topic,
                 String.valueOf(config.brokerId()));

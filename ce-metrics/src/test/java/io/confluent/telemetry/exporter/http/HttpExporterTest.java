@@ -3,7 +3,6 @@ package io.confluent.telemetry.exporter.http;
 import com.google.common.collect.ImmutableMap;
 
 import io.confluent.shaded.io.reactivex.Observable;
-import io.confluent.telemetry.reporter.KafkaServerMetricsReporter;
 import org.assertj.core.data.Offset;
 import org.junit.Rule;
 import org.junit.Test;
@@ -80,7 +79,7 @@ public class HttpExporterTest {
 
         HttpExporter exporter = new HttpExporter(new HttpExporterConfig(minimalConfig));
 
-        Resource resource = new ResourceBuilderFacade(KafkaServerMetricsReporter.RESOURCE_TYPE_KAFKA)
+        Resource resource = new ResourceBuilderFacade("kafka")
             .withLabel("resource_label", "123")
             .withVersion("mockVersion")
             .withId("mockId")

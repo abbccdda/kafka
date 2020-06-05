@@ -4,7 +4,7 @@
 package io.confluent.telemetry.events.exporter;
 
 import io.cloudevents.CloudEvent;
-import io.cloudevents.v03.AttributesImpl;
+import io.cloudevents.v1.AttributesImpl;
 import org.apache.kafka.common.Reconfigurable;
 
 /**

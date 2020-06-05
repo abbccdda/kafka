@@ -41,9 +41,11 @@ public class TierObjectStoreUtils {
                         props.getProperty(KafkaConfig.TierS3EndpointOverrideProp()),
                         props.getProperty(KafkaConfig.TierS3SignerOverrideProp()),
                         props.getProperty(KafkaConfig.TierS3SseAlgorithmProp(), Defaults.TierS3SseAlgorithm()),
+                        props.getProperty(KafkaConfig.TierS3SseCustomerEncryptionKeyProp(), Defaults.TierS3SseCustomerEncryptionKey()),
                         Integer.parseInt(props.getOrDefault(KafkaConfig.TierS3AutoAbortThresholdBytesProp(),
                                 Defaults.TierS3AutoAbortThresholdBytes()).toString()),
-                        props.getProperty(KafkaConfig.TierS3PrefixProp(), Defaults.TierS3Prefix()));
+                        props.getProperty(KafkaConfig.TierS3PrefixProp(), Defaults.TierS3Prefix()),
+                        props.getProperty(KafkaConfig.TierS3AssumeRoleArnProp(), Defaults.TierS3AssumeRoleArn()));
             case Mock:
                 return TierObjectStoreConfig.createEmpty();
             default:

@@ -6,7 +6,7 @@ package io.confluent.telemetry.events.serde;
 import io.cloudevents.format.StructuredMarshaller;
 import io.cloudevents.format.builder.EventStep;
 import io.cloudevents.fun.EnvelopeMarshaller;
-import io.cloudevents.v03.AttributesImpl;
+import io.cloudevents.v1.AttributesImpl;
 
 public class StructuredSerializer<T> extends Serializer<T> {
 

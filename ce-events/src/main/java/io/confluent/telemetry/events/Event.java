@@ -4,8 +4,8 @@
 package io.confluent.telemetry.events;
 
 import io.cloudevents.CloudEvent;
-import io.cloudevents.v03.AttributesImpl;
-import io.cloudevents.v03.CloudEventBuilder;
+import io.cloudevents.v1.AttributesImpl;
+import io.cloudevents.v1.CloudEventBuilder;
 import io.confluent.telemetry.events.cloudevents.extensions.RouteExtension;
 import java.net.URI;
 import java.time.ZoneOffset;
@@ -97,7 +97,7 @@ public class Event {
           .withTime(time)
           .withSubject(subject)
           .withData(data)
-          .withDatacontenttype(dataContentType);
+          .withDataContentType(dataContentType);
 
       if (this.route != null) {
         RouteExtension re = new RouteExtension();

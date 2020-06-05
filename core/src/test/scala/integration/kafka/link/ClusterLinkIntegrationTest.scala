@@ -1,7 +1,7 @@
 /*
  * Copyright 2020 Confluent Inc.
  */
-package integration.kafka.link
+package kafka.link
 
 import java.io.File
 import java.nio.file.{Files, StandardCopyOption}
@@ -29,7 +29,9 @@ import org.apache.kafka.common.errors.{InvalidConfigurationException, InvalidPar
 import org.apache.kafka.common.requests.{AlterMirrorsRequest, NewClusterLink}
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.security.scram.ScramCredential
+import org.apache.kafka.test.IntegrationTest
 import org.junit.Assert._
+import org.junit.experimental.categories.Category
 import org.junit.{After, Before, Test}
 import org.scalatest.Assertions.intercept
 
@@ -37,6 +39,7 @@ import scala.annotation.nowarn
 import scala.collection.{Map, Seq, mutable}
 import scala.jdk.CollectionConverters._
 
+@Category(Array(classOf[IntegrationTest]))
 class ClusterLinkIntegrationTest extends Logging {
 
   val sourceCluster = new ClusterLinkTestHarness(SecurityProtocol.SASL_SSL)

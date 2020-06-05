@@ -21,6 +21,7 @@ import java.util.Objects;
 public class RbacRoles {
 
   private static final String DEFAULT_POLICY_FILE = "default_rbac_roles.json";
+  private static final String CLOUD_POLICY_FILE = "cloud_rbac_roles.json";
 
   private final Map<String, Role> roles;
 
@@ -73,7 +74,11 @@ public class RbacRoles {
     this.roles.put(role.name(), role);
   }
 
-  public static RbacRoles loadDefaultPolicy() throws InvalidRoleDefinitionException {
+  public static RbacRoles loadDefaultPolicy(boolean isConfluentCloud)
+          throws InvalidRoleDefinitionException {
+    if (isConfluentCloud) {
+      return load(RbacRoles.class.getClassLoader(), CLOUD_POLICY_FILE);
+    }
     return load(RbacRoles.class.getClassLoader(), DEFAULT_POLICY_FILE);
   }
 

@@ -65,6 +65,9 @@ public class RemoveBrokerTest extends DataBalancerClusterTestHarness {
     KafkaServer controllerServer = controllerKafkaServer();
     KafkaDataBalanceManager dataBalancer = (KafkaDataBalanceManager) controllerServer.kafkaController().dataBalancer().get();
 
+    TestUtils.waitForCondition(dataBalancer::isActive, "Waiting for DataBalancer to start.");
+
+    info("Removing broker with id {}", brokerToRemoveId);
     adminClient.removeBrokers(Collections.singletonList(brokerToRemoveId)).all().get();
 
     // await removal completion and retry removal in case something went wrong

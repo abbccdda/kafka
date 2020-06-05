@@ -38,12 +38,14 @@ import org.apache.kafka.connect.runtime.TargetState;
 import org.apache.kafka.connect.runtime.TaskConfig;
 import org.apache.kafka.connect.runtime.TaskStatus;
 import org.apache.kafka.connect.runtime.Worker;
+import org.apache.kafka.connect.runtime.WorkerConfigDecorator;
 import org.apache.kafka.connect.runtime.WorkerConfigTransformer;
 import org.apache.kafka.connect.runtime.WorkerConnector;
 import org.apache.kafka.connect.runtime.distributed.ClusterConfigState;
 import org.apache.kafka.connect.runtime.isolation.DelegatingClassLoader;
 import org.apache.kafka.connect.runtime.isolation.PluginClassLoader;
 import org.apache.kafka.connect.runtime.isolation.Plugins;
+import org.apache.kafka.connect.runtime.rest.entities.ConfigInfos;
 import org.apache.kafka.connect.runtime.rest.entities.ConnectorInfo;
 import org.apache.kafka.connect.runtime.rest.entities.ConnectorType;
 import org.apache.kafka.connect.runtime.rest.entities.TaskInfo;
@@ -84,6 +86,9 @@ import static java.util.Collections.singletonMap;
 import static org.apache.kafka.connect.runtime.TopicCreationConfig.DEFAULT_TOPIC_CREATION_PREFIX;
 import static org.apache.kafka.connect.runtime.TopicCreationConfig.PARTITIONS_CONFIG;
 import static org.apache.kafka.connect.runtime.TopicCreationConfig.REPLICATION_FACTOR_CONFIG;
+import static org.easymock.EasyMock.anyObject;
+import static org.easymock.EasyMock.anyString;
+import static org.easymock.EasyMock.capture;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -107,6 +112,7 @@ public class StandaloneHerderTest {
 
     private Connector connector;
     @Mock protected Worker worker;
+    @Mock protected WorkerConfigDecorator decorator;
     @Mock protected WorkerConfigTransformer transformer;
     @Mock private Plugins plugins;
     @Mock
@@ -165,6 +171,7 @@ public class StandaloneHerderTest {
         EasyMock.expect(worker.getPlugins()).andReturn(plugins).times(3);
         EasyMock.expect(plugins.compareAndSwapLoaders(connectorMock)).andReturn(delegatingLoader);
         EasyMock.expect(plugins.newConnector(EasyMock.anyString())).andReturn(connectorMock);
+        expectConfigDecoration();
 
         EasyMock.expect(connectorMock.config()).andStubReturn(new ConfigDef());
 
@@ -193,6 +200,7 @@ public class StandaloneHerderTest {
         EasyMock.expect(worker.getPlugins()).andReturn(plugins).times(3);
         EasyMock.expect(plugins.compareAndSwapLoaders(connectorMock)).andReturn(delegatingLoader);
         EasyMock.expect(plugins.newConnector(EasyMock.anyString())).andReturn(connectorMock);
+        expectConfigDecoration();
 
         ConfigDef configDef = new ConfigDef();
         configDef.define("foo.bar", ConfigDef.Type.STRING, ConfigDef.Importance.HIGH, "foo.bar doc");
@@ -229,6 +237,7 @@ public class StandaloneHerderTest {
         EasyMock.expect(transformer.transform(EasyMock.capture(configCapture))).andAnswer(configCapture::getValue);
         EasyMock.expect(worker.getPlugins()).andReturn(plugins).times(2);
         EasyMock.expect(plugins.compareAndSwapLoaders(connectorMock)).andReturn(delegatingLoader);
+        expectConfigDecoration();
         // No new connector is created
         EasyMock.expect(Plugins.compareAndSwapLoaders(delegatingLoader)).andReturn(pluginLoader);
         // Second should fail
@@ -611,6 +620,7 @@ public class StandaloneHerderTest {
         EasyMock.expect(plugins.newConnector(EasyMock.anyString())).andReturn(connectorMock);
         EasyMock.expect(connectorMock.config()).andStubReturn(configDef);
         EasyMock.expect(Plugins.compareAndSwapLoaders(delegatingLoader)).andReturn(pluginLoader);
+        expectConfigDecoration();
         Callback<Herder.Created<ConnectorInfo>> callback = PowerMock.createMock(Callback.class);
         Capture<BadRequestException> capture = Capture.newInstance();
         callback.onCompletion(
@@ -734,6 +744,7 @@ public class StandaloneHerderTest {
         for (Map<String, String> config : configs)
             EasyMock.expect(connectorMock.validate(config)).andReturn(new Config(Collections.<ConfigValue>emptyList()));
         EasyMock.expect(Plugins.compareAndSwapLoaders(delegatingLoader)).andReturn(pluginLoader);
+        expectConfigDecoration();
     }
 
     // We need to use a real class here due to some issue with mocking java.lang.Class
@@ -749,4 +760,17 @@ public class StandaloneHerderTest {
     private abstract class BogusSinkTask extends SourceTask {
     }
 
+    private void expectConfigDecoration() {
+        // Expect the decorator to be called and to return undecorated configs and validation results
+        EasyMock.expect(worker.configDecorator()).andReturn(decorator).times(2);
+        final Capture<Map<String, String>> propCapture = EasyMock.newCapture();
+        EasyMock.expect(decorator.decorateConnectorConfig(
+                anyString(), anyObject(Connector.class), anyObject(ConfigDef.class), capture(propCapture))
+        ).andAnswer(propCapture::getValue);
+        final Capture<ConfigInfos> infosCapture = EasyMock.newCapture();
+        EasyMock.expect(decorator.decorateValidationResult(
+                anyString(), anyObject(Connector.class), anyObject(ConfigDef.class), anyObject(Map.class), capture(infosCapture))
+        ).andAnswer(infosCapture::getValue);
+
+    }
 }

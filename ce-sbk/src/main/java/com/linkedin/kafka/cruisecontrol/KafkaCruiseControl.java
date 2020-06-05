@@ -4,6 +4,7 @@
 
 package com.linkedin.kafka.cruisecontrol;
 
+import com.linkedin.cruisecontrol.exception.NotEnoughValidWindowsException;
 import com.linkedin.kafka.cruisecontrol.analyzer.AnalyzerUtils;
 import com.linkedin.kafka.cruisecontrol.analyzer.GoalOptimizer;
 import com.linkedin.kafka.cruisecontrol.analyzer.OptimizerResult;
@@ -35,8 +36,10 @@ import com.linkedin.kafka.cruisecontrol.monitor.metricdefinition.KafkaMetricDef;
 import com.linkedin.kafka.cruisecontrol.server.BrokerShutdownManager;
 import com.linkedin.kafka.cruisecontrol.servlet.response.CruiseControlState;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
+import io.confluent.databalancer.operation.BalanceOpExecutionCompletionCallback;
 import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback;
 import java.time.Duration;
+import java.util.Objects;
 import java.util.Optional;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.utils.SystemTime;
@@ -44,6 +47,7 @@ import org.apache.kafka.common.utils.Time;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.annotation.Nonnull;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -72,6 +76,7 @@ import static com.linkedin.kafka.cruisecontrol.servlet.response.CruiseControlSta
  */
 public class KafkaCruiseControl {
   private static final Logger LOG = LoggerFactory.getLogger(KafkaCruiseControl.class);
+  private final static Integer MD_MAX_REFRESH_ATTEMPTS = 100;
   protected final KafkaCruiseControlConfig _config;
   private final LoadMonitor _loadMonitor;
   private final GoalOptimizer _goalOptimizer;
@@ -199,8 +204,10 @@ public class KafkaCruiseControl {
 
     OptimizerResult result = computeDrainBrokersPlan(removedBrokers, goals, operationProgress, opts);
 
-    executeRemoval(result.goalProposals(), removedBrokers, isKafkaAssignerMode(goals),
-        replicationThrottle, uuid, null);
+    executeProposals(result.goalProposals(), removedBrokers, isKafkaAssignerMode(goals), null,
+            null, null, null, replicationThrottle, uuid,
+            null);
+
     return result;
   }
 
@@ -216,15 +223,26 @@ public class KafkaCruiseControl {
    * @param broker - the ID of the broker to remove
    * @param brokerEpoch - the epoch of the broker to remove, needed for the shutdown request
    * @param progressCallback - a callback utilized for tracking the progress of the remove broker call
+   * @param executionCompletionCallback -- a callback utilized to notify the operation scheduler when this has
+   *                                    finished.
    * @param uuid - the unique ID of this operation
    */
-  public BrokerRemovalPhaseBuilder.BrokerRemovalExecution removeBroker(int broker, Optional<Long> brokerEpoch, BrokerRemovalCallback progressCallback, String uuid) {
+  public BrokerRemovalPhaseBuilder.BrokerRemovalExecution removeBroker(int broker, Optional<Long> brokerEpoch,
+                                                                       @Nonnull BalanceOpExecutionCompletionCallback executionCompletionCallback,
+                                                                       @Nonnull BrokerRemovalCallback progressCallback, String uuid) {
+    Objects.nonNull(executionCompletionCallback);
+    Objects.nonNull(progressCallback);
     OperationProgress operationProgress = new OperationProgress();
     Set<Integer> brokersToRemove = new HashSet<>();
     brokersToRemove.add(broker);
 
     BrokerRemovalOptions removalArgs = new BrokerRemovalOptions(brokersToRemove, brokerEpoch, progressCallback, uuid,
         _defaultPlanComputationOptions, _replicationThrottle, operationProgress);
+
+    // Setup the appropriate  execution callback, combining the provided one (from the
+    // infrastructure) with the  operation-specific completion)
+    BalanceOpExecutionCompletionCallback combinedCompletionCallback =
+            composeRemovalExecutionCompletionCallbacks(brokersToRemove, executionCompletionCallback, progressCallback);
 
     BrokerRemovalPhaseBuilder brokerRemovalPhaseBuilder = new BrokerRemovalPhaseBuilder();
     return brokerRemovalPhaseBuilder.composeRemoval(removalArgs, progressCallback,
@@ -257,10 +275,47 @@ public class KafkaCruiseControl {
           removalOptions.setProposals(plan.goalProposals());
         },
         removalOptions -> { // 4. Plan execution - execute the partition reassignments to move replicas away from the broker (drain)
-          executeRemoval(removalOptions.proposals, removalOptions.brokersToRemove, false, _replicationThrottle, uuid, progressCallback);
+          executeRemoval(removalOptions.proposals, removalOptions.brokersToRemove, false, _replicationThrottle, uuid, combinedCompletionCallback);
           LOG.info("Successfully submitted the broker removal plan for broker {} (epoch {})", broker, brokerEpoch);
         }
     );
+  }
+
+  /*
+   * For broker removal, combine the OpCompletionCallback (to be invoked on execution completion, generated by the general SBK infrastructure)
+   * and the BrokerRemovalCallback (which is invoked on every state change, generated by the removal code) to be executed on execution completion.
+   */
+  private BalanceOpExecutionCompletionCallback composeRemovalExecutionCompletionCallbacks(
+          Set<Integer> brokersToRemove,
+          @Nonnull BalanceOpExecutionCompletionCallback executionCompletionCallback,
+          @Nonnull BrokerRemovalCallback progressCallback) {
+    return (success, ex) -> {
+      // First invoke the progress callback, because the operation isn't done yet.
+      try {
+        if (ex == null) {
+          progressCallback.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_EXECUTION_SUCCESS);
+          LOG.info("Successfully completed the broker removal operation for brokers {}", brokersToRemove);
+        } else {
+          Exception exc;
+          if (ex instanceof Exception) {
+            exc = (Exception) ex;
+          } else {
+            exc = new Exception(ex.getMessage());
+          }
+          progressCallback.registerEvent(
+                  BrokerRemovalCallback.BrokerRemovalEvent.PLAN_EXECUTION_FAILURE,
+                  exc);
+
+          LOG.info("The broker removal operation for brokers {} failed due to an unexpected exception while executing the proposals.",
+                  brokersToRemove, ex);
+        }
+        // Now the operation is truly complete.
+        executionCompletionCallback.accept(success, ex);
+      } catch (Exception e) {
+        LOG.error("Unexpected error in BrokerRemove Execution Completion for remove of {}", brokersToRemove, e);
+        throw e;
+      }
+    };
   }
 
   /**
@@ -361,7 +416,8 @@ public class KafkaCruiseControl {
                          concurrentLeaderMovements,
                          replicaMovementStrategy,
                          replicationThrottle,
-                         uuid);
+                         uuid,
+                         null);
       }
       return result;
     } catch (KafkaCruiseControlException kcce) {
@@ -475,140 +531,99 @@ public class KafkaCruiseControl {
     if (!dryRun) {
       executeProposals(result.goalProposals(), Collections.emptySet(), isKafkaAssignerMode(goals),
                        concurrentInterBrokerPartitionMovements, concurrentIntraBrokerPartitionMovements, concurrentLeaderMovements,
-                       replicaMovementStrategy, replicationThrottle, uuid);
+                       replicaMovementStrategy, replicationThrottle, uuid, null);
     }
     return result;
   }
 
 
   /**
-   * Add brokers
+   * Add brokers.
    * @param brokerIds The broker ids.
-   * @param requirements The cluster model completeness requirements.
-   * @param operationProgress The progress of the job to update.
-   * @param allowCapacityEstimation Allow capacity estimation in cluster model if the requested broker capacity is unavailable.
-   * @param concurrentInterBrokerPartitionMovements The maximum number of concurrent inter-broker partition movements per broker
-   *                                                (if null, use num.concurrent.partition.movements.per.broker).
-   * @param concurrentLeaderMovements The maximum number of concurrent leader movements
-   *                                  (if null, use num.concurrent.leader.movements).
-   * @param replicaMovementStrategy The strategy used to determine the execution order of generated replica movement tasks
-   *                                (if null, use default.replica.movement.strategies).
-   * @param replicationThrottle The replication throttle (bytes/second) to apply to both leaders and followers
-   *                            when adding brokers (if null, no throttling is applied).
-   * @param uuid UUID of the execution.
-   * @param excludeRecentlyRemovedBrokers Exclude recently removed brokers from proposal generation for replica transfer.
+   * @param completionCallback routine to be invoked on completion of the proposal execution. Accepts success/failure and Exception of the result.
+   * @param uid Unique ID of the execution.
    * @return The optimization result.
-   * @throws KafkaCruiseControlException When any exception occurred during the broker addition.
+   * @throws InterruptedException if the thread was interrupted.
+   * @throws KafkaCruiseControlException When any exception other than InterruptedException occurred during the broker addition.
    */
   public OptimizerResult addBrokers(Set<Integer> brokerIds,
-                                    ModelCompletenessRequirements requirements,
-                                    OperationProgress operationProgress,
-                                    boolean allowCapacityEstimation,
-                                    Integer concurrentInterBrokerPartitionMovements,
-                                    Integer concurrentLeaderMovements,
-                                    ReplicaMovementStrategy replicaMovementStrategy,
-                                    Long replicationThrottle,
-                                    String uuid,
-                                    boolean excludeRecentlyRemovedBrokers) throws KafkaCruiseControlException {
+                                    @Nonnull BalanceOpExecutionCompletionCallback completionCallback,
+                                    String uid)
+          throws KafkaCruiseControlException, InterruptedException {
+    Objects.nonNull(completionCallback);
     List<String> goals = Collections.emptyList();
 
+    // Metadata is infrequently refreshed, so use its max_age configuration to set up
+    // our criteria for checking when the broker is added.
+    int mdWaitMs = _config.getInt(KafkaCruiseControlConfig.METADATA_MAX_AGE_CONFIG) / 2;
+    int mdMaxWaitMs = _config.getInt(KafkaCruiseControlConfig.METADATA_MAX_AGE_CONFIG) * 2;
+
+    try (Executor.ReservationHandle ignored = _executor.reserveAndAbortOngoingExecutions(Duration.ofSeconds(60))) {
+      KafkaCruiseControlUtils.backoff(() -> brokersAreKnown(brokerIds),
+              MD_MAX_REFRESH_ATTEMPTS, mdWaitMs, mdMaxWaitMs, _time);
+
+      OptimizerResult rebalancePlan = generateAddBrokerPlan(brokerIds, goals);
+
+      executeProposals(rebalancePlan.goalProposals(),
+              Collections.emptySet(),
+              isKafkaAssignerMode(goals),
+              null,
+              null,
+              null,
+              null,
+              _replicationThrottle,
+              uid,
+              completionCallback);
+      return rebalancePlan;
+    } catch (KafkaCruiseControlException kcce) {
+      LOG.warn("AddBroker operation for brokers {} failed with exception ", brokerIds, kcce);
+      throw kcce;
+    } catch (InterruptedException ie) {
+      // Nothing to do at this level, but we should make sure not to swallow it.
+      throw ie;
+    } catch (Exception e) {
+      throw new KafkaCruiseControlException(e);
+    }
+  }
+
+  /*
+   * Attempt to compute an add-brokers plan. It may not be computable because of insufficient metrics, in
+   * which case we just wait for those to be satisfied.
+   */
+  private OptimizerResult generateAddBrokerPlan(Set<Integer> brokerIds, List<String> goals) throws Exception {
+    long metricsWindowWaitMs = _config.getLong(KafkaCruiseControlConfig.BROKER_METRICS_WINDOW_MS_CONFIG) / 2;
     List<Goal> goalsByPriority = goalsByPriority(goals);
     ModelCompletenessRequirements modelCompletenessRequirements =
-        modelCompletenessRequirements(goalsByPriority).weaker(requirements);
-    try (AutoCloseable ignored = _loadMonitor.acquireForModelGeneration(operationProgress)) {
-      sanityCheckBrokerPresence(brokerIds);
-      ClusterModel clusterModel = _loadMonitor.clusterModel(_time.milliseconds(),
-          modelCompletenessRequirements,
-          operationProgress);
-      sanityCheckBrokersHavingOfflineReplicasOnBadDisks(goals, clusterModel);
-      brokerIds.forEach(id -> clusterModel.setBrokerState(id, Broker.State.NEW));
+            modelCompletenessRequirements(goalsByPriority);
+    OperationProgress operationProgress = new OperationProgress();
+    PlanComputationOptions planComputationOptions = _defaultPlanComputationOptions;
 
-      OptimizerResult result = getProposals(clusterModel,
-          goalsByPriority,
-          operationProgress,
-          allowCapacityEstimation,
-          null,
-          true,
-          excludeRecentlyRemovedBrokers,
-          false,
-          Collections.emptySet());
+    do {
+      try (AutoCloseable ignored = _loadMonitor.acquireForModelGeneration(operationProgress)) {
+        ClusterModel clusterModel = _loadMonitor.clusterModel(_time.milliseconds(),
+                modelCompletenessRequirements,
+                operationProgress);
+        sanityCheckBrokersHavingOfflineReplicasOnBadDisks(goals, clusterModel);
+        brokerIds.forEach(id -> clusterModel.setBrokerState(id, Broker.State.NEW));
 
-      executeProposals(result.goalProposals(),
-          Collections.emptySet(),
-          isKafkaAssignerMode(goals),
-          concurrentInterBrokerPartitionMovements,
-          null,
-          concurrentLeaderMovements,
-          replicaMovementStrategy,
-          replicationThrottle,
-          uuid);
-      return result;
-    } catch (KafkaCruiseControlException kcce) {
-      throw kcce;
-    } catch (Exception e) {
-      throw new KafkaCruiseControlException(e);
-    }
-  }
-
-  /**
-   * Get the cluster model cutting off at a certain timestamp.
-   * @param now The current time in millisecond.
-   * @param requirements the model completeness requirements.
-   * @param operationProgress the progress of the job to report.
-   * @param allowCapacityEstimation Allow capacity estimation in cluster model if the requested broker capacity is unavailable.
-   * @param populateDiskInfo Whether populate disk information for each broker or not.
-   * @return the cluster workload model.
-   * @throws KafkaCruiseControlException When the cluster model generation encounter errors.
-   */
-  public ClusterModel clusterModel(long now,
-                                   ModelCompletenessRequirements requirements,
-                                   OperationProgress operationProgress,
-                                   boolean allowCapacityEstimation,
-                                   boolean populateDiskInfo)
-      throws KafkaCruiseControlException {
-    try (AutoCloseable ignored = _loadMonitor.acquireForModelGeneration(operationProgress)) {
-      ClusterModel clusterModel = _loadMonitor.clusterModel(-1, now, requirements, populateDiskInfo, operationProgress);
-      sanityCheckCapacityEstimation(allowCapacityEstimation, clusterModel.capacityEstimationInfoByBrokerId());
-      return clusterModel;
-    } catch (KafkaCruiseControlException kcce) {
-      throw kcce;
-    } catch (Exception e) {
-      throw new KafkaCruiseControlException(e);
-    }
-  }
-
-  /**
-   * Get the cluster model for a given time window.
-   * @param from the start time of the window
-   * @param to the end time of the window
-   * @param minValidPartitionRatio the minimum valid partition ratio requirement of model
-   * @param operationProgress the progress of the job to report.
-   * @param allowCapacityEstimation Allow capacity estimation in cluster model if the requested broker capacity is unavailable.
-   * @param populateDiskInfo Whether populate disk information for each broker or not.
-   * @return the cluster workload model.
-   * @throws KafkaCruiseControlException When the cluster model generation encounter errors.
-   */
-  public ClusterModel clusterModel(long from,
-                                   long to,
-                                   Double minValidPartitionRatio,
-                                   OperationProgress operationProgress,
-                                   boolean allowCapacityEstimation,
-                                   boolean populateDiskInfo)
-      throws KafkaCruiseControlException {
-    try (AutoCloseable ignored = _loadMonitor.acquireForModelGeneration(operationProgress)) {
-      if (minValidPartitionRatio == null) {
-        minValidPartitionRatio = _config.getDouble(KafkaCruiseControlConfig.MIN_VALID_PARTITION_RATIO_CONFIG);
+        OptimizerResult result = getProposals(clusterModel,
+                goalsByPriority,
+                operationProgress,
+                planComputationOptions.toAllowCapacityEstimation(),
+                null,
+                true,
+                planComputationOptions.toExcludeRecentlyRemovedBrokers(),
+                false,
+                Collections.emptySet());
+        return result;
+      } catch (NotEnoughValidWindowsException ne) {
+        LOG.warn("Insufficient metric windows to compute plan to add brokers {} -- sleeping and retry", brokerIds);
+        _time.sleep(metricsWindowWaitMs);
       }
-      ModelCompletenessRequirements requirements = new ModelCompletenessRequirements(1, minValidPartitionRatio, false);
-      ClusterModel clusterModel = _loadMonitor.clusterModel(from, to, requirements, populateDiskInfo, operationProgress);
-      sanityCheckCapacityEstimation(allowCapacityEstimation, clusterModel.capacityEstimationInfoByBrokerId());
-      return clusterModel;
-    } catch (KafkaCruiseControlException kcce) {
-      throw kcce;
-    } catch (Exception e) {
-      throw new KafkaCruiseControlException(e);
-    }
-  }
+    } while (true);
+}
+
+
 
   /**
    * Get the optimization proposals from the current cluster. The result would be served from the cached result if
@@ -817,14 +832,15 @@ public class KafkaCruiseControl {
                                 Integer concurrentLeaderMovements,
                                 ReplicaMovementStrategy replicaMovementStrategy,
                                 Long replicationThrottle,
-                                String uuid) {
+                                String uuid,
+                                BalanceOpExecutionCompletionCallback completionCallback) {
     if (hasProposalsToExecute(proposals, uuid)) {
       // Set the execution mode, add execution proposals, and start execution.
       _executor.setExecutionMode(isKafkaAssignerMode);
       _executor.executeProposals(proposals, unthrottledBrokers, null, _loadMonitor,
                                  concurrentInterBrokerPartitionMovements, concurrentIntraBrokerPartitionMovements,
                                  concurrentLeaderMovements, replicaMovementStrategy, replicationThrottle,
-                                 uuid);
+                                 uuid, completionCallback);
     }
   }
 
@@ -843,15 +859,14 @@ public class KafkaCruiseControl {
                               boolean isKafkaAssignerMode,
                               Long replicationThrottle,
                               String uuid,
-                              BrokerRemovalCallback progressCallback) {
+                              BalanceOpExecutionCompletionCallback completionCallback) {
     if (hasProposalsToExecute(proposals, uuid)) {
       // Set the execution mode, add execution proposals, and start execution.
       _executor.setExecutionMode(isKafkaAssignerMode);
-      _executor.executeRemoveBrokerProposals(proposals, removedBrokers,
+      _executor.executeProposals(proposals, removedBrokers,
           removedBrokers, _loadMonitor, null, 0,
           null, null, replicationThrottle, uuid,
-          progressCallback
-      );
+          completionCallback);
     } else {
       throw new IllegalStateException(
           String.format("Cannot execute a removal for brokers %s when there are no proposals to execute!", removedBrokers)
@@ -956,11 +971,22 @@ public class KafkaCruiseControl {
    * @param brokerIds A set of broker ids.
    */
   public void sanityCheckBrokerPresence(Set<Integer> brokerIds) {
+    if (!brokersAreKnown(brokerIds)) {
+      throw new IllegalArgumentException(String.format("Not all brokers in %s are known", brokerIds));
+    }
+  }
+
+  /**
+   * Helper to see if all brokers in brokerIds are present in current cluster metadata.
+   * Package-private for testing
+   * @param brokerIds
+   * @return true if all brokers in the set are present in the cluster metadata
+   */
+   boolean brokersAreKnown(Set<Integer> brokerIds) {
     Cluster cluster = _loadMonitor.refreshClusterAndGeneration().cluster();
     Set<Integer> invalidBrokerIds = brokerIds.stream().filter(id -> cluster.nodeById(id) == null).collect(Collectors.toSet());
-    if (!invalidBrokerIds.isEmpty()) {
-      throw new IllegalArgumentException(String.format("Broker %s does not exist.", invalidBrokerIds));
-    }
+    LOG.info("Search for brokers {} has invalid brokers {}", brokerIds, invalidBrokerIds);
+    return invalidBrokerIds.isEmpty();
   }
 
   /**

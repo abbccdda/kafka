@@ -17,10 +17,13 @@ import java.util.Map;
 import java.util.Properties;
 
 
-import static org.apache.kafka.common.config.internals.ConfluentConfigs.BALANCER_AUTO_HEAL_MODE_CONFIG;
-import static org.apache.kafka.common.config.internals.ConfluentConfigs.BalancerSelfHealMode.ANY_UNEVEN_LOAD;
 import static org.apache.kafka.test.TestUtils.waitForCondition;
 
+/*
+ * This test validates that when a new broker arrives and the default configuration is set to
+ * not self-heal (not set to ANY_UNEVEN_LOAD), the broker is still added.
+ * The success criterion matches that of AddBrokerWithSelfHealing.
+ */
 @Category(IntegrationTest.class)
 public class AddBrokerTest extends DataBalancerClusterTestHarness {
   private static final String TEST_TOPIC = "broker_addition_test_topic";
@@ -37,9 +40,6 @@ public class AddBrokerTest extends DataBalancerClusterTestHarness {
 
   @Override
   protected Properties injectTestSpecificProperties(Properties props) {
-    // TODO (CNKAF-730): Use the EMPTY_BROKER setting when the add-broker is merged.
-    //  Until then, use general rebalance to get the test passing
-    props.put(BALANCER_AUTO_HEAL_MODE_CONFIG, ANY_UNEVEN_LOAD.toString());
     return props;
   }
 

@@ -4,10 +4,11 @@
 package io.confluent.telemetry.events.serde;
 
 import static io.confluent.telemetry.events.serde.ProtobufSerdeTest.checkHeader;
+import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.cloudevents.CloudEvent;
-import io.cloudevents.v03.AttributesImpl;
+import io.cloudevents.v1.AttributesImpl;
 import io.confluent.telemetry.events.Event;
 import java.time.ZonedDateTime;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -27,7 +28,7 @@ public class JsonSerdeTest {
       .setData("foobar")
       .build();
 
-  String jsonStringEvent = "{\"data\":\"foobar\",\"id\":\"ebfa4f0d-6a5e-4839-b3f6-ca4250a9332c\",\"source\":\"crn://authority/serde=source\",\"specversion\":\"0.3\",\"type\":\"event_type\",\"time\":\"2020-05-09T00:56:14.471123Z\",\"datacontenttype\":\"application/json\",\"subject\":\"crn://authority/serde=subject\"}";
+  String jsonStringEvent = "{\"data\":\"foobar\",\"id\":\"ebfa4f0d-6a5e-4839-b3f6-ca4250a9332c\",\"source\":\"crn://authority/serde=source\",\"specversion\":\"1.0\",\"type\":\"event_type\",\"time\":\"2020-05-09T00:56:14.471123Z\",\"datacontenttype\":\"application/json\",\"subject\":\"crn://authority/serde=subject\"}";
 
   CloudEvent<AttributesImpl, TestMessage> testEvent = Event.<TestMessage>newBuilder()
       .setType("foo")
@@ -39,7 +40,7 @@ public class JsonSerdeTest {
       .setData(TestMessage.INSTANCE)
       .build();
 
-  String jsonTestEvent = "{\"data\":{\"a\":1,\"b\":\"bar\",\"c\":[\"F\",\"O\",\"O\"]},\"id\":\"26e0a193-7c6e-4915-b6ee-41559d980d65\",\"source\":\"crn://authority/serde=source\",\"specversion\":\"0.3\",\"type\":\"foo\",\"time\":\"2020-05-09T01:02:12.031071Z\",\"datacontenttype\":\"application/json\",\"subject\":\"crn://authority/serde=subject\"}";
+  String jsonTestEvent = "{\"data\":{\"a\":1,\"b\":\"bar\",\"c\":[\"F\",\"O\",\"O\"]},\"id\":\"26e0a193-7c6e-4915-b6ee-41559d980d65\",\"source\":\"crn://authority/serde=source\",\"specversion\":\"1.0\",\"type\":\"foo\",\"time\":\"2020-05-09T01:02:12.031071Z\",\"datacontenttype\":\"application/json\",\"subject\":\"crn://authority/serde=subject\"}";
 
   @Test
   public void roundtripStructured() {
@@ -68,7 +69,7 @@ public class JsonSerdeTest {
     Serializer<String> s = Json.<String>structuredSerializer();
     ProducerRecord<String, byte[]> e = s.producerRecord(strEvent, "footopic", 1);
 
-    assertThat(new String(e.value())).isEqualTo(jsonStringEvent);
+    assertThatJson(new String(e.value())).isEqualTo(jsonStringEvent);
   }
 
   @Test
@@ -92,10 +93,10 @@ public class JsonSerdeTest {
   public void deserializeStringBinary() {
     Headers h = new RecordHeaders();
 
-    h.add("ce_specversion", "0.3".getBytes());
+    h.add("ce_specversion", "1.0".getBytes());
     h.add("ce_time", "2020-05-09T00:56:14.471123Z".getBytes());
     h.add("ce_subject", "crn://authority/serde=subject".getBytes());
-    h.add("ce_datacontenttype", "application/json".getBytes());
+    h.add("content-type", Json.APPLICATION_JSON.getBytes());
     h.add("ce_source", "crn://authority/serde=source".getBytes());
     h.add("ce_id", "ebfa4f0d-6a5e-4839-b3f6-ca4250a9332c".getBytes());
     h.add("ce_type", "event_type".getBytes());
@@ -120,7 +121,7 @@ public class JsonSerdeTest {
   public void serializeObjectStructured() {
     Serializer<TestMessage> sf = Json.structuredSerializer();
     ProducerRecord<String, byte[]> e = sf.producerRecord(testEvent, "foo", 1);
-    assertThat(new String(e.value())).isEqualTo(jsonTestEvent);
+    assertThatJson(new String(e.value())).isEqualTo(jsonTestEvent);
   }
 
   @Test
@@ -139,7 +140,7 @@ public class JsonSerdeTest {
     ProducerRecord<String, byte[]> e = sf.producerRecord(testEvent, "foo", 1);
     assertThat(new String(e.value()))
         .isEqualTo("{\"a\":1,\"b\":\"bar\",\"c\":[\"F\",\"O\",\"O\"]}");
-    assertThat(new String(e.headers().headers("ce_datacontenttype").iterator().next().value()))
+    assertThat(new String(e.headers().headers("content-type").iterator().next().value()))
         .isEqualTo(Protobuf.APPLICATION_JSON);
     checkHeader(e.headers(), "ce_specversion");
     checkHeader(e.headers(), "ce_subject");
@@ -152,10 +153,10 @@ public class JsonSerdeTest {
   public void deserializeTestMessageBinary() {
     Headers h = new RecordHeaders();
 
-    h.add("ce_specversion", "0.3".getBytes());
+    h.add("ce_specversion", "1.0".getBytes());
     h.add("ce_time", "2020-05-09T00:56:14.471123Z".getBytes());
     h.add("ce_subject", "crn://authority/serde=subject".getBytes());
-    h.add("ce_datacontenttype", "application/json".getBytes());
+    h.add("content-type", "application/json".getBytes());
     h.add("ce_source", "crn://authority/serde=source".getBytes());
     h.add("ce_id", "ebfa4f0d-6a5e-4839-b3f6-ca4250a9332c".getBytes());
     h.add("ce_type", "foo".getBytes());

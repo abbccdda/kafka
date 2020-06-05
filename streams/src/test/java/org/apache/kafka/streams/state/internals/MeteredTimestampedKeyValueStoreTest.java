@@ -17,6 +17,7 @@
 package org.apache.kafka.streams.state.internals;
 
 import org.apache.kafka.common.MetricName;
+import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.metrics.JmxReporter;
 import org.apache.kafka.common.metrics.KafkaMetric;
 import org.apache.kafka.common.metrics.KafkaMetricsContext;
@@ -25,6 +26,7 @@ import org.apache.kafka.common.metrics.MetricsContext;
 import org.apache.kafka.common.metrics.Sensor;
 import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.common.serialization.Serdes;
+import org.apache.kafka.common.utils.AppInfoParser;
 import org.apache.kafka.common.utils.Bytes;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.streams.KeyValue;
@@ -52,6 +54,7 @@ import org.junit.runners.Parameterized.Parameters;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -150,7 +153,11 @@ public class MeteredTimestampedKeyValueStoreTest {
     public void testMetrics() {
         init();
         final JmxReporter reporter = new JmxReporter();
-        final MetricsContext metricsContext = new KafkaMetricsContext("kafka.streams");
+        final Map<String, Object> contextLabels = new HashMap<>();
+        contextLabels.put(ConfluentConfigs.RESOURCE_LABEL_TYPE, "streams");
+        contextLabels.put(ConfluentConfigs.RESOURCE_LABEL_VERSION, AppInfoParser.getVersion());
+        contextLabels.put(ConfluentConfigs.RESOURCE_LABEL_COMMIT_ID, AppInfoParser.getCommitId());
+        final MetricsContext metricsContext = new KafkaMetricsContext("kafka.streams", contextLabels);
         reporter.contextChange(metricsContext);
 
         metrics.addReporter(reporter);

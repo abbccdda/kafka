@@ -216,7 +216,7 @@ public class MockCentralizedAclTest extends ConfluentServerAuthorizerTest {
 
     MockCentralizedAclProvider(String clusterId) {
       this.scope = Scope.kafkaClusterScope(clusterId);
-      this.authCache = new DefaultAuthCache(RbacRoles.loadDefaultPolicy(), scope);
+      this.authCache = new DefaultAuthCache(RbacRoles.loadDefaultPolicy(false), scope);
     }
 
     @Override
@@ -229,7 +229,7 @@ public class MockCentralizedAclTest extends ConfluentServerAuthorizerTest {
     @Override
     protected AuthStore createAuthStore(Scope scope, ConfluentAuthorizerServerInfo serverInfo,
         Map<String, ?> configs) {
-      return new MockAuthStore(RbacRoles.loadDefaultPolicy(), scope);
+      return new MockAuthStore(RbacRoles.loadDefaultPolicy(isConfluentCloud()), scope);
     }
 
     @Override

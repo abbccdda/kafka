@@ -13,7 +13,7 @@ import kafka.server.link.ClusterLinkConfig._
 import kafka.server.link.ClusterLinkConfigDefaults._
 import org.apache.kafka.clients.CommonClientConfigs._
 import org.apache.kafka.clients.{ClientDnsLookup, CommonClientConfigs}
-import org.apache.kafka.common.config.ConfigDef.{ConfigKey, ValidString}
+import org.apache.kafka.common.config.ConfigDef.ConfigKey
 import org.apache.kafka.common.config.ConfigDef.Importance.{HIGH, LOW, MEDIUM}
 import org.apache.kafka.common.config.ConfigDef.Range.atLeast
 import org.apache.kafka.common.config.ConfigDef.Type._
@@ -75,6 +75,11 @@ object ClusterLinkConfig {
   val NumClusterLinkFetchersProp = "num.cluster.link.fetchers"
   val NumClusterLinkFetchersDoc = "Number of fetcher threads used to replicate messages from source brokers in cluster links."
 
+  val RetryTimeoutMsProp = "cluster.link.retry.timeout.ms"
+  val RetryTimeoutMsDoc = "The number of milliseconds after which failures are no longer retried and" +
+    " partitions are marked as failed. If the source topic is deleted and recreated within this timeout," +
+    " the link may contain records from the old as well as the new topic."
+
   val ConsumerOffsetSyncEnableProp = "consumer.offset.sync.enable"
   val ConsumerOffsetSyncEnableDoc = "Whether or not to migrate consumer offsets from the source cluster."
 
@@ -83,11 +88,6 @@ object ClusterLinkConfig {
 
   val ConsumerOffsetGroupFiltersProp = "consumer.offset.group.filters"
   val ConsumerOffsetGroupFiltersDoc = "JSON to denote the list of consumer groups to be migrated."
-
-  val RetryTimeoutMsProp = "cluster.link.retry.timeout.ms"
-  val RetryTimeoutMsDoc = "The number of milliseconds after which failures are no longer retried and" +
-    " partitions are marked as failed. If the source topic is deleted and recreated within this timeout," +
-    " the link may contain records from the old as well as the new topic."
 
   val AclSyncEnableProp = "acl.sync.enable"
   val AclSyncEnableDoc = "Whether or not to migrate ACLs"
@@ -101,9 +101,27 @@ object ClusterLinkConfig {
   val TopicConfigSyncMsProp = "topic.config.sync.ms"
   val TopicConfigSyncMsDoc = "How often to refresh the topic configs."
 
-  val TenantPrefixProp = "confluent.tenant.prefix"
-  val TenantPrefixPropDoc = "Internal config for tenant prefix for cluster links in Confluent Cloud." +
-    " Cannot be explicitly configured since prefix is automatically persisted based on request context."
+  val ReplicationProps = Set(
+    NumClusterLinkFetchersProp,
+    RetryTimeoutMsProp,
+    ReplicaSocketTimeoutMsProp,
+    ReplicaSocketReceiveBufferBytesProp,
+    ReplicaFetchMaxBytesProp,
+    ReplicaFetchWaitMaxMsProp,
+    ReplicaFetchBackoffMsProp,
+    ReplicaFetchMinBytesProp,
+    ReplicaFetchResponseMaxBytesProp
+  )
+
+  val PeriodicMigrationProps = Set(
+    ConsumerOffsetSyncEnableProp,
+    ConsumerOffsetSyncMsProp,
+    ConsumerOffsetGroupFiltersProp,
+    AclSyncEnableProp,
+    AclFiltersProp,
+    AclSyncMsProp,
+    TopicConfigSyncMsProp
+  )
 
   def main(args: Array[String]): Unit = {
     println(configDef.toHtml)
@@ -138,7 +156,6 @@ object ClusterLinkConfig {
 
     .withClientSslSupport()
     .withClientSaslSupport()
-    .defineInternal(TenantPrefixProp, STRING, null, ValidString.in(null), LOW, TenantPrefixPropDoc)
 
   def configNames: Seq[String] = configDef.names.asScala.toSeq.sorted
 
@@ -156,5 +173,3 @@ object ClusterLinkConfig {
     }
   }
 }
-
-case class ClusterLinkProps(config: ClusterLinkConfig, tenantPrefix: Option[String])

@@ -52,7 +52,7 @@ class ClusterLinkManagerTest {
     val linkName = "testLink"
     val linkId = UUID.randomUUID()
     val clusterId = "testClusterId"
-    val clusterLinkData = ClusterLinkData(linkName, linkId, Some(clusterId))
+    val clusterLinkData = ClusterLinkData(linkName, linkId, Some(clusterId), None)
     val topic = "testTopic"
     val tp0 = new TopicPartition(topic, 0)
     val partition0: Partition = createNiceMock(classOf[Partition])
@@ -76,7 +76,7 @@ class ClusterLinkManagerTest {
     setupMock(partition0, tp0, Some(linkId))
     expect(zkClient.clusterLinkExists(linkId)).andReturn(false).times(1)
     replay(zkClient)
-    clusterLinkManager.createClusterLink(clusterLinkData, clusterLinkProps, clusterLinkPersistentProps)
+    clusterLinkManager.createClusterLink(clusterLinkData, clusterLinkConfig, clusterLinkPersistentProps)
     assertNotEquals(None, clusterLinkManager.fetcherManager(linkId))
     assertNotEquals(None, clusterLinkManager.clientManager(linkId))
     assertEquals(Some(linkId), clusterLinkManager.resolveLinkId(linkName))
@@ -85,8 +85,8 @@ class ClusterLinkManagerTest {
     val clientManager = clusterLinkManager.clientManager(linkId).get
 
     intercept[ClusterLinkExistsException] {
-      clusterLinkManager.createClusterLink(ClusterLinkData(linkName, UUID.randomUUID(), Some(clusterId)),
-        clusterLinkProps, clusterLinkPersistentProps)
+      clusterLinkManager.createClusterLink(ClusterLinkData(linkName, UUID.randomUUID(), Some(clusterId), None),
+        clusterLinkConfig, clusterLinkPersistentProps)
     }
 
     clusterLinkManager.addPartitions(Set(partition0))
@@ -168,13 +168,13 @@ class ClusterLinkManagerTest {
 
     expect(zkClient.clusterLinkExists(linkId)).andReturn(false).times(1)
     expect(zkClient.getClusterLinks(Set(linkId)))
-      .andReturn(Map(linkId -> ClusterLinkData(linkName, linkId, None)))
+      .andReturn(Map(linkId -> ClusterLinkData(linkName, linkId, None, None)))
       .anyTimes()
     replay(zkClient)
 
     assertEquals(None, clusterLinkManager.fetcherManager(linkId))
-    clusterLinkManager.createClusterLink(ClusterLinkData(linkName, linkId, None),
-      clusterLinkProps, clusterLinkPersistentProps)
+    clusterLinkManager.createClusterLink(ClusterLinkData(linkName, linkId, None, None),
+      clusterLinkConfig, clusterLinkPersistentProps)
     val fetcherManager = clusterLinkManager.fetcherManager(linkId).get
     assertEquals(Collections.singletonList("localhost:1234"), fetcherManager.currentConfig.bootstrapServers)
 
@@ -216,8 +216,8 @@ class ClusterLinkManagerTest {
     props
   }
 
-  private def clusterLinkProps: ClusterLinkProps =
-    ClusterLinkProps(new ClusterLinkConfig(clusterLinkPersistentProps), None)
+  private def clusterLinkConfig: ClusterLinkConfig =
+    new ClusterLinkConfig(clusterLinkPersistentProps)
 
   private def setupMock(partition: Partition, tp: TopicPartition, linkId: Option[UUID]): Unit = {
     reset(partition)

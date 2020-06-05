@@ -7,7 +7,6 @@ import com.google.common.collect.Iterables;
 import io.confluent.telemetry.ResourceBuilderFacade;
 import io.confluent.telemetry.Context;
 import io.confluent.telemetry.exporter.TestExporter;
-import io.confluent.telemetry.reporter.KafkaServerMetricsReporter;
 import io.opencensus.proto.metrics.v1.Metric;
 import java.util.Collections;
 
@@ -18,7 +17,7 @@ public class CPUMetricsCollectorTest {
   private final TestExporter exporter = new TestExporter();
 
   private final Context context = new Context(
-      new ResourceBuilderFacade(KafkaServerMetricsReporter.RESOURCE_TYPE_KAFKA)
+      new ResourceBuilderFacade("kafka")
           .withVersion("mockVersion")
           .withId("mockId")
           .build(),

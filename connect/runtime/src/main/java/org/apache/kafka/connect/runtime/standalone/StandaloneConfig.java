@@ -31,7 +31,11 @@ public class StandaloneConfig extends WorkerConfig {
     private static final String OFFSET_STORAGE_FILE_FILENAME_DOC = "File to store offset data in";
 
     static {
-        CONFIG = baseConfigDef()
+        CONFIG = configDef();
+    }
+
+    public static ConfigDef configDef() {
+        return baseConfigDef()
                 .define(OFFSET_STORAGE_FILE_FILENAME_CONFIG,
                         ConfigDef.Type.STRING,
                         ConfigDef.Importance.HIGH,

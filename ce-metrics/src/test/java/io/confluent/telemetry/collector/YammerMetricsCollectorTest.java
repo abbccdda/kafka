@@ -1,12 +1,6 @@
 package io.confluent.telemetry.collector;
 
 
-import static io.confluent.telemetry.collector.MetricsTestUtils.toMap;
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.Assert.assertEquals;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
-
 import com.google.protobuf.DoubleValue;
 import com.google.protobuf.Int64Value;
 import com.yammer.metrics.core.Counter;
@@ -16,14 +10,17 @@ import com.yammer.metrics.core.Meter;
 import com.yammer.metrics.core.MetricName;
 import com.yammer.metrics.core.MetricsRegistry;
 import com.yammer.metrics.core.Timer;
-import io.confluent.telemetry.ResourceBuilderFacade;
 import io.confluent.telemetry.Context;
 import io.confluent.telemetry.MetricKey;
+import io.confluent.telemetry.ResourceBuilderFacade;
 import io.confluent.telemetry.exporter.TestExporter;
-import io.confluent.telemetry.reporter.KafkaServerMetricsReporter;
 import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.metrics.v1.MetricDescriptor.Type;
 import io.opencensus.proto.metrics.v1.SummaryValue;
+import org.junit.Before;
+import org.junit.Test;
+import org.mockito.Mockito;
+
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Collections;
@@ -32,9 +29,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
-import org.junit.Before;
-import org.junit.Test;
-import org.mockito.Mockito;
+
+import static io.confluent.telemetry.collector.MetricsTestUtils.toMap;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.assertEquals;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 public class YammerMetricsCollectorTest {
 
@@ -45,7 +45,7 @@ public class YammerMetricsCollectorTest {
   private MetricName metricName;
 
   private final Context context = new Context(
-      new ResourceBuilderFacade(KafkaServerMetricsReporter.RESOURCE_TYPE_KAFKA)
+      new ResourceBuilderFacade("kafka")
           .withVersion("mockVersion")
           .withId("mockId")
           .build(),
@@ -184,6 +184,10 @@ public class YammerMetricsCollectorTest {
                     .setPercentile(99.9)
                     .setValue(95d)
                     .build())
+                .addPercentileValues(SummaryValue.Snapshot.ValueAtPercentile.newBuilder()
+                    .setPercentile(100.0)
+                    .setValue(95.0)
+                    .build())
                 .build()
         )
         .build();
@@ -255,6 +259,10 @@ public class YammerMetricsCollectorTest {
                 .addPercentileValues(SummaryValue.Snapshot.ValueAtPercentile.newBuilder()
                     .setPercentile(99.9)
                     .setValue(95d)
+                    .build())
+                .addPercentileValues(SummaryValue.Snapshot.ValueAtPercentile.newBuilder()
+                    .setPercentile(100.0)
+                    .setValue(95.0)
                     .build())
                 .build()
         )

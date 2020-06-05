@@ -131,7 +131,7 @@ public class PhysicalCluster {
     return logicalCluster;
   }
 
-  private synchronized UserMetadata getOrCreateUser(int userId, boolean isSuperUser) {
+  public synchronized UserMetadata getOrCreateUser(int userId, boolean isSuperUser) {
     UserMetadata userMetadata = usersById.get(userId);
     if (userMetadata != null) {
       return userMetadata;

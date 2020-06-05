@@ -424,7 +424,7 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
     val leaderEpoch = if (controllerContext.isTopicQueuedUpForDeletion(topicPartition.topic)) {
       LeaderAndIsr.EpochDuringDelete
     } else {
-      controllerContext.partitionLeadershipInfo.get(topicPartition)
+      controllerContext.partitionLeadershipInfo(topicPartition)
         .map(_.leaderAndIsr.leaderEpoch)
         .getOrElse(LeaderAndIsr.NoEpoch)
     }
@@ -444,7 +444,7 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
                                          partitions: collection.Set[TopicPartition]): Unit = {
 
     def updateMetadataRequestPartitionInfo(partition: TopicPartition, beingDeleted: Boolean): Unit = {
-      controllerContext.partitionLeadershipInfo.get(partition) match {
+      controllerContext.partitionLeadershipInfo(partition) match {
         case Some(LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch)) =>
           val replicaAssignment = controllerContext.partitionFullReplicaAssignment(partition)
           val replicas = replicaAssignment.replicas

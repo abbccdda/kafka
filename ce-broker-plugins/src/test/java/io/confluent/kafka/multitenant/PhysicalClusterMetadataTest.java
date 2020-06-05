@@ -412,7 +412,7 @@ public class PhysicalClusterMetadataTest {
     // no partitions on this broker --> min producer quota
     TestUtils.waitForCondition(
         () -> quotaCallback.quotaLimit(ClientQuotaType.PRODUCE, tags1).longValue() ==
-              TenantQuotaCallback.DEFAULT_MIN_BROKER_TENANT_PRODUCER_BYTE_RATE,
+              ConfluentConfigs.MIN_FOLLOWER_BROKER_TENANT_PRODUCER_BYTE_RATE_DEFAULT,
         TEST_MAX_WAIT_MS,
         "Expected min producer quota for tenant with no topics and limited quota");
     assertEquals(QuotaConfig.UNLIMITED_QUOTA.quota(ClientQuotaType.FETCH),
@@ -436,7 +436,7 @@ public class PhysicalClusterMetadataTest {
     Map<String, String> tags = Collections.singletonMap("tenant", LC_META_ABC.logicalClusterId());
     TestUtils.waitForCondition(
         () -> quotaCallback.quotaLimit(ClientQuotaType.PRODUCE, tags) >
-              TenantQuotaCallback.DEFAULT_MIN_BROKER_TENANT_PRODUCER_BYTE_RATE,
+              ConfluentConfigs.MIN_FOLLOWER_BROKER_TENANT_PRODUCER_BYTE_RATE_DEFAULT,
         TEST_MAX_WAIT_MS,
         "Tenant quota not configured within timeout, expected to be greater than min quota");
     TestUtils.waitForCondition(
@@ -566,9 +566,9 @@ public class PhysicalClusterMetadataTest {
 
     Map<String, String> tags = Collections.singletonMap("tenant", LC_META_ABC.logicalClusterId());
     // expect minimum bandwidth quotas because we did not simulate creating partitions
-    assertEquals(TenantQuotaCallback.DEFAULT_MIN_BROKER_TENANT_PRODUCER_BYTE_RATE,
+    assertEquals(ConfluentConfigs.MIN_FOLLOWER_BROKER_TENANT_PRODUCER_BYTE_RATE_DEFAULT,
                  quotaCallback.quotaLimit(ClientQuotaType.PRODUCE, tags), 0.001);
-    assertEquals(TenantQuotaCallback.DEFAULT_MIN_BROKER_TENANT_CONSUMER_BYTE_RATE,
+    assertEquals(ConfluentConfigs.MIN_FOLLOWER_BROKER_TENANT_CONSUMER_BYTE_RATE_DEFAULT,
                  quotaCallback.quotaLimit(ClientQuotaType.FETCH, tags), 0.001);
     assertEquals(LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE_PER_BROKER,
                  quotaCallback.quotaLimit(ClientQuotaType.REQUEST, tags), 0.001);
@@ -615,10 +615,10 @@ public class PhysicalClusterMetadataTest {
         Collections.singletonMap("tenant", LC_META_HEALTHCHECK.logicalClusterId());
     // expect minimum bandwidth quotas because we did not simulate creating partitions
     assertEquals(
-        TenantQuotaCallback.DEFAULT_MIN_BROKER_TENANT_PRODUCER_BYTE_RATE,
+        ConfluentConfigs.MIN_FOLLOWER_BROKER_TENANT_PRODUCER_BYTE_RATE_DEFAULT,
         quotaCallback.quotaLimit(ClientQuotaType.PRODUCE, tags), 0.001);
     assertEquals(
-        TenantQuotaCallback.DEFAULT_MIN_BROKER_TENANT_CONSUMER_BYTE_RATE,
+        ConfluentConfigs.MIN_FOLLOWER_BROKER_TENANT_CONSUMER_BYTE_RATE_DEFAULT,
         quotaCallback.quotaLimit(ClientQuotaType.FETCH, tags), 0.001);
     assertEquals(LogicalClusterMetadata.DEFAULT_REQUEST_PERCENTAGE_PER_BROKER,
                  quotaCallback.quotaLimit(ClientQuotaType.REQUEST, tags), 0.001);

@@ -219,6 +219,8 @@ public class WorkerTest extends ThreadedTest {
                 .andReturn(delegatingLoader)
                 .times(2);
 
+        EasyMock.expect(sourceConnector.config()).andReturn(WorkerTestConnector.CONFIG_DEF);
+        EasyMock.expectLastCall();
         sourceConnector.initialize(anyObject(ConnectorContext.class));
         EasyMock.expectLastCall();
         sourceConnector.start(connectorProps);
@@ -330,8 +332,8 @@ public class WorkerTest extends ThreadedTest {
         expectFileConfigProvider();
 
         EasyMock.expect(plugins.currentThreadLoader()).andReturn(delegatingLoader).times(2);
-        EasyMock.expect(plugins.newConnector("WorkerTestConnector")).andReturn(sourceConnector);
-        EasyMock.expect(sourceConnector.version()).andReturn("1.0");
+        EasyMock.expect(plugins.newConnector("WorkerTestConnector")).andReturn(sinkConnector);
+        EasyMock.expect(sinkConnector.version()).andReturn("1.0");
 
         connectorProps.put(ConnectorConfig.CONNECTOR_CLASS_CONFIG, "WorkerTestConnector");
 
@@ -482,6 +484,8 @@ public class WorkerTest extends ThreadedTest {
         EasyMock.expect(plugins.compareAndSwapLoaders(sinkConnector))
                 .andReturn(delegatingLoader)
                 .times(3);
+        EasyMock.expect(sinkConnector.config()).andReturn(WorkerTestConnector.CONFIG_DEF);
+        EasyMock.expectLastCall();
         sinkConnector.initialize(anyObject(ConnectorContext.class));
         EasyMock.expectLastCall();
         sinkConnector.start(connectorProps);
@@ -1074,6 +1078,7 @@ public class WorkerTest extends ThreadedTest {
         expectedConfigs.put("metrics.context.resource.type", WorkerConfig.CONNECT_RESOURCE_TYPE);
 
         EasyMock.expect(connectorConfig.originalsWithPrefix(ConnectorConfig.CONNECTOR_CLIENT_CONSUMER_OVERRIDES_PREFIX)).andReturn(new HashMap<>());
+
         PowerMock.replayAll();
         assertEquals(expectedConfigs, Worker.consumerConfigs(new ConnectorTaskId("test", 1), config, connectorConfig,
             null, noneConnectorClientConfigOverridePolicy, CLUSTER_ID));

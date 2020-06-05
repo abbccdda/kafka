@@ -9,7 +9,7 @@ import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import io.cloudevents.json.ZonedDateTimeDeserializer;
 import io.cloudevents.json.ZonedDateTimeSerializer;
-import io.cloudevents.v03.CloudEventImpl;
+import io.cloudevents.v1.CloudEventImpl;
 import java.time.ZonedDateTime;
 
 

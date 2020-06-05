@@ -14,7 +14,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import io.cloudevents.CloudEvent;
-import io.cloudevents.v03.AttributesImpl;
+import io.cloudevents.v1.AttributesImpl;
 import io.confluent.telemetry.events.cloudevents.extensions.RouteExtension;
 import io.confluent.security.audit.AuditLogConfig;
 import io.confluent.security.audit.AuditLogEntry;
@@ -132,7 +132,7 @@ public class ProviderRoutingTest {
     assertEquals("crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA",
         event.getAttributes().getSource().toString());
     assertEquals(Protobuf.APPLICATION_JSON, event.getAttributes().getDatacontenttype().get());
-    assertEquals("0.3", event.getAttributes().getSpecversion());
+    assertEquals("1.0", event.getAttributes().getSpecversion());
     assertEquals("io.confluent.kafka.server/authorization", event.getAttributes().getType());
 
     // Data

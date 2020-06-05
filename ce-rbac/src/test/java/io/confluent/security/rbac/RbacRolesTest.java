@@ -57,7 +57,7 @@ public class RbacRolesTest {
 
   @Test
   public void testDefaultRoles() throws Exception {
-    RbacRoles rbacRoles = RbacRoles.loadDefaultPolicy();
+    RbacRoles rbacRoles = RbacRoles.loadDefaultPolicy(false);
 
     assertEquals("Cluster", rbacRoles.role("SystemAdmin").accessPolicy().scopeType());
     assertEquals("Cluster", rbacRoles.role("UserAdmin").accessPolicy().scopeType());
@@ -73,6 +73,14 @@ public class RbacRolesTest {
         .allowedOperations(new ResourceType("Cluster")).contains(new Operation("Alter")));
     assertTrue(rbacRoles.role("ResourceOwner").accessPolicy()
         .allowedOperations(new ResourceType("Group")).contains(new Operation("Read")));
+  }
+
+
+  @Test
+  public void testCloudRoles() throws Exception {
+    RbacRoles rbacRoles = RbacRoles.loadDefaultPolicy(true);
+
+    assertEquals("Cluster", rbacRoles.role("OrgAdmin").accessPolicy().scopeType());
   }
 
   private void addRoles(String rolesJson) {

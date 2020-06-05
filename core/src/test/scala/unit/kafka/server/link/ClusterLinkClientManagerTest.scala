@@ -4,17 +4,18 @@
 
 package kafka.server.link
 
-import java.util.Properties
+import java.util.{Properties, UUID}
 
 import kafka.controller.KafkaController
 import kafka.utils.Implicits._
-import kafka.zk.KafkaZkClient
+import kafka.zk.{ClusterLinkData, KafkaZkClient}
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.clients.admin.{Admin, ConfluentAdmin}
+import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.server.authorizer.Authorizer
 import org.easymock.EasyMock._
 import org.junit.Assert._
-import org.junit.Test
+import org.junit.{After, Test}
 import org.scalatest.Assertions.intercept
 
 class ClusterLinkClientManagerTest {
@@ -25,6 +26,12 @@ class ClusterLinkClientManagerTest {
   val authorizer: Authorizer = createNiceMock(classOf[Authorizer])
   val controller: KafkaController = createNiceMock(classOf[KafkaController])
   val destAdmin: Admin = createNiceMock(classOf[Admin])
+  val metrics: Metrics = new Metrics()
+
+  @After
+  def tearDown(): Unit = {
+    metrics.close()
+  }
 
   @Test
   def testAdmin(): Unit = {
@@ -50,9 +57,14 @@ class ClusterLinkClientManagerTest {
 
       factoryAdmin = createNiceMock(classOf[ConfluentAdmin])
       factoryConfig = newConfig(Map(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG -> "localhost:2345"))
-      clientManager.reconfigure(factoryConfig)
+      clientManager.reconfigure(factoryConfig, Set(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG))
       assertEquals(2, factoryCalled)
       assertTrue(factoryAdmin eq clientManager.getAdmin)
+
+      factoryConfig = newConfig(Map(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG -> "localhost:2345",
+        ClusterLinkConfig.NumClusterLinkFetchersProp -> "5"))
+      clientManager.reconfigure(factoryConfig, Set(ClusterLinkConfig.NumClusterLinkFetchersProp))
+      assertEquals(2, factoryCalled)
     } finally {
       clientManager.shutdown()
     }
@@ -187,7 +199,9 @@ class ClusterLinkClientManagerTest {
                                controller: KafkaController) = {
     expect(scheduler.schedule(anyString(), anyObject(), anyLong(), anyLong(), anyObject())).andReturn(null).anyTimes()
     replay(scheduler)
-    new ClusterLinkClientManager(linkName, scheduler, zkClient, config,  authorizer, controller, adminFactory,() => destAdmin)
+    val linkData = ClusterLinkData(linkName, UUID.randomUUID, None, None)
+    new ClusterLinkClientManager(linkData, scheduler, zkClient, config,  authorizer, controller,
+      metrics, adminFactory, () => destAdmin)
   }
 
   private def newConfig(configs: Map[String, String]): ClusterLinkConfig = {

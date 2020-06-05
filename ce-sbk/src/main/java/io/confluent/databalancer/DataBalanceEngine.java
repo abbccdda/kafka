@@ -4,10 +4,13 @@
 
 package io.confluent.databalancer;
 
-import io.confluent.databalancer.operation.BrokerRemovalStateTracker;
+import io.confluent.databalancer.operation.BrokerRemovalProgressListener;
+import io.confluent.databalancer.operation.BalanceOpExecutionCompletionCallback;
 import kafka.server.KafkaConfig;
 
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.Set;
 
 /**
  * Interface to expose CruiseControl operations to users of that functionality (the KafkaDataBalanceManager). This is a limited subset of all the
@@ -16,6 +19,12 @@ import java.util.Optional;
  * here map 1:1 to the underlying CruiseControl operations.
  */
 public interface DataBalanceEngine {
+
+    /**
+     * Return {@link DataBalanceEngineContext} associated with this DataBalanceEngine.
+     */
+    DataBalanceEngineContext getDataBalanceEngineContext();
+
     /**
      * To be called when this DataBalanceEngine should be activated and start running.
      * @param kafkaConfig
@@ -53,6 +62,11 @@ public interface DataBalanceEngine {
     /**
      * Schedules the removal of a broker
      */
-    void removeBroker(int brokerToRemove, Optional<Long> brokerToRemoveEpoch,
-                      BrokerRemovalStateTracker stateTracker, String uid);
+    void removeBroker(int brokerToRemove,
+                      Optional<Long> brokerToRemoveEpoch,
+                      AtomicReference<String> registerBrokerRemovalMetric,
+                      BrokerRemovalProgressListener progressListener,
+                      String uid);
+
+    void addBrokers(Set<Integer> brokersToAdd, BalanceOpExecutionCompletionCallback onExecutionCompletion, String uid);
 }

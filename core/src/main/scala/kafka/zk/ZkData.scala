@@ -805,15 +805,16 @@ object ClusterLinksZNode {
   def path = "/cluster_links"
 }
 
-case class ClusterLinkData(linkName: String, linkId: UUID, clusterId: Option[String])
+case class ClusterLinkData(linkName: String, linkId: UUID, clusterId: Option[String], tenantPrefix: Option[String])
 
 object ClusterLinkZNode {
   def path(linkId: UUID) = s"${ClusterLinksZNode.path}/$linkId"
 
-  def encode(linkName: String, clusterId: Option[String]): Array[Byte] = {
+  def encode(linkName: String, clusterId: Option[String], tenantPrefix: Option[String]): Array[Byte] = {
     val config = mutable.Map.empty[String, String]
     config += "link_name" -> linkName
     clusterId.foreach(cid => config += "cluster_id" -> cid)
+    tenantPrefix.foreach(prefix => config += "tenant_prefix" -> prefix)
     Json.encodeAsBytes(config.asJava)
   }
 
@@ -821,7 +822,8 @@ object ClusterLinkZNode {
     Json.parseBytes(bytes).map(_.asJsonObject).map { json =>
       val linkName = json("link_name").to[String]
       val clusterId = json.get("cluster_id").map(_.to[String])
-      ClusterLinkData(linkName, linkId, clusterId)
+      val tenantPrefix = json.get("tenant_prefix").map(_.to[String])
+      ClusterLinkData(linkName, linkId, clusterId, tenantPrefix)
     }
   }
 }

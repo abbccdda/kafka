@@ -6,6 +6,7 @@ package io.confluent.security.audit;
 
 import static io.confluent.security.audit.provider.ConfluentAuditLogProvider.AUTHENTICATION_MESSAGE_TYPE;
 import static io.confluent.telemetry.events.EventLoggerConfig.DEFAULT_CLOUD_EVENT_ENCODING_CONFIG;
+import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
@@ -19,7 +20,7 @@ import com.hubspot.jackson.datatype.protobuf.ProtobufModule;
 import io.cloudevents.CloudEvent;
 import io.cloudevents.json.ZonedDateTimeDeserializer;
 import io.cloudevents.json.ZonedDateTimeSerializer;
-import io.cloudevents.v03.AttributesImpl;
+import io.cloudevents.v1.AttributesImpl;
 import io.confluent.telemetry.events.serde.Protobuf;
 import io.confluent.telemetry.events.Event;
 import io.confluent.telemetry.events.Event.Builder;
@@ -200,7 +201,7 @@ public class AuditLogProtobufToJsonTest {
     },
     "id": "e7872058-f971-496c-8a14-e6b0196c7ce",
     "source": "crn://confluent.cloud/kafka=lkc-ld9rz",
-    "specversion": "0.3",
+    "specversion": "1.0",
     "type": "io.confluent.kafka.server/authorization",
     "time": "2020-04-05T17:31:00Z",
     "datacontenttype": "application/json",
@@ -209,10 +210,8 @@ public class AuditLogProtobufToJsonTest {
 
      */
 
-    assertEquals(
-        "{\"data\":{\"serviceName\":\"crn://confluent.cloud/kafka=lkc-ld9rz\",\"methodName\":\"CreateTopics\",\"resourceName\":\"crn://confluent.cloud/kafka=lkc-ld9rz/topic=my_new_topic\",\"authenticationInfo\":{\"principal\":\"/users/123\"},\"authorizationInfo\":{\"granted\":true,\"operation\":\"Create\",\"resourceType\":\"Topic\",\"resourceName\":\"my_new_topic\",\"patternType\":\"Literal\",\"aclAuthorization\":{\"permissionType\":\"Allow\",\"host\":\"vPeOCWypqUOSepEvx0cbog\"}},\"request\":{\"requestType\":\"CreateTopics\",\"resourceType\":\"Topic\",\"resourceName\":\"my_new_topic\",\"correlationId\":12345.0,\"clientId\":\"userSupplied\"},\"requestMetadata\":{\"callerIp\":\"192.168.1.23\"}},\"id\":\"e7872058-f971-496c-8a14-e6b0196c7ce\",\"source\":\"crn://confluent.cloud/kafka=lkc-ld9rz\",\"specversion\":\"0.3\",\"type\":\"io.confluent.kafka.server/authorization\",\"time\":\"2020-04-05T17:31:00.000Z\",\"datacontenttype\":\"application/json\",\"subject\":\"crn://confluent.cloud/kafka=lkc-ld9rz/topic=my_new_topic\"}",
-        jsonString);
-
+    assertThatJson("{\"data\":{\"serviceName\":\"crn://confluent.cloud/kafka=lkc-ld9rz\",\"methodName\":\"CreateTopics\",\"resourceName\":\"crn://confluent.cloud/kafka=lkc-ld9rz/topic=my_new_topic\",\"authenticationInfo\":{\"principal\":\"/users/123\"},\"authorizationInfo\":{\"granted\":true,\"operation\":\"Create\",\"resourceType\":\"Topic\",\"resourceName\":\"my_new_topic\",\"patternType\":\"Literal\",\"aclAuthorization\":{\"permissionType\":\"Allow\",\"host\":\"vPeOCWypqUOSepEvx0cbog\"}},\"request\":{\"requestType\":\"CreateTopics\",\"resourceType\":\"Topic\",\"resourceName\":\"my_new_topic\",\"correlationId\":12345.0,\"clientId\":\"userSupplied\"},\"requestMetadata\":{\"callerIp\":\"192.168.1.23\"}},\"id\":\"e7872058-f971-496c-8a14-e6b0196c7ce\",\"source\":\"crn://confluent.cloud/kafka=lkc-ld9rz\",\"specversion\":\"1.0\",\"type\":\"io.confluent.kafka.server/authorization\",\"time\":\"2020-04-05T17:31:00.000Z\",\"datacontenttype\":\"application/json\",\"subject\":\"crn://confluent.cloud/kafka=lkc-ld9rz/topic=my_new_topic\"}")
+        .isEqualTo(jsonString);
   }
 
   @Test
@@ -318,7 +317,7 @@ public class AuditLogProtobufToJsonTest {
   },
   "id": "e7872058-f971-496c-8a14-e6b0196c7ce",
   "source": "crn://mds.example.com/kafka=vPeOCWypqUOSepEvx0cbog",
-  "specversion": "0.3",
+  "specversion": "1.0",
   "type": "io.confluent.kafka.server/authorization",
   "time": "2020-04-05T17:31:00Z",
   "datacontenttype": "application/json",
@@ -327,9 +326,8 @@ public class AuditLogProtobufToJsonTest {
 
      */
 
-    assertEquals(
-        "{\"data\":{\"serviceName\":\"crn://mds.example.com/kafka=vPeOCWypqUOSepEvx0cbog\",\"methodName\":\"CreateTopics\",\"resourceName\":\"crn://mds.example.com/kafka=vPeOCWypqUOSepEvx0cbog/topic=my_new_topic\",\"authenticationInfo\":{\"principal\":\"User:Alice\"},\"authorizationInfo\":{\"granted\":true,\"operation\":\"Create\",\"resourceType\":\"Topic\",\"resourceName\":\"my_new_topic\",\"patternType\":\"Literal\",\"rbacAuthorization\":{\"role\":\"ResourceOwner\",\"scope\":{\"outerScope\":[\"myorg\",\"myenv\"],\"clusters\":{\"kafka-cluster\":\"vPeOCWypqUOSepEvx0cbog\"}}}},\"request\":{\"requestType\":\"CreateTopics\",\"resourceType\":\"Topic\",\"resourceName\":\"my_new_topic\",\"correlationId\":12345.0,\"clientId\":\"userSupplied\"},\"requestMetadata\":{\"callerIp\":\"192.168.1.23\"}},\"id\":\"e7872058-f971-496c-8a14-e6b0196c7ce\",\"source\":\"crn://mds.example.com/kafka=vPeOCWypqUOSepEvx0cbog\",\"specversion\":\"0.3\",\"type\":\"io.confluent.kafka.server/authorization\",\"time\":\"2020-04-05T17:31:00.000Z\",\"datacontenttype\":\"application/json\",\"subject\":\"crn://mds.example.com/kafka=vPeOCWypqUOSepEvx0cbog/topic=my_new_topic\"}",
-        jsonString);
+    assertThatJson("{\"data\":{\"serviceName\":\"crn://mds.example.com/kafka=vPeOCWypqUOSepEvx0cbog\",\"methodName\":\"CreateTopics\",\"resourceName\":\"crn://mds.example.com/kafka=vPeOCWypqUOSepEvx0cbog/topic=my_new_topic\",\"authenticationInfo\":{\"principal\":\"User:Alice\"},\"authorizationInfo\":{\"granted\":true,\"operation\":\"Create\",\"resourceType\":\"Topic\",\"resourceName\":\"my_new_topic\",\"patternType\":\"Literal\",\"rbacAuthorization\":{\"role\":\"ResourceOwner\",\"scope\":{\"outerScope\":[\"myorg\",\"myenv\"],\"clusters\":{\"kafka-cluster\":\"vPeOCWypqUOSepEvx0cbog\"}}}},\"request\":{\"requestType\":\"CreateTopics\",\"resourceType\":\"Topic\",\"resourceName\":\"my_new_topic\",\"correlationId\":12345.0,\"clientId\":\"userSupplied\"},\"requestMetadata\":{\"callerIp\":\"192.168.1.23\"}},\"id\":\"e7872058-f971-496c-8a14-e6b0196c7ce\",\"source\":\"crn://mds.example.com/kafka=vPeOCWypqUOSepEvx0cbog\",\"specversion\":\"1.0\",\"type\":\"io.confluent.kafka.server/authorization\",\"time\":\"2020-04-05T17:31:00.000Z\",\"datacontenttype\":\"application/json\",\"subject\":\"crn://mds.example.com/kafka=vPeOCWypqUOSepEvx0cbog/topic=my_new_topic\"}")
+        .isEqualTo(jsonString);
 
   }
 
@@ -454,7 +452,7 @@ public class AuditLogProtobufToJsonTest {
 
     // This should produce the exception
     // com.fasterxml.jackson.databind.exc.InvalidDefinitionException: Direct self-reference
-    // leading to cycle (through reference chain: io.cloudevents.v03.CloudEventImpl["data"]->
+    // leading to cycle (through reference chain: io.cloudevents.v1.CloudEventImpl["data"]->
     // io.confluent.security.audit.AuditLogEntry["unknownFields"]
     // ->com.google.protobuf.UnknownFieldSet["defaultInstanceForType"])
     try {
@@ -500,9 +498,8 @@ public class AuditLogProtobufToJsonTest {
         .setData(auditLogEntry)
         .build();
 
-    assertEquals(
-        "{\"data\":{\"serviceName\":\"crn://confluent.cloud/kafka=lkc-ld9rz\",\"methodName\":\"\",\"resourceName\":\"\",\"authenticationInfo\":{\"principal\":\"User:123\",\"metadata\":{\"mechanism\":\"sasl\",\"identifier\":\"id1\"}},\"request\":{\"clientId\":\"userSupplied\"},\"requestMetadata\":{\"callerIp\":\"192.168.1.23\"},\"result\":{\"status\":\"SUCCESS\",\"message\":\"\"}},\"id\":\"e7872058-f971-496c-8a14-e6b0196c7ce\",\"source\":\"crn://confluent.cloud/kafka=lkc-ld9rz\",\"specversion\":\"0.3\",\"type\":\"io.confluent.kafka.server/authentication\",\"time\":\"2020-04-05T17:31:00.000Z\",\"datacontenttype\":\"application/json\",\"subject\":\"crn://confluent.cloud/kafka=lkc-ld9rz\"}",
-        JSON_SERIALIZER.toString(message));
+    assertThatJson("{\"data\":{\"serviceName\":\"crn://confluent.cloud/kafka=lkc-ld9rz\",\"methodName\":\"\",\"resourceName\":\"\",\"authenticationInfo\":{\"principal\":\"User:123\",\"metadata\":{\"mechanism\":\"sasl\",\"identifier\":\"id1\"}},\"request\":{\"clientId\":\"userSupplied\"},\"requestMetadata\":{\"callerIp\":\"192.168.1.23\"},\"result\":{\"status\":\"SUCCESS\",\"message\":\"\"}},\"id\":\"e7872058-f971-496c-8a14-e6b0196c7ce\",\"source\":\"crn://confluent.cloud/kafka=lkc-ld9rz\",\"specversion\":\"1.0\",\"type\":\"io.confluent.kafka.server/authentication\",\"time\":\"2020-04-05T17:31:00.000Z\",\"datacontenttype\":\"application/json\",\"subject\":\"crn://confluent.cloud/kafka=lkc-ld9rz\"}")
+        .isEqualTo(JSON_SERIALIZER.toString(message));
   }
 
   @Test
@@ -539,8 +536,7 @@ public class AuditLogProtobufToJsonTest {
         .setData(auditLogEntry)
         .build();
 
-    assertEquals(
-        "{\"data\":{\"serviceName\":\"crn://confluent.cloud/kafka=lkc-ld9rz\",\"methodName\":\"\",\"resourceName\":\"\",\"authenticationInfo\":{\"principal\":\"\",\"metadata\":{\"mechanism\":\"sasl\",\"identifier\":\"id1\"}},\"request\":{\"clientId\":\"userSupplied\"},\"requestMetadata\":{\"callerIp\":\"192.168.1.23\"},\"result\":{\"status\":\"UNAUTHENTICATED\",\"message\":\"error1\"}},\"id\":\"e7872058-f971-496c-8a14-e6b0196c7ce\",\"source\":\"crn://confluent.cloud/kafka=lkc-ld9rz\",\"specversion\":\"0.3\",\"type\":\"io.confluent.kafka.server/authentication\",\"time\":\"2020-04-05T17:31:00.000Z\",\"datacontenttype\":\"application/json\",\"subject\":\"crn://confluent.cloud/kafka=lkc-ld9rz\"}",
-        JSON_SERIALIZER.toString(message));
+    assertThatJson("{\"data\":{\"serviceName\":\"crn://confluent.cloud/kafka=lkc-ld9rz\",\"methodName\":\"\",\"resourceName\":\"\",\"authenticationInfo\":{\"principal\":\"\",\"metadata\":{\"mechanism\":\"sasl\",\"identifier\":\"id1\"}},\"request\":{\"clientId\":\"userSupplied\"},\"requestMetadata\":{\"callerIp\":\"192.168.1.23\"},\"result\":{\"status\":\"UNAUTHENTICATED\",\"message\":\"error1\"}},\"id\":\"e7872058-f971-496c-8a14-e6b0196c7ce\",\"source\":\"crn://confluent.cloud/kafka=lkc-ld9rz\",\"specversion\":\"1.0\",\"type\":\"io.confluent.kafka.server/authentication\",\"time\":\"2020-04-05T17:31:00.000Z\",\"datacontenttype\":\"application/json\",\"subject\":\"crn://confluent.cloud/kafka=lkc-ld9rz\"}")
+        .isEqualTo(JSON_SERIALIZER.toString(message));
   }
 }

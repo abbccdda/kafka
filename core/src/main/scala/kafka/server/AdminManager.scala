@@ -573,7 +573,7 @@ class AdminManager(val config: KafkaConfig,
             val linkId = clusterLinkManager.resolveLinkIdOrThrow(linkName)
             adminZkClient.ensureClusterLinkExists(linkId)
             val persistentProps = adminZkClient.fetchClusterLinkConfig(linkId)
-            val config = clusterLinkManager.configEncoder.clusterLinkProps(persistentProps).config
+            val config = clusterLinkManager.configEncoder.clusterLinkConfig(persistentProps)
             createResponseConfig(allConfigs(config), createClusterLinkConfigEntry(config))
 
           case resourceType => throw new InvalidRequestException(s"Unsupported resource type: $resourceType")

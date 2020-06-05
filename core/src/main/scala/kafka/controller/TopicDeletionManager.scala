@@ -385,8 +385,6 @@ class TopicDeletionManager(config: KafkaConfig,
     // controller will remove this replica from the state machine as well as its partition assignment cache
     val replicasForDeletedTopic = controllerContext.replicasInState(topic, ReplicaDeletionSuccessful)
     replicaStateMachine.handleStateChanges(replicasForDeletedTopic.toSeq, NonExistentReplica)
-    controllerContext.topicsToBeDeleted -= topic
-    controllerContext.topicsWithDeletionStarted -= topic
     client.deleteTopic(topic, controllerContext.epochZkVersion)
     controllerContext.removeTopic(topic)
     controllerContext.topicsWithDeletionBeingCompleted -= topic
