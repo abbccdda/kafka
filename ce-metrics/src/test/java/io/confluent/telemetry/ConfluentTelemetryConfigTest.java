@@ -147,9 +147,5 @@ public class ConfluentTelemetryConfigTest {
     assertThat(exporterConfigs)
       .hasEntrySatisfying(ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME, new Condition<>(c -> c instanceof KafkaExporterConfig, "is KafkaExporterConfig"));
     assertEquals(new KafkaExporterConfig(ConfluentTelemetryConfig.EXPORTER_LOCAL_DEFAULTS), (KafkaExporterConfig) exporterConfigs.get(ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME));
-
-    assertThat(exporterConfigs)
-        .hasEntrySatisfying(ConfluentTelemetryConfig.EXPORTER_CONFLUENT_NAME, new Condition<>(c -> c instanceof HttpExporterConfig, "is HttpExporterConfig"));
-    assertEquals(new HttpExporterConfig(ConfluentTelemetryConfig.EXPORTER_CONFLUENT_DEFAULTS), (HttpExporterConfig) exporterConfigs.get(ConfluentTelemetryConfig.EXPORTER_CONFLUENT_NAME));
   }
 }

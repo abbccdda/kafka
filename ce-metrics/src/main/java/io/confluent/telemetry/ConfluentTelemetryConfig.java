@@ -121,6 +121,7 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
     public static final Map<String, Object> EXPORTER_LOCAL_DEFAULTS =
         ImmutableMap.of(
             ExporterConfig.TYPE_CONFIG, ExporterConfig.ExporterType.kafka.name(),
+            ExporterConfig.ENABLED_CONFIG, true,
 
             // This will get overriden by getDynamicDefaults() however not defaulting
             // this makes us have to provide this config even when this reporter is explicitly disabled. 
@@ -136,6 +137,7 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
     public static final Map<String, Object> EXPORTER_CONFLUENT_DEFAULTS =
         ImmutableMap.of(
             ExporterConfig.TYPE_CONFIG, ExporterConfig.ExporterType.http.name(),
+            ExporterConfig.ENABLED_CONFIG, false,
             HttpExporterConfig.CLIENT_BASE_URL, "https://collector.telemetry.confluent.cloud"
         );
 
@@ -149,6 +151,9 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
         return PREFIX_EXPORTER + name + ".";
     }
 
+    /**
+     * High level configs tied only to the default Confluent Cloud Http Exporter for simplified usage.
+     */
     public static final String TELEMETRY_API_KEY = PREFIX + "api.key";
     public static final String TELEMETRY_API_KEY_DOC = "The API key used to authenticate HTTP requests with the Confluent telemetry server";
 
@@ -157,7 +162,7 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
 
     public static final String TELEMETRY_ENABLED_CONFIG = PREFIX + "enabled";
     public static final String TELEMETRY_ENABLED_DOC = "True if telemetry data can to be reported to Confluent Cloud";
-    public static final boolean TELEMETRY_ENABLED_DEFAULT = true;
+    public static final boolean TELEMETRY_ENABLED_DEFAULT = false;
 
     public static final String TELEMETRY_PROXY_URL = PREFIX + HttpExporterConfig.PREFIX_PROXY + "url";
     public static final String TELEMETRY_PROXY_URL_DOC = "The URL for an explicit (i.e. not transparent) forward HTTP proxy to send Telemetry data to Confluent Cloud";
@@ -167,6 +172,7 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
 
     public static final String TELEMETRY_PROXY_PASSWORD = PREFIX + HttpExporterConfig.PREFIX_PROXY + "password";
     public static final String TELEMETRY_PROXY_PASSWORD_DOC = "The password credential for the forward HTTP proxy to send Telemetry data to Confluent Cloud";
+
 
     public static final Set<String> RECONFIGURABLES =
         ImmutableSet.of(
