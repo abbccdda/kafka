@@ -1,7 +1,14 @@
 package io.confluent.telemetry.provider;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
+import io.confluent.telemetry.Context;
+import io.confluent.telemetry.MetricKey;
+import io.confluent.telemetry.collector.JvmMetricsCollector;
+import io.confluent.telemetry.collector.MetricsCollector;
 import io.opencensus.proto.resource.v1.Resource;
+import java.util.List;
+import java.util.function.Predicate;
 import org.apache.kafka.common.metrics.MetricsContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,5 +49,16 @@ public class KsqlProvider implements Provider {
   @Override
   public String domain() {
     return DOMAIN;
+  }
+
+  @Override
+  public List<MetricsCollector> extraCollectors(
+      Context ctx, Predicate<MetricKey> whitelistPredicate) {
+    return ImmutableList.of(
+        JvmMetricsCollector.newBuilder()
+            .setContext(ctx)
+            .setMetricWhitelistFilter(whitelistPredicate)
+            .build()
+    );
   }
 }

@@ -12,7 +12,7 @@ import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.confluent.telemetry.Context;
 import io.confluent.telemetry.MetricKey;
 import io.confluent.telemetry.ResourceBuilderFacade;
-import io.confluent.telemetry.collector.CPUMetricsCollector;
+import io.confluent.telemetry.collector.JvmMetricsCollector;
 import io.confluent.telemetry.collector.MetricsCollector;
 import io.confluent.telemetry.collector.VolumeMetricsCollector;
 import io.confluent.telemetry.collector.YammerMetricsCollector;
@@ -71,7 +71,7 @@ public class KafkaServerProvider implements Provider {
     List<MetricsCollector> collectors = new ArrayList<>();
 
     collectors.add(
-        CPUMetricsCollector.newBuilder()
+        JvmMetricsCollector.newBuilder()
             .setContext(ctx)
             .setMetricWhitelistFilter(whitelistPredicate)
             .build()

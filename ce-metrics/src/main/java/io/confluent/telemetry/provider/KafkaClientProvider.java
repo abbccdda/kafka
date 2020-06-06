@@ -6,10 +6,17 @@ import static io.confluent.telemetry.provider.Utils.buildResourceFromLabelsAndCl
 import static io.confluent.telemetry.provider.Utils.notEmptyString;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
 import io.confluent.telemetry.ConfluentTelemetryConfig;
+import io.confluent.telemetry.Context;
+import io.confluent.telemetry.MetricKey;
+import io.confluent.telemetry.collector.JvmMetricsCollector;
+import io.confluent.telemetry.collector.MetricsCollector;
 import io.opencensus.proto.resource.v1.Resource;
 
+import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.common.metrics.MetricsContext;
 import org.slf4j.Logger;
@@ -63,5 +70,16 @@ public class KafkaClientProvider implements Provider {
   private  boolean validateRequiredLabels(Map<String, String> metadata) {
     return Utils.validateRequiredResourceLabels(metadata) &&
             (notEmptyString(metadata, Utils.RESOURCE_LABEL_CLUSTER_ID) || notEmptyString(metadata, Utils.CONNECT_KAFKA_CLUSTER_ID));
+  }
+
+  @Override
+  public List<MetricsCollector> extraCollectors(
+      Context ctx, Predicate<MetricKey> whitelistPredicate) {
+    return ImmutableList.of(
+        JvmMetricsCollector.newBuilder()
+            .setContext(ctx)
+            .setMetricWhitelistFilter(whitelistPredicate)
+            .build()
+    );
   }
 }
