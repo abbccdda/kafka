@@ -12,8 +12,6 @@ import com.linkedin.kafka.cruisecontrol.common.KafkaCruiseControlThreadFactory;
 import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityResolver;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore;
-import com.linkedin.kafka.cruisecontrol.monitor.sampling.MetricSampler;
-import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSampler;
 import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsSamplerBase;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import io.confluent.databalancer.operation.BrokerRemovalProgressListener;
@@ -367,9 +365,10 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
                 new LogContext());
 
         KafkaCruiseControlConfig config = generateCruiseControlConfig(kafkaConfig);
-        MetricSampler sampler = config.getConfiguredInstance(KafkaCruiseControlConfig.METRIC_SAMPLER_CLASS_CONFIG, MetricSampler.class);
-        if (sampler instanceof ConfluentMetricsSamplerBase) {
-            STARTUP_COMPONENTS.add(new StartupComponent(ConfluentMetricsReporterSampler.class.getSimpleName(), ((ConfluentMetricsSamplerBase) sampler)::checkStartupCondition));
+        Class<?> sampler = config.getClass(KafkaCruiseControlConfig.METRIC_SAMPLER_CLASS_CONFIG);
+        // All metric sampler classes derived from the ConfluentMetricsSampler have a startup component
+        if (ConfluentMetricsSamplerBase.class.isAssignableFrom(sampler)) {
+            STARTUP_COMPONENTS.add(new StartupComponent(sampler.getSimpleName(), ConfluentMetricsSamplerBase::checkStartupCondition));
         }
 
         checkStartupComponentsReady(config);
