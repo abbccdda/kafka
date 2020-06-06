@@ -1247,7 +1247,17 @@ class KafkaApis(val requestChannel: RequestChannel,
           else
             topicMetadata
         } else if (allowAutoTopicCreation && config.autoCreateTopicsEnable) {
-          createTopic(topic, config.numPartitions, config.defaultReplicationFactor)
+          val topicToCreate = new CreatableTopic().setName(topic)
+          try {
+            adminManager.validateTopicCreatePolicy(topicToCreate, config.numPartitions,
+              config.defaultReplicationFactor.toShort, Map.empty)
+            createTopic(topic, config.numPartitions, config.defaultReplicationFactor)
+          } catch {
+            // MetadataResponse is not specified to return `POLICY_VIOLATION`, so we fallback
+            // to TOPIC_AUTHORIZATON_FAILED which is the closest non retriable alternative
+            case _: PolicyViolationException => metadataResponseTopic(Errors.TOPIC_AUTHORIZATION_FAILED,
+              topic, false, util.Collections.emptyList[MetadataResponsePartition]())
+          }
         } else {
           metadataResponseTopic(Errors.UNKNOWN_TOPIC_OR_PARTITION, topic, false, util.Collections.emptyList())
         }

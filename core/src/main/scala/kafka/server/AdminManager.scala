@@ -216,25 +216,10 @@ class AdminManager(val config: KafkaConfig,
         trace(s"Assignments for topic $topic are $assignments ")
 
         createTopicPolicy match {
-          case Some(policy) =>
+          case Some(_) =>
             adminZkClient.validateTopicCreate(topic.name, assignments, configs)
 
-            // Use `null` for unset fields in the public API
-            val numPartitions: java.lang.Integer =
-              if (topic.assignments().isEmpty) resolvedNumPartitions else null
-            val replicationFactor: java.lang.Short =
-              if (topic.assignments().isEmpty) resolvedReplicationFactor else null
-            val javaAssignments = if (topic.assignments().isEmpty) {
-              null
-            } else {
-              assignments.map { case (k, v) =>
-                (k: java.lang.Integer) -> v.replicas.map(i => i: java.lang.Integer).asJava
-              }.asJava
-            }
-            val javaConfigs = new java.util.HashMap[String, String]
-            topic.configs.forEach(config => javaConfigs.put(config.name, config.value))
-            policy.validate(new RequestMetadata(topic.name, numPartitions, replicationFactor,
-              javaAssignments, javaConfigs))
+            validateTopicCreatePolicy(topic, resolvedNumPartitions, resolvedReplicationFactor, assignments)
 
             if (!validateOnly)
               adminZkClient.createTopicWithAssignment(topic.name, configs, assignments, createTopicId, resolveClusterLink.topicState)
@@ -302,6 +287,30 @@ class AdminManager(val config: KafkaConfig,
     }
   }
 
+
+  def validateTopicCreatePolicy(topic: CreatableTopic,
+                                resolvedNumPartitions: Int,
+                                resolvedReplicationFactor: Short,
+                                assignments: Map[Int, ReplicaAssignment]) = {
+    createTopicPolicy.map { policy =>
+      // Use `null` for unset fields in the public API
+      val numPartitions: Integer = if (topic.assignments().isEmpty) resolvedNumPartitions else null
+      val replicationFactor: java.lang.Short =
+        if (topic.assignments().isEmpty) resolvedReplicationFactor else null
+      val javaAssignments =
+        if (topic.assignments().isEmpty) null
+        else {
+          assignments.map { case (k, v) =>
+            (k: Integer) -> v.replicas.map(i => i: Integer).asJava
+          }.asJava
+        }
+      val javaConfigs = new java.util.HashMap[String, String]
+      topic.configs.forEach(config => javaConfigs.put(config.name, config.value))
+
+      policy.validate(new RequestMetadata(topic.name, numPartitions, replicationFactor, javaAssignments,
+        javaConfigs))
+    }
+  }
 
   /**
     * Delete topics and wait until the topics have been completely deleted.
