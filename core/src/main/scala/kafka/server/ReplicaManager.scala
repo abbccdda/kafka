@@ -84,17 +84,14 @@ case class LogDeleteRecordsResult(requestedOffset: Long, lowWatermark: Long, exc
   }
 }
 
-/**
+/*
  * Result metadata of a log read operation on the log
- * @param info @AbstractFetchDataInfo returned by the @Log read
- * @param highWatermark high watermark of the local replica
- * @param leaderLogStartOffset The log start offset of the leader at the time of the read
- * @param leaderLogEndOffset The log end offset of the leader at the time of the read
- * @param followerLogStartOffset The log start offset of the follower taken from the Fetch request
- * @param fetchTimeMs The time the fetch was received
- * @param lastStableOffset Current LSO or None if the result has an exception
- * @param preferredReadReplica the preferred read replica to be used for future fetches
- * @param exception Exception if error encountered while reading from the log
+ * @param info @FetchDataInfo returned by the @Log read
+ * @param hw high watermark of the local replica
+ * @param readSize amount of data that was read from the log i.e. size of the fetch
+ * @param isReadFromLogEnd true if the request read up to the log end offset snapshot
+ *                         when the read was initiated, false otherwise
+ * @param error Exception if error encountered while reading from the log
  */
 sealed trait AbstractLogReadResult {
   def info: AbstractFetchDataInfo
@@ -114,9 +111,15 @@ sealed trait AbstractLogReadResult {
 
 /*
  * Result metadata of a local log read operation
- * @param isReadAllowed read operation is not allowed for this partition as fetch request
- *                      maxBytes was already satisfied by previous partitions when
- *                      hardMaxBytesLimitNote in TRUE
+ * @param info @FetchDataInfo returned by the @Log read
+ * @param highWatermark high watermark of the local replica
+ * @param leaderLogStartOffset The log start offset of the leader at the time of the read
+ * @param leaderLogEndOffset The log end offset of the leader at the time of the read
+ * @param followerLogStartOffset The log start offset of the follower taken from the Fetch request
+ * @param fetchTimeMs The time the fetch was received
+ * @param lastStableOffset Current LSO or None if the result has an exception
+ * @param preferredReadReplica the preferred read replica to be used for future fetches
+ * @param exception Exception if error encountered while reading from the log
  */
 case class LogReadResult(info: FetchDataInfo,
                          highWatermark: Long,
@@ -139,7 +142,6 @@ case class LogReadResult(info: FetchDataInfo,
       s"leaderLogEndOffset=$leaderLogEndOffset, " +
       s"followerLogStartOffset=$followerLogStartOffset, " +
       s"fetchTimeMs=$fetchTimeMs, " +
-      s"isReadAllowed: $isReadAllowed" +
       s"preferredReadReplica=$preferredReadReplica, " +
       s"lastStableOffset=$lastStableOffset, " +
       s"error=$error" +
@@ -190,7 +192,6 @@ case class TierLogReadResult(info: TierFetchDataInfo,
       leaderLogEndOffset = this.leaderLogEndOffset,
       followerLogStartOffset = this.followerLogStartOffset,
       fetchTimeMs = this.fetchTimeMs,
-      isReadAllowed = isReadAllowed,
       lastStableOffset = this.lastStableOffset,
       preferredReadReplica = this.preferredReadReplica,
       exception = exceptionOpt
@@ -1335,7 +1336,6 @@ class ReplicaManager(val config: KafkaConfig,
             leaderLogEndOffset = offsetSnapshot.logEndOffset.messageOffset,
             followerLogStartOffset = followerLogStartOffset,
             fetchTimeMs = -1L,
-            isReadAllowed = false,
             lastStableOffset = Some(offsetSnapshot.lastStableOffset.messageOffset),
             preferredReadReplica = preferredReadReplica,
             exception = None)
@@ -1381,7 +1381,6 @@ class ReplicaManager(val config: KafkaConfig,
                 leaderLogEndOffset = readInfo.logEndOffset,
                 followerLogStartOffset = followerLogStartOffset,
                 fetchTimeMs = fetchTimeMs,
-                isReadAllowed = adjustedMaxBytes > 0 || minOneMessage,
                 lastStableOffset = Some(readInfo.lastStableOffset),
                 preferredReadReplica = preferredReadReplica,
                 exception = None)
@@ -1416,7 +1415,6 @@ class ReplicaManager(val config: KafkaConfig,
             leaderLogEndOffset = Log.UnknownOffset,
             followerLogStartOffset = Log.UnknownOffset,
             fetchTimeMs = -1L,
-            isReadAllowed = false,
             lastStableOffset = None,
             exception = Some(e))
         case e: Throwable =>
@@ -1433,7 +1431,6 @@ class ReplicaManager(val config: KafkaConfig,
             leaderLogEndOffset = Log.UnknownOffset,
             followerLogStartOffset = Log.UnknownOffset,
             fetchTimeMs = -1L,
-            isReadAllowed = false,
             lastStableOffset = None,
             exception = Some(e))
       }
@@ -2007,7 +2004,6 @@ class ReplicaManager(val config: KafkaConfig,
               leaderLogEndOffset = -1L,
               followerLogStartOffset = -1L,
               fetchTimeMs = -1L,
-              isReadAllowed = false,
               lastStableOffset = None,
               exception = Some(new OffsetTieredException(reason)))
         }
@@ -2229,9 +2225,6 @@ object FetchLag {
    * 4. lag = result.fetchTimeMs - firstBatchTimestamp
    */
   private def lagInMs(result: LogReadResult): Long = {
-    if (!result.isReadAllowed)
-      return FetchLag.UnknownFetchLagMs
-
     val iterator = result.info.records.batches.iterator
     if (!iterator.hasNext())
       return 0L
