@@ -31,6 +31,12 @@ import scala.collection.mutable.ArrayBuffer
 /**
  * Represents a cache of (LeaderEpoch => Offset) mappings for a particular replica.
  *
+ * Flush on every partition new epoch assign call is expensive and has notable performance and
+ * availability impact e.g. during rollouts. The cache instead asynchronously flushed along with
+ * the log.flush() and we rely on the recovery checkpoint to rebuild this epoch cache in recovery.
+ * As a further optimization a `isDirtyFromAssign` flag is maintained to record that the cache is dirty
+ * and the `maybeFlush` method only flushes when the cache is dirty.
+ *
  * Leader Epoch = epoch assigned to each leader by the controller.
  * Offset = offset of the first message in each epoch.
  *
@@ -48,6 +54,9 @@ class LeaderEpochFileCache(topicPartition: TopicPartition,
     val read = checkpoint.read()
     new ArrayBuffer(read.size) ++= read
   }
+  private var _isDirtyFromAssign = false
+  // Visible for testing
+  def isDirtyFromAssign: Boolean = _isDirtyFromAssign
 
   def file: File = checkpoint.file
 
@@ -66,7 +75,7 @@ class LeaderEpochFileCache(topicPartition: TopicPartition,
 
       if (updateNeeded) {
         truncateAndAppend(EpochEntry(epoch, startOffset))
-        flush()
+        _isDirtyFromAssign = true
       }
     }
   }
@@ -324,6 +333,16 @@ class LeaderEpochFileCache(topicPartition: TopicPartition,
   }
 
   /**
+   * Flush if update is needed.
+   */
+  def maybeFlush(): Unit = {
+    inWriteLock(lock) {
+      if (_isDirtyFromAssign)
+        flush()
+    }
+  }
+
+  /**
     * Delete all entries.
     */
   def clearAndFlush() = {
@@ -359,7 +378,9 @@ class LeaderEpochFileCache(topicPartition: TopicPartition,
   private def latestEntry: Option[EpochEntry] = epochs.lastOption
 
   private def flush(): Unit = {
+    debug(s"Flushing leader epoch cache for partiton $topicPartition, isDirtyFromAssign is $isDirtyFromAssign")
     checkpoint.write(epochs)
+    _isDirtyFromAssign = false
   }
 
   private def validateAndMaybeWarn(entry: EpochEntry) = {

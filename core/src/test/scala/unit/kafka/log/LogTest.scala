@@ -585,7 +585,6 @@ class LogTest {
     log.close()
   }
 
-
   @Test
   def testRecoverAfterNonMonotonicCoordinatorEpochWrite(): Unit = {
     // Due to KAFKA-9144, we may encounter a coordinator epoch which goes backwards.
@@ -2703,6 +2702,56 @@ class LogTest {
     assertEquals(Some(10), log.latestEpoch)
     assertTrue(LeaderEpochCheckpointFile.newFile(log.dir).exists())
     assertFalse(LeaderEpochCheckpointFile.newFile(this.logDir).exists())
+  }
+
+  @Test
+  def testLeaderEpochCacheIsFlushedOnCleanShutdown(): Unit = {
+    val logConfig = LogTest.createLogConfig(segmentBytes = 1000, indexIntervalBytes = 1, maxMessageBytes = 64 * 1024)
+    var log = createLog(logDir, logConfig)
+    log.appendAsLeader(TestUtils.records(List(new SimpleRecord("foo".getBytes()))), leaderEpoch = 5)
+    assertEquals(Some(5), log.leaderEpochCache.flatMap(_.latestEpoch))
+    log.flush()
+    log.close()
+
+    val cleanShutdownFile = createCleanShutdownFile()
+    assertTrue(".kafka_cleanshutdown must exist", cleanShutdownFile.exists())
+
+    log = createLog(logDir, logConfig)
+    assertEquals(Some(5), log.leaderEpochCache.flatMap(_.latestEpoch))
+    Utils.delete(cleanShutdownFile)
+  }
+
+  @Test
+  def testRecoverLeaderEpochCacheOnUncleanShutdown(): Unit = {
+    val logConfig = LogTest.createLogConfig(segmentBytes = 1000, indexIntervalBytes = 1, maxMessageBytes = 64 * 1024)
+    var log = createLog(logDir, logConfig)
+    val cleanShutdownFile = createCleanShutdownFile()
+    log.appendAsLeader(TestUtils.records(List(new SimpleRecord("foo".getBytes()))), leaderEpoch = 5)
+    assertEquals(Some(5), log.leaderEpochCache.flatMap(_.latestEpoch))
+    log.close()
+    Utils.delete(cleanShutdownFile)
+
+    log = createLog(logDir, logConfig)
+    assertEquals(Some(5), log.leaderEpochCache.flatMap(_.latestEpoch))
+  }
+
+  @Test
+  def testLeaderEpochCacheClearedOnMissingSegments(): Unit = {
+    val logConfig = LogTest.createLogConfig(segmentBytes = 1000, indexIntervalBytes = 1, maxMessageBytes = 64 * 1024)
+    var log = createLog(logDir, logConfig)
+    log.appendAsLeader(TestUtils.records(List(new SimpleRecord("foo".getBytes()))), leaderEpoch = 5)
+    val logEndOffset = log.logEndOffset
+    assertEquals(Some(5), log.leaderEpochCache.flatMap(_.latestEpoch))
+    log.flush()
+    log.close()
+
+    val cleanShutdownFile = createCleanShutdownFile()
+    assertTrue(".kafka_cleanshutdown must exist", cleanShutdownFile.exists())
+
+    val startOffsetHigherThanEndOffset = logEndOffset + 1
+    log = createLog(logDir, logConfig, brokerTopicStats, startOffsetHigherThanEndOffset)
+    assertEquals(None, log.leaderEpochCache.flatMap(_.latestEpoch))
+    Utils.delete(cleanShutdownFile)
   }
 
   @Test
