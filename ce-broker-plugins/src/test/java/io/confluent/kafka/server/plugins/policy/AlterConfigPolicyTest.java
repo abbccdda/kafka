@@ -244,7 +244,7 @@ public class AlterConfigPolicyTest {
 
     Map<String, String> brokerConfigs = Collections.singletonMap(SslConfigs.SSL_CIPHER_SUITES_CONFIG,
         "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, " +
-            "tls_ecdhe_rsa_chacha20_poly1305_sha256," + // validation should be case insensitive
+            "tls_ecdhe_rsa_with_chacha20_poly1305_sha256," + // validation should be case insensitive
             "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256, TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384");
     MultiTenantPrincipal principal = new MultiTenantPrincipal("tenantUserA",
         new TenantMetadata("cluster1", "cluster1"));

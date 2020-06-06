@@ -33,7 +33,7 @@ public class AlterConfigPolicy implements org.apache.kafka.server.policy.AlterCo
     public static final String SSL_CIPHER_SUITES_ALLOWED_CONFIG = CONFIG_PREFIX + "ssl.cipher.suites.allowed";
     public static final List<String> DEFAULT_SSL_CIPHER_SUITES_ALLOWED = Arrays.asList(
         "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256", "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
-        "TLS_ECDHE_RSA_CHACHA20_POLY1305_SHA256",
+        "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
         "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256", "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384"
     );
     private static final String SSL_CIPHER_SUITES_ALLOWED_DOC = "List of allowed cipher suites for TLS.";
