@@ -839,11 +839,7 @@ class ClientQuotaManagerTest {
     val configWithBackpressure = ClientQuotaManagerConfig(
       quotaBytesPerSecondDefault = 1000,
       numQuotaSamples = 2,
-      backpressureConfig = BrokerBackpressureConfig(
-        backpressureEnabledInConfig = true,
-        backpressureCheckFrequencyMs = 1000,
-        tenantEndpointListenerNames = Seq.empty,
-      ),
+      backpressureConfig = BrokerBackpressureConfig(),
       diskThrottlingConfig = diskThrottlingConfig
     )
     // first we are verifying that the active quota is unlimited
@@ -857,7 +853,7 @@ class ClientQuotaManagerTest {
 
     // next, we invoke updateBrokerQuotaLimit to reflect the actual throttled quotaLimit
     time.sleep(Math.max(configWithBackpressure.backpressureConfig.backpressureCheckFrequencyMs,
-      quotaManager.getCurrentConfig.diskCheckFrequencyMs) + 1000)
+      quotaManager.getCurrentDiskThrottlingConfig.diskCheckFrequencyMs) + 1000)
     assertEquals(0, maybeRecord(quotaManager, "ANONYMOUS", "client1", 400))
     assertEquals(throttledBandwidth.toDouble, quotaManager.getBrokerQuotaLimit, 0)
     assertTrue(DiskUsageBasedThrottler.diskThrottlingActive(quotaManager))

@@ -9,6 +9,7 @@ import java.nio.file.FileStore
 import java.util.concurrent.atomic.AtomicLong
 
 import org.apache.kafka.common.config.internals.ConfluentConfigs
+import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.utils.{MockTime, Time}
 import org.junit.Assert.{assertEquals, assertFalse, assertTrue}
 import org.junit.{After, Before, Test}
@@ -182,7 +183,7 @@ class DiskUsageBasedThrottlerTest {
 
       // next we update the throughput while throttling is active
       val updatedThroughput = 10 * throughput
-      val updatedConfig = throttler.getCurrentConfig.copy(throttledProduceThroughput = updatedThroughput)
+      val updatedConfig = throttler.getCurrentDiskThrottlingConfig.copy(throttledProduceThroughput = updatedThroughput)
       mockTime.sleep(501)
       throttler.updateDiskThrottlingConfig(updatedConfig)
       throttler.checkAndUpdateQuotaOnDiskUsage(mockTime.milliseconds())
@@ -230,6 +231,32 @@ class DiskUsageBasedThrottlerTest {
       assertEquals(throughput, listener.counter.get)
       assertEquals(throughput, listener.lastSignalledQuotaOptRef.get.get)
     }
+  }
+
+  @Test
+  def testDiskThrottlingIsIndependentFromProduceBackpressure(): Unit = {
+    val quotaManagerConfig = ClientQuotaManagerConfig(backpressureConfig = BrokerBackpressureConfig(), diskThrottlingConfig = config)
+    val clientQuotaManager = new ClientQuotaManager(quotaManagerConfig, new Metrics(), QuotaType.Produce, mockTime, "someThread") {
+      override protected def getFileStores: collection.Seq[FileStore] = fileStores
+    }
+    DiskUsageBasedThrottler.registerListener(clientQuotaManager)
+    // initially, since we haven't written the large file, the listener shouldn't be throttled
+    clientQuotaManager.updateBrokerQuotaLimit(mockTime.milliseconds())
+    assertFalse(DiskUsageBasedThrottler.diskThrottlingActive(listener))
+    assertEquals(Long.MaxValue, listener.counter.get)
+
+    // With the large file written, throttling should kick in
+    withLargeFileWritten { _ =>
+      clientQuotaManager.updateBrokerQuotaLimit(mockTime.milliseconds())
+      assertEquals(throughput, listener.counter.get)
+      assertEquals(throughput, listener.lastSignalledQuotaOptRef.get.get)
+    }
+
+    // once the large file has been deleted, throttling should be disabled
+    clientQuotaManager.updateBrokerQuotaLimit(mockTime.milliseconds())
+    assertFalse(DiskUsageBasedThrottler.diskThrottlingActive(listener))
+    assertEquals(Long.MaxValue, listener.counter.get)
+    DiskUsageBasedThrottler.deRegisterListener(clientQuotaManager)
   }
 
   // partial function which writes a large file of 12GB and ensure its cleanup

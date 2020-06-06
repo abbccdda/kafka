@@ -221,7 +221,8 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
    */
   def quotasEnabled: Boolean = quotaTypesEnabled != QuotaTypes.NoQuotas
 
-  def backpressureEnabled: Boolean = dynamicBackpressureConfig.backpressureEnabledInConfig
+  def backpressureEnabled: Boolean = dynamicBackpressureConfig.backpressureEnabledInConfig ||
+    diskThrottlingEnabledInConfig(getCurrentDiskThrottlingConfig)
 
   def tenantLevelQuotasEnabled: Boolean = activeTenantsManager.isDefined
 

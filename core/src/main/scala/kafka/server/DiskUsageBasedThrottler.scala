@@ -147,7 +147,7 @@ trait DiskUsageBasedThrottler extends Logging {
    * This method updates the file stores wrapped on top of the underlying log directories.
    * The rationale behind this delayed instantiation of the file-stores have been explained in the docs of getFileStores
    *
-   * @return boolean signalling whether fileStores have been successfully set to the return value from getFileStores
+   * @return true if fileStores have been successfully created
    */
   private def maybeSetFileStores(): Boolean = {
     getFileStores match {
@@ -194,7 +194,7 @@ trait DiskUsageBasedThrottler extends Logging {
     })
   }
 
-  protected[server] def getCurrentConfig: DiskUsageBasedThrottlingConfig = dynamicDiskThrottlingConfig
+  protected[server] def getCurrentDiskThrottlingConfig: DiskUsageBasedThrottlingConfig = dynamicDiskThrottlingConfig
 }
 
 /**
