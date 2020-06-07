@@ -1984,7 +1984,8 @@ class ReplicaManager(val config: KafkaConfig,
                   followerFetchOffsetMetadata = readResult.info.fetchOffsetMetadata,
                   followerStartOffset = readResult.followerLogStartOffset,
                   followerFetchTimeMs = readResult.fetchTimeMs,
-                  leaderEndOffset = readResult.leaderLogEndOffset)) {
+                  leaderEndOffset = readResult.leaderLogEndOffset,
+                  lastSentHighwatermark = readResult.highWatermark)) {
                   readResult
                 } else {
                   warn(s"Leader $localBrokerId failed to record follower $followerId's position " +

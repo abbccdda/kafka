@@ -185,7 +185,7 @@ class MergedLog(private[log] val localLog: Log,
       // align log start offset to the firstTieredOffset, if needed
       if (firstTieredOffset.isDefined) {
         maybeIncrementHighWatermark(LogOffsetMetadata(Math.max(firstTieredOffset.get, localLogStartOffset)))
-        maybeIncrementLogStartOffset(firstTieredOffset.get)
+        maybeIncrementLogStartOffset(firstTieredOffset.get, LeaderOffsetIncremented)
       }
     }
   }
@@ -242,8 +242,7 @@ class MergedLog(private[log] val localLog: Log,
     tierPartitionState.closeHandlers()
   }
 
-  override def maybeIncrementLogStartOffset(newLogStartOffset: Long,
-                                            reason: LogStartOffsetIncrementReason): Unit = lock synchronized {
+  override def maybeIncrementLogStartOffset(newLogStartOffset: Long, reason: LogStartOffsetIncrementReason): Unit = lock synchronized {
     if (newLogStartOffset > logStartOffset) {
       info(s"Incrementing merged log start offset to $newLogStartOffset")
       localLog.maybeIncrementLogStartOffset(newLogStartOffset, reason)
@@ -279,7 +278,7 @@ class MergedLog(private[log] val localLog: Log,
     // tiered segments only. Local segments that have not been tiered yet must not be deleted.
     if (!config.tierEnable) {
       val deleted = localLog.deleteOldSegments(None, maxNumSegmentsToDelete)
-      maybeIncrementLogStartOffset(localLogStartOffset)
+      maybeIncrementLogStartOffset(localLogStartOffset, SegmentDeletion)
       deleted
     } else {
       val retentionDeleted = localLog.deleteOldSegments(None, maxNumSegmentsToDelete)  // apply retention: all segments are eligible for deletion
@@ -304,9 +303,9 @@ class MergedLog(private[log] val localLog: Log,
       val hotsetDeleted = localLog.deleteOldSegments(Some(deletionUpperBoundOffset), maxNumSegmentsToDelete, retentionType = HotsetRetention, deletionCanProceed)
 
       if (retentionDeleted > 0)
-        maybeIncrementLogStartOffset(localLogStartOffset)
+        maybeIncrementLogStartOffset(localLogStartOffset, SegmentDeletion)
       else
-        maybeIncrementLogStartOffset(firstTieredOffset.getOrElse(localLogStartOffset))
+        maybeIncrementLogStartOffset(firstTieredOffset.getOrElse(localLogStartOffset), SegmentDeletion)
 
       if (hotsetDeleted > 0) {
         // maybeIncrementLogStartOffset will set the new local log start offset, delete any
