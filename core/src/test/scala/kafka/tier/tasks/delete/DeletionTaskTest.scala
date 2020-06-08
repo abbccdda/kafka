@@ -118,7 +118,7 @@ class DeletionTaskTest {
         if (logWithTieredSegments.logStartOffset < newStartOffset)
           when(logWithTieredSegments.logStartOffset).thenReturn(newStartOffset)
       }
-    }).when(logWithTieredSegments).maybeIncrementLogStartOffset(any())
+    }).when(logWithTieredSegments).maybeIncrementLogStartOffset(any(), any())
 
     when(logWithTieredSegments.tieredLogSegments).thenAnswer(new Answer[CloseableIterator[TierLogSegment]] {
       override def answer(invocation: InvocationOnMock): CloseableIterator[TierLogSegment] = {

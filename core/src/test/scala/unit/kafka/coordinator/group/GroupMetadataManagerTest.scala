@@ -108,7 +108,7 @@ class GroupMetadataManagerTest {
     var expiredOffsets: Int = 0
     var infoCount = 0
     val gmm = new GroupMetadataManager(0, ApiVersion.latestVersion, offsetConfig, replicaManager, mockKafkaZkClient, time, metrics) {
-      override def cleanupGroupMetadata(groups: Iterable[GroupMetadata],
+      override def cleanupGroupMetadata(groups: Iterable[GroupMetadata], None: BufferSupplier,
                                         selector: GroupMetadata => Map[TopicPartition, OffsetAndMetadata]): Int = expiredOffsets
 
       override def info(msg: => String): Unit = infoCount += 1

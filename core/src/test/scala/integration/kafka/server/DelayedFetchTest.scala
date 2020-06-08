@@ -19,11 +19,8 @@ package kafka.server
 import java.util.concurrent.TimeUnit
 import java.util.{Collections, Optional}
 
-import kafka.cluster.{Partition, Replica}
-import kafka.log.LogOffsetSnapshot
 import kafka.tier.fetcher.{PendingFetch, ReclaimableMemoryRecords, TierFetchResult}
 import kafka.utils.{MockTime, TestUtils}
-import scala.collection.Seq
 import kafka.cluster.Partition
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.{FencedLeaderEpochException, ReplicaNotAvailableException, UnknownServerException}
@@ -460,7 +457,7 @@ class DelayedFetchTest extends EasyMockSupport {
       case (tp, tierFetchDataInfo: TierFetchDataInfo, exceptionOpt: Option[Throwable]) =>
         (tp, TierLogReadResult(info = tierFetchDataInfo, highWatermark, 0, 0, 0, mockTime.milliseconds(), 0, None, None, exceptionOpt))
       case (tp, fetchDataInfo: FetchDataInfo, exceptionOpt: Option[Throwable]) =>
-        (tp, LogReadResult(info = fetchDataInfo, highWatermark, 0, 0, 0, mockTime.milliseconds(), 0, None, true, None, false, exceptionOpt))
+        (tp, LogReadResult(info = fetchDataInfo, highWatermark, 0, 0, 0, mockTime.milliseconds(), None, None, exceptionOpt))
     }
 
     EasyMock.expect(replicaManager.isAddingReplica(EasyMock.anyObject(), EasyMock.anyInt())).andReturn(false).anyTimes()

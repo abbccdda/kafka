@@ -8,7 +8,7 @@ import java.util.Optional
 import java.util.UUID
 
 import com.yammer.metrics.core.Meter
-import kafka.log.{AbstractLog, TierLogSegment}
+import kafka.log.{AbstractLog, SegmentDeletion, TierLogSegment}
 import kafka.server.ReplicaManager
 import kafka.tier.domain.{AbstractTierMetadata, TierPartitionDeleteComplete, TierSegmentDeleteComplete, TierSegmentDeleteInitiate}
 import kafka.tier.exceptions.{TaskCompletedException, TierDeletionFailedException, TierDeletionFatalException, TierDeletionFencedException, TierDeletionRestoreFencedException, TierDeletionTaskFencedException, TierMetadataRetriableException, TierObjectStoreRetriableException}
@@ -279,7 +279,7 @@ object DeletionTask extends Logging {
         while (segmentIterator.hasNext && continue) {
           val segment = segmentIterator.next()
           if (shouldDelete(segment)) {
-            log.maybeIncrementLogStartOffset(segment.endOffset + 1)
+            log.maybeIncrementLogStartOffset(segment.endOffset + 1, SegmentDeletion)
             toDelete += segment.metadata
           } else {
             continue = false

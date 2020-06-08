@@ -18,10 +18,13 @@ package org.apache.kafka.connect.runtime.distributed;
 
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.common.config.ConfigDef;
+import org.apache.kafka.common.config.ConfigDef.Validator;
+import org.apache.kafka.common.config.ConfigDef.LambdaValidator;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.connect.runtime.WorkerConfig;
+import org.apache.kafka.connect.util.TopicAdmin;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -38,8 +41,6 @@ import java.util.concurrent.TimeUnit;
 
 import static org.apache.kafka.common.config.ConfigDef.Range.atLeast;
 import static org.apache.kafka.common.config.ConfigDef.Range.between;
-import static org.apache.kafka.connect.runtime.TopicCreationConfig.PARTITIONS_VALIDATOR;
-import static org.apache.kafka.connect.runtime.TopicCreationConfig.REPLICATION_FACTOR_VALIDATOR;
 
 public class DistributedConfig extends WorkerConfig {
 
@@ -500,6 +501,20 @@ public class DistributedConfig extends WorkerConfig {
             KeyGenerator.getInstance(algorithm);
         } catch (NoSuchAlgorithmException e) {
             throw new ConfigException(configName, algorithm, e.getMessage());
+        }
+    }
+
+    private static void validatePartitions(String configName, int factor) {
+        if (factor != TopicAdmin.NO_PARTITIONS && factor < 1) {
+            throw new ConfigException(configName, factor,
+                "Number of partitions must be positive, or -1 to use the broker's default");
+        }
+    }
+
+    private static void validateReplicationFactor(String configName, short factor) {
+        if (factor != TopicAdmin.NO_REPLICATION_FACTOR && factor < 1) {
+            throw new ConfigException(configName, factor,
+                "Replication factor must be positive, or -1 to use the broker's default");
         }
     }
 }

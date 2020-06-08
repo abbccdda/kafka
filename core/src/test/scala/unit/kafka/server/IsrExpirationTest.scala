@@ -102,8 +102,7 @@ class IsrExpirationTest {
         followerFetchOffsetMetadata = LogOffsetMetadata(leaderLogEndOffset - 1),
         followerStartOffset = 0L,
         followerFetchTimeMs= time.milliseconds,
-        leaderEndOffset = leaderLogEndOffset,
-        lastSentHighwatermark: partition0.localLogOrException.highWatermark)
+        leaderEndOffset = leaderLogEndOffset)
     var partition0OSR = partition0.getOutOfSyncReplicas(configs.head.replicaLagTimeMaxMs)
     assertEquals("No replica should be out of sync", Set.empty[Int], partition0OSR)
 
@@ -244,8 +243,7 @@ class IsrExpirationTest {
         followerFetchOffsetMetadata = LogOffsetMetadata(0L),
         followerStartOffset = 0L,
         followerFetchTimeMs= time.milliseconds,
-        leaderEndOffset = 0L,
-        partition.localLogOrException.highWatermark)
+        leaderEndOffset = 0L)
 
     // set the leader and its hw and the hw update time
     partition.leaderReplicaIdOpt = Some(leaderId)

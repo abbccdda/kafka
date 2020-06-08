@@ -1352,10 +1352,6 @@ class ReplicaManager(val config: KafkaConfig,
             minOneMessage = minOneMessage,
             permitPreferredTierRead = isFromConsumer)
 
-          // Check if the HW known to the follower is behind the actual HW if a replica selector is defined
-          val followerNeedsHwUpdate = replicaSelectorOpt.isDefined &&
-            partition.getReplica(replicaId).exists(replica => replica.lastSentHighWatermark < readInfo.highWatermark)
-
           val (fetchOffsetMetadata, firstEntryIncomplete) = readInfo.fetchedData match {
             case localReadInfo: FetchDataInfo => (localReadInfo.fetchOffsetMetadata, localReadInfo.firstEntryIncomplete)
             case _: TierFetchDataInfo => (LogOffsetMetadata.UnknownOffsetMetadata, false)
@@ -1984,8 +1980,7 @@ class ReplicaManager(val config: KafkaConfig,
                   followerFetchOffsetMetadata = readResult.info.fetchOffsetMetadata,
                   followerStartOffset = readResult.followerLogStartOffset,
                   followerFetchTimeMs = readResult.fetchTimeMs,
-                  leaderEndOffset = readResult.leaderLogEndOffset,
-                  lastSentHighwatermark = readResult.highWatermark)) {
+                  leaderEndOffset = readResult.leaderLogEndOffset)) {
                   readResult
                 } else {
                   warn(s"Leader $localBrokerId failed to record follower $followerId's position " +
@@ -1994,6 +1989,9 @@ class ReplicaManager(val config: KafkaConfig,
                     s"for partition $topicPartition. Empty records will be returned for this partition.")
                   readResult.withEmptyFetchInfo
                 }
+              case None =>
+                warn(s"While recording the replica LEO, the partition $topicPartition hasn't been created.")
+                readResult
             }
           case readResult: TierLogReadResult =>
             val reason = s"Lagging follower $followerId fetched from the tiered portion of the log at offset " +

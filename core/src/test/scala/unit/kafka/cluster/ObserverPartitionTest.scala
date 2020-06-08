@@ -147,8 +147,7 @@ final class ObserverPartitionTest {
         followerFetchOffsetMetadata = LogOffsetMetadata(3),
         followerStartOffset = 0,
         followerFetchTimeMs = time.milliseconds(),
-        leaderEndOffset = 3,
-        partition.localLogOrException.highWatermark
+        leaderEndOffset = 3
       )
     )
 
@@ -162,8 +161,7 @@ final class ObserverPartitionTest {
         followerFetchOffsetMetadata = LogOffsetMetadata(5),
         followerStartOffset = 0,
         followerFetchTimeMs = time.milliseconds(),
-        leaderEndOffset = 5,
-        partition.localLogOrException.highWatermark
+        leaderEndOffset = 5
       )
     )
 

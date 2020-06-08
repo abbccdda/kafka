@@ -49,7 +49,6 @@ import kafka.tier.tasks.{TierTasks, TierTasksConfig}
 import kafka.tier.topic.{TierTopicConsumer, TierTopicManager, TierTopicManagerConfig}
 import kafka.utils._
 import kafka.zk.{AdminZkClient, BrokerInfo, KafkaZkClient}
-import kafka.zk.{BrokerInfo, KafkaZkClient}
 import org.apache.kafka.clients.{ApiVersions, ClientDnsLookup, ManualMetadataUpdater, NetworkClient, NetworkClientUtils, CommonClientConfigs}
 import org.apache.kafka.common.internals.ClusterResourceListeners
 import org.apache.kafka.common.message.ControlledShutdownRequestData

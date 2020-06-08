@@ -7,6 +7,7 @@ import java.util.{Properties, UUID}
 import java.util.concurrent.CompletableFuture
 
 import kafka.log.LogConfig
+import org.apache.kafka.clients.admin.ConfigEntry.ConfigType
 import org.apache.kafka.clients.admin.{Config, ConfigEntry, TopicDescription}
 import org.apache.kafka.common.{Node, TopicPartitionInfo}
 import org.apache.kafka.common.acl.AclOperation
@@ -305,7 +306,8 @@ class ClusterLinkUtilsTest {
         ConfigEntry.ConfigSource.DEFAULT_CONFIG
       else
         ConfigEntry.ConfigSource.DYNAMIC_TOPIC_CONFIG
-      new ConfigEntry(entry._1, entry._2, source, false, false, List.empty[ConfigEntry.ConfigSynonym].asJava)
+      new ConfigEntry(entry._1, entry._2, source, false, false, List.empty[ConfigEntry
+      .ConfigSynonym].asJava, ConfigType.UNKNOWN, null)
     }
     new Config(configEntries.asJavaCollection)
   }

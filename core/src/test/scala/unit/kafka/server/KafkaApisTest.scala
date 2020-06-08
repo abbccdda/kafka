@@ -28,8 +28,6 @@ import kafka.api.LeaderAndIsr
 import kafka.api.{ApiVersion, KAFKA_0_10_2_IV0, KAFKA_2_2_IV1}
 import kafka.cluster.{Broker, Partition}
 import kafka.controller.{KafkaController, ReplicaAssignment}
-import kafka.cluster.Partition
-import kafka.controller.KafkaController
 import kafka.coordinator.group.GroupOverview
 import kafka.coordinator.group.GroupCoordinatorConcurrencyTest.JoinGroupCallback
 import kafka.coordinator.group.GroupCoordinatorConcurrencyTest.SyncGroupCallback

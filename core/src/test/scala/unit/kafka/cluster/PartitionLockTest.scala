@@ -283,10 +283,9 @@ class PartitionLockTest extends Logging {
         throw new RuntimeException(s"Timed out waiting for next batch $i")
       val batches = batch.batches.iterator.asScala.toList
       assertEquals(1, batches.size)
-      val recordBatch = batches.head
       partition.updateFollowerFetchState(
         followerId,
-        followerFetchOffsetMetadata = LogOffsetMetadata(recordBatch.lastOffset + 1),
+        followerFetchOffsetMetadata = LogOffsetMetadata(batches.head.lastOffset + 1),
         followerStartOffset = 0L,
         followerFetchTimeMs = mockTime.milliseconds(),
         leaderEndOffset = partition.localLogOrException.logEndOffset)

@@ -338,7 +338,7 @@ class MergedLogTest {
     }
 
     offsets.foreach { offset =>
-      log.maybeIncrementLogStartOffset(offset)
+      log.maybeIncrementLogStartOffset(offset, LeaderOffsetIncremented)
       assertEquals(offset, log.logStartOffset)
 
       // validate epoch cache truncation
@@ -626,7 +626,7 @@ class MergedLogTest {
 
     val updatedLogStartOffset = log.localLogSegments.head.baseOffset + 2
     log.updateHighWatermark(updatedLogStartOffset)
-    log.maybeIncrementLogStartOffset(updatedLogStartOffset)
+    log.maybeIncrementLogStartOffset(updatedLogStartOffset, SegmentDeletion)
     val files = log.localLogSegments.map(_.log.file)
     log.close()
     files.foreach(_.delete())
@@ -1487,7 +1487,7 @@ class MergedLogTest {
       baseOffset = 110L, partitionLeaderEpoch = 0)
     log.appendAsFollower(records)
     log.updateHighWatermark(111)  // Set high watermark greater than the start offsets that we will use below
-    log.maybeIncrementLogStartOffset(110L)
+    log.maybeIncrementLogStartOffset(110L, LeaderOffsetIncremented)
     assertEquals(0L, log.localLogSegments.head.baseOffset)
     assertEquals(110L, log.logStartOffset)
     assertEquals(1, log.localLogSegments.size)

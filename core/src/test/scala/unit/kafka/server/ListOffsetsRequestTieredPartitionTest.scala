@@ -5,6 +5,7 @@ package kafka.server
 
 import java.util.Properties
 
+import kafka.log.SegmentDeletion
 import kafka.utils.TestUtils
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.{ConfluentTopicConfig, TopicConfig}
@@ -60,7 +61,7 @@ class ListOffsetsRequestTieredPartitionTest extends BaseRequestTest {
     makeListOffsetsRequestAndValidateResponse(topicPartition, ListOffsetRequest.LATEST_TIMESTAMP, leaderId, log, 0)
     // advance the log start offset and run again
     log.maybeIncrementHighWatermark(LogOffsetMetadata(log.logStartOffset + 100))
-    log.maybeIncrementLogStartOffset(log.logStartOffset + 100)
+    log.maybeIncrementLogStartOffset(log.logStartOffset + 100, SegmentDeletion)
     makeListOffsetsRequestAndValidateResponse(topicPartition, ListOffsetRequest.LATEST_TIMESTAMP, leaderId, log, 0)
     makeListOffsetsRequestAndValidateResponse(topicPartition, ListOffsetRequest.EARLIEST_TIMESTAMP, leaderId, log, 0)
   }

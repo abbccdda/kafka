@@ -17,6 +17,7 @@
 
 package org.apache.kafka.jmh.partition;
 
+import java.util.Optional;
 import kafka.api.ApiVersion$;
 import kafka.cluster.DelayedOperations;
 import kafka.cluster.Partition;
@@ -212,9 +213,9 @@ public class PartitionBenchmark {
     public void updateFollowerFetchStateBench() {
         // measure the impact of two follower fetches on the leader
         partition.updateFollowerFetchState(1, new LogOffsetMetadata(nextOffset, nextOffset, 0),
-                0, 1, nextOffset, nextOffset);
+                0, 1, nextOffset);
         partition.updateFollowerFetchState(2, new LogOffsetMetadata(nextOffset, nextOffset, 0),
-                0, 1, nextOffset, nextOffset);
+                0, 1, nextOffset);
         nextOffset++;
     }
 
@@ -224,9 +225,9 @@ public class PartitionBenchmark {
         // measure the impact of two follower fetches on the leader when the follower didn't
         // end up fetching anything
         partition.updateFollowerFetchState(1, new LogOffsetMetadata(nextOffset, nextOffset, 0),
-                0, 1, 100, nextOffset);
+                0, 1, 100);
         partition.updateFollowerFetchState(2, new LogOffsetMetadata(nextOffset, nextOffset, 0),
-                0, 1, 100, nextOffset);
+                0, 1, 100);
     }
 
     @Benchmark

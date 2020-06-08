@@ -18,6 +18,7 @@ package kafka.server
 
 import java.util.{Optional, Properties}
 
+import kafka.log.LeaderOffsetIncremented
 import kafka.utils.TestUtils
 import org.apache.kafka.common.config.TopicConfig
 import org.apache.kafka.common.protocol.{ApiKeys, Errors}
@@ -52,7 +53,7 @@ class ListOffsetsRequestTest extends BaseRequestTest {
     makeListOffsetsRequestAndValidateResponse(topicPartition, ListOffsetRequest.LATEST_TIMESTAMP, leaderId, log, 0)
     // advance the log start offset and run again
     log.maybeIncrementHighWatermark(LogOffsetMetadata(log.logStartOffset + 100))
-    log.maybeIncrementLogStartOffset(log.logStartOffset + 100)
+    log.maybeIncrementLogStartOffset(log.logStartOffset + 100, LeaderOffsetIncremented)
     makeListOffsetsRequestAndValidateResponse(topicPartition, ListOffsetRequest.LATEST_TIMESTAMP, leaderId, log, 0)
     makeListOffsetsRequestAndValidateResponse(topicPartition, ListOffsetRequest.EARLIEST_TIMESTAMP, leaderId, log, 0)
   }

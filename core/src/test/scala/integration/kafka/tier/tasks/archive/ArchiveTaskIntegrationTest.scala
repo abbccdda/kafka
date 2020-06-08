@@ -9,7 +9,7 @@ import java.util.UUID
 import java.util.concurrent.{CompletableFuture, ConcurrentHashMap, ExecutorService, Executors}
 
 import kafka.cluster.Partition
-import kafka.log.{AbstractLog, Log, LogTest, TierLogComponents}
+import kafka.log.{AbstractLog, Log, LogTest, SegmentDeletion, TierLogComponents}
 import kafka.server.{BrokerTopicStats, KafkaConfig, LogDirFailureChannel, ReplicaManager}
 import kafka.tier.{TierTestUtils, TopicIdPartition}
 import kafka.tier.domain.{AbstractTierMetadata, TierTopicInitLeader}
@@ -233,7 +233,7 @@ class ArchiveTaskIntegrationTest {
     // simulate DeleteRecords by incrementing the log start offset; delete the segment that is being uploaded
     val newFirstSegment = log.localLogSegments.toList(3)
     val newFirstSegmentFile = newFirstSegment.log.file
-    log.maybeIncrementLogStartOffset(newFirstSegment.baseOffset + 3)
+    log.maybeIncrementLogStartOffset(newFirstSegment.baseOffset + 3, SegmentDeletion)
 
     // Transitioning the task will raise an exception and lead us back to the BeforeUpload state
     val maybeBeforeUpload = Await.result(
