@@ -15,7 +15,7 @@ import kafka.api.{IntegrationTestHarness, KafkaSasl, SaslSetup}
 import kafka.log.LogConfig
 import kafka.metrics.KafkaYammerMetrics
 import kafka.server.link.{ClusterLinkConfig, ClusterLinkTopicState}
-import kafka.server.{KafkaConfig, KafkaServer}
+import kafka.server.{ConfigType, KafkaConfig, KafkaServer}
 import kafka.utils.Implicits._
 import kafka.utils.{JaasTestUtils, Logging, TestUtils}
 import kafka.zk.ConfigEntityChangeNotificationZNode
@@ -494,7 +494,7 @@ class ClusterLinkIntegrationTest extends Logging {
 
   @Test
   def testDeleteClusterLinkCleanup(): Unit = {
-    destCluster.createClusterLink(linkName, sourceCluster, metadataMaxAgeMs = 10000L)
+    val linkId = destCluster.createClusterLink(linkName, sourceCluster, metadataMaxAgeMs = 10000L)
 
     val topics = { for (idx <- 0 until 5) yield s"topic-$idx" }.toSet
     topics.foreach { topic =>
@@ -508,6 +508,7 @@ class ClusterLinkIntegrationTest extends Logging {
     }
     destCluster.deleteClusterLink(linkName, force = true)
     assertTrue(destCluster.zkClient.getClusterLinkForTopics(topics).isEmpty)
+    assertTrue(destCluster.zkClient.getEntityConfigs(ConfigType.ClusterLink, linkId.toString).isEmpty)
   }
 
   private def verifyMirror(topic: String): Unit = {

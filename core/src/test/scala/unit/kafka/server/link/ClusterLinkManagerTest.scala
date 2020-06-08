@@ -7,6 +7,7 @@ package kafka.server.link
 import java.util.{Collections, Properties, UUID}
 
 import kafka.cluster.Partition
+import kafka.controller.KafkaController
 import kafka.server.QuotaFactory.UnboundedQuota
 import kafka.server.{ConfigType, KafkaConfig, MetadataCache, ReplicaManager}
 import kafka.utils.TestUtils
@@ -29,6 +30,7 @@ class ClusterLinkManagerTest {
   private val metrics = new Metrics
   private val time = new MockTime
   private val replicaManager: ReplicaManager = mock(classOf[ReplicaManager])
+  private val controller: KafkaController = mock(classOf[KafkaController])
   private val zkClient: KafkaZkClient = createNiceMock(classOf[KafkaZkClient])
   private val metadataCache: MetadataCache = new MetadataCache(0)
   private var clusterLinkManager: ClusterLinkManager = _
@@ -38,6 +40,8 @@ class ClusterLinkManagerTest {
     expect(replicaManager.metadataCache).andReturn(metadataCache).anyTimes()
     expect(replicaManager.zkClient).andReturn(zkClient).anyTimes()
     replay(replicaManager)
+    expect(controller.isActive).andReturn(true).anyTimes()
+    replay(controller)
     clusterLinkManager = createClusterLinkManager(brokerConfig)
   }
 
@@ -142,17 +146,19 @@ class ClusterLinkManagerTest {
     assertTrue("Unexpected client manager", clusterLinkManager.clientManager(linkId).get == clientManager)
 
     reset(zkClient)
-    expect(zkClient.clusterLinkExists(linkId)).andReturn(true).times(1)
+    expect(zkClient.clusterLinkExists(linkId)).andReturn(true).times(2)
     expect(zkClient.setClusterLink(ClusterLinkData(linkName, linkId, Some(clusterId), None, true)))
     replay(zkClient)
     clusterLinkManager.deleteClusterLink(linkName, linkId)
-    assertEquals(None, clusterLinkManager.fetcherManager(linkId))
-    assertEquals(None, clusterLinkManager.clientManager(linkId))
     assertEquals(None, clusterLinkManager.resolveLinkId(linkName))
 
     intercept[ClusterLinkNotFoundException] {
       clusterLinkManager.deleteClusterLink(linkName, linkId)
     }
+
+    TestUtils.waitUntilTrue(() =>
+      clusterLinkManager.fetcherManager(linkId).isEmpty && clusterLinkManager.clientManager(linkId).isEmpty,
+      s"Linked fetcher/client for $linkId not removed")
   }
 
   @Test
@@ -236,7 +242,7 @@ class ClusterLinkManagerTest {
       time,
       tierStateFetcher = None)
     val brokerEndpoint = new Endpoint("PLAINTEXT", SecurityProtocol.PLAINTEXT, "localhost", 1234)
-    manager.startup(brokerEndpoint, null, null, null, None)
+    manager.startup(brokerEndpoint, null, null, controller, None)
     manager.asInstanceOf[ClusterLinkManager]
   }
 }

@@ -529,7 +529,13 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
     debug(s"Purging cluster link '$linkId'")
 
     // In the event of failure, purging will be retried on next controller restart.
-    zkClient.deleteClusterLink(linkId)
+    if (controller.isActive)
+      try {
+        adminZkClient.deleteClusterLink(linkId)
+      } catch {
+        case e: ClusterLinkNotFoundException => // OK
+        case e: Throwable => warn(s"Failed to delete cluster link '$linkId'")
+      }
     lock synchronized {
       managers.remove(linkId)
       clearTopicMirrors.remove(linkId)
