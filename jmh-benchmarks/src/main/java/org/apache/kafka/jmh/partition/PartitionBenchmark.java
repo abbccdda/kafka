@@ -17,7 +17,6 @@
 
 package org.apache.kafka.jmh.partition;
 
-import java.util.Optional;
 import kafka.api.ApiVersion$;
 import kafka.cluster.DelayedOperations;
 import kafka.cluster.Partition;
