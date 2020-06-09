@@ -104,13 +104,14 @@ public class BrokerRemovalPhaseExecutor {
     } catch (Exception e) {
       String errMsg = errMsgSupplier.apply(removalArgs.brokersToRemove);
       LOG.error(errMsg, e);
+      Exception exception = maybeWrapException(e, errMsg);
       try {
-        progressCallback.registerEvent(failureEvent, e);
+        progressCallback.registerEvent(failureEvent, exception);
       } catch (Exception registerException) {
         LOG.error("Caught exception while registering the {} event with failure {}. Cause: ", failureEvent, e, registerException);
       }
 
-      future.completeExceptionally(maybeWrapException(e, errMsg));
+      future.completeExceptionally(exception);
     }
 
     return future;

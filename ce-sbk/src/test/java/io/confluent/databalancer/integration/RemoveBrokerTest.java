@@ -6,8 +6,12 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+
+import io.confluent.kafka.test.utils.KafkaTestUtils;
 import kafka.server.KafkaServer;
 import org.apache.kafka.clients.admin.BrokerRemovalDescription;
+import org.apache.kafka.common.errors.PlanComputationException;
 import org.apache.kafka.common.utils.Exit;
 import org.apache.kafka.test.IntegrationTest;
 import org.apache.kafka.test.TestUtils;
@@ -21,6 +25,7 @@ import org.slf4j.LoggerFactory;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 @Category(IntegrationTest.class)
 public class RemoveBrokerTest extends DataBalancerClusterTestHarness {
@@ -62,14 +67,14 @@ public class RemoveBrokerTest extends DataBalancerClusterTestHarness {
 
   @Test
   public void testRemoveBroker() throws InterruptedException, ExecutionException {
+    KafkaTestUtils.createTopic(adminClient, "test-topic", 20, 2);
     KafkaServer controllerServer = controllerKafkaServer();
     KafkaDataBalanceManager dataBalancer = (KafkaDataBalanceManager) controllerServer.kafkaController().dataBalancer().get();
-
-    TestUtils.waitForCondition(dataBalancer::isActive, "Waiting for DataBalancer to start.");
 
     info("Removing broker with id {}", brokerToRemoveId);
     adminClient.removeBrokers(Collections.singletonList(brokerToRemoveId)).all().get();
 
+    AtomicReference<String> failMsg = new AtomicReference<>();
     // await removal completion and retry removal in case something went wrong
     TestUtils.waitForCondition(() -> {
           Map<Integer, BrokerRemovalDescription> descriptionMap = adminClient.describeBrokerRemovals().descriptions().get();
@@ -80,12 +85,18 @@ public class RemoveBrokerTest extends DataBalancerClusterTestHarness {
 
           if (isCompletedRemoval(brokerRemovalDescription)) {
             return true;
-          } else if (isFailedRemoval(brokerRemovalDescription)) {
+
+          } else if (isFailedPlanComputation(brokerRemovalDescription)) {
             // a common failure is not having enough metrics for plan computation - simply retry it
             info("Broker removal failed due to", brokerRemovalDescription.removalError().get().exception());
             info("Re-scheduling removal...");
             adminClient.removeBrokers(Collections.singletonList(brokerToRemoveId)).all().get();
             return false;
+          } else if (isFailedRemoval(brokerRemovalDescription)) {
+            String errMsg = String.format("Broker removal failed for an unexpected reason - description object %s", brokerRemovalDescription);
+            failMsg.set(errMsg);
+            info(errMsg);
+            return true;
           } else {
             info("Removal is still pending. PAR: {} BSS: {}",
                 brokerRemovalDescription.partitionReassignmentsStatus(), brokerRemovalDescription.brokerShutdownStatus());
@@ -96,6 +107,9 @@ public class RemoveBrokerTest extends DataBalancerClusterTestHarness {
         removalPollInterval.toMillis(),
         () -> "Broker removal did not complete successfully in time!"
     );
+    if (failMsg.get() != null && !failMsg.get().isEmpty()) {
+      fail(failMsg.get());
+    }
 
     assertTrue("Expected Exit to be called", exited.get());
     TestUtils.waitForCondition(() -> adminClient.describeCluster().nodes().get().size() == initialBrokerCount() - 1,
@@ -117,5 +131,10 @@ public class RemoveBrokerTest extends DataBalancerClusterTestHarness {
         || brokerRemovalDescription.brokerShutdownStatus() == BrokerRemovalDescription.BrokerShutdownStatus.CANCELED;
 
     return removalFailed || reassignmentFailed;
+  }
+
+  private boolean isFailedPlanComputation(BrokerRemovalDescription brokerRemovalDescription) {
+    return brokerRemovalDescription.removalError().isPresent()
+        && brokerRemovalDescription.removalError().get().exception() instanceof PlanComputationException;
   }
 }

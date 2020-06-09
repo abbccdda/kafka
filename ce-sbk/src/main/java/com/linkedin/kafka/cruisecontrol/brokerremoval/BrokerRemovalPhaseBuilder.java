@@ -5,6 +5,8 @@ package com.linkedin.kafka.cruisecontrol.brokerremoval;
 
 import com.linkedin.kafka.cruisecontrol.exception.KafkaCruiseControlException;
 import com.linkedin.kafka.cruisecontrol.executor.Executor;
+import org.apache.kafka.common.errors.PlanComputationException;
+
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -15,6 +17,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * A class that helps orchestrate all the necessary steps for achieving a broker removal.
  *
  * A broker removal consists of 4 steps:
+ * 0. (pre-requisite) Acquire a reservation on the Executor, aborting running tasks
  * 1. Pre-shutdown plan computation - validate that a plan can be computed successfully
  * 2. Broker shutdown - shutdown the broker to be removed and wait for it to leave the cluster
  * 3. Actual plan computation - compute the plan which we'll execute to drain the broker
@@ -25,6 +28,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * that execute and handle failures for each phase.
  */
 public class BrokerRemovalPhaseBuilder {
+  private BrokerRemovalPhaseExecutor.Builder executorReservationPhaseBuilder;
   private BrokerRemovalPhaseExecutor.Builder initialPlanComputationPhaseBuilder;
   private BrokerRemovalPhaseExecutor.Builder brokerShutdownPhaseBuilder;
   private BrokerRemovalPhaseExecutor.Builder planComputationPhaseBuilder;
@@ -36,11 +40,19 @@ public class BrokerRemovalPhaseBuilder {
    * see #{@link io.confluent.databalancer.operation.BrokerRemovalStateMachine}
    */
   public BrokerRemovalPhaseBuilder() {
+    executorReservationPhaseBuilder = new BrokerRemovalPhaseExecutor.Builder(
+        null, // success here is a pre-requisite
+        BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_FAILURE,
+        brokerIds ->
+            String.format("Error while acquiring a reservation on the executor and aborting ongoing executions prior to beginning the broker removal operation for brokers %s.", brokerIds),
+        KafkaCruiseControlException.class
+    );
     initialPlanComputationPhaseBuilder = new BrokerRemovalPhaseExecutor.Builder(
         BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS,
         BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_FAILURE,
         brokerIds ->
-            String.format("Error while computing the initial remove broker plan for brokers %s prior to shutdown.", brokerIds)
+            String.format("Error while computing the initial remove broker plan for brokers %s prior to shutdown.", brokerIds),
+        PlanComputationException.class
     );
     brokerShutdownPhaseBuilder = new BrokerRemovalPhaseExecutor.Builder(
         BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_SUCCESS,
@@ -51,7 +63,8 @@ public class BrokerRemovalPhaseBuilder {
     planComputationPhaseBuilder = new BrokerRemovalPhaseExecutor.Builder(
         BrokerRemovalCallback.BrokerRemovalEvent.PLAN_COMPUTATION_SUCCESS,
         BrokerRemovalCallback.BrokerRemovalEvent.PLAN_COMPUTATION_FAILURE,
-        brokerIds -> String.format("Error while computing broker removal plan for broker %s.", brokerIds)
+        brokerIds -> String.format("Error while computing broker removal plan for broker %s.", brokerIds),
+        PlanComputationException.class
     );
     // the actual completion is registered in the Executor once all the proposals finish executing
     planExecutionPhaseBuilder = new BrokerRemovalPhaseExecutor.Builder(
@@ -67,10 +80,12 @@ public class BrokerRemovalPhaseBuilder {
   public BrokerRemovalExecution composeRemoval(
       BrokerRemovalOptions removalOpts,
       BrokerRemovalCallback progressCallback,
+      BrokerRemovalPhase executorReservationPhase,
       BrokerRemovalPhase initialPlanComputationPhase,
       BrokerRemovalPhase brokerShutdownPhase,
       BrokerRemovalPhase planComputationPhase,
       BrokerRemovalPhase planExecutionPhase) {
+    BrokerRemovalPhaseExecutor executorReservationPhaseExecutor = executorReservationPhaseBuilder.build(progressCallback, removalOpts);
     BrokerRemovalPhaseExecutor initialPlanComputationPhaseExecutor = initialPlanComputationPhaseBuilder.build(progressCallback, removalOpts);
     BrokerRemovalPhaseExecutor brokerShutdownPhaseExecutor = brokerShutdownPhaseBuilder.build(progressCallback, removalOpts);
     BrokerRemovalPhaseExecutor planComputationPhaseExecutor = planComputationPhaseBuilder.build(progressCallback, removalOpts);
@@ -79,6 +94,7 @@ public class BrokerRemovalPhaseBuilder {
     CompletableFuture<Void> initialFuture = new CompletableFuture<>();
     return new BrokerRemovalExecution(removalOpts.reservationHandle, initialFuture,
         initialFuture
+            .thenCompose(aVoid -> executorReservationPhaseExecutor.execute(executorReservationPhase))
             .thenCompose(aVoid -> initialPlanComputationPhaseExecutor.execute(initialPlanComputationPhase))
             .thenCompose(aVoid -> brokerShutdownPhaseExecutor.execute(brokerShutdownPhase))
             .thenCompose(aVoid -> planComputationPhaseExecutor.execute(planComputationPhase))
