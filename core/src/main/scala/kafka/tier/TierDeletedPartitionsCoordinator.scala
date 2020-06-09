@@ -7,7 +7,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 import com.yammer.metrics.core.Gauge
 import kafka.metrics.KafkaMetricsGroup
-import kafka.server.{FetchDataInfo, FetchHighWatermark, ReplicaManager}
+import kafka.server.{FetchDataInfo, FetchHighWatermark, HostedPartition, ReplicaManager}
 import kafka.tier.domain.{AbstractTierMetadata, TierPartitionDeleteComplete, TierPartitionDeleteInitiate, TierSegmentDeleteComplete, TierSegmentUploadInitiate}
 import kafka.tier.domain.TierPartitionForceRestore
 import kafka.tier.state.TierPartitionState.AppendResult
@@ -145,9 +145,9 @@ class TierDeletedPartitionsCoordinator(scheduler: Scheduler,
                                              startOffset: Long,
                                              allocatedBuffer: ByteBuffer): (Long, ByteBuffer) = {
     var buffer = allocatedBuffer
-
-    replicaManager.getLog(tierTopicPartition) match {
-      case Some(log) =>
+    replicaManager.getPartition(tierTopicPartition) match {
+      case HostedPartition.Online(partition) =>
+        val log = partition.localLogOrException
         var lastOffset = log.highWatermark
         var currentOffset = startOffset
 
@@ -196,7 +196,7 @@ class TierDeletedPartitionsCoordinator(scheduler: Scheduler,
         debug(s"Processed messages in $tierTopicPartition from offset $startOffset to $currentOffset")
         (currentOffset, buffer)
 
-      case None =>
+      case HostedPartition.None | HostedPartition.Offline =>
         (startOffset, buffer)
     }
   }
