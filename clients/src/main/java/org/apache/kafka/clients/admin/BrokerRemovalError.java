@@ -33,4 +33,13 @@ public final class BrokerRemovalError {
   public String errorMessage() {
     return errorMessage;
   }
+
+  @Override
+  public String toString() {
+    return "BrokerRemovalError{" +
+        "errorCode=" + errorCode +
+        ", errorMessage='" + errorMessage + '\'' +
+        ", exception=" + exception +
+        '}';
+  }
 }

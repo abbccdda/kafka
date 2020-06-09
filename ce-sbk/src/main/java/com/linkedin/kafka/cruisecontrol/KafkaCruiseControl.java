@@ -246,12 +246,13 @@ public class KafkaCruiseControl {
 
     BrokerRemovalPhaseBuilder brokerRemovalPhaseBuilder = new BrokerRemovalPhaseBuilder();
     return brokerRemovalPhaseBuilder.composeRemoval(removalArgs, progressCallback,
-        removalOpts -> { // 1. Pre-shutdown plan computation - validate that a plan can be computed successfully
+        removalOpts -> { // 0. Abort on-going executions and acquire a reservation on the executor
           LOG.info("Reserving the Executor and aborting ongoing executions as part of broker removal operation for broker {}", broker);
           Executor.ReservationHandle handle = _executor.reserveAndAbortOngoingExecutions(Duration.ofMinutes(1));
           removalArgs.reservationHandle.set(handle);
           LOG.info("Successfully reserved the Executor");
-
+        },
+        removalOpts -> { // 1. Pre-shutdown plan computation - validate that a plan can be computed successfully
           computeDrainBrokersPlan(removalOpts.brokersToRemove, Collections.emptyList(), removalOpts.operationProgress, removalOpts.planComputationOptions);
           LOG.info("Successfully computed the remove broker plan for broker {}", broker);
         },
@@ -852,7 +853,6 @@ public class KafkaCruiseControl {
    * @param replicationThrottle The replication throttle (bytes/second) to apply to both leaders and followers
    *                            when executing remove operations (if null, no throttling is applied).
    * @param uuid UUID of the execution.
-   * @param progressCallback the broker removal callback to help track the progress of the operation
    */
   private void executeRemoval(Set<ExecutionProposal> proposals,
                               Set<Integer> removedBrokers,
