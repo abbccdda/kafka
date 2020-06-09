@@ -1,7 +1,6 @@
 package io.confluent.telemetry.provider;
 
 import com.google.common.annotations.VisibleForTesting;
-import io.confluent.telemetry.ResourceBuilderFacade;;
 import com.google.common.collect.ImmutableList;
 import io.confluent.telemetry.Context;
 import io.confluent.telemetry.MetricKey;
