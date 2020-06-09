@@ -163,6 +163,8 @@ public class TopicSpec {
       TopicSpec topicSpec = new TopicSpec();
       Objects.requireNonNull(name, "topic name is required");
       topicSpec.setName(name);
+      topicSpec.setPartitions(partitions);
+      topicSpec.setReplicationFactor(replicationFactor);
       topicSpec.setConfig(ImmutableMap.copyOf(config));
       return topicSpec;
     }
