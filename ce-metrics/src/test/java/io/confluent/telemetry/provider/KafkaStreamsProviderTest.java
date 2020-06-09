@@ -21,7 +21,7 @@ public class KafkaStreamsProviderTest {
         contextLabels.put(Utils.RESOURCE_LABEL_CLUSTER_ID, "cluster-1");
         contextLabels.put(ConfluentConfigs.RESOURCE_LABEL_VERSION, AppInfoParser.getVersion());
         contextLabels.put(ConfluentConfigs.RESOURCE_LABEL_COMMIT_ID, AppInfoParser.getCommitId());
-        MetricsContext metricsContext = new KafkaMetricsContext("kafka.streams", contextLabels);
+        MetricsContext metricsContext = new KafkaMetricsContext(KafkaStreamsProvider.NAMESPACE, contextLabels);
         Map<String, Object> config = new HashMap<>();
         config.put(StreamsConfig.APPLICATION_ID_CONFIG, "app-1");
         Assert.assertTrue(streamsProvider.validate(metricsContext, config));
@@ -30,21 +30,24 @@ public class KafkaStreamsProviderTest {
     @Test
     public void testContextChange() {
         Provider streamsProvider = new KafkaStreamsProvider();
+        String applicationId =  "cluster-1";
         Map<String, Object> contextLabels = new HashMap<>();
         contextLabels.put(ConfluentConfigs.RESOURCE_LABEL_TYPE, "streams");
-        contextLabels.put(Utils.RESOURCE_LABEL_CLUSTER_ID, "cluster-1");
+        contextLabels.put(Utils.RESOURCE_LABEL_CLUSTER_ID, "cluster-id");
+        contextLabels.put(ConfluentConfigs.RESOURCE_LABEL_PREFIX + KafkaStreamsProvider.STREAMS_APPLICATION_ID, applicationId);
         contextLabels.put(ConfluentConfigs.RESOURCE_LABEL_VERSION, AppInfoParser.getVersion());
         contextLabels.put(ConfluentConfigs.RESOURCE_LABEL_COMMIT_ID, AppInfoParser.getCommitId());
-        MetricsContext metricsContext = new KafkaMetricsContext("kafka.streams", contextLabels);
+        MetricsContext metricsContext = new KafkaMetricsContext(KafkaStreamsProvider.NAMESPACE, contextLabels);
         Map<String, Object> config = new HashMap<>();
         config.put(StreamsConfig.APPLICATION_ID_CONFIG, "app-1");
         streamsProvider.configure(config);
         streamsProvider.contextChange(metricsContext);
         Resource resource = streamsProvider.resource();
-        System.out.println(resource);
         Assert.assertEquals("streams", resource.getType());
-        Assert.assertEquals("cluster-1", resource.getLabelsOrThrow("streams.id"));
-        Assert.assertEquals("cluster-1", resource.getLabelsOrThrow("streams.cluster.id"));
+        Assert.assertEquals(applicationId, resource.getLabelsOrThrow("streams.id"));
+        Assert.assertEquals("cluster-id", resource.getLabelsOrThrow("streams.cluster.id"));
+        Assert.assertEquals(applicationId, resource.getLabelsOrThrow("streams.application.id"));
         Assert.assertEquals("streams", resource.getLabelsOrThrow("streams.type"));
     }
 }
+
