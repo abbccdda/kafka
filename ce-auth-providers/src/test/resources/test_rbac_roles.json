@@ -64,6 +64,27 @@
           }
         ]
       }
+    },
+    {
+      "name" : "EnvClusterAdmin",
+      "policies" : [{
+        "scopeType" : "Environment",
+        "allowedOperations" : [
+          {
+            "resourceType" : "Cluster",
+            "operations" : ["DescribeConfigs", "AlterConfigs"]
+          }
+        ]
+      },{
+        "scopeType" : "Cluster",
+        "allowedOperations" : [
+          {
+            "resourceType" : "Cluster",
+            "operations" : ["All"]
+          }
+        ]
+      }
+      ]
     }
   ]
 }

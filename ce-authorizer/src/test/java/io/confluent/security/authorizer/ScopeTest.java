@@ -53,4 +53,55 @@ public class ScopeTest {
   private Scope scope(String json) {
     return JsonTestUtils.jsonObject(Scope.class, json);
   }
+
+  @Test
+  public void testScopeType() {
+    assertEquals(ScopeType.ROOT, Scope.ROOT_SCOPE.scopeType());
+
+    assertEquals(ScopeType.CLUSTER, Scope.kafkaClusterScope("kafka_id").scopeType());
+    assertEquals(ScopeType.CLUSTER, new Scope.Builder()
+            .withKafkaCluster("kafka_id")
+            .withCluster("ksql-cluster", "ksql_id").build().scopeType());
+    assertEquals(ScopeType.CLUSTER, new Scope.Builder()
+            .addPath("intermediate")
+            .withKafkaCluster("kafka_id").build().scopeType());
+    assertEquals(ScopeType.CLUSTER, new Scope.Builder()
+            .addPath("organization=org_id")
+            .withKafkaCluster("kafka_id").build().scopeType());
+    assertEquals(ScopeType.CLUSTER, new Scope.Builder()
+            .addPath("organization=org_id")
+            .addPath("environment=org_id")
+            .withKafkaCluster("kafka_id").build().scopeType());
+
+    assertEquals(ScopeType.UNKNOWN, Scope.intermediateScope("intermediate").scopeType());
+
+    // Confluent Cloud specific
+
+    assertEquals(ScopeType.ENVIRONMENT,
+            Scope.intermediateScope("environment=env_id").scopeType());
+    assertEquals(ScopeType.ENVIRONMENT,
+            Scope.intermediateScope("organization=org_id", "environment=env_id").scopeType());
+
+    assertEquals(ScopeType.ORGANIZATION,
+            Scope.intermediateScope("organization=org_id").scopeType());
+  }
+
+  @Test
+  public void testEnclosingScope() {
+    Scope clusterScope = new Scope.Builder("organization=org_id", "environment=env_id")
+            .withKafkaCluster("kafka_id").build();
+    assertEquals(clusterScope,
+            clusterScope.enclosingScope(ScopeType.CLUSTER));
+    assertEquals(clusterScope.parent(),
+            clusterScope.enclosingScope(ScopeType.ENVIRONMENT));
+    assertEquals(clusterScope.parent().parent(),
+            clusterScope.enclosingScope(ScopeType.ORGANIZATION));
+    assertEquals(Scope.ROOT_SCOPE,
+            clusterScope.enclosingScope(ScopeType.ROOT));
+    assertNull(
+            clusterScope.enclosingScope(ScopeType.UNKNOWN));
+    assertEquals(clusterScope,
+            clusterScope.enclosingScope(ScopeType.RESOURCE));
+  }
+
 }

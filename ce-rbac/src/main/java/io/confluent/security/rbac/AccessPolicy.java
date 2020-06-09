@@ -7,13 +7,13 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.confluent.security.authorizer.Operation;
 import io.confluent.security.authorizer.ResourceType;
+import io.confluent.security.authorizer.ScopeType;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.stream.Collectors;
-import org.apache.kafka.common.utils.Utils;
 
 
 /**
@@ -22,24 +22,26 @@ import org.apache.kafka.common.utils.Utils;
  */
 public class AccessPolicy {
 
-  public static final String CLUSTER_SCOPE = "Cluster";
-  public static final String RESOURCE_SCOPE = "Resource";
-  static final Set<String> SCOPE_TYPES = Utils.mkSet(CLUSTER_SCOPE, RESOURCE_SCOPE);
-
-  private final String scopeType;
+  private final ScopeType scopeType;
   private final Map<ResourceType, Collection<Operation>> allowedOperations;
 
   @JsonCreator
   public AccessPolicy(@JsonProperty("scopeType") String scopeType,
                       @JsonProperty("allowedOperations") Collection<ResourceOperations> allowedOperations) {
-    this.scopeType = scopeType;
+    ScopeType type;
+    try {
+      type = ScopeType.valueOf(scopeType.toUpperCase(Locale.ROOT));
+    } catch (NullPointerException npe) {
+      type = ScopeType.UNKNOWN;
+    }
+    this.scopeType = type;
     this.allowedOperations = allowedOperations.stream()
         .collect(Collectors.toMap(op -> new ResourceType(op.resourceType),
             op -> op.operations.stream().map(Operation::new).collect(Collectors.toList())));
   }
 
   @JsonProperty
-  public String scopeType() {
+  public ScopeType scopeType() {
     return scopeType;
   }
 
@@ -58,7 +60,7 @@ public class AccessPolicy {
 
   @JsonIgnore
   public boolean hasResourceScope() {
-    return AccessPolicy.RESOURCE_SCOPE.equalsIgnoreCase(scopeType);
+    return ScopeType.RESOURCE == scopeType;
   }
 
   @Override

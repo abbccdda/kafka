@@ -25,6 +25,7 @@ import io.confluent.security.authorizer.Operation;
 import io.confluent.security.authorizer.PermissionType;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.minikdc.MiniKdcWithLdapService;
+import io.confluent.security.rbac.InvalidRoleDefinitionException;
 import io.confluent.security.rbac.RbacRoles;
 import io.confluent.security.rbac.RoleBinding;
 import io.confluent.security.store.MetadataStoreException;
@@ -294,6 +295,11 @@ public class KafkaAuthStoreTest {
       assertEquals(Collections.singleton(userTopicABinding), aclRules(clusterX, userTopicABinding.toFilter()));
     }
     assertEquals(10.0, TestUtils.getMetricValue(authStore.metrics(), AuthStoreMetrics.ACL_ACCESS_RULES_COUNT), 0.0);
+  }
+
+  @Test(expected = InvalidRoleDefinitionException.class)
+  public void testInvalidRoles() {
+    rbacRoles = RbacRoles.load(this.getClass().getClassLoader(), "test_rbac_roles_invalid.json");
   }
 
   private void createAuthStore() throws Exception {

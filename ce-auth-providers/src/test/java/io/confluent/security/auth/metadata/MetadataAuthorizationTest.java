@@ -139,7 +139,7 @@ public class MetadataAuthorizationTest {
     verifyAuthorizationFailure(() -> authorizeResourcePattern(alice, clusterB, topicResource, DESCRIBE_ACCESS));
     verifyAuthorizationFailure(() -> authorizeResourcePattern(alice, clusterB, topicPrefix, DESCRIBE_ACCESS));
 
-    RbacTestUtils.updateRoleBinding(authCache, alice, "UserAdmin", clusterB, Collections.singleton(topicPrefix));
+    RbacTestUtils.updateRoleBinding(authCache, alice, "UserAdmin", clusterB, Collections.emptySet());
     authorizeResourcePattern(alice, clusterB, topicResource, ALTER_ACCESS);
     authorizeResourcePattern(alice, clusterB, topicPrefix, ALTER_ACCESS);
     authorizeResourcePattern(alice, clusterB, matchingPrefix, ALTER_ACCESS);

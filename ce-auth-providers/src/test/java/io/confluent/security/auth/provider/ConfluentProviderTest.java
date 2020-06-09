@@ -206,8 +206,6 @@ public class ConfluentProviderTest {
     updateRoleBinding(alice, "Operator", clusterA, Collections.emptySet());
     verifyRules(alice, groups, clusterA, clusterResource, "AlterConfigs", "DescribeConfigs");
     verifyRules(alice, groups, clusterA, topic, "DescribeConfigs", "AlterConfigs");
-    updateRoleBinding(alice, "Operator", clusterA, Collections.singleton(topic));
-    verifyRules(alice, groups, clusterA, topic, "AlterConfigs", "DescribeConfigs");
 
     deleteRoleBinding(alice, "ClusterAdmin", clusterA);
     verifyRules(alice, groups, clusterA, clusterResource);
@@ -232,8 +230,6 @@ public class ConfluentProviderTest {
     updateRoleBinding(admin, "Operator", clusterA, Collections.emptySet());
     verifyRules(alice, groups, clusterA, clusterResource, "AlterConfigs", "DescribeConfigs");
     verifyRules(alice, groups, clusterA, topic, "DescribeConfigs", "AlterConfigs");
-    updateRoleBinding(admin, "Operator", clusterA, Collections.singleton(topic));
-    verifyRules(alice, groups, clusterA, topic, "AlterConfigs", "DescribeConfigs");
 
     updateRoleBinding(alice, "Operator", clusterA, Collections.emptySet());
     verifyRules(alice, groups, clusterA, clusterResource, "AlterConfigs", "DescribeConfigs");
@@ -333,7 +329,7 @@ public class ConfluentProviderTest {
     KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
     Set<KafkaPrincipal> groups = Collections.emptySet();
 
-    updateRoleBinding(alice, "Operator", clusterA, Collections.singleton(topic));
+    updateRoleBinding(alice, "Operator", clusterA, Collections.emptySet());
     verifyRules(alice, groups, clusterA, topic, "AlterConfigs", "DescribeConfigs");
     verifyRules(alice, groups, clusterA, clusterResource);
 
@@ -351,7 +347,7 @@ public class ConfluentProviderTest {
     Set<KafkaPrincipal> groups = Collections.emptySet();
 
     // single cluster, cluster scopeType, topic permissions
-    updateRoleBinding(alice, "Operator", clusterA, Collections.singleton(topic));
+    updateRoleBinding(alice, "Operator", clusterA, Collections.emptySet());
     verifyRules(alice, groups, clusterA, topic, "AlterConfigs", "DescribeConfigs");
     verifyRules(alice, groups, clusterA, clusterResource);
 
@@ -361,34 +357,6 @@ public class ConfluentProviderTest {
     verifyRules(alice, groups, clusterA, topic, "AlterConfigs", "DescribeConfigs");
     verifyRules(alice, groups, clusterB, clusterResource, "AlterConfigs", "DescribeConfigs");
     verifyRules(alice, groups, clusterB, topic);
-
-    // path scope, resource scopeType, topic permissions
-    KafkaPrincipal bob = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Bob");
-    updateRoleBinding(bob, "Reader", Scope.intermediateScope("testOrg"), Collections.singleton(topic));
-    verifyRules(bob, groups, clusterA, clusterResource);
-    verifyRules(bob, groups, clusterA, topic, "Read", "Describe");
-    verifyRules(bob, groups, clusterA, topicB);
-    verifyRules(bob, groups, clusterB, clusterResource);
-    verifyRules(bob, groups, clusterB, topic, "Read", "Describe");
-    verifyRules(bob, groups, clusterB, topicB);
-
-    // path scope, cluster scopeType, topic permissions
-    KafkaPrincipal carmen = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Carmen");
-    updateRoleBinding(carmen, "Operator", Scope.intermediateScope("testOrg"), Collections.emptySet());
-    verifyRules(carmen, groups, clusterA, clusterResource);
-    verifyRules(carmen, groups, clusterA, topic, "AlterConfigs", "DescribeConfigs");
-    verifyRules(carmen, groups, clusterA, topicB, "AlterConfigs", "DescribeConfigs");
-    verifyRules(carmen, groups, clusterB, clusterResource);
-    verifyRules(carmen, groups, clusterB, topic, "AlterConfigs", "DescribeConfigs");
-    verifyRules(carmen, groups, clusterB, topicB, "AlterConfigs", "DescribeConfigs");
-
-    // path scope, cluster scopeType, clusterResource permissions
-    KafkaPrincipal devi = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Devi");
-    updateRoleBinding(devi, "ClusterAdmin", Scope.intermediateScope("testOrg"), Collections.emptySet());
-    verifyRules(devi, groups, clusterA, clusterResource, "AlterConfigs", "DescribeConfigs");
-    verifyRules(devi, groups, clusterA, topic);
-    verifyRules(devi, groups, clusterB, clusterResource, "AlterConfigs", "DescribeConfigs");
-    verifyRules(devi, groups, clusterB, topic);
 
     try {
       Scope anotherScope = new Scope.Builder("anotherOrg").withKafkaCluster("clusterA").build();
