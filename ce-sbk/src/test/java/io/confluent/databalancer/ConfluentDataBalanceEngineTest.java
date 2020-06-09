@@ -32,10 +32,12 @@ import io.confluent.databalancer.persistence.ApiStatePersistenceStore;
 import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
 
 import kafka.common.BrokerRemovalStatus;
+import kafka.server.Defaults$;
 import kafka.server.KafkaConfig;
 import kafka.server.KafkaConfig$;
 import kafka.utils.MockTime;
 import kafka.utils.TestUtils$;
+import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.BrokerRemovalDescription;
 import org.apache.kafka.common.Endpoint;
@@ -77,6 +79,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
@@ -150,6 +153,7 @@ public class ConfluentDataBalanceEngineTest  {
         brokerProps.put(KafkaConfig$.MODULE$.ZkConnectProp(), TestUtils$.MODULE$.MockZkConnect());
         brokerProps.put(ConfluentConfigs.BALANCER_ENABLE_CONFIG, true);
         brokerProps.put(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, 200L);
+        brokerProps.put(KafkaConfig$.MODULE$.ListenersProp(), "PLAINTEXT://localhost:9092");
 
         initConfig = new KafkaConfig(brokerProps);
         MockitoAnnotations.initMocks(this);
@@ -280,7 +284,7 @@ public class ConfluentDataBalanceEngineTest  {
         assertEquals("More than one listeners found: " + config.listeners(),
                 1, config.listeners().length());
         Endpoint interBpEp = config.listeners().head().toJava();
-        String expectedBootstrapServers = (interBpEp.host() == null ? "" : interBpEp.host()) + ":" + interBpEp.port();
+        String expectedBootstrapServers = interBpEp.host() + ":" + interBpEp.port();
         //String expectedBootstrapServers = config.listeners().head().connectionString();
         KafkaCruiseControlConfig ccConfig = ConfluentDataBalanceEngine.generateCruiseControlConfig(config);
 
@@ -470,6 +474,55 @@ public class ConfluentDataBalanceEngineTest  {
         assertEquals(Collections.emptyList(), ccConfig.getList(KafkaCruiseControlConfig.DEFAULT_GOALS_CONFIG));
         assertEquals(expectedHardGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.HARD_GOALS_CONFIG));
         assertEquals(expectedAnomalyDetectionGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.ANOMALY_DETECTION_GOALS_CONFIG));
+    }
+
+    @Test
+    public void testPopulateClientConfigs_FallsBackToAdvertisedListeners() {
+        String expectedBootstrap = "host:9092";
+        Map<String, Object> props = new HashMap<>();
+        brokerProps.remove(KafkaConfig$.MODULE$.ListenersProp());
+        brokerProps.put(KafkaConfig$.MODULE$.AdvertisedHostNameProp(), "host");
+        brokerProps.put(KafkaConfig$.MODULE$.AdvertisedPortProp(), "9092");
+
+        KafkaConfig config = new KafkaConfig(brokerProps);
+        // We expect only one listener in a bare-bones config.
+        assertEquals("More than one listeners found: " + config.listeners(),
+            1, config.listeners().length());
+        assertNull("Expected the normal listener to have a null host", config.listeners().head().host());
+        assertEquals("More than one advertised listeners found: " + config.listeners(),
+            1, config.advertisedListeners().length());
+
+        // act
+        ConfluentDataBalanceEngine.populateClientConfigs(config, props);
+
+        String receivedBootstrapServers = (String) props.get(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG);
+        assertEquals(expectedBootstrap, receivedBootstrapServers);
+    }
+
+    @Test
+    public void testPopulateClientConfigs_DefaultsToEmptyStringHost() {
+        String expectedBootstrap = ":9092"; // empty host gets resolved to localhost
+        Map<String, Object> props = new HashMap<>();
+        brokerProps.remove(KafkaConfig$.MODULE$.ListenersProp());
+
+        KafkaConfig config = new KafkaConfig(brokerProps);
+        // We expect only one listener in a bare-bones config. In absence of any `listeners` property
+        // we will get default host and port (null and 9092)
+        assertEquals("More than one listeners found: " + config.listeners(),
+            1, config.listeners().length());
+        assertNull("Expected the normal listener to have a null host", config.listeners().head().host());
+        assertEquals("Expected the normal listener to have a default port",
+                Defaults$.MODULE$.Port(), config.listeners().head().port());
+        assertEquals("More than one advertised listeners found: " + config.listeners(),
+            1, config.advertisedListeners().length());
+        assertNull("Expected the advertised listener to have a null host",
+                config.advertisedListeners().head().host());
+
+        // act. This will throw as both listeners and advertised listeners don't have hostname.
+        ConfluentDataBalanceEngine.populateClientConfigs(config, props);
+
+        String receivedBootstrapServers = (String) props.get(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG);
+        assertEquals(expectedBootstrap, receivedBootstrapServers);
     }
 
     @Test
@@ -919,7 +972,7 @@ public class ConfluentDataBalanceEngineTest  {
 
     @Test
     public void testAddBroker_success() throws KafkaCruiseControlException, InterruptedException {
-        Set<Integer> brokersToAdd = new HashSet<>(Arrays.asList(10));
+        Set<Integer> brokersToAdd = new HashSet<>(Collections.singletonList(10));
         String testUid = "testUid";
 
         KafkaConfig config = mock(KafkaConfig.class);
@@ -935,8 +988,8 @@ public class ConfluentDataBalanceEngineTest  {
 
     @Test
     public void testAddBroker_pendingRemove() {
-        Integer removingBroker = 1;
-        Set<Integer> brokersToAdd = new HashSet<>(Arrays.asList(10));
+        int removingBroker = 1;
+        Set<Integer> brokersToAdd = new HashSet<>(Collections.singletonList(10));
         String testUid = "testUid";
 
         KafkaConfig config = mock(KafkaConfig.class);
@@ -959,8 +1012,8 @@ public class ConfluentDataBalanceEngineTest  {
 
     @Test
     public void testAddBroker_successfulRemove() throws KafkaCruiseControlException, InterruptedException {
-        Integer removingBroker = 1;
-        Set<Integer> brokersToAdd = new HashSet<>(Arrays.asList(10));
+        int removingBroker = 1;
+        Set<Integer> brokersToAdd = new HashSet<>(Collections.singletonList(10));
         String testUid = "testUid";
 
         KafkaConfig config = mock(KafkaConfig.class);
@@ -984,8 +1037,8 @@ public class ConfluentDataBalanceEngineTest  {
 
     @Test
     public void testAddBroker_failedRemove() throws KafkaCruiseControlException, InterruptedException {
-        Integer removingBroker = 1;
-        Set<Integer> brokersToAdd = new HashSet<>(Arrays.asList(10));
+        int removingBroker = 1;
+        Set<Integer> brokersToAdd = new HashSet<>(Collections.singletonList(10));
         String testUid = "testUid";
 
         KafkaConfig config = mock(KafkaConfig.class);

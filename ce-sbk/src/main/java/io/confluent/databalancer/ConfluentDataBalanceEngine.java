@@ -340,7 +340,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         try {
             KafkaCruiseControl newCruiseControl = kafkaCruiseControlCreator.apply(kafkaConfig);
             newCruiseControl.startUp();
-            context.setPersistenceStore(new ApiStatePersistenceStore(kafkaConfig, context.getTime()));
+            context.setPersistenceStore(new ApiStatePersistenceStore(kafkaConfig, context.getTime(), generateClientConfigs(kafkaConfig)));
             // This should be last line in this method. Setting cruise control object makes
             // `isActive`/`context.isCruiseControlInitialized()` methods to return true, which allows
             // databalance engine to accept new requests.
@@ -448,7 +448,6 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         // Extract all confluent.databalancer.X properties from the KafkaConfig, so we
         // can create a CruiseControlConfig from it.
         Map<String, Object> ccConfigProps = new HashMap<>(config.originalsWithPrefix(ConfluentConfigs.CONFLUENT_BALANCER_PREFIX));
-
         // Special overrides: zookeeper.connect, etc.
         ccConfigProps.putIfAbsent(KafkaCruiseControlConfig.ZOOKEEPER_CONNECT_CONFIG, config.get(KafkaConfig.ZkConnectProp()));
         ccConfigProps.put(BrokerCapacityResolver.LOG_DIRS_CONFIG, getConfiguredLogDirs(config));
@@ -474,15 +473,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         // Derive bootstrap.servers from the provided KafkaConfig, instead of requiring
         // users to specify it.
         if (ccConfigProps.get(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG) == null) {
-            Endpoint interBrokerEp = config.listeners()
-                .find(ep -> ep.listenerName().equals(config.interBrokerListenerName()))
-                .get().toJava();
-            LOG.info("DataBalancer: Listener endpoint is {}", interBrokerEp);
-            Map<String, Object> clientConfigs = ConfluentConfigs.interBrokerClientConfigs(config, interBrokerEp);
-
-            LOG.info("Adding configs {} to config", clientConfigs);
-
-            ccConfigProps.putAll(clientConfigs);
+            populateClientConfigs(config, ccConfigProps);
         }
         LOG.info("DataBalancer: BOOTSTRAP_SERVERS determined to be {}", ccConfigProps.get(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG));
 
@@ -514,6 +505,44 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
                 generateCcTopicExclusionRegex(config));
 
         return new KafkaCruiseControlConfig(ccConfigProps);
+    }
+
+    /**
+     * Derives the bootstrap.servers from the provided #{@link KafkaConfig}
+     * and populates the passed in #{@code props} with it, along with more default client properties
+     */
+    static void populateClientConfigs(KafkaConfig config, Map<String, Object> props) {
+        Map<String, Object> clientConfigs = generateClientConfigs(config);
+        LOG.info("Adding configs {} to config", clientConfigs);
+
+        props.putAll(clientConfigs);
+    }
+
+    private static Map<String, Object> generateClientConfigs(KafkaConfig config) {
+        Endpoint interBrokerEndpoint = config.listeners()
+            .find(ep -> ep.listenerName().equals(config.interBrokerListenerName()))
+            .get().toJava();
+
+        if (interBrokerEndpoint.host() == null || interBrokerEndpoint.host().isEmpty()) {
+            // If listeners list doesn't have host port for bootstrap server, then check advertised listeners
+            // As advertised listeners are used by clients to connect to kafka brokers, they should contain
+            // hostname. Also Inter broker communication endpoint is guaranteed to be part of advertised listeners.
+            // NOTE: `listeners` list is used by kafka to bind to host/port, where as `advertised.listeners` is
+            // used by clients to connect to kafka cluster
+            Endpoint advertisedInterBrokerEndpoint = config.advertisedListeners()
+                    .find(ep -> ep.listenerName().equals(config.interBrokerListenerName()))
+                    .get().toJava();
+
+            if (advertisedInterBrokerEndpoint.host() == null || advertisedInterBrokerEndpoint.host().isEmpty()) {
+                LOG.warn(String.format("Could not find a host in both the normal (%s) and advertised (%s) internal broker listener. This will default to localhost",
+                    interBrokerEndpoint, advertisedInterBrokerEndpoint));
+            }
+
+            interBrokerEndpoint = advertisedInterBrokerEndpoint;
+        }
+
+        LOG.info("DataBalancer: Listener endpoint is {}", interBrokerEndpoint);
+        return ConfluentConfigs.interBrokerClientConfigs(config, interBrokerEndpoint);
     }
 
     private static void configureCruiseControlSelfHealing(KafkaConfig config, Map<String, Object> cruiseControlProps) {

@@ -25,6 +25,7 @@ import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.junit.rules.Timeout;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
@@ -72,7 +73,7 @@ public class ApiStatePersistenceStoreTest {
     @Test
     public void testProduceConsumeOneRecord() throws Exception {
         KafkaConfig config = getKafkaConfig();
-        try (ApiStatePersistenceStore store = new ApiStatePersistenceStore(config, time)) {
+        try (ApiStatePersistenceStore store = new ApiStatePersistenceStore(config, time, Collections.emptyMap())) {
             int brokerId = 1;
             BrokerRemovalDescription.BrokerShutdownStatus bssStatus = BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE;
             BrokerRemovalDescription.PartitionReassignmentsStatus parStatus = BrokerRemovalDescription.PartitionReassignmentsStatus.IN_PROGRESS;
@@ -99,7 +100,7 @@ public class ApiStatePersistenceStoreTest {
     @Test
     public void testProduceConsumeMultipleRecords() throws Exception {
         KafkaConfig config = getKafkaConfig();
-        try (ApiStatePersistenceStore store = new ApiStatePersistenceStore(config, time)) {
+        try (ApiStatePersistenceStore store = new ApiStatePersistenceStore(config, time, Collections.emptyMap())) {
 
             int firstBrokerId = 1;
             BrokerRemovalDescription.BrokerShutdownStatus bssStatus = BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE;
@@ -125,7 +126,7 @@ public class ApiStatePersistenceStoreTest {
     @Test
     public void testProduceConsumeBrokerStatusMultipleTime() throws Exception {
         KafkaConfig config = getKafkaConfig();
-        try (ApiStatePersistenceStore store = new ApiStatePersistenceStore(config, time)) {
+        try (ApiStatePersistenceStore store = new ApiStatePersistenceStore(config, time, Collections.emptyMap())) {
             int brokerId = 1;
             BrokerRemovalDescription.BrokerShutdownStatus bssStatus = BrokerRemovalDescription.BrokerShutdownStatus.PENDING;
             BrokerRemovalDescription.PartitionReassignmentsStatus parStatus = BrokerRemovalDescription.PartitionReassignmentsStatus.IN_PROGRESS;
@@ -160,7 +161,7 @@ public class ApiStatePersistenceStoreTest {
     @Test
     public void testApiStatusExistAfterRestart() throws Exception {
         KafkaConfig config = getKafkaConfig();
-        ApiStatePersistenceStore store = new ApiStatePersistenceStore(config, time);
+        ApiStatePersistenceStore store = new ApiStatePersistenceStore(config, time, Collections.emptyMap());
 
         int firstBrokerId = 1;
         BrokerRemovalStatus firstBrokerStatus = new BrokerRemovalStatus(firstBrokerId,
@@ -195,7 +196,7 @@ public class ApiStatePersistenceStoreTest {
         // Close the Api Persistence store and create a new one to read record. This simulates restart
         store.close();
 
-        store = new ApiStatePersistenceStore(config, time);
+        store = new ApiStatePersistenceStore(config, time, Collections.emptyMap());
 
         Assert.assertEquals("There should only be two api states.",
                 2, store.getAllBrokerRemovalStatus().size());

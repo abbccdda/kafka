@@ -85,7 +85,7 @@ public class ApiStatePersistenceStoreUnitTest {
     public void testProducerConfig() {
         // Setup mocks
         Mockito.doCallRealMethod().when(persistenceStore)
-                .init(Mockito.any(KafkaConfig.class), Mockito.any(Time.class));
+                .init(Mockito.any(KafkaConfig.class), Mockito.any(Time.class), Mockito.any(Map.class));
         Mockito.doCallRealMethod().when(persistenceStore)
                 .setupAndCreateKafkaBasedLog(Mockito.any(KafkaConfig.class), Mockito.any(Time.class));
 
@@ -98,9 +98,12 @@ public class ApiStatePersistenceStoreUnitTest {
                 timeCaptor.capture());
         Mockito.doNothing().when(persistenceStoreLog).start();
 
+        Map<String, Object> baseClientConfigs = new HashMap<>();
+        baseClientConfigs.put("baseKey", "baseValue");
+
         // Call method to test
         KafkaConfig kafkaConfig = getKafkaConfig();
-        persistenceStore.init(kafkaConfig, time);
+        persistenceStore.init(kafkaConfig, time, baseClientConfigs);
 
         // Validate if producer config is created correctly
         Assert.assertEquals(time, timeCaptor.getValue());
@@ -113,6 +116,8 @@ public class ApiStatePersistenceStoreUnitTest {
                 producerConfigs.get(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG));
         Assert.assertEquals(API_STATE_PERSISTENCE_STORE + "-producer--1",
                 producerConfigs.get(CommonClientConfigs.CLIENT_ID_CONFIG));
+        Assert.assertEquals("baseValue",
+                producerConfigs.get("baseKey"));
     }
 
     @Test
@@ -120,7 +125,7 @@ public class ApiStatePersistenceStoreUnitTest {
     public void testConsumerConfig() {
         // Setup mocks
         Mockito.doCallRealMethod().when(persistenceStore)
-                .init(Mockito.any(KafkaConfig.class), Mockito.any(Time.class));
+                .init(Mockito.any(KafkaConfig.class), Mockito.any(Time.class), Mockito.any(Map.class));
         Mockito.doCallRealMethod().when(persistenceStore)
                 .setupAndCreateKafkaBasedLog(Mockito.any(KafkaConfig.class), Mockito.any(Time.class));
 
@@ -133,9 +138,12 @@ public class ApiStatePersistenceStoreUnitTest {
                 timeCaptor.capture());
         Mockito.doNothing().when(persistenceStoreLog).start();
 
+        Map<String, Object> baseClientConfigs = new HashMap<>();
+        baseClientConfigs.put("baseKey", "baseValue");
+
         // Call method to test
         KafkaConfig kafkaConfig = getKafkaConfig();
-        persistenceStore.init(kafkaConfig, time);
+        persistenceStore.init(kafkaConfig, time, baseClientConfigs);
 
         // Validate if producer config is created correctly
         Assert.assertEquals(time, timeCaptor.getValue());
@@ -148,6 +156,8 @@ public class ApiStatePersistenceStoreUnitTest {
                 consumerConfigs.get(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG));
         Assert.assertEquals(API_STATE_PERSISTENCE_STORE + "-consumer--1",
                 consumerConfigs.get(CommonClientConfigs.CLIENT_ID_CONFIG));
+        Assert.assertEquals("baseValue",
+                consumerConfigs.get("baseKey"));
     }
 
     @Test

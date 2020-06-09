@@ -102,12 +102,14 @@ public class ApiStatePersistenceStore implements AutoCloseable {
     private String topic;
     private Map<Integer, BrokerRemovalStatus> brokerRemovalStatusMap = new ConcurrentHashMap<>();
     private Map<Integer, BrokerAddStatus> brokerAddStatusMap = new ConcurrentHashMap<>();
+    private Map<String, Object> baseClientProperties;
 
-    public ApiStatePersistenceStore(KafkaConfig config, Time time) {
-        init(config, time);
+    public ApiStatePersistenceStore(KafkaConfig config, Time time, Map<String, Object> clientProperties) {
+        init(config, time, clientProperties);
     }
 
-    public void init(KafkaConfig config, Time time) {
+    public void init(KafkaConfig config, Time time, Map<String, Object> clientProperties) {
+        this.baseClientProperties = clientProperties;
         this.topic = getApiStatePersistenceStoreTopicName(config);
         this.apiStatePersistenceLog = setupAndCreateKafkaBasedLog(config, time);
 
@@ -381,19 +383,25 @@ public class ApiStatePersistenceStore implements AutoCloseable {
     }
 
     private Map<String, Object> getProducerConfig(KafkaConfig config) {
-        return ConfluentConfigs.clientConfigs(config,
-                ConfluentConfigs.CONFLUENT_BALANCER_PREFIX,
-                ConfluentConfigs.ClientType.PRODUCER,
-                topic,
-                String.valueOf(config.brokerId()));
+        return getClientConfig(config, ConfluentConfigs.ClientType.PRODUCER);
     }
 
     private Map<String, Object> getConsumerConfig(KafkaConfig config) {
-        return ConfluentConfigs.clientConfigs(config,
-                ConfluentConfigs.CONFLUENT_BALANCER_PREFIX,
-                ConfluentConfigs.ClientType.CONSUMER,
-                topic,
-                String.valueOf(config.brokerId()));
+        return getClientConfig(config, ConfluentConfigs.ClientType.CONSUMER);
+    }
+
+    private Map<String, Object> getClientConfig(KafkaConfig config, ConfluentConfigs.ClientType clientType) {
+        Map<String, Object> configs = new HashMap<>(baseClientProperties);
+
+        Map<String, Object> clientConfigs = ConfluentConfigs.clientConfigs(config,
+            ConfluentConfigs.CONFLUENT_BALANCER_PREFIX,
+            clientType,
+            topic,
+            String.valueOf(config.brokerId()));
+
+        configs.putAll(clientConfigs);
+
+        return configs;
     }
 
     // VisibleForTesting
