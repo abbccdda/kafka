@@ -224,7 +224,7 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
         }
         if (!balanceEngine.isActive()) {
             // Return nothing; this is completely ok
-            LOG.warn("Notified of broker additions {} but SBK is disabled -- ignoring for now");
+            LOG.warn("Notified of broker additions {} but SBK is disabled -- ignoring for now", newBrokers);
             return;
         }
 
