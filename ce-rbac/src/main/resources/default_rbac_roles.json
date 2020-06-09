@@ -252,6 +252,18 @@
       }
     },
     {
+      "name" : "AuditAdmin",
+      "policy" : {
+        "scopeType" : "Resource",
+        "allowedOperations" : [
+          {
+            "resourceType" : "Cluster",
+            "operations" : ["DescribeConfigs", "AlterConfigs"]
+          }
+        ]
+      }
+    },
+    {
       "name" : "ResourceOwner",
       "policy" : {
         "scopeType" : "Resource",
