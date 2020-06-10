@@ -27,7 +27,6 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -310,52 +309,14 @@ public class ReplicaPlacementGoalTest {
     public void testReplicaPlacementGoalOptimize() throws OptimizationFailureException {
         clusterModel.setTopicPlacements(Collections.singletonMap(DeterministicCluster.T2, topic2MultipleMovesPlacement));
         OptimizationOptions options = new OptimizationOptions(Collections.emptySet());
-        Map<TopicPartition, List<ReplicaPlacementInfo>> preOptimizedReplicaDistribution = clusterModel.getReplicaDistribution();
-        Map<TopicPartition, ReplicaPlacementInfo> preOptimizedLeaderDistribution = clusterModel.getLeaderDistribution();
-        Map<TopicPartition, List<ReplicaPlacementInfo>> preOptimizedObserverDistribution = clusterModel.getObserverDistribution();
-        boolean success = goal.optimize(clusterModel, Collections.emptySet(), options);
-        assertTrue("Expected goal optimization to succeed", success);
-        Set<ExecutionProposal> proposals = AnalyzerUtils.getDiff(preOptimizedReplicaDistribution, preOptimizedLeaderDistribution,
-                preOptimizedObserverDistribution, clusterModel);
-        for (ExecutionProposal proposal : proposals) {
-            Set<ReplicaPlacementInfo> replicasToRemove = proposal.replicasToRemove();
-            Set<ReplicaPlacementInfo> replicasToAdd = proposal.replicasToAdd();
-
-            assertTrue("Replicas should only be removed from broker 2",
-                    replicasToRemove.stream().allMatch(placement -> placement.brokerId() == 2));
-            assertTrue("Replicas should not be added to broker 2",
-                    replicasToAdd.stream().noneMatch(placement -> placement.brokerId() == 2));
-        }
+        validateGoalOptimization(clusterModel, topic2MultipleMovesPlacement, options);
     }
 
     @Test
     public void testObserverMovementGoalOptimize() throws OptimizationFailureException {
         observerClusterModel.setTopicPlacements(Collections.singletonMap(DeterministicCluster.T1, topic1ObserverPlacement));
-        TopicPartition t1p0 = new TopicPartition(DeterministicCluster.T1, 0);
         OptimizationOptions options = new OptimizationOptions(Collections.emptySet());
-        Map<TopicPartition, List<ReplicaPlacementInfo>> preOptimizedReplicaDistribution = observerClusterModel.getReplicaDistribution();
-        Map<TopicPartition, ReplicaPlacementInfo> preOptimizedLeaderDistribution = observerClusterModel.getLeaderDistribution();
-        Map<TopicPartition, List<ReplicaPlacementInfo>> preOptimizedObserverDistribution = observerClusterModel.getObserverDistribution();
-        List<ReplicaPlacementInfo> initialObserverPlacement = preOptimizedObserverDistribution.get(t1p0);
-        List<ReplicaPlacementInfo> initialSyncReplicas = syncReplicas(preOptimizedReplicaDistribution.get(t1p0), initialObserverPlacement);
-        assertTrue("Sync replicas should not be on brokers 2 or 3 before optimization",
-                initialSyncReplicas.stream().noneMatch(placement -> placement.brokerId() >= 2));
-        assertTrue("Observers should not be on broker 0 or 1 before optimization",
-                initialObserverPlacement.stream().noneMatch(placement -> placement.brokerId() < 2));
-        boolean success = goal.optimize(observerClusterModel, Collections.emptySet(), options);
-        assertTrue("Expected goal optimization to succeed", success);
-        Set<ExecutionProposal> proposals = AnalyzerUtils.getDiff(preOptimizedReplicaDistribution, preOptimizedLeaderDistribution,
-                preOptimizedObserverDistribution, observerClusterModel);
-        for (ExecutionProposal proposal : proposals) {
-            List<ReplicaPlacementInfo> syncReplicas = syncReplicas(proposal.newReplicas(), proposal.newObservers());
-            assertEquals("Number of observers should be unchanged", proposal.newObservers().size(), 2);
-            List<Integer> expectedSyncBrokers = Arrays.asList(2, 3);
-            assertTrue("Sync replicas should have moved to brokers 2/3", syncReplicas.stream().allMatch(
-                    placement -> expectedSyncBrokers.contains(placement.brokerId())));
-            List<Integer> expectedObserverBrokers = Arrays.asList(0, 1);
-            assertTrue("Observers should have moved to broker 0/1", proposal.newObservers().stream().allMatch(
-                    placement -> expectedObserverBrokers.contains(placement.brokerId())));
-        }
+        validateGoalOptimization(observerClusterModel, topic1ObserverPlacement, options);
     }
 
     @Test
@@ -420,24 +381,83 @@ public class ReplicaPlacementGoalTest {
                 " \"observers\": [{\"count\": 1, \"constraints\":{\"rack\":\"0\"}}]}";
         TopicPlacement changeDistributionPlacement = TopicPlacement.parse(topic1ChangeDistributionJson).get();
         observerClusterModel.setTopicPlacements(Collections.singletonMap(DeterministicCluster.T1, changeDistributionPlacement));
-        Map<TopicPartition, List<ReplicaPlacementInfo>> preOptimizedReplicaDistribution = observerClusterModel.getReplicaDistribution();
-        Map<TopicPartition, ReplicaPlacementInfo> preOptimizedLeaderDistribution = observerClusterModel.getLeaderDistribution();
-        Map<TopicPartition, List<ReplicaPlacementInfo>> preOptimizedObserverDistribution = observerClusterModel.getObserverDistribution();
-        boolean success = goal.optimize(observerClusterModel, Collections.emptySet(), new OptimizationOptions(Collections.emptySet()));
+        validateGoalOptimization(observerClusterModel, changeDistributionPlacement, new OptimizationOptions(
+                Collections.emptySet()));
+    }
+
+    @Test
+    public void testGoalOptimizeReplicationFactorChange() throws OptimizationFailureException {
+        String topic1DecreaseObserversJson = "{\"version\":1,\"replicas\":[{\"count\": 2, \"constraints\":{\"rack\":\"1\"}}]," +
+                " \"observers\": [{\"count\": 1, \"constraints\":{\"rack\":\"0\"}}]}";
+        TopicPlacement changeRfPlacement = TopicPlacement.parse(topic1DecreaseObserversJson).get();
+        observerClusterModel.setTopicPlacements(Collections.singletonMap(DeterministicCluster.T1, changeRfPlacement));
+        OptimizationOptions options = new OptimizationOptions(Collections.emptySet());
+        validateGoalOptimization(observerClusterModel, changeRfPlacement, options);
+
+        String topic1IncreaseReplicasJson = "{\"version\":1,\"replicas\":[{\"count\": 2, \"constraints\":{\"rack\":\"1\"}}," +
+                "{\"count\": 1, \"constraints\":{\"rack\":\"2\"}}]," +
+                " \"observers\": [{\"count\": 2, \"constraints\":{\"rack\":\"0\"}}]}";
+        changeRfPlacement = TopicPlacement.parse(topic1IncreaseReplicasJson).get();
+        observerClusterModel.setTopicPlacements(Collections.singletonMap(DeterministicCluster.T1, changeRfPlacement));
+        validateGoalOptimization(observerClusterModel, changeRfPlacement, options);
+    }
+
+    private void validateGoalOptimization(ClusterModel cluster, TopicPlacement placement,
+                                          OptimizationOptions options) throws OptimizationFailureException {
+        Map<TopicPartition, List<ReplicaPlacementInfo>> preOptimizedReplicaDistribution = cluster.getReplicaDistribution();
+        Map<TopicPartition, ReplicaPlacementInfo> preOptimizedLeaderDistribution = cluster.getLeaderDistribution();
+        Map<TopicPartition, List<ReplicaPlacementInfo>> preOptimizedObserverDistribution = cluster.getObserverDistribution();
+
+        int expectedObservers = placement.observers().stream().mapToInt(constraint -> constraint.count()).sum();
+        int expectedSyncReplicas = placement.replicas().stream().mapToInt(constraint -> constraint.count()).sum();
+
+        Set<Integer> expectedSyncReplicaBrokers = new HashSet<>();
+        Set<Integer> expectedObserverBrokers = new HashSet<>();
+        for (TopicPlacement.ConstraintCount constraint : placement.replicas()) {
+            List<Integer> brokerIds = cluster.aliveBrokersMatchingAttributes(constraint.constraints()).stream().
+                    mapToInt(broker -> broker.id()).boxed().collect(Collectors.toList());
+            expectedSyncReplicaBrokers.addAll(brokerIds);
+        }
+        for (TopicPlacement.ConstraintCount constraint : placement.observers()) {
+            List<Integer> brokerIds = cluster.aliveBrokersMatchingAttributes(constraint.constraints()).stream().
+                    mapToInt(broker -> broker.id()).boxed().collect(Collectors.toList());
+            expectedObserverBrokers.addAll(brokerIds);
+        }
+
+        boolean success = goal.optimize(cluster, Collections.emptySet(), options);
         assertTrue("Expected goal optimization to succeed", success);
+
         Set<ExecutionProposal> proposals = AnalyzerUtils.getDiff(preOptimizedReplicaDistribution, preOptimizedLeaderDistribution,
-                preOptimizedObserverDistribution, observerClusterModel);
+                preOptimizedObserverDistribution, cluster, true);
+        assertTrue("Expected goal to generate proposals", !proposals.isEmpty());
         for (ExecutionProposal proposal : proposals) {
             List<ReplicaPlacementInfo> syncReplicas = syncReplicas(proposal.newReplicas(), proposal.newObservers());
-            assertEquals("Number of observers should be 1", proposal.newObservers().size(), 1);
-            List<Integer> expectedSyncReplicaBrokers = Arrays.asList(2, 3, 4);
+            assertEquals("Number of observers does not match expected", proposal.newObservers().size(),
+                    expectedObservers);
+            assertEquals("Number of total replicas does not match expected", proposal.newReplicas().size(),
+                    expectedObservers + expectedSyncReplicas);
             List<Integer> actualSyncReplicaBrokers = syncReplicas.stream().mapToInt(
                     ReplicaPlacementInfo::brokerId).boxed().collect(Collectors.toList());
-            assertTrue("Sync replicas should have moved to brokers 2, 3, 4",
-                    actualSyncReplicaBrokers.containsAll(expectedSyncReplicaBrokers));
-            List<Integer> expectedObserverBrokers = Arrays.asList(0, 1);
-            assertTrue("Observer should have moved to broker 0 or 1", proposal.newObservers().stream().allMatch(
-                    placement -> expectedObserverBrokers.contains(placement.brokerId())));
+            List<Integer> actualObserverBrokers = proposal.newObservers().stream().mapToInt(
+                    ReplicaPlacementInfo::brokerId).boxed().collect(Collectors.toList());
+
+            // if there are more potential brokers than replicas, validate that all brokers receiving sync replicas
+            // are valid sync replica brokers otherwise, validate that all expected brokers receive a sync replica
+            if (expectedSyncReplicas < expectedSyncReplicaBrokers.size()) {
+                assertTrue("Sync replicas did not move to expected brokers",
+                        expectedSyncReplicaBrokers.containsAll(actualSyncReplicaBrokers));
+            } else {
+                assertEquals("Sync replicas should have been added to all expected sync replica brokers",
+                        expectedSyncReplicaBrokers, new HashSet<>(actualSyncReplicaBrokers));
+            }
+            // same for observers
+            if (expectedObservers < expectedObserverBrokers.size()) {
+                assertTrue("Observers did not move to expected brokers",
+                        expectedObserverBrokers.containsAll(actualObserverBrokers));
+            } else {
+                assertEquals("Observers should have been added to all expected brokers",
+                        expectedObserverBrokers, new HashSet<>(actualObserverBrokers));
+            }
         }
     }
 

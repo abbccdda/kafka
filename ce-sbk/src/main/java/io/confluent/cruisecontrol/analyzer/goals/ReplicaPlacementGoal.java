@@ -25,6 +25,8 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -101,6 +103,11 @@ public class ReplicaPlacementGoal extends AbstractGoal {
     }
 
     @Override
+    public boolean canChangeReplicationFactor() {
+        return true;
+    }
+
+    @Override
     public boolean isHardGoal() {
         return true;
     }
@@ -117,7 +124,11 @@ public class ReplicaPlacementGoal extends AbstractGoal {
 
     /**
      * Sanity check:
-     * There must be at least enough brokers matching a particular constraint across both replicas and observers
+     * There must be at least enough brokers matching a particular constraint across both replicas and observers.
+     *
+     * We also create or delete replicas to match the number required for topic placement. Replicas created/deleted
+     * may not respect topic placement constraints, but the rebalance loop will move replicas and adjust roles as
+     * necessary.
      */
     @Override
     protected void initGoalState(ClusterModel clusterModel, OptimizationOptions optimizationOptions) throws OptimizationFailureException {
@@ -125,6 +136,7 @@ public class ReplicaPlacementGoal extends AbstractGoal {
         Set<String> excludedTopics = optimizationOptions.excludedTopics();
         partitionsByTopic.keySet().removeAll(excludedTopics);
         partitionsByTopic.keySet().removeIf(topic -> clusterModel.getTopicPlacement(topic) == null);
+        Map<Short, Set<String>> topicsByReplicationFactor = new HashMap<>();
         for (Map.Entry<String, List<Partition>> topicEntry : partitionsByTopic.entrySet()) {
             String topic = topicEntry.getKey();
             TopicPlacement topicPlacement = clusterModel.getTopicPlacement(topic);
@@ -140,8 +152,11 @@ public class ReplicaPlacementGoal extends AbstractGoal {
                             numBrokersMatchingAttributes, numReplicas));
                 }
             }
-            //TODO: alter the number of replicas in the cluster to match the placement config
+            Integer requiredReplicas = minBrokersMatchingAttributes.values().stream().mapToInt(
+                    replicas -> replicas).sum();
+            topicsByReplicationFactor.computeIfAbsent(requiredReplicas.shortValue(), rf -> new HashSet<>()).add(topic);
         }
+        clusterModel.updateReplicationFactor(topicsByReplicationFactor, optimizationOptions.excludedBrokersForReplicaMove());
     }
 
     /**

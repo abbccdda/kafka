@@ -14,9 +14,6 @@ import com.linkedin.kafka.cruisecontrol.monitor.ModelGeneration;
 import com.linkedin.kafka.cruisecontrol.servlet.response.stats.BrokerStats;
 import kafka.common.TopicPlacement;
 import org.apache.commons.math3.stat.descriptive.moment.Variance;
-import org.apache.kafka.common.Cluster;
-import org.apache.kafka.common.Node;
-import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
 
 import java.io.IOException;
@@ -997,15 +994,14 @@ public class ClusterModel implements Serializable {
    * @param topicsByReplicationFactor The topics to modify replication factor with target replication factor.
    * @param brokersByRack A map from rack to broker.
    * @param rackByBroker A map from broker to rack.
-   * @param cluster The metadata of the cluster.
    */
   public void createOrDeleteReplicas(Map<Short, Set<String>> topicsByReplicationFactor,
                                      Map<String, List<Integer>> brokersByRack,
-                                     Map<Integer, String> rackByBroker,
-                                     Cluster cluster) {
+                                     Map<Integer, String> rackByBroker) {
     // After replica deletion of some topic partitions, the cluster's maximal replication factor may decrease.
     boolean needToRefreshClusterMaxReplicationFactor = false;
 
+    Map<String, List<Partition>> partitionsByTopic = getPartitionsByTopic();
     for (Map.Entry<Short, Set<String>> entry : topicsByReplicationFactor.entrySet()) {
       short replicationFactor = entry.getKey();
       Set<String> topics = entry.getValue();
@@ -1013,30 +1009,31 @@ public class ClusterModel implements Serializable {
         List<String> racks = new ArrayList<>(brokersByRack.keySet());
         int[] cursors = new int[racks.size()];
         int rackCursor = 0;
-        for (PartitionInfo partitionInfo : cluster.partitionsForTopic(topic)) {
-          if (partitionInfo.replicas().length == replicationFactor) {
+        for (Partition partition : partitionsByTopic.get(topic)) {
+          if (partition.replicas().size() == replicationFactor) {
             continue;
           }
-          List<Integer> newAssignedReplica = new ArrayList<>();
-          if (partitionInfo.replicas().length < replicationFactor) {
+          List<Integer> newReplicas = new ArrayList<>();
+          if (partition.replicas().size() < replicationFactor) {
             Set<String> currentOccupiedRack = new HashSet<>();
             // Make sure the current replicas are in new replica list.
-            for (Node node : partitionInfo.replicas()) {
-              newAssignedReplica.add(node.id());
-              currentOccupiedRack.add(rackByBroker.get(node.id()));
+            for (Replica replica : partition.replicas()) {
+              Integer brokerId = replica.broker().id();
+              newReplicas.add(brokerId);
+              currentOccupiedRack.add(rackByBroker.get(brokerId));
             }
             // Add new replica to partition in rack-aware(if possible), round-robin way.
-            while (newAssignedReplica.size() < replicationFactor) {
+            while (newReplicas.size() < replicationFactor) {
               String rack = racks.get(rackCursor);
               if (!currentOccupiedRack.contains(rack) || currentOccupiedRack.size() == racks.size()) {
                 int cursor = cursors[rackCursor];
                 Integer brokerId = brokersByRack.get(rack).get(cursor);
-                if (!newAssignedReplica.contains(brokerId)) {
-                  newAssignedReplica.add(brokersByRack.get(rack).get(cursor));
+                if (!newReplicas.contains(brokerId)) {
+                  newReplicas.add(brokersByRack.get(rack).get(cursor));
                   // Create a new replica in the cluster model and populate its load from the leader replica.
-                  TopicPartition tp = new TopicPartition(topic, partitionInfo.partition());
+                  TopicPartition tp = partition.topicPartition();
                   Load load = partition(tp).leader().getFollowerLoadFromLeader();
-                  createReplica(rack, brokerId, tp, partitionInfo.replicas().length, false, false, null, true, false);
+                  createReplica(rack, brokerId, tp, partition.replicas().size(), false, false, null, true, false);
                   setReplicaLoad(rack, brokerId, tp, load.loadByWindows(), load.windows());
                   currentOccupiedRack.add(rack);
                 }
@@ -1046,13 +1043,15 @@ public class ClusterModel implements Serializable {
             }
           } else {
             // Make sure the leader replica is in new replica list.
-            newAssignedReplica.add(partitionInfo.leader().id());
-            for (Node node : partitionInfo.replicas()) {
-              if (node.id() != newAssignedReplica.get(0)) {
-                if (newAssignedReplica.size() < replicationFactor) {
-                  newAssignedReplica.add(node.id());
+            newReplicas.add(partition.leader().broker().id());
+            List<Replica> replicas = new ArrayList<>(partition.replicas());
+            for (Replica replica : replicas) {
+              Integer brokerId = replica.broker().id();
+              if (brokerId != newReplicas.get(0)) {
+                if (newReplicas.size() < replicationFactor) {
+                  newReplicas.add(brokerId);
                 } else {
-                  deleteReplica(new TopicPartition(topic, partitionInfo.partition()), node.id());
+                  deleteReplica(partition.topicPartition(), brokerId);
                   needToRefreshClusterMaxReplicationFactor = true;
                 }
               }
@@ -1064,6 +1063,22 @@ public class ClusterModel implements Serializable {
     if (needToRefreshClusterMaxReplicationFactor) {
       refreshClusterMaxReplicationFactor();
     }
+  }
+
+  /**
+   * For partitions of specified topics, create or delete replicas in given cluster model to change the partition's replication
+   * factor to target replication factor. New replicas for partition are added in a rack-aware, round-robin way.
+   *
+   * @param topicsByReplicationFactor The topics to modify replication factor with target replication factor.
+   */
+  public void updateReplicationFactor(Map<Short, Set<String>> topicsByReplicationFactor,
+                                      Set<Integer> brokersExcludedForReplicaMovement) {
+    Map<Integer, String> brokerIdToRack = _brokerIdToRack.entrySet().stream().collect(Collectors.toMap(
+            entry -> entry.getKey(), entry -> entry.getValue().id()));
+    brokerIdToRack.keySet().removeAll(brokersExcludedForReplicaMovement);
+    Map<String, List<Integer>> rackToBrokerId = brokerIdToRack.entrySet().stream().collect(
+            Collectors.groupingBy(Map.Entry::getValue, Collectors.mapping(Map.Entry::getKey, Collectors.toList())));
+    createOrDeleteReplicas(topicsByReplicationFactor, rackToBrokerId, brokerIdToRack);
   }
 
   /**
