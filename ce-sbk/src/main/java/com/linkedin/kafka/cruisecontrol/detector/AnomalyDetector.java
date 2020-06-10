@@ -186,7 +186,7 @@ public class AnomalyDetector {
     } catch (InterruptedException e) {
       LOG.warn("Interrupted while waiting for anomaly detector to shutdown.");
     }
-    _brokerFailureDetector.shutdown();
+    _brokerFailureDetector.shutdownNow();
     _anomalyLoggerExecutor.shutdownNow();
     LOG.info("Anomaly detector shutdown completed.");
   }
@@ -365,7 +365,7 @@ public class AnomalyDetector {
           } else {
             LOG.debug("Scheduling broker failure detection with delay of {} ms", delay);
             _numCheckedWithDelay.incrementAndGet();
-            _detectorScheduler.schedule(_brokerFailureDetector::detectBrokerFailures, delay, TimeUnit.MILLISECONDS);
+            _detectorScheduler.schedule(_brokerFailureDetector::scheduleDetection, delay, TimeUnit.MILLISECONDS);
             _anomalyDetectorState.onAnomalyHandle(_anomalyInProgress, AnomalyState.Status.CHECK_WITH_DELAY);
           }
         }
@@ -461,7 +461,7 @@ public class AnomalyDetector {
       // If there has not been any failed brokers at the time of detecting broker failures, this is a no-op. Otherwise,
       // the call will create a broker failure anomaly. Depending on the time of the first broker failure in that anomaly,
       // it will trigger either a delayed check or a fix.
-      _detectorScheduler.schedule(_brokerFailureDetector::detectBrokerFailures,
+      _detectorScheduler.schedule(_brokerFailureDetector::scheduleDetection,
                                   isReadyToFix ? 0L : _anomalyDetectionIntervalMs, TimeUnit.MILLISECONDS);
     }
   }

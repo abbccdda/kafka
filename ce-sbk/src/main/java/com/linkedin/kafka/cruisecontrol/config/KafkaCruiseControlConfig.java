@@ -691,14 +691,6 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
       + "are excluded from optimizations during goal violation self healing, false otherwise.";
 
   /**
-   * <code>failed.brokers.zk.path</code>
-   */
-  public static final String FAILED_BROKERS_ZK_PATH_CONFIG = "failed.brokers.zk.path";
-  private static final String FAILED_BROKERS_ZK_PATH_DOC = "The zk path to store the failed broker list. This is to "
-      + "persist the broker failure time in case Cruise Control failed and restarted when some brokers are down.";
-  public static final String DEFAULT_FAILED_BROKERS_ZK_PATH = "/DataBalancerBrokerList";
-
-  /**
    * <code>use.linear.regression.model</code>
    */
   public static final String USE_LINEAR_REGRESSION_MODEL_CONFIG = "use.linear.regression.model";
@@ -1301,10 +1293,6 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 true,
                 ConfigDef.Importance.MEDIUM,
                 GOAL_VIOLATION_EXCLUDE_RECENTLY_REMOVED_BROKERS_DOC)
-        .define(FAILED_BROKERS_ZK_PATH_CONFIG,
-                ConfigDef.Type.STRING,
-                DEFAULT_FAILED_BROKERS_ZK_PATH,
-                ConfigDef.Importance.LOW, FAILED_BROKERS_ZK_PATH_DOC)
         .define(USE_LINEAR_REGRESSION_MODEL_CONFIG,
                 ConfigDef.Type.BOOLEAN,
                 false,

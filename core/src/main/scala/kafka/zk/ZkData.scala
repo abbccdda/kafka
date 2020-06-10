@@ -831,6 +831,12 @@ object ClusterLinkZNode {
   }
 }
 
+object FailedBrokersZNode {
+  def path = "/DataBalancerBrokerList"
+  def encode(brokerListString : String): Array[Byte] = brokerListString.getBytes(UTF_8)
+  def decode(bytes: Array[Byte]): String = new String(bytes, UTF_8)
+}
+
 object ZkData {
 
   // Important: it is necessary to add any new top level Zookeeper path to the Seq

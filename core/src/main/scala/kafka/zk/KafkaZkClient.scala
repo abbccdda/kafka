@@ -452,6 +452,59 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
     }.toMap
   }
 
+  def setOrCreateFailedBrokerList(brokerList: String): Unit = {
+
+    def set(brokerListData: Array[Byte]): SetDataResponse = {
+      val setDataRequest = SetDataRequest(FailedBrokersZNode.path, brokerListData, ZkVersion.MatchAnyVersion)
+      retryRequestUntilConnected(setDataRequest)
+    }
+
+    def create(brokerListData: Array[Byte]): CreateResponse = {
+      val path = FailedBrokersZNode.path
+      val createRequest = CreateRequest(path, brokerListData, defaultAcls(path), CreateMode.PERSISTENT)
+      retryRequestUntilConnected(createRequest)
+    }
+
+    val brokerListData = FailedBrokersZNode.encode(brokerList)
+    val setDataResponse = set(brokerListData)
+    setDataResponse.resultCode match {
+      case Code.NONODE =>
+        val createDataResponse = create(brokerListData)
+        createDataResponse.maybeThrow
+      case _ => setDataResponse.maybeThrow
+    }
+  }
+
+  /**
+    * Get failed brokers from ZK
+    * @return Failed broker list as a string
+    */
+  def getFailedBrokerList(): String = {
+    val getDataRequest = GetDataRequest(FailedBrokersZNode.path)
+    val getDataResponse = retryRequestUntilConnected(getDataRequest)
+    getDataResponse.resultCode match {
+      case Code.OK => FailedBrokersZNode.decode(getDataResponse.data)
+      case Code.NONODE => ""
+      case _ => throw getDataResponse.resultException.get
+    }
+  }
+
+  private class BrokerChangeHandler(handler:BrokerChangeListener) extends ZNodeChildChangeHandler {
+    override val path: String = BrokerIdsZNode.path
+
+    override def handleChildChange(): Unit = {
+      handler.handleChildChange()
+    }
+  }
+
+  /**
+   * Register to be notified of any broker changes on ZK.
+   */
+  def registerBrokerChangeHandler(handler:BrokerChangeListener): Unit = {
+    val brokerChangeHandler = new BrokerChangeHandler(handler)
+    zooKeeperClient.registerZNodeChildChangeHandler(brokerChangeHandler)
+  }
+
   /**
     * Get a broker from ZK
     * @return an optional Broker
@@ -2110,5 +2163,9 @@ object KafkaZkClient {
         }
       case _ => throw new IllegalStateException(s"Cannot unwrap $response because it is not a MultiResponse")
     }
+  }
+
+  trait BrokerChangeListener {
+    def handleChildChange(): Unit = {}
   }
 }
