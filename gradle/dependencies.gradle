@@ -145,7 +145,6 @@ versions += [
   spotlessPlugin: "3.28.1",
   telemetry: "1.98.0",
   testRetryPlugin: "1.1.5",
-  zkclient: "0.11",
   zinc: "1.3.5",
   zookeeper: "3.5.8",
   zstd: "1.4.4-7"
@@ -247,7 +246,6 @@ libs += [
   spotbugsAnnotation: "com.github.spotbugs:spotbugs-annotations:$versions.spotbugs",
   telemetryApi: "io.confluent.observability:telemetry-api:$versions.telemetry",
   telemetryClient: "io.confluent.observability:telemetry-client:$versions.telemetry",
-  zkclient: "com.101tec:zkclient:$versions.zkclient",
   zookeeper: "org.apache.zookeeper:zookeeper:$versions.zookeeper",
   jfreechart: "jfreechart:jfreechart:$versions.jfreechart",
   mavenArtifact: "org.apache.maven:maven-artifact:$versions.mavenArtifact",
