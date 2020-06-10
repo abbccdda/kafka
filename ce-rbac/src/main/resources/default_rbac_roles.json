@@ -254,7 +254,7 @@
     {
       "name" : "AuditAdmin",
       "policy" : {
-        "scopeType" : "Resource",
+        "scopeType" : "Cluster",
         "allowedOperations" : [
           {
             "resourceType" : "Cluster",
