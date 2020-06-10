@@ -33,17 +33,15 @@ public class KsqlProviderTest {
     Map<String, Object> contextLabels = new HashMap<>();
     contextLabels.put(ConfluentConfigs.RESOURCE_LABEL_TYPE, "ksql");
     contextLabels.put(Utils.RESOURCE_LABEL_CLUSTER_ID, serviceId);
-    contextLabels.put(ConfluentConfigs.RESOURCE_LABEL_PREFIX + KsqlProvider.KSQL_SERVICE_ID, serviceId);
     contextLabels.put(ConfluentConfigs.RESOURCE_LABEL_VERSION, AppInfoParser.getVersion());
     contextLabels.put(ConfluentConfigs.RESOURCE_LABEL_COMMIT_ID, AppInfoParser.getCommitId());
     MetricsContext metricsContext = new KafkaMetricsContext(KsqlProvider.DOMAIN, contextLabels);
     Map<String, Object> config = new HashMap<>();
-    config.put(KsqlProvider.KSQL_SERVICE_ID, "app-1");
+    config.put(KsqlProvider.KSQL_SERVICE_ID, serviceId);
     ksqlProvider.configure(config);
     ksqlProvider.contextChange(metricsContext);
     Resource resource = ksqlProvider.resource();
     Assert.assertEquals("ksql", resource.getType());
-    Assert.assertEquals(serviceId, resource.getLabelsOrThrow("ksql." + KsqlProvider.KSQL_SERVICE_ID));
     Assert.assertEquals(serviceId, resource.getLabelsOrThrow("ksql.cluster.id"));
     Assert.assertEquals(serviceId, resource.getLabelsOrThrow("ksql.id"));
     Assert.assertEquals("ksql", resource.getLabelsOrThrow("ksql.type"));
