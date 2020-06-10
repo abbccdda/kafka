@@ -8,7 +8,6 @@ import java.util.Collections;
 import kafka.server.KafkaConfig;
 import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.config.ConfluentTopicConfig;
-import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.errors.PolicyViolationException;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
@@ -187,9 +186,10 @@ public class AlterConfigPolicyTest {
   @Test
   public void allowClusterUpdatesForWhitelistedConfigsIfConfigEnabled() {
     enableAlterClusterConfigs();
-
+    
     Map<String, String> brokerConfigs = new HashMap<>();
-    brokerConfigs.put(SslConfigs.SSL_CIPHER_SUITES_CONFIG, "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256");
+    brokerConfigs.put(ClusterPolicyConfig.EXTERNAL_LISTENER_SSL_CIPHER_SUITES_CONFIG,
+        "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256");
     brokerConfigs.put(KafkaConfig.AutoCreateTopicsEnableProp(), "true");
     brokerConfigs.put(KafkaConfig.NumPartitionsProp(), "50");
     brokerConfigs.put(KafkaConfig.LogRetentionTimeMillisProp(), "7200000");
@@ -220,7 +220,7 @@ public class AlterConfigPolicyTest {
   public void rejectSpecificBrokerConfigUpdatesFromTenant() {
     enableAlterClusterConfigs();
 
-    Map<String, String> brokerConfigs = Collections.singletonMap(SslConfigs.SSL_CIPHER_SUITES_CONFIG,
+    Map<String, String> brokerConfigs = Collections.singletonMap(ClusterPolicyConfig.EXTERNAL_LISTENER_SSL_CIPHER_SUITES_CONFIG,
         "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256");
     MultiTenantPrincipal principal = new MultiTenantPrincipal("tenantUserA",
         new TenantMetadata("cluster1", "cluster1"));
@@ -242,7 +242,7 @@ public class AlterConfigPolicyTest {
   public void allowClusterUpdatesWithValidSslCiphers() {
     enableAlterClusterConfigs();
 
-    Map<String, String> brokerConfigs = Collections.singletonMap(SslConfigs.SSL_CIPHER_SUITES_CONFIG,
+    Map<String, String> brokerConfigs = Collections.singletonMap(ClusterPolicyConfig.EXTERNAL_LISTENER_SSL_CIPHER_SUITES_CONFIG,
         "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, " +
             "tls_ecdhe_rsa_with_chacha20_poly1305_sha256," + // validation should be case insensitive
             "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256, TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384");
@@ -259,7 +259,7 @@ public class AlterConfigPolicyTest {
     enableAlterClusterConfigs();
 
     // One valid cipher and one invalid cipher
-    Map<String, String> brokerConfigs = Collections.singletonMap(SslConfigs.SSL_CIPHER_SUITES_CONFIG,
+    Map<String, String> brokerConfigs = Collections.singletonMap(ClusterPolicyConfig.EXTERNAL_LISTENER_SSL_CIPHER_SUITES_CONFIG,
         "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256");
     MultiTenantPrincipal principal = new MultiTenantPrincipal("tenantUserA",
         new TenantMetadata("cluster1", "cluster1"));

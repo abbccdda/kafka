@@ -11,22 +11,15 @@ public class TenantMetadata {
 
   public final String tenantName;
   public final String clusterId;
-  public final boolean allowDescribeBrokerConfigs;
   public final boolean isSuperUser;
 
   public TenantMetadata(String tenantName, String clusterId) {
     this(tenantName, clusterId, false);
   }
 
-  public TenantMetadata(String tenantName, String clusterId, boolean allowDescribeBrokerConfigs) {
-    this(tenantName, clusterId, allowDescribeBrokerConfigs, false);
-  }
-
-  TenantMetadata(String tenantName, String clusterId, boolean allowDescribeBrokerConfigs,
-      boolean isSuperUser) {
+  TenantMetadata(String tenantName, String clusterId, boolean isSuperUser) {
     this.tenantName = Utils.requireNonEmpty(tenantName, "Tenant");
     this.clusterId = Utils.requireNonEmpty(clusterId, "ClusterId");
-    this.allowDescribeBrokerConfigs = allowDescribeBrokerConfigs;
     this.isSuperUser = isSuperUser;
   }
 
@@ -59,7 +52,6 @@ public class TenantMetadata {
     return "TenantMetadata(" +
             "tenantName='" + tenantName + "'" +
             ", clusterId='" + clusterId + "'" +
-            ", allowDescribeBrokerConfigs=" + allowDescribeBrokerConfigs +
             ", isSuperUser=" + isSuperUser +
             ")";
   }
@@ -67,17 +59,11 @@ public class TenantMetadata {
   public static class Builder {
     public final String tenantName;
     public final String clusterId;
-    public boolean allowDescribeBrokerConfigs;
     public boolean isSuperUser;
 
     public Builder(String clusterId) {
       this.clusterId = clusterId;
       this.tenantName = clusterId;
-    }
-
-    public Builder allowDescribeBrokerConfigs() {
-      this.allowDescribeBrokerConfigs = true;
-      return this;
     }
 
     public Builder superUser(boolean isSuperUser) {
@@ -88,7 +74,6 @@ public class TenantMetadata {
     public TenantMetadata build() {
       return new TenantMetadata(tenantName,
                                 clusterId,
-                                allowDescribeBrokerConfigs,
                                 isSuperUser);
     }
   }

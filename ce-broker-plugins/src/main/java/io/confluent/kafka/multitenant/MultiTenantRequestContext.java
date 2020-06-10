@@ -8,12 +8,13 @@ import io.confluent.kafka.multitenant.quota.TenantPartitionAssignor;
 import io.confluent.kafka.multitenant.schema.MultiTenantApis;
 import io.confluent.kafka.multitenant.schema.TenantContext;
 import io.confluent.kafka.multitenant.schema.TransformableType;
+import java.util.Collection;
 import java.util.Optional;
 import org.apache.kafka.clients.consumer.internals.ConsumerProtocol;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.config.ConfigResource;
-import org.apache.kafka.common.config.TopicConfig;
+import org.apache.kafka.common.config.ConfigResource.Type;
 import org.apache.kafka.common.errors.ApiException;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.message.CreatePartitionsRequestData;
@@ -53,6 +54,8 @@ import org.apache.kafka.common.record.Records;
 import org.apache.kafka.common.requests.AbstractRequest;
 import org.apache.kafka.common.requests.AbstractResponse;
 import org.apache.kafka.common.requests.AlterConfigsRequest;
+import org.apache.kafka.common.requests.AlterConfigsRequest.ConfigEntry;
+import org.apache.kafka.common.requests.AlterConfigsResponse;
 import org.apache.kafka.common.requests.CreateAclsRequest;
 import org.apache.kafka.common.requests.CreatePartitionsRequest;
 import org.apache.kafka.common.requests.CreateTopicsRequest;
@@ -61,10 +64,12 @@ import org.apache.kafka.common.requests.DeleteAclsRequest;
 import org.apache.kafka.common.requests.DeleteAclsResponse;
 import org.apache.kafka.common.requests.DescribeAclsRequest;
 import org.apache.kafka.common.requests.DescribeAclsResponse;
+import org.apache.kafka.common.requests.DescribeConfigsRequest;
 import org.apache.kafka.common.requests.DescribeConfigsResponse;
 import org.apache.kafka.common.requests.DescribeGroupsResponse;
 import org.apache.kafka.common.requests.FetchResponse;
 import org.apache.kafka.common.requests.IncrementalAlterConfigsRequest;
+import org.apache.kafka.common.requests.IncrementalAlterConfigsResponse;
 import org.apache.kafka.common.requests.JoinGroupRequest;
 import org.apache.kafka.common.requests.JoinGroupResponse;
 import org.apache.kafka.common.requests.ListClusterLinksResponse;
@@ -192,6 +197,8 @@ public class MultiTenantRequestContext extends RequestContext {
           body = transformDescribeAclsRequest((DescribeAclsRequest) body);
         } else if (body instanceof DeleteAclsRequest) {
           body = transformDeleteAclsRequest((DeleteAclsRequest) body);
+        } else if (body instanceof DescribeConfigsRequest) {
+          body = transformDescribeConfigsRequest((DescribeConfigsRequest) body);
         } else if (body instanceof CreateTopicsRequest) {
           body = transformCreateTopicsRequest((CreateTopicsRequest) body, apiVersion);
         } else if (body instanceof CreatePartitionsRequest) {
@@ -268,33 +275,36 @@ public class MultiTenantRequestContext extends RequestContext {
       // Since the Metadata and ListGroups APIs allow users to fetch metadata for all topics or
       // groups in the cluster, we have to filter out the metadata from other tenants.
       @SuppressWarnings("unchecked")
-      AbstractResponse filteredResponse = body;
+      AbstractResponse transformedResponse = body;
       if (body instanceof MetadataResponse && isMetadataFetchForAllTopics) {
-        filteredResponse = filteredMetadataResponse((MetadataResponse) body);
+        transformedResponse = filteredMetadataResponse((MetadataResponse) body);
       } else if (body instanceof ListGroupsResponse) {
-        filteredResponse = filteredListGroupsResponse((ListGroupsResponse) body);
+        transformedResponse = filteredListGroupsResponse((ListGroupsResponse) body);
       }  else if (body instanceof ListClusterLinksResponse) {
-        filteredResponse = filteredListClusterLinksResponse((ListClusterLinksResponse) body);
-      } else if (body instanceof DescribeConfigsResponse
-              && !tenantContext.principal.tenantMetadata().allowDescribeBrokerConfigs) {
-        filteredResponse = filteredDescribeConfigsResponse((DescribeConfigsResponse) body);
+        transformedResponse = filteredListClusterLinksResponse((ListClusterLinksResponse) body);
+      } else if (body instanceof DescribeConfigsResponse) {
+        transformedResponse = transformDescribeConfigsResponse((DescribeConfigsResponse) body);
+      } else if (body instanceof AlterConfigsResponse) {
+        transformedResponse = transformAlterConfigsResponse((AlterConfigsResponse) body);
+      } else if (body instanceof IncrementalAlterConfigsResponse) {
+        transformedResponse = transformIncrementalAlterConfigsResponse((IncrementalAlterConfigsResponse) body);
       } else if (body instanceof DescribeAclsResponse) {
-        filteredResponse = filteredDescribeAclsResponse((DescribeAclsResponse) body);
+        transformedResponse = filteredDescribeAclsResponse((DescribeAclsResponse) body);
       } else if (body instanceof DeleteAclsResponse) {
-        filteredResponse = transformDeleteAclsResponse((DeleteAclsResponse) body);
+        transformedResponse = transformDeleteAclsResponse((DeleteAclsResponse) body);
       } else if (body instanceof CreateTopicsResponse) {
-        filteredResponse = filteredCreateTopicsResponse((CreateTopicsResponse) body);
+        transformedResponse = filteredCreateTopicsResponse((CreateTopicsResponse) body);
       } else if (body instanceof JoinGroupResponse) {
-        filteredResponse = transformJoinGroupResponse((JoinGroupResponse) body);
+        transformedResponse = transformJoinGroupResponse((JoinGroupResponse) body);
       } else if (body instanceof DescribeGroupsResponse) {
-        filteredResponse = transformDescribeGroupsResponse((DescribeGroupsResponse) body);
+        transformedResponse = transformDescribeGroupsResponse((DescribeGroupsResponse) body);
       } else if (body instanceof WriteTxnMarkersResponse) {
-        filteredResponse = transformWriteTxnMarkersResponse((WriteTxnMarkersResponse) body);
+        transformedResponse = transformWriteTxnMarkersResponse((WriteTxnMarkersResponse) body);
       }
 
       TransformableType<TenantContext> schema = MultiTenantApis.responseSchema(api, apiVersion);
       Struct responseHeaderStruct = responseHeader.toStruct();
-      Struct responseBodyStruct = RequestInternals.toStruct(filteredResponse, apiVersion);
+      Struct responseBodyStruct = RequestInternals.toStruct(transformedResponse, apiVersion);
 
       ByteBuffer buffer = ByteBuffer.allocate(responseHeaderStruct.sizeOf()
           + schema.sizeOf(responseBodyStruct, tenantContext));
@@ -353,7 +363,7 @@ public class MultiTenantRequestContext extends RequestContext {
     // validate configs
     CreateableTopicConfigCollection filteredConfigs = new CreateableTopicConfigCollection();
     for (CreateableTopicConfig config: topicDetails.configs()) {
-      if (allowConfigInRequest(config.name())) {
+      if (allowTopicConfigInRequest(config.name())) {
         filteredConfigs.add(new CreateableTopicConfig().setValue(config.value()).setName(config.name()));
       }
     }
@@ -392,25 +402,24 @@ public class MultiTenantRequestContext extends RequestContext {
   }
 
   private AlterConfigsRequest transformAlterConfigsRequest(AlterConfigsRequest alterConfigsRequest,
-                                                       short version) {
+                                                           short version) {
     Map<ConfigResource, AlterConfigsRequest.Config> configs = alterConfigsRequest.configs();
     Map<ConfigResource, AlterConfigsRequest.Config> transformedConfigs = new HashMap<>(0);
 
     for (Map.Entry<ConfigResource, AlterConfigsRequest.Config> resourceConfigEntry : configs.entrySet()) {
-      // Only transform topic configs
-      if (resourceConfigEntry.getKey().type() != ConfigResource.Type.TOPIC) {
+      if (resourceConfigEntry.getKey().type() == ConfigResource.Type.TOPIC) {
+        List<ConfigEntry> filteredEntries = resourceConfigEntry.getValue().entries().stream()
+            .filter(configEntry -> allowTopicConfigInRequest(configEntry.name()))
+            .collect(Collectors.toList());
+        transformedConfigs.put(resourceConfigEntry.getKey(), new AlterConfigsRequest.Config(filteredEntries));
+      } else if (resourceConfigEntry.getKey().type() == ConfigResource.Type.BROKER) {
+        List<ConfigEntry> transformedEntries = resourceConfigEntry.getValue().entries().stream()
+            .map(configEntry -> new ConfigEntry(transformBrokerConfigName(configEntry.name()), configEntry.value()))
+            .collect(Collectors.toList());
+        transformedConfigs.put(resourceConfigEntry.getKey(), new AlterConfigsRequest.Config(transformedEntries));
+      } else {
         transformedConfigs.put(resourceConfigEntry.getKey(), resourceConfigEntry.getValue());
-        continue;
       }
-
-      List<AlterConfigsRequest.ConfigEntry> filteredConfigs = new ArrayList<>();
-      for (AlterConfigsRequest.ConfigEntry configEntry : resourceConfigEntry.getValue().entries()) {
-        if (allowConfigInRequest(configEntry.name())) {
-          filteredConfigs.add(configEntry);
-        }
-      }
-
-      transformedConfigs.put(resourceConfigEntry.getKey(), new AlterConfigsRequest.Config(filteredConfigs));
     }
 
     return new AlterConfigsRequest.Builder(transformedConfigs, alterConfigsRequest.validateOnly()).build(version);
@@ -432,30 +441,38 @@ public class MultiTenantRequestContext extends RequestContext {
             new IncrementalAlterConfigsRequestData.AlterConfigsResourceCollection();
 
     for (Map.Entry<ConfigResource, IncrementalAlterConfigsRequestData.AlterableConfigCollection> resourceConfigEntry : configs.entrySet()) {
-      // Only transform topic configs
-      if (resourceConfigEntry.getKey().type() != ConfigResource.Type.TOPIC) {
+      if (resourceConfigEntry.getKey().type() == ConfigResource.Type.TOPIC) {
+        IncrementalAlterConfigsRequestData.AlterableConfigCollection filteredConfigs = new IncrementalAlterConfigsRequestData.AlterableConfigCollection();
+        for (IncrementalAlterConfigsRequestData.AlterableConfig configEntry : resourceConfigEntry.getValue().valuesSet()) {
+          if (allowTopicConfigInRequest(configEntry.name())) {
+            filteredConfigs.add(new IncrementalAlterConfigsRequestData.AlterableConfig()
+                .setConfigOperation(configEntry.configOperation())
+                .setName(configEntry.name())
+                .setValue(configEntry.value()));
+          }
+        }
+        transformedConfigs.add(new IncrementalAlterConfigsRequestData.AlterConfigsResource()
+            .setResourceType(resourceConfigEntry.getKey().type().id())
+            .setResourceName(resourceConfigEntry.getKey().name())
+            .setConfigs(filteredConfigs));
+      } else if (resourceConfigEntry.getKey().type() == ConfigResource.Type.BROKER) {
+        IncrementalAlterConfigsRequestData.AlterableConfigCollection transformedConfigEntries = new IncrementalAlterConfigsRequestData.AlterableConfigCollection();
+        for (IncrementalAlterConfigsRequestData.AlterableConfig configEntry : resourceConfigEntry.getValue().valuesSet()) {
+          transformedConfigEntries.add(new IncrementalAlterConfigsRequestData.AlterableConfig()
+              .setConfigOperation(configEntry.configOperation())
+              .setName(transformBrokerConfigName(configEntry.name()))
+              .setValue(configEntry.value()));
+        }
+        transformedConfigs.add(new IncrementalAlterConfigsRequestData.AlterConfigsResource()
+            .setResourceType(resourceConfigEntry.getKey().type().id())
+            .setResourceName(resourceConfigEntry.getKey().name())
+            .setConfigs(transformedConfigEntries));
+      } else {
         transformedConfigs.add(new IncrementalAlterConfigsRequestData.AlterConfigsResource()
                 .setResourceType(resourceConfigEntry.getKey().type().id())
                 .setResourceName(resourceConfigEntry.getKey().name())
                 .setConfigs(resourceConfigEntry.getValue()));
-        continue;
       }
-
-      IncrementalAlterConfigsRequestData.AlterableConfigCollection filteredConfigs =
-              new IncrementalAlterConfigsRequestData.AlterableConfigCollection();
-      for (IncrementalAlterConfigsRequestData.AlterableConfig configEntry : resourceConfigEntry.getValue().valuesSet()) {
-        if (allowConfigInRequest(configEntry.name())) {
-          filteredConfigs.add(new IncrementalAlterConfigsRequestData.AlterableConfig()
-                  .setConfigOperation(configEntry.configOperation())
-                  .setName(configEntry.name())
-                  .setValue(configEntry.value()));
-        }
-      }
-
-      transformedConfigs.add(new IncrementalAlterConfigsRequestData.AlterConfigsResource()
-              .setResourceType(resourceConfigEntry.getKey().type().id())
-              .setResourceName(resourceConfigEntry.getKey().name())
-              .setConfigs(filteredConfigs));
     }
 
     return new IncrementalAlterConfigsRequest.Builder(
@@ -469,15 +486,18 @@ public class MultiTenantRequestContext extends RequestContext {
   // topic configs from the source cluster), remove non-updateable configs prior to config policy validation.
   // For configs with a range of allowable values leave the configs in the request
   // and let them fail the config policy, rather than changing their values.
-  private boolean allowConfigInRequest(String key) {
-    if (MultiTenantConfigRestrictions.UPDATABLE_TOPIC_CONFIGS.contains(key) ||
-            key.equals(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG)) {
+  private boolean allowTopicConfigInRequest(String key) {
+    if (MultiTenantConfigRestrictions.UPDATABLE_TOPIC_CONFIGS.contains(key)) {
       log.trace("Allowing config {} in the request because it is updateable", key);
       return true;
     }
 
     log.info("Altering config property {} is disallowed, ignoring config.", key);
     return false;
+  }
+
+  private String transformBrokerConfigName(String configName) {
+    return MultiTenantConfigRestrictions.prependExternalListenerToConfigName(configName).orElse(configName);
   }
 
   private AbstractRequest transformCreatePartitionsRequest(CreatePartitionsRequest partitionsRequest) {
@@ -633,36 +653,66 @@ public class MultiTenantRequestContext extends RequestContext {
     return response;
   }
 
-  private DescribeConfigsResponse filteredDescribeConfigsResponse(
-                                  DescribeConfigsResponse response) {
+  private DescribeConfigsResponse transformDescribeConfigsResponse(DescribeConfigsResponse response) {
     Map<ConfigResource, DescribeConfigsResponse.Config> configs = response.configs();
     Map<ConfigResource, DescribeConfigsResponse.Config> filteredConfigs = new HashMap<>();
     for (Map.Entry<ConfigResource, DescribeConfigsResponse.Config> entry : configs.entrySet()) {
       ConfigResource resource = entry.getKey();
       DescribeConfigsResponse.Config config = entry.getValue();
-      Set<DescribeConfigsResponse.ConfigEntry> filteredEntries = config.entries().stream()
+      Set<DescribeConfigsResponse.ConfigEntry> transformedEntries = config.entries().stream()
           .filter(ce -> {
             if (resource.type() == ConfigResource.Type.BROKER) {
               return MultiTenantConfigRestrictions.VISIBLE_BROKER_CONFIGS.contains(ce.name());
             } else if (resource.type() == ConfigResource.Type.TOPIC) {
               return MultiTenantConfigRestrictions.visibleTopicConfig(ce.name());
             }
-
             return false;
-          })
-          // For topic configs that are not updatable, set readOnly to true
-          .map(configEntry -> resource.type() == ConfigResource.Type.TOPIC &&
-                  MultiTenantConfigRestrictions.UPDATABLE_TOPIC_CONFIGS.contains(configEntry.name()) ?
-              configEntry :
-              new DescribeConfigsResponse.ConfigEntry(configEntry.name(), configEntry.value(), configEntry.source(),
-                  configEntry.isSensitive(), true, configEntry.synonyms())
-          )
-          .collect(Collectors.toSet());
-      filteredConfigs.put(
-          resource,
-          new DescribeConfigsResponse.Config(config.error(), filteredEntries));
+          }).map(configEntry -> {
+            // For topic configs that are not updatable, set readOnly to true
+            if (resource.type() == ConfigResource.Type.TOPIC &&
+                !MultiTenantConfigRestrictions.UPDATABLE_TOPIC_CONFIGS.contains(configEntry.name())) {
+              return newDescribeConfigsResponseConfigEntry(configEntry, configEntry.name(), true);
+            } else if (resource.type() == Type.BROKER) {
+              return MultiTenantConfigRestrictions.stripExternalListenerPrefixFromConfigName(configEntry.name())
+                .map(configName -> newDescribeConfigsResponseConfigEntry(configEntry, configName,
+                    configEntry.isReadOnly()))
+                .orElse(configEntry);
+            } else {
+              return configEntry;
+            }
+          }).collect(Collectors.toSet());
+
+      filteredConfigs.put(resource, new DescribeConfigsResponse.Config(config.error(), transformedEntries));
     }
     return new DescribeConfigsResponse(response.throttleTimeMs(), filteredConfigs);
+  }
+
+  private DescribeConfigsResponse.ConfigEntry newDescribeConfigsResponseConfigEntry(
+      DescribeConfigsResponse.ConfigEntry configEntry, String configName, boolean readOnly) {
+    return new DescribeConfigsResponse.ConfigEntry(configName, configEntry.value(),
+        configEntry.source(), configEntry.isSensitive(), readOnly, configEntry.synonyms());
+  }
+
+  private AlterConfigsResponse transformAlterConfigsResponse(AlterConfigsResponse alterConfigsResponse) {
+    alterConfigsResponse.data().responses().forEach(response -> {
+      if (response.resourceType() == Type.BROKER.id()) {
+        response.setErrorMessage(transformAlterConfigsResponseErrorMessage(response.errorMessage()));
+      }
+    });
+    return alterConfigsResponse;
+  }
+
+  private String transformAlterConfigsResponseErrorMessage(String errorMessage) {
+    return errorMessage == null ? null : errorMessage.replace(MultiTenantConfigRestrictions.EXTERNAL_LISTENER_PREFIX, "");
+  }
+
+  private IncrementalAlterConfigsResponse transformIncrementalAlterConfigsResponse(IncrementalAlterConfigsResponse alterConfigsResponse) {
+    alterConfigsResponse.data().responses().forEach(response -> {
+      if (response.resourceType() == Type.BROKER.id()) {
+        response.setErrorMessage(transformAlterConfigsResponseErrorMessage(response.errorMessage()));
+      }
+    });
+    return alterConfigsResponse;
   }
 
   private DescribeAclsResponse filteredDescribeAclsResponse(DescribeAclsResponse response) {
@@ -777,6 +827,23 @@ public class MultiTenantRequestContext extends RequestContext {
       }
     });
     return request;
+  }
+
+  private AbstractRequest transformDescribeConfigsRequest(DescribeConfigsRequest request) {
+    Map<ConfigResource, Collection<String>> transformedConfigs = new HashMap<>();
+    request.resources().forEach(resource -> {
+      Collection<String> configNames = request.configNames(resource);
+      Collection<String> transformedConfigNames;
+      if (configNames != null && resource.type() == ConfigResource.Type.BROKER) {
+        transformedConfigNames = configNames.stream()
+          .map(this::transformBrokerConfigName)
+          .collect(Collectors.toList());
+      } else {
+        transformedConfigNames = configNames;
+      }
+      transformedConfigs.put(resource, transformedConfigNames);
+    });
+    return new DescribeConfigsRequest(request.version(), transformedConfigs, request.includeSynonyms());
   }
 
   private AbstractRequest transformDescribeAclsRequest(DescribeAclsRequest request) {

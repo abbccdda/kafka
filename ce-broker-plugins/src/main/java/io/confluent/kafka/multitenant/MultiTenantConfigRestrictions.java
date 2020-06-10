@@ -1,5 +1,8 @@
 package io.confluent.kafka.multitenant;
 
+import java.util.Map;
+import java.util.Optional;
+import java.util.function.Function;
 import kafka.server.KafkaConfig;
 import org.apache.kafka.common.config.ConfluentTopicConfig;
 import org.apache.kafka.common.config.TopicConfig;
@@ -12,15 +15,31 @@ import java.util.stream.Stream;
 
 public class MultiTenantConfigRestrictions {
 
-  public static final Set<String> UPDATABLE_BROKER_CONFIGS = Utils.mkSet(
-    // cluster/broker configs
-    KafkaConfig.SslCipherSuitesProp(),
-    KafkaConfig.AutoCreateTopicsEnableProp(),
-    // used when the create topics request does not specify the number of partitions
-    KafkaConfig.NumPartitionsProp(),
-    // topic config defaults - start with the most useful, consider exposing others later
-    KafkaConfig.LogRetentionTimeMillisProp()
-  );
+  public static final String EXTERNAL_LISTENER_PREFIX = "listener.name.external.";
+
+  // Listeners are not exposed to Cloud users, so they send configs without a listener prefix even
+  // though the changes should only affect the external listener. To ensure the right semantics,
+  // the interceptor prepends `EXTERNAL_LISTENER_PREFIX` to the config name in the request and
+  // strips it in the response.
+  private static final Map<String, String> UPDATABLE_LISTENER_TO_EXTERNAL_LISTENER_CONFIGS = Stream.of(
+    KafkaConfig.SslCipherSuitesProp()).collect(
+      Collectors.toMap(Function.identity(), configName -> EXTERNAL_LISTENER_PREFIX + configName));
+
+  private static final Map<String, String> UPDATABLE_EXTERNAL_LISTENER_TO_LISTENER_CONFIGS =
+    UPDATABLE_LISTENER_TO_EXTERNAL_LISTENER_CONFIGS.entrySet().stream().collect(
+      Collectors.toMap(e -> e.getValue(), e -> e.getKey()));
+
+  public static final Set<String> UPDATABLE_BROKER_CONFIGS = Stream.concat(
+      UPDATABLE_EXTERNAL_LISTENER_TO_LISTENER_CONFIGS.keySet().stream(),
+    Stream.of(
+      // cluster/broker configs
+      KafkaConfig.AutoCreateTopicsEnableProp(),
+      // used when the create topics request does not specify the number of partitions
+      KafkaConfig.NumPartitionsProp(),
+      // topic config defaults - start with the most useful, consider exposing others later
+      KafkaConfig.LogRetentionTimeMillisProp()
+    )
+  ).collect(Collectors.toSet());
 
   public static final Set<String> VISIBLE_BROKER_CONFIGS = Stream.concat(
     UPDATABLE_BROKER_CONFIGS.stream(),
@@ -59,4 +78,21 @@ public class MultiTenantConfigRestrictions {
     // hide all Confluent-specific topic configs in CCloud
     return !configName.startsWith(ConfluentTopicConfig.CONFLUENT_PREFIX);
   }
+
+  /**
+   * Return an empty Optional if `configName` is not an updatable listener config name, otherwise
+   * return the config name with `EXTERNAL_LISTENER_PREFIX` prepended within the Optional.
+   */
+  public static Optional<String> prependExternalListenerToConfigName(String configName) {
+    return Optional.ofNullable(UPDATABLE_LISTENER_TO_EXTERNAL_LISTENER_CONFIGS.get(configName));
+  }
+
+  /**
+   * Return an empty Optional if `configName` is not an updatable external listener config name,
+   * otherwise return the config name with `EXTERNAL_LISTENER_PREFIX` stripped within the Optional.
+   */
+  public static Optional<String> stripExternalListenerPrefixFromConfigName(String configName) {
+    return Optional.ofNullable(UPDATABLE_EXTERNAL_LISTENER_TO_LISTENER_CONFIGS.get(configName));
+  }
+
 }
