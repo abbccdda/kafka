@@ -101,7 +101,26 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
                 "under_replicated",
                 "under_replicated_partitions",
                 "zookeeper_disconnects_per_sec",
-                "zookeeper_expires_per_sec"
+                "zookeeper_expires_per_sec",
+                // Control Center metrics
+                "io.confluent.controlcenter/.*("
+                    + "metrics_input_topic_progress"
+                    + "|monitoring_input_topic_progress"
+                    + "|misconfigured_topics"
+                    + "|missing_topic_configurations"
+                    + "|broker_log_persistent_dir"
+                    + "|cluster_offline"
+                    + "|streams_status"
+                    + "|system_cpu_load"
+                    + "|system_load_average"
+                    + "|free_physical_memory_size"
+                    + "|total_physical_memory_size"
+                    + "|committed"
+                    + "|used"
+                    + "|total_lag"
+                    + "|request_latency"
+                    + "|response_size"
+                    + "|response_rate)"
             )
     );
 

@@ -34,6 +34,29 @@ public class ConfluentTelemetryConfigTest {
   }
 
   @Test
+  public void metricFilterDefaultsForC3Metrics() {
+    ConfluentTelemetryConfig config = new ConfluentTelemetryConfig(builder.build());
+
+    Predicate<MetricKey> filter = config.buildMetricWhitelistFilter();
+
+    assertTrue(
+        filter.test(
+            new MetricKey(
+                "io.confluent.controlcenter/healthcheck/misconfigured_topics",
+                Collections.emptyMap())));
+    assertTrue(
+        filter.test(
+            new MetricKey(
+                "io.confluent.controlcenter/some_group/cluster_offline",
+                Collections.emptyMap())));
+    assertFalse(
+        filter.test(
+            new MetricKey(
+                "io.confluent.controlcenter/healthcheck/random_metric",
+                Collections.emptyMap())));
+  }
+
+  @Test
   public void metricFilterOverride() {
     builder.put(ConfluentTelemetryConfig.WHITELIST_CONFIG, ".*only_match_me.*");
 
