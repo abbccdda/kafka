@@ -6,6 +6,8 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
+import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.producer.ProducerConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,7 +24,6 @@ import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
-import org.apache.kafka.common.config.internals.ConfluentConfigs.ClientType;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -383,25 +384,31 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
         return tempConfig;
     }
 
-    private Map<String, Map<String, Object>> parseLocalClientConfigs() {
+    private Map<String, Object> parseInterBrokerClientConfigs() {
         // TODO remove dependency on ConfluentConfigs for non-broker components
-        return ImmutableMap.of(
-            EXPORTER_LOCAL_NAME,
-            ConfluentConfigs.clientConfigs(this, ConfluentConfigs.INTERBROKER_REPORTER_CLIENT_CONFIG_PREFIX,
-                ClientType.PRODUCER, "", "confluent-telemetry-reporter").entrySet().stream()
-                // don't start a metrics reporter inside the local producer
-                .filter(e -> !e.getKey().equals(CommonClientConfigs.METRIC_REPORTER_CLASSES_CONFIG))
-                // don't use ConfluentConfigs.clientConfigs client-id
-                .filter(e -> !e.getKey().equals(CommonClientConfigs.CLIENT_ID_CONFIG))
-                // we don't need to pass through null values
-                .filter(e -> e.getValue() != null)
-                .collect(
-                    Collectors.toMap(
-                        e -> KafkaExporterConfig.PREFIX_PRODUCER + e.getKey(),
-                        e -> e.getValue()
-                    )
-                )
-        );
+        Set<String> producerConfigs = ProducerConfig.configNames();
+        Set<String> adminConfigs = AdminClientConfig.configNames();
+        if (BrokerConfigUtils.isBrokerConfig(this)) {
+            return ConfluentConfigs.interBrokerClientConfigs(this, BrokerConfigUtils.getInterBrokerEndpoint(this))
+                    .entrySet().stream()
+                    // filter non-producer configs
+                    .filter(e -> producerConfigs.contains(e.getKey()) || adminConfigs.contains(e.getKey()))
+                    // don't start a metrics reporter inside the local producer
+                    .filter(e -> !e.getKey().equals(CommonClientConfigs.METRIC_REPORTER_CLASSES_CONFIG))
+                    // don't use default client-id
+                    .filter(e -> !e.getKey().equals(CommonClientConfigs.CLIENT_ID_CONFIG))
+                    // remove broker compression type (since it does not translate)
+                    .filter(e -> !e.getKey().equals(KafkaConfig.CompressionTypeProp()))
+                    // we don't need to pass through null values
+                    .filter(e -> e.getValue() != null)
+                    .collect(
+                            Collectors.toMap(
+                                    e -> KafkaExporterConfig.PREFIX_PRODUCER + e.getKey(),
+                                    Map.Entry::getValue
+                            )
+                    );
+        }
+        return ImmutableMap.of();
     }
 
     private Map<String, ExporterConfig> createExporterMap() {
@@ -409,14 +416,16 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
         Map<String, Map<String, Object>> exporters = Maps.newHashMap();
 
         // put our default exporter configs
-        Map<String, Map<String, Object>> dynamicDefaults = parseLocalClientConfigs();
         for (Map.Entry<String, Map<String, Object>> entry : EXPORTER_DEFAULT_CONFIGS.entrySet()) {
-            // apply dynamic defaults as well
             Map<String, Object> defaults =  Maps.newHashMap(entry.getValue());
-            if (dynamicDefaults.containsKey(entry.getKey())) {
-                defaults.putAll(dynamicDefaults.get(entry.getKey()));
-            }
             exporters.put(entry.getKey(), defaults);
+        }
+
+        // put our local client configs computed from originals
+        Map<String, Object> localClientConfigs = parseInterBrokerClientConfigs();
+        if (!localClientConfigs.isEmpty()) {
+            exporters.computeIfAbsent(EXPORTER_LOCAL_NAME, k -> Maps.newHashMap())
+                .putAll(parseInterBrokerClientConfigs());
         }
 
         // parse/add user-specified configs
