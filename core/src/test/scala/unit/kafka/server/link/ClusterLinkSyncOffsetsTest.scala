@@ -108,6 +108,24 @@ class ClusterLinkSyncOffsetsTest {
   }
 
   @Test
+  def testCurrentOffsetsAreNotUpdatedOnCommitFailure(): Unit = {
+    setupMock(isController = true)
+    val topic = "testTopic"
+    val group = "testGroup"
+    val clusterLinkConfig = linkConfig(allowAllFilter)
+
+    setupMockListGroupsResponse(group)
+    val offsetEntries = Map(new TopicPartition(topic, 1) -> offsetAndMetadata(1))
+    val listOffsetsResult = mockListOffsets(offsetEntries)
+    val alterOffsetsResult = mockAlterOffsets(Some(new GroupAuthorizationException("not authorized")))
+    expect(admin.listConsumerGroupOffsets(group)).andReturn(listOffsetsResult).times(1)
+    expect(destAdmin.alterConsumerGroupOffsets(group, offsetEntries.asJava)).andReturn(alterOffsetsResult).times(1)
+
+    val syncOffsets = syncOffsetsAndVerify(clusterLinkConfig)
+    assertEquals(Map.empty, syncOffsets.currentOffsets.toMap)
+  }
+
+  @Test
   def testFiltersGroupListingWithLiteral(): Unit = {
     setupMock(isController = true)
 
@@ -423,11 +441,14 @@ class ClusterLinkSyncOffsetsTest {
     result
   }
 
-  private def mockAlterOffsets(): AlterConsumerGroupOffsetsResult = {
+  private def mockAlterOffsets(exception: Option[Throwable] = None): AlterConsumerGroupOffsetsResult = {
     val future = new KafkaFutureImpl[Void]
-    future.complete(null)
+    exception match {
+      case Some(e) => future.completeExceptionally(e)
+      case None => future.complete(null)
+    }
     val result: AlterConsumerGroupOffsetsResult = createMock(classOf[AlterConsumerGroupOffsetsResult])
-    expect(result.all).andReturn(future)
+    expect(result.all).andReturn(future).anyTimes()
     replay(result)
     result
   }
