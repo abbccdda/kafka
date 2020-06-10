@@ -309,7 +309,7 @@ class ReplicaFetcherThread(name: String,
       if (fetchState.isReadyForFetch) {
         if (shouldFollowerThrottle(quota, fetchState, topicPartition)) {
           // We will not include a replica in the fetch request if it should be throttled.
-          replicaMgr.markFollowerReplicaThrottle()
+          markFollowerReplicaThrottle()
         } else {
           try {
             val logStartOffset = this.logStartOffset(topicPartition)
@@ -389,12 +389,16 @@ class ReplicaFetcherThread(name: String,
 
   override def isOffsetForLeaderEpochSupported: Boolean = brokerSupportsLeaderEpochRequest
 
+  protected def markFollowerReplicaThrottle(): Unit = {
+    replicaMgr.markFollowerReplicaThrottle()
+  }
+
   /**
    *  To avoid ISR thrashing, we only throttle a replica on the follower if it's in the throttled replica list,
    *  the quota is exceeded and the replica is not in sync, except when the broker is running low on disk,
    *  then we'll throttle regardless of the ISR situation
    */
-  private def shouldFollowerThrottle(quota: ReplicaQuota, fetchState: PartitionFetchState, topicPartition: TopicPartition): Boolean = {
+  protected def shouldFollowerThrottle(quota: ReplicaQuota, fetchState: PartitionFetchState, topicPartition: TopicPartition): Boolean = {
     val replicaShouldThrottle = quota match {
       case r: ReplicationQuotaManager =>
         DiskUsageBasedThrottler.diskThrottlingActive(r) || !fetchState.isReplicaInSync
@@ -403,5 +407,4 @@ class ReplicaFetcherThread(name: String,
     }
     replicaShouldThrottle && quota.isThrottled(topicPartition) && quota.isQuotaExceeded
   }
-
 }

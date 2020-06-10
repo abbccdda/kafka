@@ -353,6 +353,7 @@ class ReplicaManager(val config: KafkaConfig,
    */
   private[kafka] val throttledLeaderReplicasRate = newMeter("ThrottledLeaderReplicasPerSec", "replicationThrottle", TimeUnit.SECONDS)
   private[kafka] val throttledFollowerReplicasRate = newMeter("ThrottledFollowerReplicasPerSec", "replicationThrottle", TimeUnit.SECONDS)
+  private[kafka] val throttledClusterLinkReplicasRate = newMeter("ThrottledClusterLinkReplicasPerSec", "replicationThrottle", TimeUnit.SECONDS)
   newGauge("OfflineReplicaCount", () => offlinePartitionCount)
   newGauge("UnderReplicatedPartitions", () => underReplicatedPartitionCount)
   newGauge("UnderMinIsrPartitionCount", () => leaderPartitionsIterator.count(_.isUnderMinIsr))
@@ -2077,6 +2078,10 @@ class ReplicaManager(val config: KafkaConfig,
     throttledLeaderReplicasRate.mark()
   }
 
+  def markClusterLinkReplicaThrottle(): Unit = synchronized {
+    throttledClusterLinkReplicasRate.mark()
+  }
+
   // logDir should be an absolute path
   // sendZkNotification is needed for unit test
   def handleLogDirFailure(dir: String, sendZkNotification: Boolean = true): Unit = {
@@ -2126,6 +2131,7 @@ class ReplicaManager(val config: KafkaConfig,
     removeMetric("MaxLastStableOffsetLag")
     removeMetric("ThrottledLeaderReplicasPerSec")
     removeMetric("ThrottledFollowerReplicasPerSec")
+    removeMetric("ThrottledClusterLinkReplicasPerSec")
   }
 
   // High watermark do not need to be checkpointed only when under unit tests

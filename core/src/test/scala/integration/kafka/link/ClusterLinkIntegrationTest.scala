@@ -15,7 +15,7 @@ import kafka.api.{IntegrationTestHarness, KafkaSasl, SaslSetup}
 import kafka.log.LogConfig
 import kafka.metrics.KafkaYammerMetrics
 import kafka.server.link.{ClusterLinkConfig, ClusterLinkTopicState}
-import kafka.server.{ConfigType, KafkaConfig, KafkaServer}
+import kafka.server.{ConfigType, Defaults, DynamicConfig, KafkaConfig, KafkaServer}
 import kafka.utils.Implicits._
 import kafka.utils.{JaasTestUtils, Logging, TestUtils}
 import kafka.zk.ConfigEntityChangeNotificationZNode
@@ -25,10 +25,12 @@ import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer, OffsetA
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, ProducerRecord}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.{Config => _, _}
-import org.apache.kafka.common.errors.{ClusterLinkInUseException, InvalidConfigurationException, InvalidPartitionsException, InvalidRequestException}
+import org.apache.kafka.common.errors._
+import org.apache.kafka.common.quota.{ClientQuotaAlteration, ClientQuotaEntity}
 import org.apache.kafka.common.requests.{AlterMirrorsRequest, NewClusterLink}
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.security.scram.ScramCredential
+import org.apache.kafka.test.{TestUtils => JTestUtils}
 import org.apache.kafka.test.IntegrationTest
 import org.junit.Assert._
 import org.junit.experimental.categories.Category
@@ -259,6 +261,53 @@ class ClusterLinkIntegrationTest extends Logging {
   }
 
   @Test
+  def testSourceClusterQuota(): Unit = {
+    sourceCluster.createTopic(topic, numPartitions, replicationFactor = 2)
+    destCluster.createClusterLink(linkName, sourceCluster, fetchMaxBytes = 100)
+    destCluster.linkTopic(topic, replicationFactor = 2, linkName)
+    val sourceAdmin = sourceCluster.createAdminClient()
+
+    def setQuota(byteRate: Long): Unit = {
+      val quotaUser = new ClientQuotaEntity(Map(ClientQuotaEntity.USER -> destCluster.linkUserName(linkName)).asJava)
+      val quotaOp = new ClientQuotaAlteration.Op(DynamicConfig.Client.ConsumerByteRateOverrideProp, byteRate)
+      val quota = new ClientQuotaAlteration(quotaUser, Collections.singleton(quotaOp))
+      sourceAdmin.alterClientQuotas(Collections.singleton(quota)).all().get(15, TimeUnit.SECONDS)
+    }
+
+    def throttled(): Boolean = {
+      destCluster.servers.exists { server =>
+        kafkaMetricMaxValue(server, "fetch-throttle-time-max", "cluster-link") > 0.0
+      }
+    }
+
+    verifyQuota(setQuota, throttled, "Source cluster link user quota")
+  }
+
+  @Test
+  def testDestinationClusterQuota(): Unit = {
+    sourceCluster.createTopic(topic, numPartitions, replicationFactor = 2)
+    destCluster.createClusterLink(linkName, sourceCluster)
+    destCluster.linkTopic(topic, replicationFactor = 2, linkName)
+    val destAdmin = destCluster.createAdminClient()
+
+    def setQuota(byteRate: Long): Unit = {
+      val alterOp = new AlterConfigOp(new ConfigEntry(DynamicConfig.Broker.ClusterLinkIoMaxBytesPerSecondProp, byteRate.toString), AlterConfigOp.OpType.SET)
+      val configs = destCluster.servers.map(_.config.brokerId)
+        .map(brokerId => new ConfigResource(ConfigResource.Type.BROKER, brokerId.toString))
+        .map(_ -> Set(alterOp).asJavaCollection).toMap.asJava
+      destAdmin.incrementalAlterConfigs(configs).all().get()
+    }
+
+    def throttled(): Boolean = {
+      destCluster.servers.exists { server =>
+        yammerMetricMaxValue(s"kafka.server:type=ReplicaManager,name=ThrottledClusterLinkReplicasPerSec", linkOpt = None) > 0.0
+      }
+    }
+
+    verifyQuota(setQuota, throttled, "Destination cluster link replication quota")
+  }
+
+  @Test
   def testAddPartitions(): Unit = {
     numPartitions = 1
     sourceCluster.createTopic(topic, numPartitions, replicationFactor = 2)
@@ -473,7 +522,7 @@ class ClusterLinkIntegrationTest extends Logging {
           case None => new AlterConfigOp(new ConfigEntry(name, null), AlterConfigOp.OpType.DELETE)
         }
         try {
-          val ops = Collections.singleton(op).asInstanceOf[java.util.Collection[AlterConfigOp]]
+          val ops = Collections.singleton(op).asInstanceOf[util.Collection[AlterConfigOp]]
           admin.incrementalAlterConfigs(Map(resource -> ops).asJava).all.get
           assertTrue(expectSuccess)
         } catch {
@@ -526,7 +575,9 @@ class ClusterLinkIntegrationTest extends Logging {
     })
   }
 
-  private def waitForMirror(topic: String, servers: Seq[KafkaServer] = destCluster.servers): Unit = {
+  private def waitForMirror(topic: String,
+                            servers: Seq[KafkaServer] = destCluster.servers,
+                            maxWaitMs: Long = JTestUtils.DEFAULT_MAX_WAIT_MS): Unit = {
     val offsetsByPartition = (0 until numPartitions).map { i =>
       i -> producedRecords.count(_.partition == i).toLong
     }.toMap
@@ -535,7 +586,7 @@ class ClusterLinkIntegrationTest extends Logging {
       val leader = TestUtils.waitUntilLeaderIsKnown(servers, tp)
       servers.foreach { server =>
         server.replicaManager.nonOfflinePartition(tp).foreach { _ =>
-          val (offset, _) = TestUtils.computeUntilTrue(logEndOffset(server, tp).get)(_ == expectedOffset)
+          val (offset, _) = TestUtils.computeUntilTrue(logEndOffset(server, tp).get, maxWaitMs)(_ == expectedOffset)
           assertEquals(s"Unexpected offset on broker ${server.config.brokerId} leader $leader", expectedOffset, offset)
         }
       }
@@ -565,6 +616,15 @@ class ClusterLinkIntegrationTest extends Logging {
       producer.send(record)
     }
     futures.foreach(_.get(15, TimeUnit.SECONDS))
+  }
+
+  def produceUntil(producer: KafkaProducer[Array[Byte], Array[Byte]], condition: () => Boolean, errorMessage: String): Unit = {
+    var iteration = 0
+    do {
+      iteration += 1
+      produceRecords(producer, topic, 20)
+    } while (!condition.apply() && iteration < 100)
+    assertTrue(errorMessage, condition.apply())
   }
 
   def consume(cluster: ClusterLinkTestHarness, topic: String): Unit = {
@@ -606,33 +666,46 @@ class ClusterLinkIntegrationTest extends Logging {
     records.remove(records.size - numRecords, numRecords)
   }
 
+  private def kafkaMetricMaxValue(server: KafkaServer, name: String, group: String): Double = {
+    val values = server.metrics.metrics().asScala
+      .filter { case (metricName, _) => metricName.name == name && metricName.group == group && metricName.tags.get("link-name") == linkName }
+      .map(_._2.metricValue().asInstanceOf[Double])
+    assertTrue(s"Metric does not exist: $group:$name", values.nonEmpty)
+    values.max
+  }
+
+  private def yammerMetricMaxValue(prefix: String, linkOpt: Option[String] = Some(linkName)): Double = {
+    def matches(mbeanName: String) = mbeanName.startsWith(prefix) &&
+      linkOpt.forall { name => mbeanName.contains(s"link-name=$name") }
+
+    val values = KafkaYammerMetrics.defaultRegistry().allMetrics().asScala
+      .filter { case (metricName, _) => matches(metricName.getMBeanName) }
+      .values
+    assertTrue(s"Metric does not exist: $prefix", values.nonEmpty)
+    values.map(yammerMetricValue).max
+  }
+
+  private def yammerMetricValue(metric: Metric): Double = {
+    metric match {
+      case m: Meter => m.count.toDouble
+      case m: Histogram => m.max
+      case m: Gauge[_] => m.value.toString.toDouble
+      case m => throw new IllegalArgumentException(s"Unexpected broker metric of class ${m.getClass}")
+    }
+  }
+
   private def verifyLinkMetrics(): Unit = {
 
     def verifyKafkaMetric(name: String, group: String, expectNonZero: Boolean = true): Unit = {
-     val values = destCluster.servers.head.metrics.metrics().asScala
-        .filter { case (metricName, _) => metricName.name == name && metricName.group == group && metricName.tags.get("link-name") == linkName }
-        .map(_._2.metricValue().asInstanceOf[Double])
-      assertTrue(s"Metric does not exist: $group:$name", values.nonEmpty)
+     val maxValue = kafkaMetricMaxValue(destCluster.servers.head, name, group)
       if (expectNonZero)
-        assertTrue(s"Metric not updated: $group:$name $values", values.exists(_ > 0.0))
-    }
-
-    def yammerMetricValue(metric: Metric): Double = {
-      metric match {
-        case m: Meter => m.count.toDouble
-        case m: Histogram => m.max
-        case m: Gauge[_] => m.value.toString.toDouble
-        case m => throw new IllegalArgumentException(s"Unexpected broker metric of class ${m.getClass}")
-      }
+        assertTrue(s"Metric not updated: $group:$name $maxValue", maxValue > 0.0)
     }
 
     def verifyYammerMetric(prefix: String, expectNonZero: Boolean = true): Unit = {
-      val values = KafkaYammerMetrics.defaultRegistry().allMetrics().asScala
-        .filter { case (metricName, _) => metricName.getMBeanName.startsWith(prefix) && metricName.getMBeanName.contains(s"link-name=$linkName") }
-        .values
-      assertTrue(s"Metric does not exist: $prefix", values.nonEmpty)
+      val maxValue = yammerMetricMaxValue(prefix)
       if (expectNonZero)
-        assertTrue(s"Metric not updated: $prefix $values", values.exists(m => yammerMetricValue(m) > 0.0))
+        assertTrue(s"Metric not updated: $prefix $maxValue", maxValue > 0.0)
     }
 
     verifyKafkaMetric("incoming-byte-total", "cluster-link-metadata-metrics")
@@ -641,6 +714,19 @@ class ClusterLinkIntegrationTest extends Logging {
     verifyYammerMetric("kafka.server.link:type=ClusterLinkFetcherManager,name=MaxLag", expectNonZero = false)
     verifyYammerMetric("kafka.server:type=FetcherStats,name=BytesPerSec")
     verifyYammerMetric("kafka.server:type=FetcherLagMetrics,name=ConsumerLag", expectNonZero = false)
+  }
+
+  private def verifyQuota(setQuota: Long => Unit,
+                          checkQuota: () => Boolean,
+                          quotaDesc: String): Unit = {
+
+    val producer = sourceCluster.createProducer()
+    setQuota(100)
+    produceUntil(producer, checkQuota, s"$quotaDesc not applied")
+
+    setQuota(500000)
+    produceRecords(producer, topic, 10)
+    waitForMirror(topic, maxWaitMs = 30000)
   }
 }
 
@@ -682,12 +768,15 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
     maybeShutdownProducer()
   }
 
+  def linkUserName(linkName: String) = s"user-$linkName"
+
   def createClusterLink(linkName: String,
                         sourceCluster: ClusterLinkTestHarness,
                         metadataMaxAgeMs: Long = 60000L,
                         retryTimeoutMs: Long = 30000L,
+                        fetchMaxBytes: Long = Defaults.ReplicaFetchMaxBytes,
                         configOverrides: Properties = new Properties): UUID = {
-    val userName = s"user-$linkName"
+    val userName = linkUserName(linkName)
     val password = s"secret-$linkName"
     val linkJaasConfig = "org.apache.kafka.common.security.scram.ScramLoginModule required username=\"%s\" password=\"%s\";"
       .format(userName, password)
@@ -697,6 +786,7 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
     props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, sourceCluster.brokerList)
     props.put(CommonClientConfigs.METADATA_MAX_AGE_CONFIG, metadataMaxAgeMs.toString)
     props.put(ClusterLinkConfig.RetryTimeoutMsProp, retryTimeoutMs.toString)
+    props.put(KafkaConfig.ReplicaFetchMaxBytesProp, fetchMaxBytes.toString)
     props ++= sourceCluster.clientSecurityProps(linkName)
     props.put(SaslConfigs.SASL_JAAS_CONFIG, linkJaasConfig)
     props ++= configOverrides
