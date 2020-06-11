@@ -234,6 +234,71 @@ class ClusterLinkSyncOffsetsTest {
   }
 
   @Test
+  def testCanUpdateGroupFilters(): Unit = {
+    setupMock(isController = true)
+
+    val topic = "testTopic"
+    val validGroupName = "validGroup"
+    val newGroupName = "newGroup"
+
+    val origFilter =
+      s"""
+         |{
+         |"groupFilters": [
+         |  {
+         |     "name": "validGroup",
+         |     "patternType": "LITERAL",
+         |     "filterType": "WHITELIST"
+         |  }
+         |]}
+      """.stripMargin
+
+    val updatedFilter =
+      s"""
+         |{
+         |"groupFilters": [
+         |  {
+         |     "name": "validGroup",
+         |     "patternType": "LITERAL",
+         |     "filterType": "WHITELIST"
+         |  },
+         |  {
+         |     "name": "$newGroupName",
+         |     "patternType": "LITERAL",
+         |     "filterType": "WHITELIST"
+         |  }
+         |]}
+      """.stripMargin
+
+    val origLinkConfig = linkConfig(origFilter)
+    val updatedLinkConfig = linkConfig(updatedFilter)
+
+    // the first call is to get the offset sync period
+    expect(clientManager.currentConfig).andReturn(origLinkConfig).times(3)
+    expect(clientManager.currentConfig).andReturn(updatedLinkConfig).times(1)
+
+    // we respond with both groups every time
+    setupMockListGroupsResponse(validGroupName, newGroupName)
+    setupMockListGroupsResponse(validGroupName, newGroupName)
+
+    val offsetEntries = Map(new TopicPartition(topic, 1) -> offsetAndMetadata(1))
+    setupMockOffsetResponses(offsetEntries, validGroupName)
+    setupMockOffsetResponses(offsetEntries, validGroupName, newGroupName)
+
+    replay(admin, clientManager, destAdmin)
+    val syncOffsets = new ClusterLinkSyncOffsets(clientManager,
+      linkData(),
+      controller,
+      () => destAdmin,
+      metrics,
+      Collections.emptyMap())
+
+    syncOffsets.runOnce().get(5, TimeUnit.SECONDS)
+    syncOffsets.runOnce().get(5, TimeUnit.SECONDS)
+    verifyMock()
+  }
+
+  @Test
   def testDoesNotUpdateUnchangedOffsets(): Unit = {
     setupMock(isController = true)
 
@@ -241,6 +306,7 @@ class ClusterLinkSyncOffsetsTest {
     val groupName = "testGroup"
 
     val clusterLinkConfig = linkConfig(allowAllFilter)
+    expect(clientManager.currentConfig).andReturn(clusterLinkConfig).anyTimes()
 
     setupMockListGroupsResponse(groupName)
 
@@ -249,7 +315,7 @@ class ClusterLinkSyncOffsetsTest {
 
     replay(admin, clientManager, destAdmin)
 
-    val syncOffsets = new ClusterLinkSyncOffsets(clientManager, linkData(), clusterLinkConfig,
+    val syncOffsets = new ClusterLinkSyncOffsets(clientManager, linkData(),
       controller, () => destAdmin, metrics, Collections.emptyMap())
 
     // we force the existing offset to be the same as the fetched one, this should not call alterConsumerGroupOffsets
@@ -269,6 +335,7 @@ class ClusterLinkSyncOffsetsTest {
     val oldGroupName = "oldGroup"
 
     val clusterLinkConfig = linkConfig(allowAllFilter)
+    expect(clientManager.currentConfig).andReturn(clusterLinkConfig).anyTimes()
 
     setupMockListGroupsResponse(groupName)
 
@@ -276,7 +343,7 @@ class ClusterLinkSyncOffsetsTest {
     setupMockOffsetResponses(offsetEntries, groupName)
     replay(admin, clientManager, destAdmin)
 
-    val syncOffsets = new ClusterLinkSyncOffsets(clientManager, linkData(), clusterLinkConfig,
+    val syncOffsets = new ClusterLinkSyncOffsets(clientManager, linkData(),
       controller,() => destAdmin, metrics, Collections.emptyMap())
 
     syncOffsets.currentOffsets.clear()
@@ -455,10 +522,10 @@ class ClusterLinkSyncOffsetsTest {
 
   private def syncOffsetsAndVerify(clusterLinkConfig: ClusterLinkConfig,
                                    tenantPrefix: Option[String] = None): ClusterLinkSyncOffsets = {
+    expect(clientManager.currentConfig).andReturn(clusterLinkConfig).anyTimes()
     replay(admin, clientManager, destAdmin)
     val syncOffsets = new ClusterLinkSyncOffsets(clientManager,
       linkData(tenantPrefix),
-      clusterLinkConfig,
       controller,
       () => destAdmin,
       metrics,

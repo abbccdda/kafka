@@ -33,7 +33,7 @@ object ClusterLinkClientManager {
 class ClusterLinkClientManager(val linkData: ClusterLinkData,
                                val scheduler: ClusterLinkScheduler,
                                val zkClient: KafkaZkClient,
-                               private var config: ClusterLinkConfig,
+                               @volatile private var config: ClusterLinkConfig,
                                authorizer: Option[Authorizer],
                                controller: KafkaController,
                                metrics: Metrics,
@@ -61,7 +61,7 @@ class ClusterLinkClientManager(val linkData: ClusterLinkData,
       "link-id" -> linkData.linkId.toString)
     setAdmin(Some(linkAdminFactory(config)))
 
-    clusterLinkSyncOffsets = Some(new ClusterLinkSyncOffsets(this, linkData, config,
+    clusterLinkSyncOffsets = Some(new ClusterLinkSyncOffsets(this, linkData,
       controller, destAdminFactory, metrics, tags.asJava))
     clusterLinkSyncOffsets.get.startup()
 
@@ -75,7 +75,7 @@ class ClusterLinkClientManager(val linkData: ClusterLinkData,
         + "migration."))
       config.aclFilters.getOrElse(throw new IllegalArgumentException("ACL migration is enabled "
         + "but acl.filters is not set. Please set acl.filters to proceed with ACL migration."))
-      clusterLinkSyncAcls = Some(new ClusterLinkSyncAcls(this, config, controller,
+      clusterLinkSyncAcls = Some(new ClusterLinkSyncAcls(this, controller,
         metrics, tags.asJava))
       clusterLinkSyncAcls.get.startup()
     }
@@ -213,5 +213,7 @@ class ClusterLinkClientManager(val linkData: ClusterLinkData,
     val error = ApiError.fromThrowable(e)
     error.error.exception(s"While $action for topic '$topic' over cluster link '${linkData.linkName}': ${error.messageWithFallback}")
   }
+
+  def currentConfig: ClusterLinkConfig = config
 
 }

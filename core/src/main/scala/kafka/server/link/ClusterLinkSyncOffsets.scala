@@ -22,16 +22,15 @@ import scala.jdk.CollectionConverters._
 
 class ClusterLinkSyncOffsets(val clientManager: ClusterLinkClientManager,
                              linkData: ClusterLinkData,
-                             config: ClusterLinkConfig,
                              controller: KafkaController,
                              val destAdminFactory: () => Admin,
                              metrics: Metrics,
                              metricsTags: java.util.Map[String, String])
   extends ClusterLinkScheduler.PeriodicTask(clientManager.scheduler, name = "SyncOffsets",
-    config.consumerOffsetSyncMs) {
+    clientManager.currentConfig.consumerOffsetSyncMs) {
 
   private[link] val currentOffsets = mutable.Map.empty[(String, TopicPartition), Long]
-  private val groupFilters: Seq[Filter] = destinationFilters(config.consumerGroupFilters.map(_.groupFilters).getOrElse(Seq.empty))
+  private var config = clientManager.currentConfig
   private var consumerOffsetCommitSensor: Sensor = _
 
   override def startup(): Unit = {
@@ -58,6 +57,10 @@ class ClusterLinkSyncOffsets(val clientManager: ClusterLinkClientManager,
    * @return `true` if the task has completed, otherwise `false` if there's outstanding work to be done
    */
   override protected def run(): Boolean = {
+
+    // update dynamic config
+    config = clientManager.currentConfig
+
     if (controller.isActive && config.consumerOffsetSyncEnable) {
       if (config.consumerGroupFilters.isEmpty) {
         warn(s"${ClusterLinkConfig.ConsumerOffsetSyncEnableProp} is true but no consumer group filters are specified. No consumer offsets will be migrated.")
@@ -93,6 +96,7 @@ class ClusterLinkSyncOffsets(val clientManager: ClusterLinkClientManager,
    */
   private def filterConsumerGroups(groups: Set[String]) : Set[String] = {
 
+    val groupFilters: Seq[Filter] = destinationFilters(config.consumerGroupFilters.map(_.groupFilters).getOrElse(Seq.empty))
     val usedFilters = mutable.Buffer[Filter]()
     val filtered = groups.filter { group =>
       val matchedFilters = groupFilters.filter(_.matches(group))

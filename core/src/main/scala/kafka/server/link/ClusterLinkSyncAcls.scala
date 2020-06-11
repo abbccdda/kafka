@@ -21,11 +21,11 @@ import scala.jdk.CollectionConverters._
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 
-class ClusterLinkSyncAcls (val clientManager: ClusterLinkClientManager, config: ClusterLinkConfig,
+class ClusterLinkSyncAcls (val clientManager: ClusterLinkClientManager,
                            controller: KafkaController, metrics: Metrics,
                            metricsTags: java.util.Map[String, String])
   extends ClusterLinkScheduler.PeriodicTask(clientManager.scheduler, name = "SyncAcls",
-    config.aclSyncMs) {
+    clientManager.currentConfig.aclSyncMs) {
 
   // set of last seen AclBindings from source cluster
   private val currentAclSet = mutable.Set[AclBinding]()
@@ -75,7 +75,7 @@ class ClusterLinkSyncAcls (val clientManager: ClusterLinkClientManager, config: 
    */
   override protected def run(): Boolean = {
     if (controller.isActive) {
-      val aclFilterJson = config.aclFilters.get
+      val aclFilterJson = clientManager.currentConfig.aclFilters.get
       val aclFilterList = AclJson.toAclBindingFilters(aclFilterJson)
       val describeAclsResultList = ListBuffer[Option[DescribeAclsResult]]()
       for (aclFilter <- aclFilterList) {
