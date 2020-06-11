@@ -112,10 +112,11 @@ public class BrokerConfigUtils {
   private static Map.Entry<ListenerName, SecurityProtocol> deriveInterBrokerListener(AbstractConfig config, Map<ListenerName, SecurityProtocol> listenerSecurityProtocolMap) {
     Map<String, Object> originals = config.originals();
     String listenerNameStr = getInterBrokerListenerName(config);
-    if (!Strings.isNullOrEmpty(listenerNameStr) && originals.containsKey(INTER_BROKER_SECURITY_PROTOCOL_PROP)) {
-      // this should get caught by the broker itself
-      throw new ConfigException("cannot provide both " + INTER_BROKER_LISTENER_NAME_PROP + " and " + INTER_BROKER_SECURITY_PROTOCOL_PROP);
-    } else if (!Strings.isNullOrEmpty(listenerNameStr)) {
+    // We're omitting the check for both 'security.inter.broker.protocol' & 'inter.broker.listener.name'
+    // because upon reconfiguration, the default value for 'security.inter.broker.protocol' is being set.
+    // We can infer that if 'inter.broker.listener.name' is set, 'security.inter.broker.protocol' is not.
+    // This is slightly different than the broker code for this reason.
+    if (!Strings.isNullOrEmpty(listenerNameStr)) {
       ListenerName listenerName = ListenerName.normalised(listenerNameStr);
       SecurityProtocol securityProtocol = listenerSecurityProtocolMap.get(listenerName);
       if (securityProtocol == null) {
