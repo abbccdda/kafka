@@ -3,32 +3,30 @@ package io.confluent.databalancer.integration;
 
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils;
 import io.confluent.databalancer.KafkaDataBalanceManager;
-import java.time.Duration;
-import java.util.Collections;
+import kafka.server.KafkaConfig;
+import kafka.server.KafkaServer;
+import kafka.utils.TestUtils;
+import kafka.zk.EmbeddedZookeeper;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.BrokerRemovalDescription;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.common.errors.PlanComputationException;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.test.IntegrationTest;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.experimental.categories.Category;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import scala.collection.JavaConverters;
 
+import java.time.Duration;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ExecutionException;
-
-import kafka.server.KafkaConfig;
-import kafka.server.KafkaServer;
-import kafka.utils.TestUtils;
-import kafka.zk.EmbeddedZookeeper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import scala.collection.JavaConverters;
 
 
 @Category(IntegrationTest.class)
@@ -53,6 +51,11 @@ public abstract class DataBalancerClusterTestHarness {
     return props; // no-op
   }
 
+  // To allow a test case to override properties based on broker ID
+  protected Map<Integer, Map<String, String>> brokerOverrideProps() {
+    return Collections.emptyMap();
+  }
+
   @SuppressWarnings("deprecation")
   @Before
   public void setUp() throws Exception {
@@ -60,7 +63,7 @@ public abstract class DataBalancerClusterTestHarness {
     generalProperties = injectTestSpecificProperties(new Properties());
     kafkaCluster = new EmbeddedSBKKafkaCluster();
     kafkaCluster.startZooKeeper();
-    kafkaCluster.startBrokers(initialBrokerCount(), generalProperties);
+    kafkaCluster.startBrokers(initialBrokerCount(), generalProperties, brokerOverrideProps());
 
     servers = kafkaCluster.brokers();
     brokerList = TestUtils.getBrokerListStrFromServers(JavaConverters.asScalaBuffer(servers),

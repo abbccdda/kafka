@@ -8,14 +8,16 @@ import com.linkedin.kafka.cruisecontrol.monitor.MockSampler;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.NoopSampleStore;
 import io.confluent.kafka.test.cluster.EmbeddedKafkaCluster;
 import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
-import java.io.IOException;
-import java.net.ServerSocket;
-import java.util.Properties;
 import kafka.server.KafkaConfig;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.net.ServerSocket;
+import java.util.Collections;
+import java.util.Map;
+import java.util.Properties;
 
 import static com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore.BROKER_SAMPLE_STORE_TOPIC_PARTITION_COUNT_CONFIG;
 import static com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore.PARTITION_SAMPLE_STORE_TOPIC_PARTITION_COUNT_CONFIG;
@@ -40,8 +42,7 @@ public class EmbeddedSBKKafkaCluster extends EmbeddedKafkaCluster {
    * Start all the brokers, ensuring they have the right
    * bootstrap port configured for the sample store
    */
-  @Override
-  public void startBrokers(int numBrokers, Properties overrideProps) {
+  public void startBrokers(int numBrokers, Properties overrideProps, Map<Integer, Map<String, String>> brokerOverrideProps) {
     logger = LoggerFactory.getLogger(this.getClass());
     try {
       broker0Port = findUnusedPort();
@@ -49,19 +50,27 @@ public class EmbeddedSBKKafkaCluster extends EmbeddedKafkaCluster {
       fail(String.format("Could not reserve port due to %s", e));
     }
 
-    Properties properties = buildProperties(overrideProps, broker0Port);
+    Properties properties = buildCommonProperties(overrideProps, broker0Port);
 
     Properties broker0Props = new Properties(properties);
     broker0Props.putAll(properties);
     broker0Props.setProperty(KafkaConfig.PortProp(), Integer.toString(broker0Port));
+    broker0Props = buildBrokerProperties(broker0Props, brokerOverrideProps.getOrDefault(0, Collections.emptyMap()));
     startBroker(0, broker0Props);
     logger.info("Successfully started broker 0");
 
-    properties.setProperty(KafkaConfig.BrokerIdProp(), "1");
-    super.startBrokers(numBrokers - 1, properties);
+    for (int i = 1; i < numBrokers; i++) {
+      Properties brokerProps = buildBrokerProperties(properties, brokerOverrideProps.getOrDefault(i, Collections.emptyMap()));
+      startBroker(i, brokerProps);
+    }
     logger.info("Successfully started the rest of the {} brokers", numBrokers);
   }
 
+  @Override
+  public void startBrokers(int numBrokers, Properties overrideProps) {
+    startBrokers(numBrokers, overrideProps, Collections.emptyMap());
+  }
+  
   /**
    * Find an unused port on this system, to use for our Kafka
    * SBK needs a bootstrap server, but the standard test config
@@ -75,10 +84,17 @@ public class EmbeddedSBKKafkaCluster extends EmbeddedKafkaCluster {
     }
   }
 
-  private Properties buildProperties(Properties overrideProps, int bootstrapPort) {
+  private Properties buildCommonProperties(Properties overrideProps, int bootstrapPort) {
     Properties properties = new Properties();
 
     injectSbkProperties(properties, bootstrapPort);
+    properties.putAll(overrideProps);
+    return properties;
+  }
+
+  private Properties buildBrokerProperties(Properties props, Map<String, String> overrideProps) {
+    Properties properties = new Properties();
+    properties.putAll(props);
     properties.putAll(overrideProps);
     return properties;
   }
