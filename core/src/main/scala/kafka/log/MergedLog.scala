@@ -581,6 +581,7 @@ class MergedLog(private[log] val localLog: Log,
           tierPartitionState.restoreState(metadata, targetState, restoreStatus, offsetAndEpoch);
         }
         override def status: TierPartitionStatus = tierPartitionState.status
+        override def materializationLag(): Long = tierPartitionState.materializationLag()
         override def beginCatchup(): Unit = tierPartitionState.beginCatchup()
         override def completeCatchup(): Unit = tierPartitionState.onCatchUpComplete()
       }

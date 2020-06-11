@@ -1,15 +1,20 @@
 package kafka.tier.topic
 
+import java.io.File
+import java.nio.ByteBuffer
 import java.util
 import java.util.{Collections, OptionalInt, UUID}
 import java.util.Optional
 
+import kafka.log.Log
+import kafka.server.LogDirFailureChannel
 import kafka.tier.{TierTopicManagerCommitter, TopicIdPartition}
 import kafka.tier.client.{MockConsumerSupplier, MockProducerSupplier}
-import kafka.tier.domain.AbstractTierMetadata
+import kafka.tier.domain.{AbstractTierMetadata, TierPartitionForceRestore}
 import kafka.tier.exceptions.TierMetadataDeserializationException
 import kafka.tier.fetcher.TierStateFetcher
-import kafka.tier.state.{OffsetAndEpoch, TierPartitionStatus}
+import kafka.tier.state.TierPartitionState.{AppendResult, RestoreResult}
+import kafka.tier.state.{FileTierPartitionState, OffsetAndEpoch, TierPartitionStatus}
 import kafka.tier.topic.TierTopicConsumer.ClientCtx
 import kafka.utils.TestUtils
 import org.apache.kafka.clients.CommonClientConfigs
@@ -161,7 +166,6 @@ class TierTopicConsumerTest {
     }
 
     tierTopicConsumer.startConsume(false, tierTopic)
-
     val primaryConsumer = primaryConsumerSupplier.consumers.get(0)
     assertEquals(tierTopicPartitions, primaryConsumer.assignment)
     committedOffsetMap.foreach { case (tierTopicPartition, offsetAndEpoch) =>
@@ -227,6 +231,38 @@ class TierTopicConsumerTest {
   }
 
   @Test
+  def testMaxMaterializeLag(): Unit = {
+    val tp_1 = new TopicIdPartition("lag_test", UUID.randomUUID, 0)
+    val state_1 = getState(tp_1, tierTopicConsumer, TierPartitionStatus.ONLINE)
+    val tp_2 = new TopicIdPartition("lag_test2", UUID.randomUUID, 0)
+    val state_2 = getState(tp_2, tierTopicConsumer, TierPartitionStatus.CATCHUP)
+    val tp_3 = new TopicIdPartition("lag_test3", UUID.randomUUID, 0)
+    val state_3 = getState(tp_3, tierTopicConsumer, TierPartitionStatus.ONLINE)
+    val tp_4 = new TopicIdPartition("lag_test4", UUID.randomUUID, 0)
+    val state_4 = getState(tp_4, tierTopicConsumer, TierPartitionStatus.CATCHUP)
+
+    tierTopicConsumer.startConsume(false, tierTopic)
+    tierTopicConsumer.doWork()
+
+    // there should be no lag before materialize listener is initialized
+    assertEquals(0L, tierTopicConsumer.maxMaterializationLag())
+
+    // add materialize listener to the partition states
+    state_1.materializeUpto(100L)
+    state_2.materializeUpto(101L)
+    state_3.materializeUpto(102L)
+    state_4.materializeUpto(103L)
+
+    // max lag should be 103L across all partitions with different status
+    assertEquals(103L, tierTopicConsumer.maxMaterializationLag())
+
+    state_1.close()
+    state_2.close()
+    state_3.close()
+    state_4.close()
+  }
+
+  @Test
   def testGarbageHandling(): Unit = {
     // process a garbage message. Make sure we throw TierMetadataDeserializationException. This exception will lead to
     //  identifying and skipping of garbage message.
@@ -236,5 +272,28 @@ class TierTopicConsumerTest {
     assertThrows[TierMetadataDeserializationException] {
       AbstractTierMetadata.deserialize(garbageRecord.key, garbageRecord.value)
     }
+  }
+
+  private def getState(topicIdPartition: TopicIdPartition, tierTopicConsumer: TierTopicConsumer, ctxStatus: TierPartitionStatus): FileTierPartitionState = {
+    val dir = new File(logDir + "/" + Log.logDirName(topicIdPartition.topicPartition))
+    dir.mkdir()
+
+    val tierPartitionState = new FileTierPartitionState(dir, new LogDirFailureChannel(5), topicIdPartition.topicPartition, true)
+    tierPartitionState.setTopicId(topicIdPartition.topicId)
+
+    val clientCtx = new ClientCtx {
+      override def process(metadata: AbstractTierMetadata, offsetAndEpoch: OffsetAndEpoch): AppendResult = tierPartitionState.append(metadata, offsetAndEpoch)
+      override def status(): TierPartitionStatus = ctxStatus
+      override def materializationLag(): Long = tierPartitionState.materializationLag()
+      override def restoreState(metadata: TierPartitionForceRestore, buffer: ByteBuffer, status: TierPartitionStatus, offsetAndEpoch: OffsetAndEpoch): RestoreResult = {
+        tierPartitionState.restoreState(metadata, buffer, status, offsetAndEpoch)
+      }
+      override def beginCatchup(): Unit = tierPartitionState.beginCatchup()
+      override def completeCatchup(): Unit = tierPartitionState.onCatchUpComplete()
+    }
+
+    tierTopicConsumer.register(topicIdPartition, clientCtx)
+
+    tierPartitionState
   }
 }

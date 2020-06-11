@@ -76,6 +76,7 @@ class TierPartitionStateFencingTriggerTest extends IntegrationTestHarness {
         tierPartitionState.restoreState(metadata, targetState, targetStatus, sourceOffsetAndEpoch)
       }
       override def status(): TierPartitionStatus = tierPartitionState.status
+      override def materializationLag(): Long = tierPartitionState.materializationLag()
       override def beginCatchup(): Unit = tierPartitionState.beginCatchup()
       override def completeCatchup(): Unit = tierPartitionState.onCatchUpComplete()
     })

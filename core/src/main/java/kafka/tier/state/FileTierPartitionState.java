@@ -385,6 +385,19 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     }
 
     @Override
+    public long materializationLag() {
+        stateResourceReadWriteLock.readLock().lock();
+        try {
+            if (state.materializationListener != null) {
+                return state.materializationListener.offsetToMaterialize() - Math.max(0L, state.endOffset);
+            }
+            return 0L;
+        } finally {
+            stateResourceReadWriteLock.readLock().unlock();
+        }
+    }
+
+    @Override
     public void beginCatchup() {
         stateResourceReadWriteLock.readLock().lock();
         try {
@@ -2030,6 +2043,10 @@ class ReplicationMaterializationListener {
             log.info("Completing {} successfully. lastFlushedSegment: {}.", this, lastFlushedSegment);
             promise.complete(lastFlushedSegment);
         }
+    }
+
+    long offsetToMaterialize() {
+        return offsetToMaterialize;
     }
 
     synchronized void completeExceptionally(Exception e) {

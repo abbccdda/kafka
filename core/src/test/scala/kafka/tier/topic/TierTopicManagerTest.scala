@@ -643,6 +643,7 @@ class TierTopicManagerTest {
     tierTopicConsumer.register(topicIdPartition, new ClientCtx {
       override def process(metadata: AbstractTierMetadata, offsetAndEpoch: OffsetAndEpoch): AppendResult = tierPartitionState.append(metadata, offsetAndEpoch)
       override def status(): TierPartitionStatus = tierPartitionState.status
+      override def materializationLag(): Long = tierPartitionState.materializationLag()
       override def restoreState(metadata: TierPartitionForceRestore, buffer: ByteBuffer, status: TierPartitionStatus, offsetAndEpoch: state.OffsetAndEpoch): RestoreResult = {
         tierPartitionState.restoreState(metadata, buffer, status, offsetAndEpoch)
       }

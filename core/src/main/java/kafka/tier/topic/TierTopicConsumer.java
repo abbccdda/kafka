@@ -145,6 +145,10 @@ public class TierTopicConsumer implements Runnable {
             "TierTopicConsumer",
             "The time that the oldest metadata listener has been waiting in milliseconds.",
             new HashMap<>());
+    private final MetricName maxTierLagMetricName = new MetricName("MaxTierLag",
+            "TierTopicConsumer",
+            "Current max tier materialization lag across all partitions.",
+            new HashMap<>());
 
     private final TierCatchupConsumer catchupConsumer;
     private final TierStateFetcher tierStateFetcher;
@@ -681,6 +685,7 @@ public class TierTopicConsumer implements Runnable {
             m.addMetric(numListenersMetricName, (MetricConfig config, long now) -> numListeners());
             m.addMetric(maxListeningMsMetricName,
                     (MetricConfig config, long now) -> TimeUnit.NANOSECONDS.toMillis(maxListenerTimeNanos()));
+            m.addMetric(maxTierLagMetricName, (MetricConfig config, long now) -> maxMaterializationLag());
         });
     }
 
@@ -696,6 +701,7 @@ public class TierTopicConsumer implements Runnable {
             m.removeMetric(primaryConsumerErrorPartitionsMetricName);
             m.removeMetric(numListenersMetricName);
             m.removeMetric(maxListeningMsMetricName);
+            m.removeMetric(maxTierLagMetricName);
         });
     }
 
@@ -734,6 +740,16 @@ public class TierTopicConsumer implements Runnable {
         return resultListeners.maxListenerTimeNanos().orElse(0L);
     }
 
+    // visible for testing
+    synchronized long maxMaterializationLag() {
+        long maxLag = 0L;
+        for (ClientCtx entry : primaryConsumerPartitions.values())
+            maxLag = Math.max(maxLag, entry.materializationLag());
+        for (ClientCtx entry : catchUpConsumerPartitions.values())
+            maxLag = Math.max(maxLag, entry.materializationLag());
+        return maxLag;
+    }
+
     public interface ClientCtx {
         /**
          * Process metadata for this context.
@@ -763,6 +779,14 @@ public class TierTopicConsumer implements Runnable {
          * @return The current status
          */
         TierPartitionStatus status();
+
+        /**
+         * Retrieve lag of tiered partition.
+         * @return The current lag
+         */
+        default long materializationLag() {
+            return 0L;
+        }
 
         /**
          * Begin {@link TierPartitionStatus#CATCHUP} phase for this context.

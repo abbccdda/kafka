@@ -132,6 +132,16 @@ abstract class KafkaServerTestHarness extends ZooKeeperTestHarness {
   def createTopic(topic: String, partitionReplicaAssignment: collection.Map[Int, Seq[Int]]): scala.collection.immutable.Map[Int, Int] =
     TestUtils.createTopic(zkClient, topic, partitionReplicaAssignment, servers)
 
+
+  /**
+   * Create a topic in ZooKeeper using a customized replica assignment and customized properties.
+   * Wait until the leader is elected and the metadata is propagated to all brokers.
+   * Return the leader for each partition.
+   */
+  def createTopic(topic: String, partitionReplicaAssignment: collection.Map[Int, Seq[Int]],
+                  topicConfig: Properties): scala.collection.immutable.Map[Int, Int] =
+    TestUtils.createTopic(zkClient, topic, partitionReplicaAssignment, servers, topicConfig)
+
   /**
    * Pick a broker at random and kill it if it isn't already dead
    * Return the id of the broker killed

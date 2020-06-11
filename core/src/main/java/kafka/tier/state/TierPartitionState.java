@@ -244,6 +244,12 @@ public interface TierPartitionState {
     TierPartitionStatus status();
 
     /**
+     * Return the current tier materialization lag.
+     * @return long
+     */
+    long materializationLag();
+
+    /**
      * Update the directory reference for the log and indices in this segment. This would typically be called after a
      * directory is renamed.
      * @param dir The new directory

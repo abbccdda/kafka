@@ -1883,9 +1883,15 @@ class FileTierPartitionStateTest {
     assertEquals(baseOffsets.floor(155), state.materializeUpto(155.toLong).get(0, TimeUnit.MILLISECONDS).baseOffset)
     assertEquals(baseOffsets.floor(199), state.materializeUpto(199.toLong).get(0, TimeUnit.MILLISECONDS).baseOffset)
 
+    // Verify that materializationLag returns 0L when listener is completed
+    assertEquals(0L, state.materializationLag())
+
     // Verify that listener is not completed for offsets that has not been materialized yet
     val promise = state.materializeUpto(200.toLong)
     assertFalse(promise.isDone)
+
+    // Verify that materializationLag is calculated correctly when listener is not completed (200-199)
+    assertEquals(1L, state.materializationLag())
 
     // complete upload for segment [200-249]; this should also complete the materialization listener
     assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, lastObjectId, lastObjectStateOffset), TierTestUtils.nextTierTopicOffsetAndEpoch()))
@@ -1896,8 +1902,14 @@ class FileTierPartitionStateTest {
     assertEquals(lastObjectId, promise.get.objectId)
     assertEquals(200 + numOffsetsInSegment, state.committedEndOffset)
 
+    // Verify that materializationLag returns 0L when listener is completed
+    assertEquals(0L, state.materializationLag())
+
     // must be able to register a new materialization listener
     assertFalse(state.materializeUpto(500.toLong).isDone)
+
+    // Verify that materializationLag is calculated correctly when listener is not completed (500-251)
+    assertEquals(251L, state.materializationLag())
   }
 
   @Test
