@@ -16,6 +16,8 @@
  */
 package org.apache.kafka.common.errors;
 
+import org.apache.kafka.server.audit.AuthenticationErrorInfo;
+
 import javax.net.ssl.SSLException;
 
 /**
@@ -41,4 +43,11 @@ public class SslAuthenticationException extends AuthenticationException {
         super(message, cause);
     }
 
+    public SslAuthenticationException(String message, AuthenticationErrorInfo errorInfo) {
+        super(message, errorInfo);
+    }
+
+    public SslAuthenticationException(String message, Throwable cause, AuthenticationErrorInfo errorInfo) {
+        super(message, cause, errorInfo);
+    }
 }

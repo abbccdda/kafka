@@ -2189,6 +2189,9 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   val httpServerStartTimeout: Duration = Duration.ofMillis(getLong(ConfluentConfigs.HTTP_SERVER_START_TIMEOUT_MS_CONFIG))
   val httpServerStopTimeout: Duration = Duration.ofMillis(getLong(ConfluentConfigs.HTTP_SERVER_STOP_TIMEOUT_MS_CONFIG))
 
+  /************* AuditLog Configuration ***********/
+  val authenticationAuditLogEnabled = getBoolean(KafkaConfig.AuthenticationAuditLogEnableProp) && getBoolean(KafkaConfig.AuditLogEnableProp)
+
   /** ********* Fetch Configuration **************/
   val maxIncrementalFetchSessionCacheSlots = getInt(KafkaConfig.MaxIncrementalFetchSessionCacheSlots)
   val fetchMaxBytes = getInt(KafkaConfig.FetchMaxBytes)

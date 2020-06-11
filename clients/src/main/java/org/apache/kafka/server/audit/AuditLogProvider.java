@@ -7,11 +7,13 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.function.UnaryOperator;
 import org.apache.kafka.common.Reconfigurable;
+import org.apache.kafka.common.annotation.InterfaceStability;
 import org.apache.kafka.common.metrics.Metrics;
 
 /**
  * Interface used by audit log provider that logs audit events.
  */
+@InterfaceStability.Evolving
 public interface AuditLogProvider extends Reconfigurable, AutoCloseable {
 
   /**

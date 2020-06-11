@@ -3,8 +3,12 @@
  */
 package io.confluent.kafka.security.authorizer;
 
+import io.confluent.kafka.security.audit.event.ConfluentAuthenticationEvent;
 import io.confluent.security.authorizer.AuthorizeResult;
+import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.ConfluentAuthorizationEvent;
+import org.apache.kafka.common.ClusterResource;
+import org.apache.kafka.common.ClusterResourceListener;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.server.audit.AuditEvent;
 import org.apache.kafka.server.audit.AuditEventType;
@@ -22,7 +26,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.function.UnaryOperator;
 
-public class MockAuditLogProvider implements AuditLogProvider {
+public class MockAuditLogProvider implements AuditLogProvider, ClusterResourceListener {
 
   public static volatile MockAuditLogProvider instance;
   public final List<ConfluentAuthorizationEvent> authorizationLog = new ArrayList<>();
@@ -30,6 +34,7 @@ public class MockAuditLogProvider implements AuditLogProvider {
   private final ArrayList<String> states = new ArrayList<>();
   private boolean fail = false;
   private UnaryOperator<AuditEvent> santizer;
+  private Scope scope;
 
   public MockAuditLogProvider() {
     instance = this;
@@ -80,10 +85,6 @@ public class MockAuditLogProvider implements AuditLogProvider {
 
   @Override
   public void logEvent(AuditEvent auditEvent) {
-    if (santizer != null) {
-      auditEvent = santizer.apply(auditEvent);
-    }
-
     if (fail) {
       throw new RuntimeException("MockAuditLogProvider intentional failure");
     }
@@ -98,10 +99,23 @@ public class MockAuditLogProvider implements AuditLogProvider {
   }
 
   private void handleAuthenticationEvent(final AuthenticationEvent auditEvent) {
-    authenticationLog.add(auditEvent);
+    ConfluentAuthenticationEvent authenticationEvent;
+    if (auditEvent instanceof ConfluentAuthenticationEvent) {
+      authenticationEvent = (ConfluentAuthenticationEvent) auditEvent;
+    } else {
+      authenticationEvent = new ConfluentAuthenticationEvent(auditEvent, scope);
+    }
+
+    if (santizer != null) {
+      authenticationEvent = (ConfluentAuthenticationEvent) santizer.apply(authenticationEvent);
+    }
+    authenticationLog.add(authenticationEvent);
   }
 
-  private void handleAuthorizationEvent(final ConfluentAuthorizationEvent authZEvent) {
+  private void handleAuthorizationEvent(ConfluentAuthorizationEvent authZEvent) {
+    if (santizer != null) {
+      authZEvent = (ConfluentAuthorizationEvent) santizer.apply(authZEvent);
+    }
     if (authZEvent.action().logIfAllowed() && authZEvent.authorizeResult() == AuthorizeResult.ALLOWED ||
         authZEvent.action().logIfDenied() && authZEvent.authorizeResult() == AuthorizeResult.DENIED) {
       authorizationLog.add(authZEvent);
@@ -131,5 +145,10 @@ public class MockAuditLogProvider implements AuditLogProvider {
 
   void setFail(boolean fail) {
     this.fail = fail;
+  }
+
+  @Override
+  public void onUpdate(final ClusterResource clusterResource) {
+    this.scope = Scope.kafkaClusterScope(clusterResource.clusterId());
   }
 }

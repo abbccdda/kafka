@@ -4,6 +4,7 @@
 package io.confluent.kafka.security.audit.event;
 
 import io.confluent.security.authorizer.Scope;
+import org.apache.kafka.common.errors.AuthenticationException;
 import org.apache.kafka.common.security.auth.AuthenticationContext;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.server.audit.AuditEventStatus;
@@ -34,6 +35,11 @@ public class ConfluentAuthenticationEvent implements AuthenticationEvent {
     @Override
     public AuthenticationContext authenticationContext() {
         return authenticationEvent.authenticationContext();
+    }
+
+    @Override
+    public Optional<AuthenticationException> authenticationException() {
+        return authenticationEvent.authenticationException();
     }
 
     @Override

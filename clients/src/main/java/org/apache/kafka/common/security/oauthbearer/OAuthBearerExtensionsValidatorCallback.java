@@ -48,6 +48,7 @@ public class OAuthBearerExtensionsValidatorCallback implements Callback {
     private final SaslExtensions inputExtensions;
     private final Map<String, String> validatedExtensions = new HashMap<>();
     private final Map<String, String> invalidExtensions = new HashMap<>();
+    private String errorMessage = "";
 
     public OAuthBearerExtensionsValidatorCallback(OAuthBearerToken token, SaslExtensions extensions) {
         this.token = Objects.requireNonNull(token);
@@ -110,5 +111,13 @@ public class OAuthBearerExtensionsValidatorCallback implements Callback {
         if (Objects.requireNonNull(invalidExtensionName).isEmpty())
             throw new IllegalArgumentException("extension name must not be empty");
         this.invalidExtensions.put(invalidExtensionName, errorMessage);
+    }
+
+    public String errorMessage() {
+        return errorMessage;
+    }
+
+    public void errorMessage(final String errorMessage) {
+        this.errorMessage = errorMessage;
     }
 }

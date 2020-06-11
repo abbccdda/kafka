@@ -39,8 +39,12 @@ import org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule;
 import org.apache.kafka.common.security.oauthbearer.OAuthBearerToken;
 import org.apache.kafka.common.security.oauthbearer.OAuthBearerValidatorCallback;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.server.audit.AuditEventStatus;
+import org.apache.kafka.server.audit.AuthenticationErrorInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static org.apache.kafka.server.audit.AuthenticationErrorInfo.UNKNOWN_USER_ERROR;
 
 /**
  * {@code SaslServer} implementation for SASL/OAUTHBEARER in Kafka. An instance
@@ -86,7 +90,7 @@ public class OAuthBearerSaslServer implements SaslServer {
     public byte[] evaluateResponse(byte[] response) throws SaslException, SaslAuthenticationException {
         if (response.length == 1 && response[0] == OAuthBearerSaslClient.BYTE_CONTROL_A && errorMessage != null) {
             log.debug("Received %x01 response from client after it received our error");
-            throw new SaslAuthenticationException(errorMessage);
+            throw new SaslAuthenticationException(errorMessage, UNKNOWN_USER_ERROR);
         }
         errorMessage = null;
 
@@ -168,10 +172,12 @@ public class OAuthBearerSaslServer implements SaslServer {
          * We support the client specifying an authorization ID as per the SASL
          * specification, but it must match the principal name if it is specified.
          */
-        if (!authorizationId.isEmpty() && !authorizationId.equals(token.principalName()))
+        if (!authorizationId.isEmpty() && !authorizationId.equals(token.principalName())) {
+            AuthenticationErrorInfo errorInfo = new AuthenticationErrorInfo(AuditEventStatus.UNAUTHENTICATED, "", token.principalName(), "");
             throw new SaslAuthenticationException(String.format(
-                    "Authentication failed: Client requested an authorization id (%s) that is different from the token's principal name (%s)",
-                    authorizationId, token.principalName()));
+                "Authentication failed: Client requested an authorization id (%s) that is different from the token's principal name (%s)",
+                authorizationId, token.principalName()), errorInfo);
+        }
 
         Map<String, String> validExtensions = processExtensions(token, extensions);
 
@@ -196,7 +202,10 @@ public class OAuthBearerSaslServer implements SaslServer {
                     extensionsCallback.invalidExtensions().size(),
                     Utils.mkString(extensionsCallback.invalidExtensions(), "", "", ": ", "; "));
             log.debug(errorMessage);
-            throw new SaslAuthenticationException(errorMessage);
+            AuthenticationErrorInfo errorInfo = new AuthenticationErrorInfo(AuditEventStatus.UNAUTHENTICATED,
+                extensionsCallback.errorMessage(), token.principalName(), "");
+            errorInfo.saslExtensions(extensionsCallback.inputExtensions().map());
+            throw new SaslAuthenticationException(errorMessage, errorInfo);
         }
 
         return extensionsCallback.validatedExtensions();

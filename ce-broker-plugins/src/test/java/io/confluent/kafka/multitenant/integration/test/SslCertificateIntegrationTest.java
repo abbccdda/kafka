@@ -1,14 +1,20 @@
+/*
+ * Copyright [2019 - 2020] Confluent Inc.
+ */
 package io.confluent.kafka.multitenant.integration.test;
 
 import io.confluent.kafka.multitenant.Utils;
 import io.confluent.kafka.multitenant.integration.cluster.LogicalCluster;
 import io.confluent.kafka.multitenant.integration.cluster.PhysicalCluster;
 
+import io.confluent.kafka.security.audit.event.ConfluentAuthenticationEvent;
+import io.confluent.kafka.security.authorizer.MockAuditLogProvider;
 import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.errors.SslAuthenticationException;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.server.audit.AuditEventStatus;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
@@ -21,6 +27,10 @@ import java.util.concurrent.TimeUnit;
 
 import static io.confluent.kafka.multitenant.Utils.LC_META_ABC;
 import static io.confluent.kafka.multitenant.Utils.LC_META_XYZ;
+import static junit.framework.TestCase.assertTrue;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
 
 public class SslCertificateIntegrationTest {
 
@@ -39,6 +49,7 @@ public class SslCertificateIntegrationTest {
 
     @Before
     public void setUp() throws Exception {
+        MockAuditLogProvider.reset();
         Utils.createLogicalClusterFile(LC_META_ABC, tempFolder);
         Utils.createLogicalClusterFile(LC_META_XYZ, tempFolder);
         Utils.syncCerts(tempFolder, this.getClass().getResource(SSL_CERTS_MAY_URL), SSL_CERTS_DIR);
@@ -69,12 +80,22 @@ public class SslCertificateIntegrationTest {
         props.put(SslConfigs.SSL_KEYSTORE_PASSWORD_CONFIG, "mystorepassword");
         props.put(SslConfigs.SSL_KEYSTORE_TYPE_CONFIG, "PKCS12");
         props.put(SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG, "");
+        props.put(ConfluentConfigs.ENABLE_AUTHENTICATION_AUDIT_LOGS, "true");
         return props;
     }
 
-    @Test(expected = SslAuthenticationException.class)
-    public void testProduceConsumeFailsOnExpiredCertificateSync() throws Throwable {
-        testHarness.produceConsume(logicalCluster1.user(11), logicalCluster2.user(21),
+    @Test
+    public void testProduceConsumeFailsOnExpiredCertificateSync() {
+        assertThrows(SslAuthenticationException.class, () -> {
+            testHarness.produceConsume(logicalCluster1.user(11), logicalCluster2.user(21),
                 "testtopic", "group", 0, SecurityProtocol.SSL);
+        });
+
+        //Verify generated ssl auth failure audit event
+        MockAuditLogProvider auditLogProvider = MockAuditLogProvider.instance;
+        ConfluentAuthenticationEvent authenticationEvent = (ConfluentAuthenticationEvent) auditLogProvider.lastAuthenticationEntry();
+        assertFalse(authenticationEvent.principal().isPresent());
+        assertEquals(AuditEventStatus.UNKNOWN_USER_DENIED, authenticationEvent.status());
+        assertTrue(authenticationEvent.authenticationException().isPresent());
     }
 }

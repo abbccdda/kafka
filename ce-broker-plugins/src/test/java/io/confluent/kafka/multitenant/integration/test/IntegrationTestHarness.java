@@ -139,4 +139,15 @@ public class IntegrationTestHarness {
           throws Throwable {
     produceConsume(producerUser, consumerUser, topic, consumerGroup, firstMessageIndex, SecurityProtocol.SASL_PLAINTEXT);
   }
+
+  public AdminClient createPlainAuthAdminClient(String jaasConfig) {
+    AdminClient adminClient = KafkaTestUtils.createAdminClient(
+        physicalCluster.bootstrapServers(),
+        SecurityProtocol.SASL_PLAINTEXT,
+        "PLAIN",
+        jaasConfig,
+        new Properties());
+    adminClients.add(adminClient);
+    return adminClient;
+  }
 }

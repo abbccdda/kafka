@@ -100,6 +100,7 @@ public class OAuthBearerValidatorCallbackHandlerTest {
 
     assertFalse(callback.invalidExtensions().isEmpty());
     assertNotNull(callback.invalidExtensions().get(OAUTH_NEGOTIATED_LOGICAL_CLUSTER_PROPERTY_KEY));
+    assertFalse(callback.errorMessage().isEmpty());
   }
 
   @Test
@@ -114,6 +115,7 @@ public class OAuthBearerValidatorCallbackHandlerTest {
     callbackHandler.handle(new Callback[]{callback});
 
     assertTrue(callback.invalidExtensions().isEmpty());
+    assertTrue(callback.errorMessage().isEmpty());
   }
 
   @Test
@@ -129,6 +131,7 @@ public class OAuthBearerValidatorCallbackHandlerTest {
 
     assertFalse(callback.invalidExtensions().isEmpty());
     assertNotNull(callback.invalidExtensions().get(OAUTH_NEGOTIATED_LOGICAL_CLUSTER_PROPERTY_KEY));
+    assertFalse(callback.errorMessage().isEmpty());
   }
 
   @Test
@@ -144,6 +147,7 @@ public class OAuthBearerValidatorCallbackHandlerTest {
 
     assertFalse(callback.invalidExtensions().isEmpty());
     assertNotNull(callback.invalidExtensions().get(OAUTH_NEGOTIATED_LOGICAL_CLUSTER_PROPERTY_KEY));
+    assertFalse(callback.errorMessage().isEmpty());
   }
 
   @Test(expected = ConfigException.class)

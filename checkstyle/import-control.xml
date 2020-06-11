@@ -98,6 +98,7 @@
       <allow pkg="org.apache.kafka.common.security" />
       <allow pkg="org.apache.kafka.common.requests" />
       <allow pkg="org.apache.kafka.server.interceptor" />
+      <allow pkg="org.apache.kafka.server.audit" />
     </subpackage>
 
     <subpackage name="resource">
@@ -111,6 +112,7 @@
       <allow pkg="org.apache.kafka.common.config" />
       <allow pkg="org.apache.kafka.common.protocol" />
       <allow pkg="org.apache.kafka.common.errors" />
+      <allow pkg="org.apache.kafka.server.audit" />
       <subpackage name="authenticator">
         <allow pkg="org.apache.kafka.common.message" />
         <allow pkg="org.apache.kafka.common.protocol.types" />
@@ -179,6 +181,10 @@
 
     <subpackage name="quotas">
       <allow pkg="org.apache.kafka.common" />
+    </subpackage>
+
+    <subpackage name="errors">
+      <allow pkg="org.apache.kafka.server.audit" />
     </subpackage>
   </subpackage>
 

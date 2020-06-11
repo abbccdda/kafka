@@ -17,6 +17,7 @@
 package org.apache.kafka.common.network;
 
 import org.apache.kafka.common.errors.AuthenticationException;
+import org.apache.kafka.common.security.auth.AuthenticationContext;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 
 import java.io.Closeable;
@@ -157,4 +158,9 @@ public interface Authenticator extends Closeable {
     default boolean connectedClientSupportsReauthentication() {
         return false;
     }
+
+    /**
+     * Returns AuthenticationContext of the authentication session
+     */
+    AuthenticationContext authenticationContext();
 }

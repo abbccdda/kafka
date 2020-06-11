@@ -45,6 +45,8 @@ import org.apache.kafka.common.utils.ByteBufferUnmapper;
 import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 
+import static org.apache.kafka.server.audit.AuthenticationErrorInfo.UNKNOWN_USER_ERROR;
+
 /*
  * Transport layer for SSL communication
  *
@@ -586,7 +588,7 @@ public class SslTransportLayer implements TransportLayer {
                     // For TLSv1.3, handle SSL exceptions while processing post-handshake messages as authentication exceptions
                     if (state == State.POST_HANDSHAKE) {
                         state = State.HANDSHAKE_FAILED;
-                        throw new SslAuthenticationException("Failed to process post-handshake messages", e);
+                        throw new SslAuthenticationException("Failed to process post-handshake messages", UNKNOWN_USER_ERROR);
                     } else
                         throw e;
                 }
@@ -887,7 +889,7 @@ public class SslTransportLayer implements TransportLayer {
         }
 
         state = State.HANDSHAKE_FAILED;
-        handshakeException = new SslAuthenticationException("SSL handshake failed", sslException);
+        handshakeException = new SslAuthenticationException("SSL handshake failed", sslException, UNKNOWN_USER_ERROR);
 
         // Attempt to flush any outgoing bytes. If flush doesn't complete, delay exception handling until outgoing bytes
         // are flushed. If write fails because remote end has closed the channel, log the I/O exception and  continue to

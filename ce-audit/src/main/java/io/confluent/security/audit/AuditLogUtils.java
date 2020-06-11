@@ -11,6 +11,7 @@ import io.confluent.crn.ConfluentResourceName.Element;
 import io.confluent.crn.ConfluentServerCrnAuthority;
 import io.confluent.crn.CrnSyntaxException;
 import io.confluent.kafka.security.audit.event.ConfluentAuthenticationEvent;
+import io.confluent.kafka.server.plugins.auth.PlainSaslServer;
 import io.confluent.security.authorizer.AclAccessRule;
 import io.confluent.security.authorizer.AuthorizePolicy;
 import io.confluent.security.authorizer.AuthorizeResult;
@@ -19,14 +20,26 @@ import io.confluent.security.authorizer.provider.ConfluentAuthorizationEvent;
 import io.confluent.security.rbac.RbacAccessRule;
 import io.confluent.security.rbac.RoleBinding;
 import org.apache.kafka.common.acl.AccessControlEntry;
+import org.apache.kafka.common.errors.AuthenticationException;
 import org.apache.kafka.common.protocol.ApiKeys;
+import org.apache.kafka.common.security.auth.AuthenticationContext;
+import org.apache.kafka.common.security.auth.KafkaPrincipal;
+import org.apache.kafka.common.security.auth.PlaintextAuthenticationContext;
+import org.apache.kafka.common.security.auth.SaslAuthenticationContext;
+import org.apache.kafka.common.security.auth.SslAuthenticationContext;
+import org.apache.kafka.server.audit.AuditEventStatus;
+import org.apache.kafka.server.audit.AuthenticationErrorInfo;
+import org.apache.kafka.server.audit.AuthenticationEvent;
 
-import java.util.Map;
+import javax.net.ssl.SSLSession;
+import javax.security.sasl.SaslServer;
+import java.util.Optional;
 
 public class AuditLogUtils {
+  public final static String AUTHENTICATION_FAILED_EVENT_USER = "None:UNKNOWN_USER";
 
   private static void addAuthorizationInfo(AuthorizationInfo.Builder authorizationBuilder,
-      AuthorizePolicy authorizePolicy) {
+                                           AuthorizePolicy authorizePolicy) {
     switch (authorizePolicy.policyType()) {
       case NO_MATCHING_RULE:
       case DENY_ON_NO_RULE:
@@ -145,14 +158,18 @@ public class AuditLogUtils {
 
     //set authenticationInfo
     AuthenticationInfo.Builder authenticationBuilder = AuthenticationInfo.newBuilder();
-    authenticationEvent.principal().ifPresent(p ->
-        authenticationBuilder.setPrincipal(p.getPrincipalType() + ":" + p.getName()));
+    if (authenticationEvent.principal().isPresent()) {
+      KafkaPrincipal principal = authenticationEvent.principal().get();
+      authenticationBuilder.setPrincipal(principal.getPrincipalType() + ":" + principal.getName());
+    } else {
+      // for auth failure events set principal as unknown user
+      authenticationBuilder.setPrincipal(AUTHENTICATION_FAILED_EVENT_USER);
+    }
 
-    // set auth metadata
+    // set authentication metadata
     AuthenticationMetadata.Builder metadataBuilder = authenticationBuilder.getMetadataBuilder();
-    Map<String, Object> data = authenticationEvent.data();
-    metadataBuilder.setIdentifier((String) data.getOrDefault("identifier", ""));
-    metadataBuilder.setMechanism((String) data.getOrDefault("mechanism", ""));
+    metadataBuilder.setIdentifier(getIdentifier(authenticationEvent));
+    metadataBuilder.setMechanism(getMechanism(authenticationEvent.authenticationContext()));
     authenticationBuilder.setMetadata(metadataBuilder.build());
 
     builder.setAuthenticationInfo(authenticationBuilder);
@@ -160,7 +177,11 @@ public class AuditLogUtils {
     //set status
     Result.Builder resultBuilder = Result.newBuilder();
     resultBuilder.setStatus(authenticationEvent.status().name());
-    resultBuilder.setMessage((String) data.getOrDefault("message", ""));
+    if (authenticationEvent.status() != AuditEventStatus.SUCCESS) {
+      authenticationEvent.authenticationException().ifPresent(e ->
+          resultBuilder.setMessage(prepareErrorMessage(e)));
+    }
+
     builder.setResult(resultBuilder.build());
 
     //set request_metadata
@@ -174,4 +195,64 @@ public class AuditLogUtils {
     return builder.build();
   }
 
+  private static String prepareErrorMessage(final AuthenticationException authenticationException) {
+    AuthenticationErrorInfo errorInfo = authenticationException.errorInfo();
+    if (!errorInfo.errorMessage().isEmpty())
+      return errorInfo.errorMessage();
+
+    return authenticationException.getAuditMessage();
+  }
+
+  /**
+   * This returns the auth mechanism string as "SSL", "SASL_PLAINTEXT", "SASL_SSL/PLAIN",
+   * "SASL_SSL/OAUTHBEARER", "SASL_SSL/GSSAPI" etc.
+   */
+  private static String getMechanism(final AuthenticationContext context) {
+    if (context instanceof PlaintextAuthenticationContext || context instanceof SslAuthenticationContext) {
+      return context.securityProtocol().name;
+    } else if (context instanceof SaslAuthenticationContext) {
+      SaslServer saslServer = ((SaslAuthenticationContext) context).server();
+      return context.securityProtocol().name + "/" +  saslServer.getMechanismName();
+    } else {
+      return "";
+    }
+  }
+
+  private static String getIdentifier(final AuthenticationEvent event) {
+    AuthenticationContext context = event.authenticationContext();
+    if (context instanceof SslAuthenticationContext) {
+      return sslPeerPrincipal((SslAuthenticationContext) context);
+    } else if (context instanceof SaslAuthenticationContext) {
+      return saslIdentifier(event);
+    } else {
+      return "";
+    }
+  }
+
+  private static String saslIdentifier(final AuthenticationEvent authenticationEvent) {
+    SaslAuthenticationContext context = (SaslAuthenticationContext) authenticationEvent.authenticationContext();
+    // handle if any authentication exception
+    Optional<AuthenticationException> exceptionOptional =  authenticationEvent.authenticationException();
+    if (exceptionOptional.isPresent()) {
+      AuthenticationErrorInfo errorInfo = exceptionOptional.get().errorInfo();
+      return errorInfo.identifier();
+    } else { //handle authentication success events
+      SaslServer saslServer = context.server();
+      if (saslServer instanceof PlainSaslServer) {
+        PlainSaslServer server = (PlainSaslServer) saslServer;
+        return server.userIdentifier();
+      } else {
+        return saslServer.getAuthorizationID();
+      }
+    }
+  }
+
+  private static String sslPeerPrincipal(final SslAuthenticationContext context) {
+    try {
+      SSLSession sslSession = context.session();
+      return sslSession.getPeerPrincipal().getName();
+    } catch (Exception exception) {
+      return "";
+    }
+  }
 }

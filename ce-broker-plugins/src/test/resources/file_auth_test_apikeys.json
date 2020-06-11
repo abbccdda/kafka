@@ -1,0 +1,12 @@
+{
+  "keys": {
+    "APIKEY1": {
+      "sasl_mechanism": "PLAIN",
+      "hashed_secret": "pwd1",
+      "hash_function": "none",
+      "user_id": "1",
+      "logical_cluster_id": "lkc-abc",
+      "service_account": "false"
+    }
+  }
+}

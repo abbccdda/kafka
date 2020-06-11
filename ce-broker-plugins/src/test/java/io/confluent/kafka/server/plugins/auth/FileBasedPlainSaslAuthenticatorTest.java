@@ -7,6 +7,7 @@ import io.confluent.kafka.server.plugins.auth.stats.AuthenticationStats;
 import org.apache.kafka.common.errors.SaslAuthenticationException;
 import org.apache.kafka.common.security.plain.internals.PlainServerCallbackHandler;
 import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.server.audit.AuditEventStatus;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -96,6 +97,10 @@ public class FileBasedPlainSaslAuthenticatorTest {
       } catch (SaslAuthenticationException e) {
         //This message is returned to the client so it must not leak information
         assertEquals("Authentication failed: Invalid username or password", e.getMessage());
+        assertEquals(AuditEventStatus.UNKNOWN_USER_DENIED, e.errorInfo().auditEventStatus());
+        assertEquals("Unknown user no_user", e.errorInfo().errorMessage());
+        assertEquals("no_user", e.errorInfo().identifier());
+        assertEquals("", e.errorInfo().clusterId());
       }
     }
   }
@@ -109,6 +114,10 @@ public class FileBasedPlainSaslAuthenticatorTest {
       } catch (SaslAuthenticationException e) {
         //This message is returned to the client so it must not leak information
         assertEquals("Authentication failed: Invalid username or password", e.getMessage());
+        assertEquals(AuditEventStatus.UNAUTHENTICATED, e.errorInfo().auditEventStatus());
+        assertEquals("Bad password for user bkey", e.errorInfo().errorMessage());
+        assertEquals("bkey", e.errorInfo().identifier());
+        assertEquals("rufus", e.errorInfo().clusterId());
       }
     }
   }
@@ -121,6 +130,10 @@ public class FileBasedPlainSaslAuthenticatorTest {
     } catch (SaslAuthenticationException e) {
       //This message is returned to the client so it must not leak information
       assertEquals("Authentication failed: Invalid username or password", e.getMessage());
+      assertEquals(AuditEventStatus.UNAUTHENTICATED, e.errorInfo().auditEventStatus());
+      assertEquals("Bad password for user pkey", e.errorInfo().errorMessage());
+      assertEquals("pkey", e.errorInfo().identifier());
+      assertEquals("confluent", e.errorInfo().clusterId());
     }
   }
 
