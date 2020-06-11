@@ -136,6 +136,7 @@ class ReplicaFetcherThreadTest {
     expect(replicaManager.logManager).andReturn(logManager).anyTimes()
     expect(replicaManager.replicaAlterLogDirsManager).andReturn(replicaAlterLogDirsManager).anyTimes()
     expect(replicaManager.brokerTopicStats).andReturn(mock(classOf[BrokerTopicStats]))
+    expect(quota.lastSignalledQuotaOptRef).andReturn(new AtomicReference[Option[Long]](None)).anyTimes()
     stub(partition, replicaManager, log)
 
     //Expectations
@@ -380,7 +381,7 @@ class ReplicaFetcherThreadTest {
     val quotaManager: ReplicationQuotaManager = createMock(classOf[ReplicationQuotaManager])
     expect(quotaManager.isQuotaExceeded).andReturn(true).anyTimes()
     expect(quotaManager.isThrottled(anyObject(classOf[TopicPartition]))).andReturn(true).anyTimes()
-    expect(quotaManager.lastSignalledQuotaOptRef).andReturn(new AtomicReference[Option[Long]](Some(42))).times(2)
+    expect(quotaManager.lastSignalledQuotaOptRef).andReturn(new AtomicReference[Option[Long]](Some(42))).times(3)
 
     replay(replicaManager, logManager, partition, log, quotaManager)
 
@@ -437,6 +438,7 @@ class ReplicaFetcherThreadTest {
     expect(replicaManager.logManager).andReturn(logManager).anyTimes()
     expect(replicaManager.replicaAlterLogDirsManager).andReturn(replicaAlterLogDirsManager).anyTimes()
     expect(replicaManager.brokerTopicStats).andReturn(mock(classOf[BrokerTopicStats]))
+    expect(quota.lastSignalledQuotaOptRef).andReturn(new AtomicReference[Option[Long]](None)).anyTimes()
     stub(partition, replicaManager, log)
 
     replay(replicaManager, logManager, quota, partition, log)
@@ -489,6 +491,7 @@ class ReplicaFetcherThreadTest {
     expect(replicaManager.logManager).andReturn(logManager).anyTimes()
     expect(replicaManager.replicaAlterLogDirsManager).andReturn(replicaAlterLogDirsManager).anyTimes()
     expect(replicaManager.brokerTopicStats).andReturn(mock(classOf[BrokerTopicStats]))
+    expect(quota.lastSignalledQuotaOptRef).andReturn(new AtomicReference[Option[Long]](None)).anyTimes()
     stub(partition, replicaManager, log)
 
     replay(replicaManager, logManager, quota, partition, log)
@@ -546,6 +549,7 @@ class ReplicaFetcherThreadTest {
     expect(replicaManager.logManager).andReturn(logManager).anyTimes()
     expect(replicaManager.replicaAlterLogDirsManager).andReturn(replicaAlterLogDirsManager).anyTimes()
     expect(replicaManager.brokerTopicStats).andReturn(mock(classOf[BrokerTopicStats]))
+    expect(quota.lastSignalledQuotaOptRef).andReturn(new AtomicReference[Option[Long]](None)).anyTimes()
     stub(partition, replicaManager, log)
 
     replay(replicaManager, logManager, quota, partition, log)
@@ -620,6 +624,7 @@ class ReplicaFetcherThreadTest {
     expect(replicaManager.logManager).andReturn(logManager).anyTimes()
     expect(replicaManager.replicaAlterLogDirsManager).andReturn(replicaAlterLogDirsManager).anyTimes()
     expect(replicaManager.brokerTopicStats).andReturn(mock(classOf[BrokerTopicStats]))
+    expect(quota.lastSignalledQuotaOptRef).andReturn(new AtomicReference[Option[Long]](None)).anyTimes()
     stub(partition, replicaManager, log)
 
     replay(replicaManager, logManager, quota, partition, log)
@@ -678,6 +683,7 @@ class ReplicaFetcherThreadTest {
     expect(replicaManager.logManager).andReturn(logManager).anyTimes()
     expect(replicaManager.replicaAlterLogDirsManager).andReturn(replicaAlterLogDirsManager).anyTimes()
     expect(replicaManager.brokerTopicStats).andReturn(mock(classOf[BrokerTopicStats]))
+    expect(quota.lastSignalledQuotaOptRef).andReturn(new AtomicReference[Option[Long]](None)).anyTimes()
     stub(partition, replicaManager, log)
     replay(replicaManager, logManager, quota, partition, log)
 
@@ -728,6 +734,7 @@ class ReplicaFetcherThreadTest {
     expect(replicaManager.logManager).andReturn(logManager).anyTimes()
     expect(replicaManager.replicaAlterLogDirsManager).andReturn(replicaAlterLogDirsManager).anyTimes()
     expect(replicaManager.brokerTopicStats).andReturn(mock(classOf[BrokerTopicStats]))
+    expect(quota.lastSignalledQuotaOptRef).andReturn(new AtomicReference[Option[Long]](None)).anyTimes()
     stub(partition, replicaManager, log)
     replay(replicaManager, logManager, quota, partition, log)
 
@@ -782,6 +789,7 @@ class ReplicaFetcherThreadTest {
       Some(OffsetAndEpoch(0, leaderEpoch))).anyTimes()
     expect(replicaManager.logManager).andReturn(logManager).anyTimes()
     expect(replicaManager.replicaAlterLogDirsManager).andReturn(replicaAlterLogDirsManager).anyTimes()
+    expect(quota.lastSignalledQuotaOptRef).andReturn(new AtomicReference[Option[Long]](None)).anyTimes()
     stub(partition, replicaManager, log)
 
     replay(replicaManager, logManager, quota, partition, log)
@@ -834,6 +842,7 @@ class ReplicaFetcherThreadTest {
     expect(replicaManager.localLogOrException(anyObject(classOf[TopicPartition]))).andReturn(log).anyTimes()
     expect(replicaManager.logManager).andReturn(logManager).anyTimes()
     expect(replicaManager.replicaAlterLogDirsManager).andReturn(replicaAlterLogDirsManager).anyTimes()
+    expect(quota.lastSignalledQuotaOptRef).andReturn(new AtomicReference[Option[Long]](None)).anyTimes()
     stub(partition, replicaManager, log)
 
     replay(replicaManager, logManager, quota, partition, log)

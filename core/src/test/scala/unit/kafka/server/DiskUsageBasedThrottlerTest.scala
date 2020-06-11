@@ -259,6 +259,26 @@ class DiskUsageBasedThrottlerTest {
     DiskUsageBasedThrottler.deRegisterListener(clientQuotaManager)
   }
 
+  @Test
+  def testAnyListenerIsThrottled(): Unit = {
+    val threshold = fileStores.map(_.getUsableSpace).min - largeFileSize + 1L
+    val throttler = getThrottler(config.copy(freeDiskThresholdBytes = threshold), mockTime, fileStores)
+
+    // initially the listener shouldn't be throttled
+    throttler.checkAndUpdateQuotaOnDiskUsage(mockTime.milliseconds())
+    assertFalse(DiskUsageBasedThrottler.anyListenerIsThrottled)
+
+    // with the large file written, we should expect the listener to be throttled
+    withLargeFileWritten { _ =>
+      throttler.checkAndUpdateQuotaOnDiskUsage(mockTime.milliseconds())
+      assertTrue(DiskUsageBasedThrottler.anyListenerIsThrottled)
+    }
+
+    // finally the listener should be removed from throttling
+    throttler.checkAndUpdateQuotaOnDiskUsage(mockTime.milliseconds())
+    assertFalse(DiskUsageBasedThrottler.anyListenerIsThrottled)
+  }
+
   // partial function which writes a large file of 12GB and ensure its cleanup
   private def withLargeFileWritten(inner: Long => Unit, fileSize: Long = largeFileSize): Unit = {
     // we are only writing the large file to the first log dir to ensure the verification of the minimum logic

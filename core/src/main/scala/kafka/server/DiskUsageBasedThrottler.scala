@@ -22,7 +22,7 @@ import scala.jdk.CollectionConverters._
  */
 trait DiskUsageBasedThrottler extends Logging {
 
-  import DiskUsageBasedThrottler.getListeners
+  import DiskUsageBasedThrottler.{getListeners, anyListenerIsThrottled}
 
   protected def diskThrottlingConfig: DiskUsageBasedThrottlingConfig
 
@@ -131,7 +131,7 @@ trait DiskUsageBasedThrottler extends Logging {
           minDiskUsableBytes,
           dynamicDiskThrottlingConfig.freeDiskThresholdBytes)
         updateListeners(Some(dynamicDiskThrottlingConfig.throttledProduceThroughput))
-      } else if (getListeners.exists(_.lastSignalledQuotaOptRef.get.isDefined) && minDiskUsableBytes >=
+      } else if (anyListenerIsThrottled && minDiskUsableBytes >=
         dynamicDiskThrottlingConfig.freeDiskThresholdBytesRecoveryFactor * dynamicDiskThrottlingConfig.freeDiskThresholdBytes) {
         logger.info("Disk with the lowest free space: {}B available >= {} x threshold: {}B, will remove low disk " +
           "space throttle",
@@ -244,7 +244,11 @@ object DiskUsageBasedThrottler {
   }
 
   // the following is non-private for tests
-  protected[server] def getListeners: Set[DiskUsageBasedThrottleListener] = listeners.keySet().asScala.toSet
+  protected[server] def getListeners: collection.Set[DiskUsageBasedThrottleListener] = listeners.keySet.asScala
+
+  protected[server] def anyListenerIsThrottled: Boolean = {
+    getListeners.exists(_.lastSignalledQuotaOptRef.get.isDefined)
+  }
 
   /**
    * Used to detect whether a quotaManager object is currently being throttled due to low disk
@@ -253,7 +257,7 @@ object DiskUsageBasedThrottler {
    * @return whether the listener is actively being throttled due to low disk
    */
   protected[server] def diskThrottlingActive(listener: DiskUsageBasedThrottleListener): Boolean = {
-    getListeners.contains(listener) && listener.lastSignalledQuotaOptRef.get.isDefined
+    listener.lastSignalledQuotaOptRef.get.isDefined && listeners.containsKey(listener)
   }
 }
 

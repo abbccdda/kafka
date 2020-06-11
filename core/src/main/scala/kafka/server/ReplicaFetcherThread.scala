@@ -305,9 +305,10 @@ class ReplicaFetcherThread(name: String,
     val partitionsWithError = mutable.Map[TopicPartition, Errors]()
 
     val builder = fetchSessionHandler.newBuilder(partitionMap.size, false)
+    val lowDiskThrottle = shouldThrottleDueToLowDisk(quota)
     partitionMap.foreach { case (topicPartition, fetchState) =>
       if (fetchState.isReadyForFetch) {
-        if (shouldFollowerThrottle(quota, fetchState, topicPartition)) {
+        if (lowDiskThrottle || shouldFollowerThrottle(quota, fetchState, topicPartition)) {
           // We will not include a replica in the fetch request if it should be throttled.
           markFollowerReplicaThrottle()
         } else {
@@ -395,16 +396,22 @@ class ReplicaFetcherThread(name: String,
 
   /**
    *  To avoid ISR thrashing, we only throttle a replica on the follower if it's in the throttled replica list,
-   *  the quota is exceeded and the replica is not in sync, except when the broker is running low on disk,
-   *  then we'll throttle regardless of the ISR situation
+   *  the quota is exceeded and the replica is not in sync.
    */
   protected def shouldFollowerThrottle(quota: ReplicaQuota, fetchState: PartitionFetchState, topicPartition: TopicPartition): Boolean = {
-    val replicaShouldThrottle = quota match {
-      case r: ReplicationQuotaManager =>
-        DiskUsageBasedThrottler.diskThrottlingActive(r) || !fetchState.isReplicaInSync
-      case _ =>
-        !fetchState.isReplicaInSync
+    !fetchState.isReplicaInSync && quota.isThrottled(topicPartition) && quota.isQuotaExceeded
+  }
+
+  /**
+   * If the follower is running low on disk, we will throttle it irrespective of whether the replica is in sync
+   *
+   * @param quota current broker-wide replication incoming quota
+   * @return true if the broker is low on disk and the replication quota has exceeded
+   */
+  private def shouldThrottleDueToLowDisk(quota: ReplicaQuota): Boolean = {
+    quota match {
+      case r: ReplicationQuotaManager => DiskUsageBasedThrottler.diskThrottlingActive(r) && quota.isQuotaExceeded
+      case _ => false
     }
-    replicaShouldThrottle && quota.isThrottled(topicPartition) && quota.isQuotaExceeded
   }
 }
