@@ -716,11 +716,11 @@ public class WorkerConfigDecoratorTest {
   }
 
   protected void assertDistributedLicensePropertiesDefined(ConfigDef defn) {
-    assertDefn(defn, CONFLUENT_TOPIC_CLIENT_ID, Type.STRING, "", Importance.MEDIUM, "", 105);
+    assertDefn(defn, CONFLUENT_TOPIC_CLIENT_ID, Type.STRING, "", Importance.MEDIUM);
   }
 
   protected void assertStandaloneLicensePropertiesDefined(ConfigDef defn) {
-    assertDefn(defn, CONFLUENT_TOPIC_CLIENT_ID, Type.STRING, "", Importance.MEDIUM, "", 45);
+    assertDefn(defn, CONFLUENT_TOPIC_CLIENT_ID, Type.STRING, "", Importance.MEDIUM);
   }
 
   protected void assertLicensePropertiesDefined(ConfigDef defn) {
@@ -770,8 +770,12 @@ public class WorkerConfigDecoratorTest {
       assertEquals(name + " has different default", defaultValue, key.defaultValue);
     }
     assertEquals(name + " has different importance", importance, key.importance);
-    assertEquals(name + " has different group", group, key.group);
-    assertEquals(name + " has different orderInGroup", orderInGroup, key.orderInGroup);
+    if (group != null) {
+      assertEquals(name + " has different group", group, key.group);
+    }
+    if (orderInGroup > 0) {
+      assertEquals(name + " has different orderInGroup", orderInGroup, key.orderInGroup);
+    }
   }
 
   protected void assertNotDefined(ConfigDef defn, String name) {
