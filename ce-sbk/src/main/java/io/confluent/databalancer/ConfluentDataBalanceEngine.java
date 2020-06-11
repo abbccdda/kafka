@@ -6,7 +6,7 @@ package io.confluent.databalancer;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControl;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkInboundCapacityGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkOutboundCapacityGoal;
-import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalPhaseBuilder;
+import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalFuture;
 import com.linkedin.kafka.cruisecontrol.client.BlockingSendClient;
 import com.linkedin.kafka.cruisecontrol.common.KafkaCruiseControlThreadFactory;
 import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityResolver;
@@ -14,7 +14,6 @@ import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore;
 import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsSamplerBase;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
-import io.confluent.databalancer.operation.BrokerRemovalProgressListener;
 import io.confluent.databalancer.operation.BalanceOpExecutionCompletionCallback;
 import io.confluent.databalancer.operation.BrokerRemovalStateTracker;
 import io.confluent.databalancer.persistence.ApiStatePersistenceStore;
@@ -46,7 +45,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.regex.Pattern;
@@ -194,8 +192,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     @Override
     public void removeBroker(int brokerToRemove,
                              Optional<Long> brokerToRemoveEpoch,
-                             AtomicReference<String> registerBrokerRemovalMetric,
-                             BrokerRemovalProgressListener listener,
+                             BrokerRemovalStateTracker stateTracker,
                              String uid) {
         LOG.info("DataBalancer: Scheduling DataBalanceEngine broker removal: {} (uid: {})", brokerToRemove, uid);
         if (!canAcceptRequests) {
@@ -230,8 +227,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         }
 
         // This call will create initial remove broker api state. We should not fail synchronously after this line.
-        BrokerRemovalStateTracker stateTracker = BrokerRemovalStateTracker.initialize(brokerToRemove, listener,
-                registerBrokerRemovalMetric);
+        stateTracker.initialize();
 
         submitToCcRunner(() -> doRemoveBroker(brokerToRemove, brokerToRemoveEpoch, stateTracker, uid),
                 "Broker removal operation with UID " + uid + " was not initiated" +
@@ -274,6 +270,26 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     }
 
     /**
+     * Cancels the on-going broker removal operations for the given #{@code brokerIds}
+     * @return - the successfully canceled broker removal operations and their associated exceptions
+     */
+    @Override
+    public boolean cancelBrokerRemoval(int brokerId) {
+        BrokerRemovalFuture removalFuture = context.brokerRemovalFuture(brokerId);
+        if (removalFuture == null) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Will not cancel broker {} removal as it is not being removed.", brokerId);
+            }
+            return false;
+        }
+
+        LOG.info("Canceling broker removal task for broker {}", brokerId);
+        boolean wasCanceled = removalFuture.cancel();
+        LOG.info("Canceled broker removal task for broker {} (future canceled {})", brokerId, wasCanceled);
+        return wasCanceled;
+    }
+
+    /**
      * Returns if CruiseControl is active and can work on balancing cluster. Its different to
      * {@code #canAcceptRequests} in the sense we can accept requests even though CruiseControl hasn't
      * been started (say start event arrived but hasn't been processed yet).
@@ -303,12 +319,14 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         LOG.info("Initiating broker removal operation with UID {} for broker {} (epoch {})",
                 uid, brokerToRemove, brokerToRemoveEpoch);
         try {
-            BrokerRemovalPhaseBuilder.BrokerRemovalExecution removalExecutor = context.getCruiseControl().removeBroker(
+            BrokerRemovalFuture brokerRemovalFuture = context.getCruiseControl().removeBroker(
                     brokerToRemove, brokerToRemoveEpoch,
-                    (success, ex) -> { }, // CNKAF-757 -- do something when the operation completes
+                    (success, ex) -> {
+                        context.removeBrokerRemovalFuture(brokerToRemove);
+                    },
                     stateTracker, uid);
-            // TODO: Persist removalExecutor.chainedFutures to be able to cancel them
-            removalExecutor.execute(Duration.ofMinutes(60));
+            context.putBrokerRemovalFuture(brokerToRemove, brokerRemovalFuture);
+            brokerRemovalFuture.execute(Duration.ofMinutes(60));
         } catch (InterruptedException ex) {
             LOG.error("Interrupted when removing broker: {}", brokerToRemove, ex);
             Thread.currentThread().interrupt();

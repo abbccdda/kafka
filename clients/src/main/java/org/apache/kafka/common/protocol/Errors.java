@@ -19,6 +19,7 @@ package org.apache.kafka.common.protocol;
 import org.apache.kafka.common.InvalidRecordException;
 import org.apache.kafka.common.errors.ApiException;
 import org.apache.kafka.common.errors.BrokerNotAvailableException;
+import org.apache.kafka.common.errors.BrokerRemovalCanceledException;
 import org.apache.kafka.common.errors.BrokerRemovalInProgressException;
 import org.apache.kafka.common.errors.BrokerRemovedException;
 import org.apache.kafka.common.errors.ClusterAuthorizationException;
@@ -348,7 +349,8 @@ public enum Errors {
             InvalidClusterLinkException::new),
     BROKER_REMOVED(10004, "The broker is removed.", BrokerRemovedException::new),
     BROKER_REMOVAL_IN_PROGRESS(10005, "The broker is being removed.", BrokerRemovalInProgressException::new),
-    PLAN_COMPUTATION_FAILED(10006, "Computing the reassignment plan for a broker drain failed.", PlanComputationException::new);
+    PLAN_COMPUTATION_FAILED(10006, "Computing the reassignment plan for a broker drain failed.", PlanComputationException::new),
+    BROKER_REMOVAL_CANCELED(10007, "The broker removal operation was canceled, likely due to the broker starting back up while it was being removed.", BrokerRemovalCanceledException::new);
 
     private static final Logger log = LoggerFactory.getLogger(Errors.class);
 

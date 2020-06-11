@@ -11,6 +11,7 @@ import com.linkedin.kafka.cruisecontrol.analyzer.OptimizerResult;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.Goal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.PreferredLeaderElectionGoal;
 import com.linkedin.kafka.cruisecontrol.async.progress.OperationProgress;
+import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalFuture;
 import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalOptions;
 import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalPhaseBuilder;
 import com.linkedin.kafka.cruisecontrol.client.BlockingSendClient;
@@ -57,6 +58,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -227,11 +229,9 @@ public class KafkaCruiseControl {
    *                                    finished.
    * @param uuid - the unique ID of this operation
    */
-  public BrokerRemovalPhaseBuilder.BrokerRemovalExecution removeBroker(int broker, Optional<Long> brokerEpoch,
-                                                                       @Nonnull BalanceOpExecutionCompletionCallback executionCompletionCallback,
-                                                                       @Nonnull BrokerRemovalCallback progressCallback, String uuid) {
-    Objects.nonNull(executionCompletionCallback);
-    Objects.nonNull(progressCallback);
+  public BrokerRemovalFuture removeBroker(int broker, Optional<Long> brokerEpoch,
+                                          @Nonnull BalanceOpExecutionCompletionCallback executionCompletionCallback,
+                                          @Nonnull BrokerRemovalCallback progressCallback, String uuid) {
     OperationProgress operationProgress = new OperationProgress();
     Set<Integer> brokersToRemove = new HashSet<>();
     brokersToRemove.add(broker);
@@ -251,10 +251,12 @@ public class KafkaCruiseControl {
           Executor.ReservationHandle handle = _executor.reserveAndAbortOngoingExecutions(Duration.ofMinutes(1));
           removalArgs.reservationHandle.set(handle);
           LOG.info("Successfully reserved the Executor");
+          return null;
         },
         removalOpts -> { // 1. Pre-shutdown plan computation - validate that a plan can be computed successfully
           computeDrainBrokersPlan(removalOpts.brokersToRemove, Collections.emptyList(), removalOpts.operationProgress, removalOpts.planComputationOptions);
           LOG.info("Successfully computed the remove broker plan for broker {}", broker);
+          return null;
         },
         removalOptions -> { // 2. Broker shutdown - shutdown the broker to be removed and wait for it to leave the cluster
           LOG.info("Attempting to shut down broker {} as part of broker removal operation", broker);
@@ -268,16 +270,19 @@ public class KafkaCruiseControl {
           } else {
             LOG.info("Broker {} was already shut down prior to broker removal - no shutdown request was sent.", broker);
           }
+          return null;
         },
         removalOptions -> { // 3. Actual plan computation - compute the plan which we'll execute to drain the broker
           OptimizerResult plan = computeDrainBrokersPlan(
               removalOptions.brokersToRemove, Collections.emptyList(), removalOptions.operationProgress, removalOptions.planComputationOptions
           );
           removalOptions.setProposals(plan.goalProposals());
+          return null;
         },
         removalOptions -> { // 4. Plan execution - execute the partition reassignments to move replicas away from the broker (drain)
-          executeRemoval(removalOptions.proposals, removalOptions.brokersToRemove, false, _replicationThrottle, uuid, combinedCompletionCallback);
+          Future<?> future = executeRemoval(removalOptions.proposals, removalOptions.brokersToRemove, false, _replicationThrottle, uuid, combinedCompletionCallback);
           LOG.info("Successfully submitted the broker removal plan for broker {} (epoch {})", broker, brokerEpoch);
+          return future;
         }
     );
   }
@@ -853,8 +858,10 @@ public class KafkaCruiseControl {
    * @param replicationThrottle The replication throttle (bytes/second) to apply to both leaders and followers
    *                            when executing remove operations (if null, no throttling is applied).
    * @param uuid UUID of the execution.
+   * @param completionCallback the callback to be invoked when the proposal execution fails/succeeds
+   * @return the future for the underlying proposal execution runnable
    */
-  private void executeRemoval(Set<ExecutionProposal> proposals,
+  private Future<?> executeRemoval(Set<ExecutionProposal> proposals,
                               Set<Integer> removedBrokers,
                               boolean isKafkaAssignerMode,
                               Long replicationThrottle,
@@ -863,7 +870,7 @@ public class KafkaCruiseControl {
     if (hasProposalsToExecute(proposals, uuid)) {
       // Set the execution mode, add execution proposals, and start execution.
       _executor.setExecutionMode(isKafkaAssignerMode);
-      _executor.executeProposals(proposals, removedBrokers,
+      return _executor.executeProposals(proposals, removedBrokers,
           removedBrokers, _loadMonitor, null, 0,
           null, null, replicationThrottle, uuid,
           completionCallback);

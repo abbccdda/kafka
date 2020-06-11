@@ -39,25 +39,25 @@ import static com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallba
  *                      |                                    |            |                           |       |                            |     |                          |              |                          |
  *                      | PAR=PENDING                        |            | PAR=IN_PROGRESS           |       | PAR=IN_PROGRESS            |     | PAR=IN_PROGRESS          |              | PAR=COMPLETE             |
  *                      | BSS=PENDING                        |            | BSS=PENDING               |       | BSS=COMPLETE               |     | BSS=COMPLETE             |              | BSS=COMPLETE             |
- *                      +-------------------+----------------+            +-----------+---------------+       +-------------+-----+--------+     +--------------------+---+-+              +--------------------------+
- *                                          |                                         |                                     |     |                                   |   |
- *                                   ERROR  |                                  ERROR  |                              ERROR  |     | BROKER                     ERROR  |   | BROKER
- *                                          |                                         |                                     |     | RESTART                           |   | RESTART
- *                                          |                                         |                                     |     |                                   |   |
- * +---------------------------------+      |    +------------------------+           |     +-------------------------+     |     |      +-----------------------+    |   |
- * | INITIAL_PLAN_COMPUTATION_FAILED |      |    | BROKER_SHUTDOWN_FAILED |           |     | PLAN_COMPUTATION_FAILED |     |     |      | PLAN_EXECUTION_FAILED |    |   |
- * |                                 |      |    |                        |           |     |                         |     |     |      |                       |    |   |
- * |  PAR=FAILED                     +<-----+    |   PAR=CANCELED         +<----------+     |   PAR=FAILED            <-----+     |      |   PAR=FAILED          +<---+   |
- * |  BSS=CANCELED                   |           |   BSS=FAILED           |                 |   BSS=COMPLETE          |           |      |   BSS=COMPLETE        |        |
- * +---------------------------------+           +------------------------+                 +-------------------------+           |      +-----------------------+        |
- *                                                                                                                                |                                       |
- *                                                                                                                                |                                       |
- *                                                                                          +-------------------------+           |      +------------------------+       |
- *                                                                                          |PLAN_COMPUTATION_CANCELED|           |      | PLAN_EXECUTION_CANCELED|       |
- *                                                                                          |                         |           |      |                        |       |
- *                                                                                          |   PAR=CANCELED          +<----------+      |    PAR=CANCELED        +<------+
- *                                                                                          |   BSS=COMPLETE          |                  |    BSS=COMPLETE        |
- *                                                                                          +-------------------------+                  +------------------------+
+ *                      +-------------------+-+--------------+            +-----------+-+-------------+       +-------------+-----+--------+     +--------------------+---+-+              +--------------------------+
+ *                                          |                                         | |                                   |     |                                   |   |
+ *                                   ERROR  |                                  ERROR  | |                            ERROR  |     | BROKER                     ERROR  |   | BROKER
+ *                                          |                                         | |                                   |     | RESTART                           |   | RESTART
+ *                                          |                                         | |                                   |     |                                   |   |
+ * +---------------------------------+      |    +------------------------+           | |   +-------------------------+     |     |      +-----------------------+    |   |
+ * | INITIAL_PLAN_COMPUTATION_FAILED |      |    | BROKER_SHUTDOWN_FAILED |           | |   | PLAN_COMPUTATION_FAILED |     |     |      | PLAN_EXECUTION_FAILED |    |   |
+ * |                                 |      |    |                        |           | |   |                         |     |     |      |                       |    |   |
+ * |  PAR=FAILED                     +<-----+    |   PAR=CANCELED         +<----------+ |   |   PAR=FAILED            <-----+     |      |   PAR=FAILED          +<---+   |
+ * |  BSS=CANCELED                   |           |   BSS=FAILED           |             |   |   BSS=COMPLETE          |           |      |   BSS=COMPLETE        |        |
+ * +---------------------------------+           +------------------------+             |   +-------------------------+           |      +-----------------------+        |
+ *                                                                                      |                                         |                                       |
+ *                                                                                      |                                         |                                       |
+ *                                               +------------------------+             |   +-------------------------+           |      +------------------------+       |
+ *                                               |BROKER_SHUTDOWN_CANCELED|             |   |PLAN_COMPUTATION_CANCELED|           |      | PLAN_EXECUTION_CANCELED|       |
+ *                                               |                        |             |   |                         |           |      |                        |       |
+ *                                               |   PAR=CANCELED         +<------------+   |   PAR=CANCELED          +<----------+      |    PAR=CANCELED        +<------+
+ *                                               |   BSS=CANCELED         |                 |   BSS=COMPLETE          |                  |    BSS=COMPLETE        |
+ *                                               +------------------------+                 +-------------------------+                  +------------------------+
  * Created via https://asciiflow.com/
  */
 @ThreadSafe
@@ -149,6 +149,11 @@ public class BrokerRemovalStateMachine {
     }}),
 
     /**
+     * The terminal state of when the broker shutdown is canceled. No further action is taken as part of the removal operation.
+     */
+    BROKER_SHUTDOWN_CANCELED(BrokerShutdownStatus.CANCELED, PartitionReassignmentsStatus.CANCELED),
+
+    /**
      * The state after the broker shutdown succeeds and the real plan computation is happening.
      */
     PLAN_COMPUTATION_INITIATED(BrokerShutdownStatus.COMPLETE, PartitionReassignmentsStatus.IN_PROGRESS,
@@ -165,6 +170,7 @@ public class BrokerRemovalStateMachine {
         new HashMap<BrokerRemovalCallback.BrokerRemovalEvent, BrokerRemovalState>() {{
           put(BROKER_SHUTDOWN_FAILURE, BROKER_SHUTDOWN_FAILED);
           put(BROKER_SHUTDOWN_SUCCESS, PLAN_COMPUTATION_INITIATED);
+          put(BROKER_RESTARTED, BROKER_SHUTDOWN_CANCELED);
     }}),
 
     /**
@@ -174,7 +180,12 @@ public class BrokerRemovalStateMachine {
         new HashMap<BrokerRemovalCallback.BrokerRemovalEvent, BrokerRemovalState>() {{
           put(INITIAL_PLAN_COMPUTATION_SUCCESS, BROKER_SHUTDOWN_INITIATED);
           put(INITIAL_PLAN_COMPUTATION_FAILURE, INITIAL_PLAN_COMPUTATION_FAILED);
-    }});
+        }}),
+
+    /**
+     * The terminal state of when the broker removal operation is canceled (e.g due to a broker restart).
+     */
+    CANCELED(BrokerShutdownStatus.COMPLETE, PartitionReassignmentsStatus.CANCELED);
 
     /**
      * Whether this state is terminal or not

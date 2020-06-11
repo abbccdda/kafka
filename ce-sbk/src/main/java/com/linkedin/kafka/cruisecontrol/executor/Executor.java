@@ -20,6 +20,7 @@ import java.util.HashMap;
 import java.util.Optional;
 import kafka.admin.PreferredReplicaLeaderElectionCommand;
 import java.time.Duration;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.ReentrantLock;
 import kafka.zk.KafkaZkClient;
@@ -414,20 +415,21 @@ public class Executor {
    * @param uuid UUID of the execution.
    * @param completionCallback -- a Consumer of (success, failure exception) to be invoked when the execution completes. NOT
    *                           to be invoked if this fails with an exception.
+   * @return the future for the underlying proposal execution
    */
-  public synchronized void executeProposals(Collection<ExecutionProposal> proposals,
-                                            Set<Integer> unthrottledBrokers,
-                                            Set<Integer> removedBrokers,
-                                            LoadMonitor loadMonitor,
-                                            Integer requestedInterBrokerPartitionMovementConcurrency,
-                                            Integer requestedIntraBrokerPartitionMovementConcurrency,
-                                            Integer requestedLeadershipMovementConcurrency,
-                                            ReplicaMovementStrategy replicaMovementStrategy,
-                                            Long replicationThrottle,
-                                            String uuid,
-                                            BalanceOpExecutionCompletionCallback completionCallback) {
+  public synchronized Future<?> executeProposals(Collection<ExecutionProposal> proposals,
+                                                 Set<Integer> unthrottledBrokers,
+                                                 Set<Integer> removedBrokers,
+                                                 LoadMonitor loadMonitor,
+                                                 Integer requestedInterBrokerPartitionMovementConcurrency,
+                                                 Integer requestedIntraBrokerPartitionMovementConcurrency,
+                                                 Integer requestedLeadershipMovementConcurrency,
+                                                 ReplicaMovementStrategy replicaMovementStrategy,
+                                                 Long replicationThrottle,
+                                                 String uuid,
+                                                 BalanceOpExecutionCompletionCallback completionCallback) {
     LOG.info("executeProposals with completionCallback {}", completionCallback);
-    doExecuteProposals(proposals, unthrottledBrokers, loadMonitor, requestedInterBrokerPartitionMovementConcurrency,
+    return doExecuteProposals(proposals, unthrottledBrokers, loadMonitor, requestedInterBrokerPartitionMovementConcurrency,
         requestedIntraBrokerPartitionMovementConcurrency, requestedLeadershipMovementConcurrency,
         replicaMovementStrategy, uuid,
         new ProposalExecutionRunnable(loadMonitor, null, removedBrokers, replicationThrottle, completionCallback)
@@ -438,16 +440,17 @@ public class Executor {
    * see #{@link #executeProposals(Collection, Set, Set, LoadMonitor, Integer, Integer, Integer, ReplicaMovementStrategy, Long, String, BalanceOpExecutionCompletionCallback)}
    * for additional information
    * @param executionRunnable the proposal execution runnable to run
+   * @return the future for the #{@link ProposalExecutionRunnable} execution
    */
-  private synchronized void doExecuteProposals(Collection<ExecutionProposal> proposals,
-                                               Set<Integer> unthrottledBrokers,
-                                               LoadMonitor loadMonitor,
-                                               Integer requestedInterBrokerPartitionMovementConcurrency,
-                                               Integer requestedIntraBrokerPartitionMovementConcurrency,
-                                               Integer requestedLeadershipMovementConcurrency,
-                                               ReplicaMovementStrategy replicaMovementStrategy,
-                                               String uuid,
-                                               ProposalExecutionRunnable executionRunnable) {
+  private synchronized Future<?> doExecuteProposals(Collection<ExecutionProposal> proposals,
+                                                    Set<Integer> unthrottledBrokers,
+                                                    LoadMonitor loadMonitor,
+                                                    Integer requestedInterBrokerPartitionMovementConcurrency,
+                                                    Integer requestedIntraBrokerPartitionMovementConcurrency,
+                                                    Integer requestedLeadershipMovementConcurrency,
+                                                    ReplicaMovementStrategy replicaMovementStrategy,
+                                                    String uuid,
+                                                    ProposalExecutionRunnable executionRunnable) {
     if (_hasOngoingExecution) {
       throw new IllegalStateException("Cannot execute new proposals while there is an ongoing execution.");
     }
@@ -464,7 +467,7 @@ public class Executor {
     initProposalExecution(proposals, unthrottledBrokers, requestedInterBrokerPartitionMovementConcurrency,
         requestedIntraBrokerPartitionMovementConcurrency, requestedLeadershipMovementConcurrency,
         replicaMovementStrategy, uuid);
-    startExecution(executionRunnable);
+    return startExecution(executionRunnable);
   }
 
   // Package private for testing
@@ -522,9 +525,10 @@ public class Executor {
 
   /**
    * Pause the load monitor and kick off the execution.
+   * @return the future for the #{@link ProposalExecutionRunnable}
    */
   // Package private for testing
-  void startExecution(ProposalExecutionRunnable runnable) {
+  Future<?> startExecution(ProposalExecutionRunnable runnable) {
     _executionStoppedByUser.set(false);
     sanityCheckOngoingReplicaMovement();
     _hasOngoingExecution = true;
@@ -536,7 +540,7 @@ public class Executor {
     } else {
       _numExecutionStartedInNonKafkaAssignerMode.incrementAndGet();
     }
-    _proposalExecutor.submit(runnable);
+    return _proposalExecutor.submit(runnable);
   }
 
   /**
@@ -829,7 +833,7 @@ public class Executor {
 
         // If execution encountered exception and isn't stopped, it's considered successful.
         boolean executionSucceeded = _executorState.state() != ExecutorState.State.STOPPING_EXECUTION && _executionException == null;
-        LOG.info("ProposalExecutionRunnable finishes with success state {} and exception {}", executionSucceeded, _executionException);
+        LOG.info("ProposalExecutionRunnable finishes with success state {} and exception: ", executionSucceeded, _executionException);
         // If we are here, either we succeeded, or we are stopped or had exception. Send notification to user.
         ExecutorNotification notification = new ExecutorNotification(_executionStartMs, _time.milliseconds(),
                                                                      _uuid, _stopRequested.get(),
@@ -1383,6 +1387,7 @@ public class Executor {
    * attempts after a successful one will result in #{@link IllegalStateException}
    */
   public class ReservationHandle implements AutoCloseable {
+
     /**
      * Acquires the Executor's reservation
      */
@@ -1396,6 +1401,13 @@ public class Executor {
     @Override
     public void close() {
       _reservation.cancelReservation();
+    }
+
+    /**
+     * Asynchronously stop the execution of execution proposal tasks
+     */
+    public void stopExecution() {
+      userTriggeredStopExecution();
     }
   }
 

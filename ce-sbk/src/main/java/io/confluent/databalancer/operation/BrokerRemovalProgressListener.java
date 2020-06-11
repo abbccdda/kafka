@@ -15,4 +15,12 @@ public interface BrokerRemovalProgressListener {
   void onProgressChanged(BrokerRemovalDescription.BrokerShutdownStatus shutdownStatus,
                          BrokerRemovalDescription.PartitionReassignmentsStatus partitionReassignmentsStatus,
                          Exception e);
+
+  /**
+   * Called when the state of the removal operation reaches a terminal point
+   *
+   * @param state - the terminal state
+   * @param e - nullable, the exception that caused the terminal state
+   */
+  void onTerminalState(BrokerRemovalStateMachine.BrokerRemovalState state, Exception e);
 }

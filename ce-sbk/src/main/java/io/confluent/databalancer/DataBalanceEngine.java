@@ -4,12 +4,11 @@
 
 package io.confluent.databalancer;
 
-import io.confluent.databalancer.operation.BrokerRemovalProgressListener;
 import io.confluent.databalancer.operation.BalanceOpExecutionCompletionCallback;
+import io.confluent.databalancer.operation.BrokerRemovalStateTracker;
 import kafka.server.KafkaConfig;
 
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.Set;
 
 /**
@@ -64,9 +63,14 @@ public interface DataBalanceEngine {
      */
     void removeBroker(int brokerToRemove,
                       Optional<Long> brokerToRemoveEpoch,
-                      AtomicReference<String> registerBrokerRemovalMetric,
-                      BrokerRemovalProgressListener progressListener,
+                      BrokerRemovalStateTracker stateTracker,
                       String uid);
 
     void addBrokers(Set<Integer> brokersToAdd, BalanceOpExecutionCompletionCallback onExecutionCompletion, String uid);
+
+    /**
+     * Cancel the on-going broker removal operation for the given #{@code brokerId}
+     * @return - a boolean indicating whether the cancellation was successful
+     */
+    boolean cancelBrokerRemoval(int brokerId);
 }

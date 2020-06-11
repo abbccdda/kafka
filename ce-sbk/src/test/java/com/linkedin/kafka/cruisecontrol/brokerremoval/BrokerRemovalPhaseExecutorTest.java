@@ -43,7 +43,7 @@ public class BrokerRemovalPhaseExecutorTest {
 
   @Test
   public void testExecute_throwsInterruptedExceptionWithoutAnyMoreAction() {
-    BrokerRemovalPhaseExecutor executor = new BrokerRemovalPhaseExecutor.Builder(
+    BrokerRemovalPhaseExecutor<Void> executor = new BrokerRemovalPhaseExecutor.Builder<Void>(
         null, BrokerRemovalCallback.BrokerRemovalEvent.PLAN_EXECUTION_FAILURE,
         brokerIds -> String.format("Unexpected exception while submitting the broker removal plan for broker %s", brokerIds),
         KafkaCruiseControlException.class
@@ -71,7 +71,7 @@ public class BrokerRemovalPhaseExecutorTest {
     String expectedExceptionMessage = errMsgSupplier.apply(null);
     KafkaCruiseControlException expectedException = new KafkaCruiseControlException(expectedExceptionMessage);
 
-    BrokerRemovalPhaseExecutor executor = new BrokerRemovalPhaseExecutor.Builder(
+    BrokerRemovalPhaseExecutor<Void> executor = new BrokerRemovalPhaseExecutor.Builder<Void>(
         null, BrokerRemovalCallback.BrokerRemovalEvent.PLAN_EXECUTION_FAILURE,
         errMsgSupplier,
         expectedException.getClass()
@@ -98,7 +98,7 @@ public class BrokerRemovalPhaseExecutorTest {
   @Test
   public void testExecute_handlesExceptionInCallback() {
     Function<Set<Integer>, String> errMsgSupplier = brokerIds -> String.format("Unexpected exception while submitting the broker removal plan for broker %s", brokerIds);
-    BrokerRemovalPhaseExecutor executor = new BrokerRemovalPhaseExecutor.Builder(
+    BrokerRemovalPhaseExecutor<Void> executor = new BrokerRemovalPhaseExecutor.Builder<Void>(
         null, BrokerRemovalCallback.BrokerRemovalEvent.PLAN_EXECUTION_FAILURE,
         errMsgSupplier,
         null

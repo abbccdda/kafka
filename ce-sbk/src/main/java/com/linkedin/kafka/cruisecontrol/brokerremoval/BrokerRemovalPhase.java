@@ -12,10 +12,11 @@ import java.util.Optional;
  * For more information regarding the broker removal phases, see #{@link KafkaCruiseControl#removeBroker(int, Optional, BrokerRemovalCallback, String)}
  * and #{@link BrokerRemovalPhaseExecutor}
  */
-public interface BrokerRemovalPhase {
+public interface BrokerRemovalPhase<T> {
   /**
    * Execute the broker removal phase
+   * @return The result of the phase
    * @throws Exception - if anything goes wrong during phase execution
    */
-  void execute(BrokerRemovalOptions args) throws Exception;
+  T execute(BrokerRemovalOptions args) throws Exception;
 }

@@ -403,7 +403,10 @@ class KafkaController(val config: KafkaConfig,
     // Determine which if any of the new brokers have no replicas on them, but we've already computed what replicas
     // are present.
     val emptyNewBrokers = newBrokersSet -- allReplicasOnNewBrokers.map {_.replica}
-    dataBalancer.foreach { _.scheduleBrokerAdd(emptyNewBrokers.map { i => i:java.lang.Integer}.asJava) }
+    dataBalancer.foreach { _.onBrokersStartup(
+      emptyNewBrokers.map { i => i:java.lang.Integer}.asJava,
+      newBrokersSet.map { i => i:java.lang.Integer}.asJava
+    )}
 
     registerBrokerModificationsHandler(newBrokers)
   }

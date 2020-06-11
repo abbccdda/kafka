@@ -9,6 +9,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
+
+import io.confluent.databalancer.operation.BalanceOpExecutionCompletionCallback;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -18,9 +20,11 @@ import org.slf4j.LoggerFactory;
  * a different #{@link BrokerRemovalCallback.BrokerRemovalEvent}
  * and, if exceptional, abandoning subsequent phase execution.
  *
- * For more information regarding the broker removal phases, see #{@link KafkaCruiseControl#removeBroker(int, Optional, BrokerRemovalCallback, String)}
+ * For more information regarding the broker removal phases, see #{@link KafkaCruiseControl#removeBroker(int, Optional, BalanceOpExecutionCompletionCallback, BrokerRemovalCallback, String)}
+ *
+ * @param <T> the return type of the phase
  */
-public class BrokerRemovalPhaseExecutor {
+public class BrokerRemovalPhaseExecutor<T> {
   private final BrokerRemovalCallback progressCallback;
   private BrokerRemovalOptions removalArgs;
   // nullable
@@ -31,7 +35,7 @@ public class BrokerRemovalPhaseExecutor {
   private Class<? extends Exception> exceptionWrapper;
   private static final Logger LOG = LoggerFactory.getLogger(BrokerRemovalPhaseExecutor.class);
 
-  public static class Builder {
+  public static class Builder<T> {
     private final BrokerRemovalCallback.BrokerRemovalEvent successEvent;
     private final BrokerRemovalCallback.BrokerRemovalEvent failureEvent;
     private final Function<Set<Integer>, String> errMsgSupplier;
@@ -60,18 +64,18 @@ public class BrokerRemovalPhaseExecutor {
       this.exceptionWrapper = exceptionWrapper;
     }
 
-    public BrokerRemovalPhaseExecutor build(BrokerRemovalCallback progressCallback, BrokerRemovalOptions removalArgs) {
-      return new BrokerRemovalPhaseExecutor(progressCallback, removalArgs,
+    public BrokerRemovalPhaseExecutor<T> build(BrokerRemovalCallback progressCallback, BrokerRemovalOptions removalArgs) {
+      return new BrokerRemovalPhaseExecutor<>(progressCallback, removalArgs,
           successEvent, failureEvent, errMsgSupplier, exceptionWrapper);
     }
   }
 
   private BrokerRemovalPhaseExecutor(BrokerRemovalCallback progressCallback,
-                                    BrokerRemovalOptions removalArgs,
-                                    BrokerRemovalCallback.BrokerRemovalEvent successEvent,
-                                    BrokerRemovalCallback.BrokerRemovalEvent failureEvent,
-                                    Function<Set<Integer>, String> errMsgSupplier,
-                                    Class<? extends Exception> exceptionWrapper) {
+                                     BrokerRemovalOptions removalArgs,
+                                     BrokerRemovalCallback.BrokerRemovalEvent successEvent,
+                                     BrokerRemovalCallback.BrokerRemovalEvent failureEvent,
+                                     Function<Set<Integer>, String> errMsgSupplier,
+                                     Class<? extends Exception> exceptionWrapper) {
 
     this.progressCallback = progressCallback;
     this.removalArgs = removalArgs;
@@ -90,16 +94,17 @@ public class BrokerRemovalPhaseExecutor {
    *
    * @return the completed #{@link CompletableFuture} of the removal step
    */
-  public CompletableFuture<Void> execute(BrokerRemovalPhase phase) {
-    CompletableFuture<Void> future = new CompletableFuture<>();
+  public CompletableFuture<T> execute(BrokerRemovalPhase<T> phase) {
+    CompletableFuture<T> future = new CompletableFuture<>();
 
     try {
-      phase.execute(removalArgs);
+      T result = phase.execute(removalArgs);
       if (successEvent != null) {
         progressCallback.registerEvent(successEvent);
       }
-      future.complete(null);
+      future.complete(result);
     } catch (InterruptedException ie) {
+      LOG.warn("Broker removal phase execution was interrupted", ie);
       future.completeExceptionally(ie);
     } catch (Exception e) {
       String errMsg = errMsgSupplier.apply(removalArgs.brokersToRemove);

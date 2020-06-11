@@ -1937,7 +1937,9 @@ class TestDataBalancer extends DataBalanceManager {
     // do nothing
   }
 
-  override def scheduleBrokerAdd(brokersToAdd: java.util.Set[Integer]): Unit = { }
+  override def onBrokersStartup(emptyBrokers: java.util.Set[Integer], newBrokers: java.util.Set[Integer]): Unit = {
+    // do nothing
+  }
 
   def verifyBalancerConfigs(enabledExpected: Boolean = ConfluentConfigs.BALANCER_ENABLE_DEFAULT,
                             autoHealExpected: String = ConfluentConfigs.BALANCER_AUTO_HEAL_MODE_DEFAULT,

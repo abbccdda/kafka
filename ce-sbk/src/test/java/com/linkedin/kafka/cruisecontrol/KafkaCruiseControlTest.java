@@ -6,7 +6,7 @@ import com.linkedin.kafka.cruisecontrol.analyzer.GoalOptimizer;
 import com.linkedin.kafka.cruisecontrol.analyzer.OptimizerResult;
 import com.linkedin.kafka.cruisecontrol.async.progress.OperationProgress;
 import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback;
-import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalPhaseBuilder;
+import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalFuture;
 import io.confluent.databalancer.operation.BalanceOpExecutionCompletionCallback;
 import com.linkedin.kafka.cruisecontrol.common.MetadataClient;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
@@ -366,7 +366,7 @@ public class KafkaCruiseControlTest {
         when(loadMonitor.clusterModel(anyLong(), any(), any())).thenReturn(clusterModel);
         AtomicReference<Exception> thrownException = new AtomicReference<>();
 
-        BrokerRemovalPhaseBuilder.BrokerRemovalExecution removeFuture = kafkaCruiseControl.removeBroker(
+        BrokerRemovalFuture removeFuture = kafkaCruiseControl.removeBroker(
             BROKER_ID_TO_REMOVE, BROKER_EPOCH_TO_REMOVE, mockExecutionCompletionCb, mockRemovalCallback, "");
         new Thread(() -> {
             try {
@@ -376,7 +376,7 @@ public class KafkaCruiseControlTest {
                 thrownException.set((Exception) throwable);
             }
         }).start();
-        removeFuture.chainedFutures.cancel(true);
+        removeFuture.cancel();
 
         TestUtils.waitForCondition(() -> thrownException.get() != null, "Expected the future execution to throw an exception");
 

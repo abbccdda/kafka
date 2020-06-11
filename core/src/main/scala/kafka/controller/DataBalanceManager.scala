@@ -30,7 +30,13 @@ trait DataBalanceManager {
 
   def scheduleBrokerRemoval(brokerToRemove: Int, brokerToRemoveEpoch: Option[java.lang.Long]): Unit
 
-  def scheduleBrokerAdd(brokersToAdd: java.util.Set[Integer]): Unit
+  /**
+   * Notify the balance manager of newly-started brokers for it to take action on the event
+   * (e.g schedule a broker add operation or cancel an ongoing broker removal)
+   * @param emptyBrokers - the set of broker IDs that have just started up and contain no replcas on them
+   * @param newBrokers - a superset of `emptyBrokers`, this contains all the brokers that have just started up
+   */
+  def onBrokersStartup(emptyBrokers: java.util.Set[Integer], newBrokers: java.util.Set[Integer]): Unit
 
   /**
    * @return a list of the cluster's broker removals

@@ -1,16 +1,11 @@
 package io.confluent.databalancer.integration;
 
 import io.confluent.databalancer.KafkaDataBalanceManager;
-import java.time.Duration;
-import java.util.Collections;
-import java.util.Map;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
-
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import kafka.server.KafkaServer;
 import org.apache.kafka.clients.admin.BrokerRemovalDescription;
+import org.apache.kafka.common.config.internals.ConfluentConfigs;
+import org.apache.kafka.common.errors.BrokerRemovalCanceledException;
 import org.apache.kafka.common.utils.Exit;
 import org.apache.kafka.test.IntegrationTest;
 import org.apache.kafka.test.TestUtils;
@@ -21,14 +16,20 @@ import org.junit.rules.Timeout;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
+import java.util.Collections;
+import java.util.Map;
+import java.util.Properties;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 @Category(IntegrationTest.class)
-public class RemoveBrokerTest extends DataBalancerClusterTestHarness {
-  protected static final Logger log = LoggerFactory.getLogger(RemoveBrokerTest.class);
+public class RemoveBrokerCancellationTest extends DataBalancerClusterTestHarness {
+  protected static final Logger log = LoggerFactory.getLogger(RemoveBrokerCancellationTest.class);
 
   @Rule
   final public Timeout globalTimeout = Timeout.millis(Duration.ofMinutes(5).toMillis());
@@ -65,17 +66,28 @@ public class RemoveBrokerTest extends DataBalancerClusterTestHarness {
     return 3;
   }
 
+  @Override
+  protected Properties injectTestSpecificProperties(Properties props) {
+    props.put(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, 10L);
+    return props;
+  }
+
+  /**
+   * Test the scenario where a broker removal operation is on-going and the broker comes back up (is restarted)
+   */
   @Test
-  public void testRemoveBroker() throws InterruptedException, ExecutionException {
-    KafkaTestUtils.createTopic(adminClient, "test-topic", 20, 2);
+  public void testRemoveBroker_BrokerRestartCancelsRemoval() throws InterruptedException, ExecutionException {
+    KafkaTestUtils.createTopic(adminClient, "test-topic", 50, 3);
+    kafkaCluster.produceData("test-topic", 200);
     KafkaServer controllerServer = controllerKafkaServer();
     KafkaDataBalanceManager dataBalancer = (KafkaDataBalanceManager) controllerServer.kafkaController().dataBalancer().get();
 
-    info("Removing broker with id {}", brokerToRemoveId);
     adminClient.removeBrokers(Collections.singletonList(brokerToRemoveId)).all().get();
 
-    AtomicReference<String> failMsg = new AtomicReference<>();
-    // await removal completion and retry removal in case something went wrong
+    AtomicReference<String> failureMessage = new AtomicReference<>();
+
+    // retry removal in case something went wrong
+    // also await removal completion so that we have something to restart
     TestUtils.waitForCondition(() -> {
           Map<Integer, BrokerRemovalDescription> descriptionMap = adminClient.describeBrokerRemovals().descriptions().get();
           if (descriptionMap.isEmpty()) {
@@ -83,15 +95,15 @@ public class RemoveBrokerTest extends DataBalancerClusterTestHarness {
           }
           BrokerRemovalDescription brokerRemovalDescription = descriptionMap.get(1);
 
-          if (isCompletedRemoval(brokerRemovalDescription)) {
-            return true;
-          } else if (isFailedPlanComputationInRemoval(brokerRemovalDescription)) {
-            // a common failure is not having enough metrics for plan computation - simply retry it
+          if (isFailedRemoval(brokerRemovalDescription)) {
             return retryRemoval(brokerRemovalDescription, brokerToRemoveId);
-          } else if (isFailedRemoval(brokerRemovalDescription)) {
-            String errMsg = String.format("Broker removal failed for an unexpected reason - description object %s", brokerRemovalDescription);
-            failMsg.set(errMsg);
-            info(errMsg);
+          } else if (exited.get()) {
+            // restart the server to re-add the broker
+            info("Broker {} was shut down due to removal. Restarting its server", brokerToRemoveId);
+            serverToRemove.startup();
+            return true;
+          } else if (isCompletedRemoval(brokerRemovalDescription)) {
+            failureMessage.set("Broker removal finished successfully despite the broker restarting.");
             return true;
           } else {
             info("Removal is still pending. PAR: {} BSS: {}",
@@ -103,14 +115,15 @@ public class RemoveBrokerTest extends DataBalancerClusterTestHarness {
         removalPollInterval.toMillis(),
         () -> "Broker removal did not complete successfully in time!"
     );
-    if (failMsg.get() != null && !failMsg.get().isEmpty()) {
-      fail(failMsg.get());
+
+    if (failureMessage.get() != null && !failureMessage.get().isEmpty()) {
+      fail(failureMessage.get());
     }
 
-    assertTrue("Expected Exit to be called", exited.get());
-    TestUtils.waitForCondition(() -> adminClient.describeCluster().nodes().get().size() == initialBrokerCount() - 1,
-        60_000L, "Cluster size did not shrink!");
     assertEquals("Expected one broker removal to be stored in memory", 1, dataBalancer.brokerRemovals().size());
+    TestUtils.waitForCondition(() -> dataBalancer.brokerRemovals().get(0).exception() instanceof BrokerRemovalCanceledException,
+        60_000L,
+        String.format("Broker removal status did not have the expected %s exception. Instead it has %s", BrokerRemovalCanceledException.class.getSimpleName(), dataBalancer.brokerRemovals().get(0).exception())
+    );
   }
-
 }

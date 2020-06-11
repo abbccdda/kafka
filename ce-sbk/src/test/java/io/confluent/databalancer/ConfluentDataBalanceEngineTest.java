@@ -19,15 +19,15 @@ import com.linkedin.kafka.cruisecontrol.analyzer.goals.ReplicaCapacityGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.ReplicaDistributionGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.TopicReplicaDistributionGoal;
 import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback;
-import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalPhaseBuilder;
+import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalFuture;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import io.confluent.cruisecontrol.analyzer.goals.ReplicaPlacementGoal;
 import com.linkedin.kafka.cruisecontrol.exception.KafkaCruiseControlException;
 import io.confluent.cruisecontrol.analyzer.goals.SequentialReplicaMovementGoal;
 import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsSamplerBase;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
-import io.confluent.databalancer.operation.BrokerRemovalProgressListener;
 import io.confluent.databalancer.operation.BalanceOpExecutionCompletionCallback;
+import io.confluent.databalancer.operation.BrokerRemovalStateTracker;
 import io.confluent.databalancer.persistence.ApiStatePersistenceStore;
 import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
 
@@ -50,6 +50,7 @@ import org.apache.kafka.common.utils.Time;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
@@ -74,7 +75,6 @@ import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -89,7 +89,6 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.only;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -819,6 +818,7 @@ public class ConfluentDataBalanceEngineTest  {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
     public void testRemoveBroker() throws Throwable {
         int brokerToRemove = 1;
         Optional<Long> brokerEpoch = Optional.of(1L);
@@ -826,47 +826,61 @@ public class ConfluentDataBalanceEngineTest  {
         KafkaConfig config = mock(KafkaConfig.class);
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
         dbe.onActivation(config);
-        BrokerRemovalPhaseBuilder.BrokerRemovalExecution exec = mock(BrokerRemovalPhaseBuilder.BrokerRemovalExecution.class);
+        BrokerRemovalFuture exec = mock(BrokerRemovalFuture.class);
         when(mockCruiseControl.removeBroker(eq(brokerToRemove), eq(brokerEpoch),
             any(BalanceOpExecutionCompletionCallback.class), any(BrokerRemovalCallback.class), anyString())).thenReturn(exec);
 
-        BrokerRemovalProgressListener mockListener = mock(BrokerRemovalProgressListener.class);
-        dbe.removeBroker(brokerToRemove, brokerEpoch, new AtomicReference<>("test"), mockListener, "uid");
+        ArgumentCaptor<BalanceOpExecutionCompletionCallback> captor = ArgumentCaptor.forClass(BalanceOpExecutionCompletionCallback.class);
+        BrokerRemovalStateTracker mockTracker = mock(BrokerRemovalStateTracker.class);
+
+        // act
+        dbe.removeBroker(brokerToRemove, brokerEpoch, mockTracker, "uid");
+
+        // assert
+        assertTrue("DatabalanceEngine is not started", dbe.canAcceptRequests);
 
         verify(executorService, times(2)).submit(any(Runnable.class));
         verify(mockCruiseControl).removeBroker(eq(brokerToRemove), eq(brokerEpoch),
-            Mockito.any(BalanceOpExecutionCompletionCallback.class), Mockito.any(BrokerRemovalCallback.class), anyString());
-        verify(exec, only()).execute(Duration.ofMinutes(60));
+            captor.capture(), Mockito.any(BrokerRemovalCallback.class), anyString());
+        verify(dbe.context).putBrokerRemovalFuture(brokerToRemove, exec);
+        verify(exec).execute(Duration.ofMinutes(60));
+        verify(dbe.context, never()).removeBrokerRemovalFuture(brokerToRemove);
 
-        assertTrue("DatabalanceEngine is not started", dbe.canAcceptRequests);
+        // assert that the completion callback cleans up the removal future
+        captor.getValue().accept(true, null);
+        verify(dbe.context).removeBrokerRemovalFuture(brokerToRemove);
     }
 
     @Test
-    public void testRemoveBrokerTwiceSuccess() throws Throwable {
+    @SuppressWarnings("unchecked")
+    public void testRemoveBroker_InitiatesRemovalOnPreviouslyRemovedBroker() throws Throwable {
         int brokerToRemove = 1;
         Optional<Long> brokerEpoch = Optional.of(1L);
 
         KafkaConfig config = mock(KafkaConfig.class);
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
         dbe.onActivation(config);
-        BrokerRemovalPhaseBuilder.BrokerRemovalExecution exec = mock(BrokerRemovalPhaseBuilder.BrokerRemovalExecution.class);
+        BrokerRemovalFuture exec = mock(BrokerRemovalFuture.class);
         when(mockCruiseControl.removeBroker(eq(brokerToRemove), eq(brokerEpoch),
                 any(BalanceOpExecutionCompletionCallback.class), any(BrokerRemovalCallback.class),
                 anyString())).thenReturn(exec);
-
-        BrokerRemovalProgressListener mockListener = mock(BrokerRemovalProgressListener.class);
 
         BrokerRemovalStatus doneStatus = new BrokerRemovalStatus(brokerToRemove,
                 BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE,
                 BrokerRemovalDescription.PartitionReassignmentsStatus.COMPLETE,
                 null);
         when(persistenceStore.getBrokerRemovalStatus(brokerToRemove)).thenReturn(doneStatus);
-        dbe.removeBroker(brokerToRemove, brokerEpoch, new AtomicReference<>("test"), mockListener, "uid");
+        BrokerRemovalStateTracker mockTracker = mock(BrokerRemovalStateTracker.class);
 
+        // act
+        dbe.removeBroker(brokerToRemove, brokerEpoch, mockTracker, "uid");
+
+        // assert
         verify(executorService, times(2)).submit(any(Runnable.class));
         verify(mockCruiseControl).removeBroker(eq(brokerToRemove), eq(brokerEpoch),
                 any(BalanceOpExecutionCompletionCallback.class), any(BrokerRemovalCallback.class), anyString());
-        verify(exec, only()).execute(Duration.ofMinutes(60));
+        verify(dbe.context).putBrokerRemovalFuture(brokerToRemove, exec);
+        verify(exec).execute(Duration.ofMinutes(60));
 
         assertTrue("DatabalanceEngine is not started", dbe.canAcceptRequests);
     }
@@ -888,9 +902,10 @@ public class ConfluentDataBalanceEngineTest  {
                 BrokerRemovalDescription.PartitionReassignmentsStatus.PENDING,
                 null);
         when(persistenceStore.getBrokerRemovalStatus(brokerToRemove)).thenReturn(inProgressStatus);
+        BrokerRemovalStateTracker mockTracker = mock(BrokerRemovalStateTracker.class);
 
         // This will throw BrokerRemovalInProgressException
-        dbe.removeBroker(brokerToRemove, brokerEpoch, new AtomicReference<>("test"), null, "uid");
+        dbe.removeBroker(brokerToRemove, brokerEpoch, mockTracker, "uid");
     }
 
     /**
@@ -913,8 +928,9 @@ public class ConfluentDataBalanceEngineTest  {
         when(persistenceStore.getAllBrokerRemovalStatus())
                 .thenReturn(Collections.singletonMap(inProgressStatus.brokerId(), inProgressStatus));
 
+        BrokerRemovalStateTracker mockTracker = mock(BrokerRemovalStateTracker.class);
         // This will throw BrokerRemovalInProgressException
-        dbe.removeBroker(brokerToRemove, brokerEpoch, new AtomicReference<>("test"), null, "uid");
+        dbe.removeBroker(brokerToRemove, brokerEpoch, mockTracker, "uid");
     }
 
     @Test(expected = InvalidRequestException.class)
@@ -922,9 +938,39 @@ public class ConfluentDataBalanceEngineTest  {
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
         int brokerToRemove = 1;
         Optional<Long> brokerEpoch = Optional.of(1L);
-        BrokerRemovalProgressListener mockListener = mock(BrokerRemovalProgressListener.class);
 
-        dbe.removeBroker(brokerToRemove, brokerEpoch, new AtomicReference<>("test"), mockListener, "uid");
+        BrokerRemovalStateTracker mockTracker = mock(BrokerRemovalStateTracker.class);
+        dbe.removeBroker(brokerToRemove, brokerEpoch, mockTracker, "uid");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testCancelBrokerRemovals_CallsFutureCancel() {
+        ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
+        BrokerRemovalFuture mockFuture1 = mock(BrokerRemovalFuture.class);
+        when(mockFuture1.cancel()).thenReturn(true);
+
+        BrokerRemovalFuture mockFuture2 = mock(BrokerRemovalFuture.class);
+        when(mockFuture2.cancel()).thenReturn(false);
+        dbe.context.putBrokerRemovalFuture(1, mockFuture1);
+        dbe.context.putBrokerRemovalFuture(2, mockFuture2);
+
+        // act
+        // successfully canceled underlying future
+        boolean broker1Cancellation = dbe.cancelBrokerRemoval(1);
+        // unsuccessfully canceled
+        boolean broker2Cancellation = dbe.cancelBrokerRemoval(2);
+        // non-existent
+        boolean broker3Cancellation = dbe.cancelBrokerRemoval(3);
+
+        assertTrue("Expected broker 1 to be cancelled successfully",
+            broker1Cancellation);
+        assertFalse("Expected broker 2 to not be cancelled successfully",
+            broker2Cancellation);
+        assertFalse("Expected broker 3 to not be cancelled successfully because it doesn't exist",
+            broker3Cancellation);
+        verify(mockFuture1).cancel();
+        verify(mockFuture2).cancel();
     }
 
     @Test

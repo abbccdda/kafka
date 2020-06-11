@@ -6,7 +6,9 @@ import io.confluent.databalancer.KafkaDataBalanceManager;
 import java.time.Duration;
 import java.util.Collections;
 import org.apache.kafka.clients.CommonClientConfigs;
+import org.apache.kafka.clients.admin.BrokerRemovalDescription;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
+import org.apache.kafka.common.errors.PlanComputationException;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.test.IntegrationTest;
 
@@ -18,6 +20,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.ExecutionException;
 
 import kafka.server.KafkaConfig;
 import kafka.server.KafkaServer;
@@ -112,5 +115,34 @@ public abstract class DataBalancerClusterTestHarness {
     logger.info(separator);
     logger.info(msg, arguments);
     logger.info(separator);
+  }
+
+  protected boolean retryRemoval(BrokerRemovalDescription brokerRemovalDescription, int brokerToRemoveId) throws ExecutionException, InterruptedException {
+    // a common failure is not having enough metrics for plan computation - simply retry it
+    info("Broker removal failed due to", brokerRemovalDescription.removalError().get().exception());
+    info("Re-scheduling removal...");
+    adminClient.removeBrokers(Collections.singletonList(brokerToRemoveId)).all().get();
+    return false;
+  }
+
+  protected boolean isCompletedRemoval(BrokerRemovalDescription brokerRemovalDescription) {
+    boolean reassignmentCompleted = brokerRemovalDescription.partitionReassignmentsStatus() == BrokerRemovalDescription.PartitionReassignmentsStatus.COMPLETE;
+    boolean removalCompleted = brokerRemovalDescription.brokerShutdownStatus() == BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE;
+
+    return removalCompleted && reassignmentCompleted;
+  }
+
+  protected boolean isFailedRemoval(BrokerRemovalDescription brokerRemovalDescription) {
+    boolean reassignmentFailed = brokerRemovalDescription.partitionReassignmentsStatus() == BrokerRemovalDescription.PartitionReassignmentsStatus.CANCELED
+        || brokerRemovalDescription.partitionReassignmentsStatus() == BrokerRemovalDescription.PartitionReassignmentsStatus.FAILED;
+    boolean removalFailed = brokerRemovalDescription.brokerShutdownStatus() == BrokerRemovalDescription.BrokerShutdownStatus.FAILED
+        || brokerRemovalDescription.brokerShutdownStatus() == BrokerRemovalDescription.BrokerShutdownStatus.CANCELED;
+
+    return removalFailed || reassignmentFailed;
+  }
+
+  protected boolean isFailedPlanComputationInRemoval(BrokerRemovalDescription brokerRemovalDescription) {
+    return brokerRemovalDescription.removalError().isPresent()
+        && brokerRemovalDescription.removalError().get().exception() instanceof PlanComputationException;
   }
 }
