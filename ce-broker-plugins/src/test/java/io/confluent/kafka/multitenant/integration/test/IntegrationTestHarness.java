@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Properties;
 
+import java.util.function.Consumer;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
@@ -35,12 +36,14 @@ public class IntegrationTestHarness {
   }
 
   public PhysicalCluster start(Properties brokerOverrideProps) {
-    return start(brokerOverrideProps, Optional.empty());
+    return start(brokerOverrideProps, Optional.empty(), PhysicalCluster::makeBrokerSuperUser);
   }
 
-  public PhysicalCluster start(Properties brokerOverrideProps, Optional<Time> time) {
+  public PhysicalCluster start(Properties brokerOverrideProps,
+                               Optional<Time> time,
+                               Consumer<PhysicalCluster> configureSecurityForBroker) {
     physicalCluster = new PhysicalCluster(brokersInPhysicalCluster, brokerOverrideProps, time);
-    physicalCluster.start();
+    physicalCluster.start(configureSecurityForBroker);
     return physicalCluster;
   }
 

@@ -195,7 +195,7 @@ class ClusterLinkClientManager(val linkData: ClusterLinkData,
       try {
         future.get
       } catch {
-        case e: ExecutionException => throw fetchTopicInfoWrapException(topic, e, action)
+        case e: ExecutionException => throw fetchTopicInfoWrapException(topic, e.getCause, action)
         case e: Throwable => throw fetchTopicInfoWrapException(topic, e, action)
       }
     }

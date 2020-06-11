@@ -10,14 +10,17 @@ import io.confluent.kafka.multitenant.MultiTenantPrincipalBuilder;
 import io.confluent.kafka.multitenant.TenantMetadata;
 import io.confluent.kafka.test.cluster.EmbeddedKafkaCluster;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
+import io.confluent.kafka.test.utils.SecurityTestUtils;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import kafka.admin.AclCommand;
 import kafka.security.authorizer.AclAuthorizer;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.common.Configurable;
@@ -89,12 +92,20 @@ public class PhysicalCluster {
     this.overrideProps.put("physical.cluster.id", physicalClusterId);
   }
 
-  public synchronized void start() {
+  public void makeBrokerSuperUser() {
+    this.overrideProps.setProperty(AclAuthorizer.SuperUsersProp(), BROKER_PRINCIPAL.toString());
+  }
+
+  public void addBrokerAcls() {
+    String[] aclArgs = SecurityTestUtils.clusterAclArgs(kafkaCluster.zkConnect(),
+        BROKER_PRINCIPAL, "ClusterAction");
+    AclCommand.main(aclArgs);
+  }
+
+  public synchronized void start(Consumer<PhysicalCluster> configureSecurityForBroker) {
     instances.put(physicalClusterId, this);
     kafkaCluster.startZooKeeper();
-
-    overrideProps.setProperty(AclAuthorizer.SuperUsersProp(),
-        BROKER_PRINCIPAL.toString());
+    configureSecurityForBroker.accept(this);
     kafkaCluster.startBrokers(numberOfBrokers, KafkaTestUtils.brokerConfig(overrideProps));
   }
 
