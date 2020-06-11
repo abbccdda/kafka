@@ -39,7 +39,7 @@ public enum TierPartitionStatus {
     }
 
     public boolean isOpen() {
-        return this == INIT || this == CATCHUP || this == ONLINE;
+        return this == INIT || this == CATCHUP || this == ONLINE || this == ERROR;
     }
 
     public boolean isOpenForWrite() {

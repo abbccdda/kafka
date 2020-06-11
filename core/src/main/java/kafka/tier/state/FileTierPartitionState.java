@@ -1208,14 +1208,14 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         }
 
         public void beginCatchup() {
-            if (!status.isOpen())
+            if (!status.isOpenForWrite())
                 throw new IllegalStateException("Illegal state " + status + " for tier partition basePath: " + basePath);
 
             setStatus(TierPartitionStatus.CATCHUP);
         }
 
         public void onCatchUpComplete() {
-            if (!status.isOpen())
+            if (!status.isOpenForWrite())
                 throw new IllegalStateException("Illegal state " + status + " for tier partition basePath: " + basePath);
 
             setStatus(TierPartitionStatus.ONLINE);
