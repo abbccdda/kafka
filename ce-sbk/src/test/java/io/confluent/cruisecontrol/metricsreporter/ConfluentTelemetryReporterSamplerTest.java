@@ -337,7 +337,8 @@ public class ConfluentTelemetryReporterSamplerTest {
     }
 
     Metric metric = buildMetric(name, isDouble, labels, null);
-    List<CruiseControlMetric> ccMetrics = sampler.convertMetricRecord(metric.toByteArray());
+    List<CruiseControlMetric> ccMetrics = sampler.convertMetricRecord(
+        ConfluentMetricsReporterSamplerTest.createRecord(metric.toByteArray()));
 
     assertEquals(1, ccMetrics.size());
     CruiseControlMetric ccMetric = ccMetrics.get(0);
@@ -365,7 +366,8 @@ public class ConfluentTelemetryReporterSamplerTest {
                                 RawMetricType meanType,
                                 Map<String, String> labels) {
     Metric metric = buildMetric(name, true, labels, PERCENTILE_SNAPSHOT);
-    List<CruiseControlMetric> ccMetrics = sampler.convertMetricRecord(metric.toByteArray());
+    List<CruiseControlMetric> ccMetrics = sampler.convertMetricRecord(
+        ConfluentMetricsReporterSamplerTest.createRecord(metric.toByteArray()));
 
     assertEquals(4, ccMetrics.size());
 

@@ -9,11 +9,14 @@ import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.CruiseControlMetr
 import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.MetricsUtils;
 import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType;
 import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.YammerMetricWrapper;
-import io.confluent.metrics.record.ConfluentMetric;
-import io.confluent.serializers.ProtoSerde;
+
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 
 import java.util.ArrayList;
 import java.util.List;
+
+import io.confluent.metrics.record.ConfluentMetric;
+import io.confluent.serializers.ProtoSerde;
 
 /**
  * This class reads Kafka and Yammer metrics as byte arrays from the metrics topic, converts them to Cruise Control
@@ -24,9 +27,9 @@ public class ConfluentMetricsReporterSampler extends ConfluentMetricsSamplerBase
             new ProtoSerde<>(ConfluentMetric.MetricsMessage.getDefaultInstance());
 
     @Override
-    protected List<CruiseControlMetric> convertMetricRecord(byte[] confluentMetric) {
+    protected List<CruiseControlMetric> convertMetricRecord(ConsumerRecord<byte[], byte[]> confluentMetric) {
         List<CruiseControlMetric> metricList = new ArrayList<>();
-        ConfluentMetric.MetricsMessage metricsMessage = serde.deserialize(confluentMetric);
+        ConfluentMetric.MetricsMessage metricsMessage = serde.deserialize(confluentMetric.value());
         for (ConfluentMetric.KafkaMeasurable km : metricsMessage.getKafkaMeasurableList()) {
             org.apache.kafka.common.MetricName metricName = convertKafkaMetricName(km.getMetricName());
 

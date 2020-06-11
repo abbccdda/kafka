@@ -8,8 +8,7 @@ import com.linkedin.kafka.cruisecontrol.exception.MetricSamplingException;
 import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.CruiseControlMetric;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.CruiseControlMetricsProcessor;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.MetricSampler;
-import io.confluent.databalancer.StartupCheckInterruptedException;
-import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
+
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRebalanceListener;
@@ -40,10 +39,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+import io.confluent.databalancer.StartupCheckInterruptedException;
+import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
+
 import static com.linkedin.kafka.cruisecontrol.monitor.sampling.MetricFetcherManager.BROKER_CAPACITY_CONFIG_RESOLVER_OBJECT_CONFIG;
 import static com.linkedin.kafka.cruisecontrol.monitor.sampling.MetricFetcherManager.DEFAULT_BROKER_CAPACITY_CONFIG_RESOLVER_OBJECT_CONFIG;
 
 public abstract class ConfluentMetricsSamplerBase implements MetricSampler {
+
   protected final Logger LOG = LoggerFactory.getLogger(this.getClass().getName());
 
   // Configurations
@@ -219,7 +222,7 @@ public abstract class ConfluentMetricsSamplerBase implements MetricSampler {
                   LOG.debug("Cannot parse record.");
                   continue;
               }
-              List<CruiseControlMetric> metrics = convertMetricRecord(record.value());
+              List<CruiseControlMetric> metrics = convertMetricRecord(record);
               for (CruiseControlMetric metric : metrics) {
                   if (startTimeMs <= metric.time() && metric.time() < endTimeMs) {
                       metricsProcessor.addMetric(metric);
@@ -267,7 +270,7 @@ public abstract class ConfluentMetricsSamplerBase implements MetricSampler {
       return true;
   }
 
-  protected abstract List<CruiseControlMetric> convertMetricRecord(byte[] confluentMetric);
+  protected abstract List<CruiseControlMetric> convertMetricRecord(ConsumerRecord<byte[], byte[]> record);
 
   protected abstract String defaultMetricSamplerGroupId();
 
