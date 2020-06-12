@@ -830,6 +830,11 @@ object TopicCommand extends Logging {
         throw new IllegalArgumentException("Only one of --mirror-topic or --link-name is specified")
       linkName.foreach(ClusterLinkUtils.validateLinkName)
       mirrorTopic.foreach(Topic.validate)
+      mirrorAction.foreach { ma =>
+        val actions = Array("stop")
+        if (!actions.contains(ma))
+          throw new IllegalArgumentException(s"--mirror-action must be one of: $actions, found $ma")
+      }
 
       if (!has(bootstrapServerOpt))
         CommandLineUtils.checkRequiredArgs(parser, options, zkConnectOpt)
@@ -843,9 +848,10 @@ object TopicCommand extends Logging {
         CommandLineUtils.checkRequiredArgs(parser, options, createOpt, partitionsOpt)
       if (has(bootstrapServerOpt) && has(alterOpt)) {
         CommandLineUtils.checkInvalidArgsSet(parser, options, Set(bootstrapServerOpt, configOpt), Set(alterOpt))
-        CommandLineUtils.checkRequiredArgs(parser, options, partitionsOpt)
         if (has(mirrorActionOpt))
           CommandLineUtils.checkRequiredArgs(parser, options, topicOpt)
+        else
+          CommandLineUtils.checkRequiredArgs(parser, options, partitionsOpt)
       }
 
       // check invalid args
@@ -875,7 +881,8 @@ object TopicCommand extends Logging {
       CommandLineUtils.checkInvalidArgs(parser, options, excludeInternalTopicOpt, allTopicLevelOpts -- Set(listOpt, describeOpt))
       CommandLineUtils.checkInvalidArgs(parser, options, mirrorTopicOpt, allTopicLevelOpts - createOpt ++ Set(zkConnectOpt, partitionsOpt, replicaAssignmentOpt))
       CommandLineUtils.checkInvalidArgs(parser, options, linkNameOpt, allTopicLevelOpts - createOpt ++ Set(zkConnectOpt, partitionsOpt, replicaAssignmentOpt))
-      CommandLineUtils.checkInvalidArgs(parser, options, mirrorActionOpt, allTopicLevelOpts -- Set(alterOpt) ++ Set(zkConnectOpt))
+      CommandLineUtils.checkInvalidArgs(parser, options, mirrorActionOpt, allTopicLevelOpts -- Set(alterOpt) ++
+        Set(zkConnectOpt, partitionsOpt, replicationFactorOpt, replicaAssignmentOpt, ifExistsOpt, ifNotExistsOpt, linkNameOpt, mirrorTopicOpt))
     }
   }
 

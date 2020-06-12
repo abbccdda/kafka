@@ -1256,10 +1256,14 @@ class TopicCommandWithAdminClientTest extends KafkaServerTestHarness with Loggin
         result
       }
     }
+
+    val options = new TopicCommandOptions(Array("--bootstrap-server", brokerList, "--alter",
+      "--mirror-action", "stop", "--topic", testTopicName))
+    options.checkArgs()
+
     EasyMock.replay(result)
     val mockTopicService = AdminClientTopicService(mockAdminClient)
-    mockTopicService.alterTopic(new TopicCommandOptions(Array("--bootstrap-server", brokerList, "--alter",
-      "--mirror-action", "stop", "--topic", testTopicName)))
+    mockTopicService.alterTopic(options)
     assertTrue(issuedCommand)
     EasyMock.reset(result)
   }
@@ -1271,21 +1275,41 @@ class TopicCommandWithAdminClientTest extends KafkaServerTestHarness with Loggin
 
   @Test
   def testAlterMirrorBadCommand(): Unit = {
-    assertCheckArgsExitCode(1,
-      new TopicCommandOptions(Array("--bootstrap-server", brokerList, "--delete", "--mirror-action", "stop",
-        "--topic", testTopicName)))
+    Seq("--create", "--describe", "--list", "--delete").foreach { command =>
+      assertCheckArgsExitCode(1,
+        new TopicCommandOptions(Array("--bootstrap-server", brokerList, command, "--mirror-action", "stop",
+          "--topic", testTopicName)))
+    }
   }
 
-  @Test
+  @Test(expected = classOf[IllegalArgumentException])
   def testAlterMirrorBadSubCommand(): Unit = {
-    assertCheckArgsExitCode(1,
-      new TopicCommandOptions(Array("--bootstrap-server", brokerList, "--alter", "--mirror-action", "make-writable",
-        "--topic", testTopicName)))
+    new TopicCommandOptions(Array("--bootstrap-server", brokerList, "--alter", "--mirror-action", "make-writable",
+      "--topic", testTopicName)).checkArgs()
   }
 
   @Test
   def testAlterMirrorNoTopic(): Unit = {
     assertCheckArgsExitCode(1,
       new TopicCommandOptions(Array("--bootstrap-server", brokerList, "--alter", "--mirror-action", "stop")))
+  }
+
+  @Test
+  def testAlterMirrorExtraArgs(): Unit = {
+    val extraArgs = Seq(
+      Array("--zookeeper", "localhost:2181"),
+      Array("--partitions", "-1"),
+      Array("--replication-factor", "2"),
+      Array("--replica-assignment", "0:1,1:2,2:3"),
+      Array("--if-exists"),
+      Array("--if-not-exists"),
+      Array("--link-name", "link"),
+      Array("--mirror-topic", "topic"),
+    )
+    extraArgs.foreach { args =>
+      assertCheckArgsExitCode(1,
+        new TopicCommandOptions(Array("--bootstrap-server", brokerList, "--alter", "--mirror-action", "stop",
+          "--topic", testTopicName) ++ args))
+    }
   }
 }
