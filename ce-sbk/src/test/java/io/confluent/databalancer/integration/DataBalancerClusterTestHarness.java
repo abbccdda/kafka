@@ -9,8 +9,10 @@ import kafka.utils.TestUtils;
 import kafka.zk.EmbeddedZookeeper;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.BrokerRemovalDescription;
+import org.apache.kafka.clients.admin.BrokerRemovalError;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.common.errors.PlanComputationException;
+import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.test.IntegrationTest;
 import org.junit.After;
@@ -121,8 +123,9 @@ public abstract class DataBalancerClusterTestHarness {
   }
 
   protected boolean retryRemoval(BrokerRemovalDescription brokerRemovalDescription, int brokerToRemoveId) throws ExecutionException, InterruptedException {
-    // a common failure is not having enough metrics for plan computation - simply retry it
-    info("Broker removal failed due to", brokerRemovalDescription.removalError().get().exception());
+    info("Broker removal failed due to", brokerRemovalDescription.removalError()
+        .orElse(new BrokerRemovalError(Errors.NONE, null))
+        .exception());
     info("Re-scheduling removal...");
     adminClient.removeBrokers(Collections.singletonList(brokerToRemoveId)).all().get();
     return false;

@@ -5,16 +5,17 @@ package com.linkedin.kafka.cruisecontrol.brokerremoval;
 
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlTest;
 import com.linkedin.kafka.cruisecontrol.exception.KafkaCruiseControlException;
-import java.util.Set;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.function.Function;
+import io.confluent.databalancer.operation.BrokerRemovalStateMachine;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
+import java.util.Set;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
@@ -51,8 +52,16 @@ public class BrokerRemovalPhaseExecutorTest {
     InterruptedException expectedException = new InterruptedException("Interrupted!");
 
     CompletionException thrownException = assertThrows(CompletionException.class, () ->
-      executor.execute(args -> {
-        throw expectedException;
+      executor.execute(new BrokerRemovalPhase<Void>() {
+        @Override
+        public Void execute(BrokerRemovalOptions args) throws Exception {
+            throw expectedException;
+        }
+
+        @Override
+        public BrokerRemovalStateMachine.BrokerRemovalState startState() {
+          return null;
+        }
       }).join()
     );
 
@@ -78,8 +87,16 @@ public class BrokerRemovalPhaseExecutorTest {
     ).build(mockRemovalCallback, mockOptions);
 
     CompletionException thrownException = assertThrows(CompletionException.class, () ->
-        executor.execute(args -> {
-          throw new Exception("a");
+        executor.execute(new BrokerRemovalPhase<Void>() {
+          @Override
+          public Void execute(BrokerRemovalOptions args) throws Exception {
+            throw new Exception("a");
+          }
+
+          @Override
+          public BrokerRemovalStateMachine.BrokerRemovalState startState() {
+            return null;
+          }
         }).join()
     );
 
@@ -110,8 +127,16 @@ public class BrokerRemovalPhaseExecutorTest {
     Exception expectedException = new Exception("a");
 
     ExecutionException thrownException = assertThrows(ExecutionException.class, () ->
-        executor.execute(args -> {
-          throw expectedException;
+        executor.execute(new BrokerRemovalPhase<Void>() {
+          @Override
+          public Void execute(BrokerRemovalOptions args) throws Exception {
+            throw expectedException;
+          }
+
+          @Override
+          public BrokerRemovalStateMachine.BrokerRemovalState startState() {
+            return null;
+          }
         }).get(100, TimeUnit.MILLISECONDS)
     );
 

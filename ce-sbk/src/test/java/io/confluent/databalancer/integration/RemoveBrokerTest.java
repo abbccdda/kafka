@@ -1,6 +1,8 @@
+/*
+ * Copyright (C) 2020 Confluent Inc.
+ */
 package io.confluent.databalancer.integration;
 
-import io.confluent.databalancer.KafkaDataBalanceManager;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
@@ -44,21 +46,6 @@ public class RemoveBrokerTest extends DataBalancerClusterTestHarness {
   protected static Duration removalPollInterval = Duration.ofSeconds(2);
 
   protected AtomicBoolean exited = new AtomicBoolean(false);
-  protected int brokerToRemoveId;
-  protected KafkaServer serverToRemove;
-
-  @Override
-  public void setUp() throws Exception {
-    super.setUp();
-    serverToRemove = notControllerKafkaServer();
-    brokerToRemoveId = serverToRemove.config().brokerId();
-
-    Exit.setExitProcedure((statusCode, message) -> {
-      info("Shutting down {} as part of broker removal test", serverToRemove.config().brokerId());
-      serverToRemove.shutdown();
-      exited.set(true);
-    });
-  }
 
   @Override
   public void tearDown() throws Exception {
@@ -84,14 +71,28 @@ public class RemoveBrokerTest extends DataBalancerClusterTestHarness {
    */
   @Test
   public void testRemoveBroker_NoProposalsShouldComplete() throws InterruptedException, ExecutionException {
+    KafkaServer server = notControllerKafkaServer();
+    int brokerToRemoveId = server.config().brokerId();
     while (moveReplicasOffBroker(brokerToRemoveId).size() != 0) {
       info("Moving replicas off of broker {}", brokerToRemoveId);
     }
     removeBroker(notControllerKafkaServer());
   }
 
+  @Test
+  public void testRemoveController() throws InterruptedException, ExecutionException {
+    KafkaTestUtils.createTopic(adminClient, "test-topic", 20, 2);
+    removeBroker(controllerKafkaServer());
+  }
+
   private void removeBroker(KafkaServer server) throws InterruptedException, ExecutionException {
     int brokerToRemoveId = server.config().brokerId();
+
+    Exit.setExitProcedure((statusCode, message) -> {
+      info("Shutting down {} as part of broker removal test", server.config().brokerId());
+      server.shutdown();
+      exited.set(true);
+    });
 
     info("Removing broker with id {}", brokerToRemoveId);
     adminClient.removeBrokers(Collections.singletonList(brokerToRemoveId)).all().get();
@@ -103,7 +104,7 @@ public class RemoveBrokerTest extends DataBalancerClusterTestHarness {
           if (descriptionMap.isEmpty()) {
             return false;
           }
-          BrokerRemovalDescription brokerRemovalDescription = descriptionMap.get(1);
+          BrokerRemovalDescription brokerRemovalDescription = descriptionMap.get(brokerToRemoveId);
 
           if (isCompletedRemoval(brokerRemovalDescription)) {
             return true;
@@ -132,10 +133,8 @@ public class RemoveBrokerTest extends DataBalancerClusterTestHarness {
     assertTrue("Expected Exit to be called", exited.get());
     TestUtils.waitForCondition(() -> adminClient.describeCluster().nodes().get().size() == initialBrokerCount() - 1,
         60_000L, "Cluster size did not shrink!");
-    // get the controller last in case it changed during the test
-    KafkaServer controllerServer = controllerKafkaServer();
-    KafkaDataBalanceManager dataBalancer = (KafkaDataBalanceManager) controllerServer.kafkaController().dataBalancer().get();
-    assertEquals("Expected one broker removal to be stored in memory", 1, dataBalancer.brokerRemovals().size());
+    assertEquals("Expected one broker removal to be stored in memory", 1,
+            adminClient.describeBrokerRemovals().descriptions().get().size());
   }
 
   /**

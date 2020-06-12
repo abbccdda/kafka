@@ -15,8 +15,8 @@ public interface BalanceOpExecutionCompletionCallback {
      *
      * @param operationSuccess -- if the operation succeeded or did not complete. A successful operation completed all the
      *                         work it intended to do.
-     * @param ex --  Exception, if any, raised during execution of the operation. If an exception is non-null, the
-     *           DataBalancer code will likely
+     * @param t --  Exception, if any, raised during execution of the operation. If an exception is non-null, the
+     *          DataBalancer code will fail the removal operation with it
      */
     void accept(boolean operationSuccess, @Nullable Throwable t);
 }

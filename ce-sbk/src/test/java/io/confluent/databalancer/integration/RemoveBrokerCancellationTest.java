@@ -93,7 +93,7 @@ public class RemoveBrokerCancellationTest extends DataBalancerClusterTestHarness
           if (descriptionMap.isEmpty()) {
             return false;
           }
-          BrokerRemovalDescription brokerRemovalDescription = descriptionMap.get(1);
+          BrokerRemovalDescription brokerRemovalDescription = descriptionMap.get(brokerToRemoveId);
 
           if (isFailedRemoval(brokerRemovalDescription)) {
             return retryRemoval(brokerRemovalDescription, brokerToRemoveId);

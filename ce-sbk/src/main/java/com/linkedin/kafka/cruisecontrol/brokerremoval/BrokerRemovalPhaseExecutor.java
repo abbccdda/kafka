@@ -99,7 +99,7 @@ public class BrokerRemovalPhaseExecutor<T> {
 
     try {
       T result = phase.execute(removalArgs);
-      if (successEvent != null) {
+      if (successEvent != null && !phase.hasSkippedExecution()) {
         progressCallback.registerEvent(successEvent);
       }
       future.complete(result);

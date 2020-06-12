@@ -29,8 +29,7 @@ import kafka.admin.{AdminUtils, RackAwareMode}
 import kafka.api.ElectLeadersRequestOps
 import kafka.api.{ApiVersion, KAFKA_0_11_0_IV0, KAFKA_2_3_IV0}
 import kafka.cluster.Partition
-import kafka.common.BrokerRemovalStatus
-import kafka.common.OffsetAndMetadata
+import kafka.common.{BrokerRemovalDescriptionInternal, OffsetAndMetadata}
 import kafka.controller.{KafkaController, ReplicaAssignment}
 import kafka.coordinator.group.{GroupCoordinator, JoinGroupResult, LeaveGroupResult, SyncGroupResult}
 import kafka.coordinator.transaction.{InitProducerIdResult, TransactionCoordinator}
@@ -2706,7 +2705,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         s"This broker ($brokerId) isn't the controller currently.");
     }
 
-    def sendResponseCallback(result: Either[List[BrokerRemovalStatus], ApiError]): Unit = {
+    def sendResponseCallback(result: Either[List[BrokerRemovalDescriptionInternal], ApiError]): Unit = {
       val responseData = result match {
         case Left(removalStatuses) => {
           val removalsResponses = removalStatuses.map { removalStatus =>

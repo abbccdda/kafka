@@ -1,10 +1,10 @@
-/**
+/*
  * Copyright (C) 2020 Confluent Inc.
  */
 
 package kafka.controller
 
-import kafka.common.BrokerRemovalStatus
+import kafka.common.BrokerRemovalDescriptionInternal
 import kafka.server.KafkaConfig
 import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.slf4j.{Logger, LoggerFactory}
@@ -20,7 +20,7 @@ import org.slf4j.{Logger, LoggerFactory}
  * (and co-located with) the controller.
  */
 trait DataBalanceManager {
-  def onElection(): Unit
+  def onElection(brokerEpochs: java.util.Map[java.lang.Integer, java.lang.Long]): Unit
 
   def onResignation(): Unit
 
@@ -41,7 +41,7 @@ trait DataBalanceManager {
   /**
    * @return a list of the cluster's broker removals
    */
-  def brokerRemovals(): java.util.List[BrokerRemovalStatus]
+  def brokerRemovals(): java.util.List[BrokerRemovalDescriptionInternal]
 }
 
 object DataBalanceManager {

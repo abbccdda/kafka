@@ -6,6 +6,7 @@ package io.confluent.databalancer;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControl;
 import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalFuture;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
+import io.confluent.databalancer.operation.BrokerRemovalStateTracker;
 import io.confluent.databalancer.persistence.ApiStatePersistenceStore;
 import org.apache.kafka.common.utils.Time;
 import org.slf4j.Logger;
@@ -28,6 +29,8 @@ public class ConfluentDataBalanceEngineContext implements DataBalanceEngineConte
 
     // package-private for testing
     final Map<Integer, BrokerRemovalFuture> brokerRemovalFutures;
+    // a map of broker_id->state tracker, kept for the ability to cancel the removal
+    Map<Integer, BrokerRemovalStateTracker> brokerRemovalsStateTrackers;
 
     private volatile KafkaCruiseControl cruiseControl;
     private volatile ApiStatePersistenceStore persistenceStore;
@@ -39,6 +42,7 @@ public class ConfluentDataBalanceEngineContext implements DataBalanceEngineConte
         this.cruiseControl = cruiseControl;
         this.time = time;
         this.brokerRemovalFutures = new ConcurrentHashMap<>();
+        this.brokerRemovalsStateTrackers = new ConcurrentHashMap<>();
     }
 
     public KafkaCruiseControl getCruiseControl() {
@@ -71,6 +75,14 @@ public class ConfluentDataBalanceEngineContext implements DataBalanceEngineConte
 
     public ApiStatePersistenceStore getPersistenceStore() {
         return persistenceStore;
+    }
+
+    /**
+     * Return the #{@link BrokerRemovalStateTracker} for the active broker removal operations
+     */
+    @Override
+    public Map<Integer, BrokerRemovalStateTracker> getBrokerRemovalsStateTrackers() {
+        return brokerRemovalsStateTrackers;
     }
 
     public void setPersistenceStore(ApiStatePersistenceStore persistenceStore) {

@@ -7,6 +7,7 @@ import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import javax.annotation.concurrent.Immutable;
 import javax.annotation.concurrent.ThreadSafe;
 import org.apache.kafka.clients.admin.BrokerRemovalDescription.BrokerShutdownStatus;
@@ -63,14 +64,21 @@ import static com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallba
 @ThreadSafe
 public class BrokerRemovalStateMachine {
   private static final Logger log = LoggerFactory.getLogger(BrokerRemovalStateMachine.class);
+
+  static final BrokerRemovalState START_STATE = BrokerRemovalState.INITIAL_PLAN_COMPUTATION_INITIATED;
+
   private int brokerId;
 
   // package-private for testing
   BrokerRemovalState currentState;
 
   public BrokerRemovalStateMachine(int brokerId) {
+    this(brokerId, START_STATE);
+  }
+
+  public BrokerRemovalStateMachine(int brokerId, BrokerRemovalState currentState) {
     this.brokerId = brokerId;
-    this.currentState = BrokerRemovalState.INITIAL_PLAN_COMPUTATION_INITIATED;
+    this.currentState = currentState;
   }
 
   /**
@@ -85,14 +93,14 @@ public class BrokerRemovalStateMachine {
       throw new IllegalStateException(String.format("Cannot advance the state as %s is a terminal state", currentState.name()));
     }
 
-    BrokerRemovalState nextState = currentState.stateTransitions().get(event);
-    if (nextState == null) {
+    Optional<BrokerRemovalState> nextState = currentState.getNextState(event);
+    if (!nextState.isPresent()) {
       throw new IllegalStateException(String.format("Cannot handle a %s removal event when in state %s", event, currentState.name()));
     }
 
     log.info("Broker removal state for broker {} transitioned from {} to {}.",
-        brokerId, currentState, nextState);
-    this.currentState = nextState;
+        brokerId, currentState, nextState.get());
+    this.currentState = nextState.get();
     return currentState;
   }
 
@@ -180,12 +188,7 @@ public class BrokerRemovalStateMachine {
         new HashMap<BrokerRemovalCallback.BrokerRemovalEvent, BrokerRemovalState>() {{
           put(INITIAL_PLAN_COMPUTATION_SUCCESS, BROKER_SHUTDOWN_INITIATED);
           put(INITIAL_PLAN_COMPUTATION_FAILURE, INITIAL_PLAN_COMPUTATION_FAILED);
-        }}),
-
-    /**
-     * The terminal state of when the broker removal operation is canceled (e.g due to a broker restart).
-     */
-    CANCELED(BrokerShutdownStatus.COMPLETE, PartitionReassignmentsStatus.CANCELED);
+        }});
 
     /**
      * Whether this state is terminal or not
@@ -212,12 +215,8 @@ public class BrokerRemovalStateMachine {
       this.isTerminal = stateTransitions.isEmpty();
     }
 
-    /**
-     * @return the valid state transitions as caused by the specific #{@link BrokerRemovalCallback.BrokerRemovalEvent}
-     *         for the given state
-     */
-    public Map<BrokerRemovalCallback.BrokerRemovalEvent, BrokerRemovalState> stateTransitions() {
-      return stateTransitions;
+    public Optional<BrokerRemovalState> getNextState(BrokerRemovalCallback.BrokerRemovalEvent event) {
+      return Optional.ofNullable(stateTransitions.get(event));
     }
 
     /**

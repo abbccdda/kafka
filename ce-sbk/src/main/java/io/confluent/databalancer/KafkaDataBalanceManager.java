@@ -6,25 +6,25 @@ package io.confluent.databalancer;
 
 import com.yammer.metrics.core.MetricName;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
-import io.confluent.databalancer.operation.BrokerRemovalProgressListener;
 import io.confluent.databalancer.operation.BalanceOpExecutionCompletionCallback;
-import io.confluent.databalancer.operation.BrokerRemovalStateMachine;
 import io.confluent.databalancer.operation.BrokerRemovalStateTracker;
 import io.confluent.databalancer.persistence.ApiStatePersistenceStore;
-import kafka.common.BrokerRemovalStatus;
+import io.confluent.databalancer.persistence.BrokerRemovalStateRecord;
+import kafka.common.BrokerRemovalDescriptionInternal;
 import kafka.controller.DataBalanceManager;
 import kafka.metrics.KafkaYammerMetrics;
 import kafka.server.KafkaConfig;
-import org.apache.kafka.clients.admin.BrokerRemovalDescription;
+import kafka.server.KafkaConfig$;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.errors.BrokerRemovalCanceledException;
 import org.apache.kafka.common.utils.SystemTime;
 import org.apache.kafka.common.utils.Time;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import scala.Option;
 
-import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -49,8 +49,6 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
     private KafkaConfig kafkaConfig;
     // Visible for testing
     DataBalanceEngine balanceEngine;
-    // a map of broker_id->state tracker, kept for the ability to cancel the removal
-    Map<Integer, BrokerRemovalStateTracker> brokerRemovalsStateTrackers;
 
     private final DataBalanceEngineFactory dbeFactory;
     private final DataBalancerMetricsRegistry dataBalancerMetricsRegistry;
@@ -72,8 +70,8 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
          * This creates instances of all DataBalanceEngine objects so that they can be reused as
          * needed throughout the Factory's lifetime.
          */
-        DataBalanceEngineFactory(DataBalancerMetricsRegistry dataBalancerMetricsRegistry) {
-            this(new ConfluentDataBalanceEngine(dataBalancerMetricsRegistry),
+        DataBalanceEngineFactory(DataBalancerMetricsRegistry dataBalancerMetricsRegistry, KafkaConfig config) {
+            this(new ConfluentDataBalanceEngine(dataBalancerMetricsRegistry, config),
                  new NoOpDataBalanceEngine());
         }
 
@@ -123,8 +121,11 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
     }
 
     private KafkaDataBalanceManager(KafkaConfig kafkaConfig,
-                                   DataBalancerMetricsRegistry dbMetricsRegistry) {
-        this(kafkaConfig, new DataBalanceEngineFactory(dbMetricsRegistry), dbMetricsRegistry, new SystemTime());
+                                    DataBalancerMetricsRegistry dbMetricsRegistry) {
+        this(kafkaConfig,
+             new DataBalanceEngineFactory(dbMetricsRegistry, kafkaConfig),
+             dbMetricsRegistry,
+             new SystemTime());
     }
 
     /**
@@ -139,8 +140,16 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
         this.balanceEngine = dbeFactory.getInactiveDataBalanceEngine();
         this.dataBalancerMetricsRegistry.newGauge(KafkaDataBalanceManager.class, "ActiveBalancerCount",
                 () -> balanceEngine.isActive() ? 1 : 0, false);
-        this.brokerRemovalsStateTrackers = new ConcurrentHashMap<>();
         this.brokersToAdd = ConcurrentHashMap.newKeySet();
+        enableBrokerIdLogging(kafkaConfig);
+    }
+
+    public static Integer getBrokerId(KafkaConfig config) {
+        return config.getInt(KafkaConfig$.MODULE$.BrokerIdProp());
+    }
+
+    private static void enableBrokerIdLogging(KafkaConfig kafkaConfig) {
+        MDC.put("brokerId", getBrokerId(kafkaConfig).toString());
     }
 
     /**
@@ -148,7 +157,9 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
      * be running the DataBalanceEngine but that's subject to broker configuration.
      */
     @Override
-    public synchronized void onElection() {
+    public synchronized void onElection(Map<Integer, Long> brokerEpochs) {
+        enableBrokerIdLogging(kafkaConfig);
+
         // This node is now eligible to execute
         balanceEngine = dbeFactory.getActiveDataBalanceEngine();
         if (!kafkaConfig.getBoolean(ConfluentConfigs.BALANCER_ENABLE_CONFIG)) {
@@ -156,7 +167,7 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
             return;
         }
 
-        activateEngine();
+        activateEngine(brokerEpochs);
     }
 
     public boolean isActive() {
@@ -169,6 +180,8 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
      */
     @Override
     public synchronized void onResignation() {
+        enableBrokerIdLogging(kafkaConfig);
+        cancelAllExistingBrokerRemovals();
         deactivateEngine();
         balanceEngine = dbeFactory.getInactiveDataBalanceEngine();
     }
@@ -201,8 +214,9 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
         if (!kafkaConfig.getBoolean(ConfluentConfigs.BALANCER_ENABLE_CONFIG).equals(oldConfig.getBoolean(ConfluentConfigs.BALANCER_ENABLE_CONFIG))) {
             // This node is eligible to be running the data balancer AND the enabled config changed.
             if (kafkaConfig.getBoolean(ConfluentConfigs.BALANCER_ENABLE_CONFIG)) {
-                activateEngine();
+                activateEngine(Collections.emptyMap());
             } else {
+                cancelAllExistingBrokerRemovals();
                 deactivateEngine();
             }
             // All other changes are effectively applied by the startup/shutdown (CC has been started with the new config, or it's been shut down),
@@ -258,24 +272,50 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
         balanceEngine.addBrokers(addingBrokers, onAddComplete, operationUid);
     }
 
+    /**
+     * Cancels all the existing broker removals without persisting the cancellation state.
+     * This assumes that something will pick back up the removal operations
+     */
+    private void cancelAllExistingBrokerRemovals() {
+        if (!balanceEngine.isActive()) return;
+
+        Map<Integer, BrokerRemovalStateTracker> stateTrackers = balanceEngine.getDataBalanceEngineContext()
+                .getBrokerRemovalsStateTrackers();
+        cancelExistingBrokerRemovals(stateTrackers.values(), false);
+    }
+
+    /**
+     * Cancels the existing broker removal operation for #{@code newBrokers} and persists the cancellation state.
+     */
     private void cancelExistingBrokerRemovals(Set<Integer> newBrokers) {
-        List<Integer> cancelledRemovalOperations = newBrokers
-            .stream()
-            .map(brokerId -> brokerRemovalsStateTrackers.get(brokerId))
-            .filter(Objects::nonNull)
+        Map<Integer, BrokerRemovalStateTracker> stateTrackers = balanceEngine.getDataBalanceEngineContext()
+                .getBrokerRemovalsStateTrackers();
+        Set<BrokerRemovalStateTracker> validStateTrackers = newBrokers
+                .stream()
+                .map(stateTrackers::get)
+                .filter(Objects::nonNull).collect(Collectors.toSet());
+        cancelExistingBrokerRemovals(validStateTrackers, true);
+    }
+
+    private void cancelExistingBrokerRemovals(Collection<BrokerRemovalStateTracker> stateTrackers, boolean persistStatus) {
+        Map<Integer, BrokerRemovalStateTracker> allStateTrackers = balanceEngine.getDataBalanceEngineContext()
+                .getBrokerRemovalsStateTrackers();
+        Set<Integer> allBrokerIds = allStateTrackers.keySet();
+
+        List<Integer> cancelledRemovalOperations = stateTrackers.stream()
             .map(stateTracker -> {
                 Integer brokerId = null;
-                if (tryCancelBrokerRemoval(stateTracker)) {
+                if (tryCancelBrokerRemoval(stateTracker, persistStatus)) {
                     brokerId = stateTracker.brokerId();
                 }
-                brokerRemovalsStateTrackers.remove(stateTracker.brokerId());
+                allStateTrackers.remove(stateTracker.brokerId());
                 return brokerId;
             }).filter(Objects::nonNull).collect(Collectors.toList());
 
         if (cancelledRemovalOperations.isEmpty()) {
-            LOG.debug("No broker removal operations were canceled for {}, either due to none being present or a failure in cancellation", newBrokers);
+            LOG.debug("No broker removal operations were canceled for {}, either due to none being present or a failure in cancellation", allBrokerIds);
         } else {
-            LOG.info("Cancelled the broker removal operations for brokers {}. (new brokers {})", cancelledRemovalOperations, newBrokers);
+            LOG.info("Cancelled the broker removal operations for brokers {}. (new brokers {})", cancelledRemovalOperations, allBrokerIds);
         }
     }
 
@@ -284,17 +324,18 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
      * The ordering is important. For the reasoning,
      * @see <a href="https://confluentinc.atlassian.net/wiki/spaces/~518048762/pages/1325369874/Cancellation+and+Persistence+for+Broker+Removal">this page</a>
      */
-    private boolean tryCancelBrokerRemoval(BrokerRemovalStateTracker stateTracker) {
+    private boolean tryCancelBrokerRemoval(BrokerRemovalStateTracker stateTracker, boolean persistStatus) {
         int brokerId = stateTracker.brokerId();
-        LOG.info("Setting cancelled state on broker removal operation {} due to broker restart", brokerId);
-        String errMsg = String.format("The broker removal operation for broker %d was canceled, likely due to the broker starting back up while it was being removed.", brokerId);
+        LOG.info("Setting cancelled state on broker removal operation {}", brokerId);
+        String errMsg = String.format("The broker removal operation for broker %d was canceled, " +
+                "likely due to the broker starting back up while it was being removed or as part of shutdown.", brokerId);
         BrokerRemovalCanceledException cancelException = new BrokerRemovalCanceledException(errMsg);
-        boolean isInCanceledState = stateTracker.cancel(cancelException);
+        boolean isInCanceledState = stateTracker.cancel(cancelException, persistStatus);
         if (isInCanceledState) {
-            LOG.info("Successfully set canceled status on broker removal task for broker {} due to broker restart. Proceeding with cancellation of the operation", brokerId);
+            LOG.info("Successfully set canceled status on broker removal task for broker {}. Proceeding with cancellation of the operation", brokerId);
             boolean wasCanceled = balanceEngine.cancelBrokerRemoval(brokerId);
             if (wasCanceled) {
-                LOG.info("Successfully canceled the broker removal operation for broker {} due to broker restart.", brokerId);
+                LOG.info("Successfully canceled the broker removal operation for broker {}.", brokerId);
             } else {
                 LOG.error("Did not succeed in canceling the broker removal operation for broker {}", brokerId);
             }
@@ -307,11 +348,21 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
     }
 
     @Override
-    public List<BrokerRemovalStatus> brokerRemovals() {
+    public List<BrokerRemovalDescriptionInternal> brokerRemovals() {
+        if (!balanceEngine.isActive()) {
+            // Return nothing; this is completely ok
+            LOG.warn("SBK is disabled. Returning empty broker removal status.");
+            return Collections.emptyList();
+        }
+
         DataBalanceEngineContext dataBalanceEngineContext = balanceEngine.getDataBalanceEngineContext();
         ApiStatePersistenceStore persistenceStore = dataBalanceEngineContext.getPersistenceStore();
         return persistenceStore == null ? Collections.emptyList() :
-                new ArrayList<>(persistenceStore.getAllBrokerRemovalStatus().values());
+                persistenceStore.getAllBrokerRemovalStateRecords()
+                        .values()
+                        .stream()
+                        .map(BrokerRemovalStateRecord::toRemovalDescription)
+                        .collect(Collectors.toList());
     }
 
     @Override
@@ -325,47 +376,9 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
         Optional<Long> brokerEpochOpt = brokerToRemoveEpoch.isEmpty() ? Optional.empty()
             : Optional.of(brokerToRemoveEpoch.get());
         String uid = String.format("remove-broker-%d-%d", brokerToRemove, time.milliseconds());
-        AtomicReference<String> registerBrokerRemovalMetric = registerBrokerRemovalMetric(brokerToRemove);
-
-        // create listener to persist the removal statuses on progress change and clean up the state tracker on completion
-        BrokerRemovalProgressListener listener = new BrokerRemovalProgressListener() {
-            @Override
-            public void onProgressChanged(BrokerRemovalDescription.BrokerShutdownStatus shutdownStatus,
-                                          BrokerRemovalDescription.PartitionReassignmentsStatus partitionReassignmentsStatus,
-                                          Exception e) {
-                DataBalanceEngineContext dataBalanceEngineContext = balanceEngine.getDataBalanceEngineContext();
-                ApiStatePersistenceStore persistenceStore = dataBalanceEngineContext.getPersistenceStore();
-
-                BrokerRemovalStatus existingRemovalStatus = persistenceStore.getBrokerRemovalStatus(brokerToRemove);
-                BrokerRemovalStatus newRemovalStatus = new BrokerRemovalStatus(brokerToRemove,
-                    shutdownStatus, partitionReassignmentsStatus, e);
-
-                if (existingRemovalStatus != null) {
-                    newRemovalStatus.setStartTime(existingRemovalStatus.getStartTime());
-                }
-                try {
-                    persistenceStore.save(newRemovalStatus, existingRemovalStatus == null);
-                    LOG.info("Removal status for broker {} changed from {} to {}",
-                        brokerToRemove, existingRemovalStatus, newRemovalStatus);
-                } catch (InterruptedException ex) {
-                    LOG.error("Interrupted when broker removal state for broker: {}", brokerToRemove, ex);
-                    Thread.currentThread().interrupt();
-                    throw new RuntimeException(ex);
-                }
-            }
-
-            @Override
-            public void onTerminalState(BrokerRemovalStateMachine.BrokerRemovalState state, Exception e) {
-                brokerRemovalsStateTrackers.remove(brokerToRemove);
-                LOG.info("Removal for broker {} reached terminal state {}", brokerToRemove, state);
-            }
-        };
-
-        BrokerRemovalStateTracker stateTracker = new BrokerRemovalStateTracker(brokerToRemove, listener, registerBrokerRemovalMetric);
-        brokerRemovalsStateTrackers.put(brokerToRemove, stateTracker);
 
         LOG.info("Submitting broker removal operation with UUID {} for broker {} (epoch {})", uid, brokerToRemove, brokerToRemoveEpoch);
-        balanceEngine.removeBroker(brokerToRemove, brokerEpochOpt, stateTracker, uid);
+        balanceEngine.removeBroker(brokerToRemove, brokerEpochOpt, uid);
     }
 
     /**
@@ -389,8 +402,10 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
         return brokerIdTag;
     }
 
-    private void activateEngine() {
-        balanceEngine.onActivation(kafkaConfig);
+    private void activateEngine(Map<Integer, Long> brokerEpochs) {
+        balanceEngine.onActivation(
+                new EngineInitializationContext(kafkaConfig, brokerEpochs, this::registerBrokerRemovalMetric)
+        );
         dataBalancerMetricsRegistry.newGauge(ConfluentDataBalanceEngine.class,
                 BROKER_ADD_COUNT_METRIC_NAME,
                 brokersToAdd::size,

@@ -19,7 +19,7 @@ message ApiStatusKey {
 
 message ApiStatusMessage {
   oneof databalancer {
-    RemoveBrokerStatus removeBrokerStatus = 1;
+    BrokerRemovalStateRecordProto removeBrokerStatus = 1;
     AddBrokerStatus addBrokerStatus = 2;
   }
 }

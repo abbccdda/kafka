@@ -12,7 +12,6 @@ import javax.annotation.concurrent.ThreadSafe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-
 /**
  * This class encapsulates the nitty-gritty logic of tracking and advancing the broker removal state machine.
  *
@@ -28,6 +27,7 @@ public class BrokerRemovalStateTracker implements BrokerRemovalCallback {
   private Set<BrokerRemovalStateMachine.BrokerRemovalState> passedStates;
   private BrokerRemovalStateMachine stateMachine;
   private BrokerRemovalProgressListener progressListener;
+  private BrokerRemovalTerminationListener terminationListener;
   private AtomicReference<String> stateReference;
   private volatile boolean cancelled = false;
   private volatile boolean initialized = false;
@@ -37,16 +37,34 @@ public class BrokerRemovalStateTracker implements BrokerRemovalCallback {
    * @param progressListener the listener to call whenever the broker removal operation's progress changes
    * @param stateReference an atomic reference of the current state name to keep up to date
    */
-  public BrokerRemovalStateTracker(int brokerId, BrokerRemovalProgressListener progressListener, AtomicReference<String> stateReference) {
-    this(brokerId, new BrokerRemovalStateMachine(brokerId), progressListener, stateReference);
+  public BrokerRemovalStateTracker(int brokerId,
+                                   BrokerRemovalProgressListener progressListener,
+                                   BrokerRemovalTerminationListener terminationListener,
+                                   AtomicReference<String> stateReference) {
+    this(brokerId,
+         new BrokerRemovalStateMachine(brokerId, BrokerRemovalStateMachine.START_STATE),
+         progressListener,
+         terminationListener,
+         stateReference);
+  }
+
+  public BrokerRemovalStateTracker(int brokerId,
+                                   BrokerRemovalStateMachine.BrokerRemovalState initState,
+                                   BrokerRemovalProgressListener progressListener,
+                                   BrokerRemovalTerminationListener terminationListener,
+                                   AtomicReference<String> stateReference) {
+    this(brokerId, new BrokerRemovalStateMachine(brokerId, initState), progressListener, terminationListener, stateReference);
   }
 
   // package-private for testing
   BrokerRemovalStateTracker(int brokerId, BrokerRemovalStateMachine stateMachine,
-                            BrokerRemovalProgressListener progressListener, AtomicReference<String> stateReference) {
+                            BrokerRemovalProgressListener progressListener,
+                            BrokerRemovalTerminationListener terminationListener,
+                            AtomicReference<String> stateReference) {
     this.brokerId = brokerId;
     this.stateMachine = stateMachine;
     this.progressListener = progressListener;
+    this.terminationListener = terminationListener;
     this.stateReference = stateReference;
     this.passedStates = new HashSet<>();
     this.passedStates.add(stateMachine.currentState);
@@ -61,7 +79,10 @@ public class BrokerRemovalStateTracker implements BrokerRemovalCallback {
     }
 
     stateReference.set(stateMachine.currentState.name());
-    tryNotifyProgressChanged(stateMachine.currentState, null);
+
+    if (stateMachine.currentState == BrokerRemovalStateMachine.START_STATE) {
+      tryNotifyProgressChanged(stateMachine.currentState, null);
+    }
     initialized = true;
   }
 
@@ -69,8 +90,8 @@ public class BrokerRemovalStateTracker implements BrokerRemovalCallback {
     return brokerId;
   }
 
-  public String currentState() {
-    return stateReference.get();
+  public BrokerRemovalStateMachine.BrokerRemovalState currentState() {
+    return stateMachine.currentState;
   }
 
   @Override
@@ -81,8 +102,9 @@ public class BrokerRemovalStateTracker implements BrokerRemovalCallback {
   @Override
   public synchronized void registerEvent(BrokerRemovalEvent pe, Exception eventException) {
     if (cancelled) {
-      LOG.info("Did not register broker removal event {} (exception {}) for broker {} because the removal operation was already canceled.", pe, eventException, brokerId);
-      return;
+      String errMsg = String.format("Will not register broker removal event %s (exception %s) for broker %d because the removal operation was already canceled.", pe, eventException, brokerId);
+      LOG.warn(errMsg);
+      throw new IllegalStateException(errMsg);
     }
     processEvent(pe, eventException);
   }
@@ -91,10 +113,12 @@ public class BrokerRemovalStateTracker implements BrokerRemovalCallback {
    * Cancels the broker removal state tracking by setting a terminal canceled state
    * @return a boolean indicating whether the operation was canceled
    */
-  public synchronized boolean cancel(Exception eventException) {
+  public synchronized boolean cancel(Exception eventException, boolean registerEvent) {
     if (canBeCanceled()) {
-      processEvent(BrokerRemovalEvent.BROKER_RESTARTED, // broker restart is the only cancel event right now
-          eventException);
+      if (registerEvent) {
+        processEvent(BrokerRemovalEvent.BROKER_RESTARTED, // broker restart is the only cancel event right now
+            eventException);
+      }
       cancelled = true;
     }
 
@@ -150,14 +174,14 @@ public class BrokerRemovalStateTracker implements BrokerRemovalCallback {
   private void tryNotifyProgressChanged(BrokerRemovalStateMachine.BrokerRemovalState state,
                                         Exception progressException) {
     try {
-      this.progressListener.onProgressChanged(state.brokerShutdownStatus(), state.partitionReassignmentsStatus(), progressException);
+      this.progressListener.onProgressChanged(brokerId, state, progressException);
       LOG.debug("Notified progress listener of broker removal state change.");
     } catch (Exception e) {
       LOG.error("Error while notifying that broker removal operation progress changed for broker {}", brokerId);
     }
     if (state.isTerminal()) {
       try {
-        this.progressListener.onTerminalState(state, progressException);
+        this.terminationListener.onTerminalState(brokerId, state, progressException);
         LOG.debug("Notified progress listener of broker removal reaching terminal state.");
       } catch (Exception e) {
         LOG.error("Error while notifying that broker removal operation progress reached a terminal state {} for broker {}",

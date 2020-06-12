@@ -21,17 +21,17 @@ import com.linkedin.kafka.cruisecontrol.analyzer.goals.TopicReplicaDistributionG
 import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback;
 import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalFuture;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
-import io.confluent.cruisecontrol.analyzer.goals.ReplicaPlacementGoal;
 import com.linkedin.kafka.cruisecontrol.exception.KafkaCruiseControlException;
+import io.confluent.cruisecontrol.analyzer.goals.ReplicaPlacementGoal;
 import io.confluent.cruisecontrol.analyzer.goals.SequentialReplicaMovementGoal;
 import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsSamplerBase;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import io.confluent.databalancer.operation.BalanceOpExecutionCompletionCallback;
+import io.confluent.databalancer.operation.BrokerRemovalStateMachine;
 import io.confluent.databalancer.operation.BrokerRemovalStateTracker;
 import io.confluent.databalancer.persistence.ApiStatePersistenceStore;
+import io.confluent.databalancer.persistence.BrokerRemovalStateRecord;
 import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
-
-import kafka.common.BrokerRemovalStatus;
 import kafka.server.Defaults$;
 import kafka.server.KafkaConfig;
 import kafka.server.KafkaConfig$;
@@ -39,7 +39,6 @@ import kafka.utils.MockTime;
 import kafka.utils.TestUtils$;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.AdminClientConfig;
-import org.apache.kafka.clients.admin.BrokerRemovalDescription;
 import org.apache.kafka.common.Endpoint;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.SslConfigs;
@@ -68,6 +67,7 @@ import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionHandler;
 import java.util.concurrent.Semaphore;
@@ -75,6 +75,7 @@ import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -84,9 +85,11 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -111,6 +114,9 @@ public class ConfluentDataBalanceEngineTest  {
 
     @Mock BalanceOpExecutionCompletionCallback mockExecCompletionCb;
 
+    // the persisted broker removal state records
+    private Map<Integer, BrokerRemovalStateRecord> brokerRemovalStateRecordMap;
+
     // Spy over executor service returned by currentThreadExecutorService
     private ExecutorService executorService;
 
@@ -132,7 +138,7 @@ public class ConfluentDataBalanceEngineTest  {
 
         @Override
         public void execute(Runnable command) {
-            // `rejectedExecution` will throw RejectedExectionException that will be handled
+            // `rejectedExecution` will throw RejectedExecutorException that will be handled
             // by RejectedExecutionHandler. We use `CallersRunsPolicy` which responds by running the
             // task in calling thread, making the execution synchronous from caller perspective.
             getRejectedExecutionHandler().rejectedExecution(command, this);
@@ -164,11 +170,19 @@ public class ConfluentDataBalanceEngineTest  {
         Mockito.reset(persistenceStore);
     }
 
-    private ConfluentDataBalanceEngine getTestDataBalanceEngine() {
+    private ConfluentDataBalanceEngine getTestDataBalanceEngine() throws InterruptedException {
         executorService = Mockito.spy(currentThreadExecutorService());
         ConfluentDataBalanceEngineContext context = Mockito.spy(new ConfluentDataBalanceEngineContext(
                 mockMetricsRegistry, mockCruiseControl, mockTime));
         when(context.getPersistenceStore()).thenReturn(persistenceStore);
+
+        brokerRemovalStateRecordMap = new ConcurrentHashMap<>();
+        doAnswer(invocation -> {
+            BrokerRemovalStateRecord brokerRemovalStateRecord = (BrokerRemovalStateRecord) invocation.getArguments()[0];
+            brokerRemovalStateRecordMap.put(brokerRemovalStateRecord.brokerId(), brokerRemovalStateRecord);
+            return null;
+        }).when(persistenceStore).save(any(BrokerRemovalStateRecord.class), anyBoolean());
+        when(persistenceStore.getAllBrokerRemovalStateRecords()).thenReturn(brokerRemovalStateRecordMap);
 
         return new ConfluentDataBalanceEngine(executorService, context);
     }
@@ -612,7 +626,7 @@ public class ConfluentDataBalanceEngineTest  {
     }
 
     @Test
-    public void testStartupComponentsReadySuccessful() {
+    public void testStartupComponentsReadySuccessful() throws InterruptedException {
         List<ConfluentDataBalanceEngine.StartupComponent> startupComponents = ConfluentDataBalanceEngine.STARTUP_COMPONENTS;
         try {
             ConfluentDataBalanceEngine.STARTUP_COMPONENTS.clear();
@@ -714,7 +728,7 @@ public class ConfluentDataBalanceEngineTest  {
     }
 
     @Test
-    public void testStopCruiseControlAfterShutdownd() {
+    public void testStopCruiseControlAfterShutdownd() throws InterruptedException {
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
         dbe.onDeactivation(); // This shuts down the mock
         verify(mockCruiseControl, times(1)).shutdown();
@@ -726,7 +740,7 @@ public class ConfluentDataBalanceEngineTest  {
     }
 
     @Test
-    public void testStopCruiseControl() {
+    public void testStopCruiseControl() throws InterruptedException {
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
         dbe.stopCruiseControl();
         verify(mockCruiseControl).shutdown();  // Shutdown should have been called
@@ -735,7 +749,7 @@ public class ConfluentDataBalanceEngineTest  {
     }
 
     @Test
-    public void testDeactivation() {
+    public void testDeactivation() throws InterruptedException {
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
         dbe.canAcceptRequests = true;
         dbe.onDeactivation();
@@ -750,7 +764,7 @@ public class ConfluentDataBalanceEngineTest  {
      * Test starting cruise control when its already there is a no-op.
      */
     @Test
-    public void testStartCruiseControlNoOp() {
+    public void testStartCruiseControlNoOp() throws InterruptedException {
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
         dbe.startCruiseControl(null, null);
 
@@ -775,7 +789,8 @@ public class ConfluentDataBalanceEngineTest  {
             when(context.getPersistenceStore()).thenReturn(persistenceStore);
             ConfluentDataBalanceEngine dbe = new ConfluentDataBalanceEngine(currentThreadExecutorService(), context);
 
-            dbe.startCruiseControl(config, kafkaconfig -> mockCruiseControl);
+            dbe.startCruiseControl(initializationContext(config),
+                    __ -> mockCruiseControl);
             verify(mockCruiseControl).startUp();
         } finally {
             // Restore components
@@ -795,9 +810,8 @@ public class ConfluentDataBalanceEngineTest  {
             when(context.getPersistenceStore()).thenReturn(persistenceStore);
             ConfluentDataBalanceEngine dbe = new ConfluentDataBalanceEngine(currentThreadExecutorService(), context);
 
-            dbe.startCruiseControl(config, kafkaconfig -> {
-                throw new RuntimeException();
-            });
+            dbe.startCruiseControl(initializationContext(config),
+                    __ -> null);
             verify(mockCruiseControl, never()).startUp();
         } finally {
             // Restore components
@@ -805,14 +819,19 @@ public class ConfluentDataBalanceEngineTest  {
         }
     }
 
+    private EngineInitializationContext initializationContext(KafkaConfig config) {
+        return new EngineInitializationContext(config, Collections.emptyMap(),
+            __ -> new AtomicReference<>("Test metric"));
+    }
+
     @Test
-    public void testOnActivation() {
+    public void testOnActivation() throws InterruptedException {
         KafkaConfig config = mock(KafkaConfig.class);
 
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
         Mockito.doReturn(null).when(executorService).submit(any(Runnable.class));
 
-        dbe.onActivation(config);
+        dbe.onActivation(initializationContext(config));
         verify(executorService).submit(any(Runnable.class));
         assertTrue("DatabalanceEngine is not started", dbe.canAcceptRequests);
     }
@@ -825,16 +844,19 @@ public class ConfluentDataBalanceEngineTest  {
 
         KafkaConfig config = mock(KafkaConfig.class);
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
-        dbe.onActivation(config);
+        dbe.onActivation(initializationContext(config));
         BrokerRemovalFuture exec = mock(BrokerRemovalFuture.class);
         when(mockCruiseControl.removeBroker(eq(brokerToRemove), eq(brokerEpoch),
             any(BalanceOpExecutionCompletionCallback.class), any(BrokerRemovalCallback.class), anyString())).thenReturn(exec);
 
         ArgumentCaptor<BalanceOpExecutionCompletionCallback> captor = ArgumentCaptor.forClass(BalanceOpExecutionCompletionCallback.class);
-        BrokerRemovalStateTracker mockTracker = mock(BrokerRemovalStateTracker.class);
+
+        BrokerRemovalStateRecord expectedStateRecord = new BrokerRemovalStateRecord(brokerToRemove,
+            BrokerRemovalStateMachine.BrokerRemovalState.INITIAL_PLAN_COMPUTATION_INITIATED,
+            null);
 
         // act
-        dbe.removeBroker(brokerToRemove, brokerEpoch, mockTracker, "uid");
+        dbe.removeBroker(brokerToRemove, brokerEpoch, "uid");
 
         // assert
         assertTrue("DatabalanceEngine is not started", dbe.canAcceptRequests);
@@ -849,6 +871,22 @@ public class ConfluentDataBalanceEngineTest  {
         // assert that the completion callback cleans up the removal future
         captor.getValue().accept(true, null);
         verify(dbe.context).removeBrokerRemovalFuture(brokerToRemove);
+
+        assertEquals("Expected to have a persisted broker removal state", 1, brokerRemovalStateRecordMap.size());
+        assertEquals(expectedStateRecord, brokerRemovalStateRecordMap.get(brokerToRemove));
+        assertEquals("Expected to have one broker removal state tracker in the context object",
+            1, dbe.context.brokerRemovalsStateTrackers.size());
+    }
+
+    @Test
+    public void testBrokerRemovalTerminationListener() throws InterruptedException {
+        ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
+        dbe.context.brokerRemovalsStateTrackers.put(1, mock(BrokerRemovalStateTracker.class));
+
+        // test that the termination listener would clean the state tracker
+        dbe.removalTerminationListener.onTerminalState(1, null, null);
+        assertEquals("Expected to have removed the broker removal state tracker in the context object",
+            0, dbe.context.brokerRemovalsStateTrackers.size());
     }
 
     @Test
@@ -859,21 +897,22 @@ public class ConfluentDataBalanceEngineTest  {
 
         KafkaConfig config = mock(KafkaConfig.class);
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
-        dbe.onActivation(config);
+        dbe.onActivation(initializationContext(config));
         BrokerRemovalFuture exec = mock(BrokerRemovalFuture.class);
         when(mockCruiseControl.removeBroker(eq(brokerToRemove), eq(brokerEpoch),
                 any(BalanceOpExecutionCompletionCallback.class), any(BrokerRemovalCallback.class),
                 anyString())).thenReturn(exec);
 
-        BrokerRemovalStatus doneStatus = new BrokerRemovalStatus(brokerToRemove,
-                BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE,
-                BrokerRemovalDescription.PartitionReassignmentsStatus.COMPLETE,
+
+        BrokerRemovalStateRecord doneStatus = new BrokerRemovalStateRecord(brokerToRemove,
+                BrokerRemovalStateMachine.BrokerRemovalState.PLAN_EXECUTION_SUCCEEDED,
                 null);
-        when(persistenceStore.getBrokerRemovalStatus(brokerToRemove)).thenReturn(doneStatus);
+        when(persistenceStore.getBrokerRemovalStateRecord(brokerToRemove)).thenReturn(doneStatus);
+
         BrokerRemovalStateTracker mockTracker = mock(BrokerRemovalStateTracker.class);
 
         // act
-        dbe.removeBroker(brokerToRemove, brokerEpoch, mockTracker, "uid");
+        dbe.removeBroker(brokerToRemove, brokerEpoch, "uid");
 
         // assert
         verify(executorService, times(2)).submit(any(Runnable.class));
@@ -889,63 +928,58 @@ public class ConfluentDataBalanceEngineTest  {
      * Check that appropriate error is reported when a broker is removed twice.
      */
     @Test(expected = BrokerRemovalInProgressException.class)
-    public void testRemoveBrokerTwiceFailure() {
+    public void testRemoveBrokerTwiceFailure() throws InterruptedException {
         int brokerToRemove = 1;
         Optional<Long> brokerEpoch = Optional.of(1L);
 
         KafkaConfig config = mock(KafkaConfig.class);
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
-        dbe.onActivation(config);
+        dbe.onActivation(initializationContext(config));
 
-        BrokerRemovalStatus inProgressStatus = new BrokerRemovalStatus(brokerToRemove,
-                BrokerRemovalDescription.BrokerShutdownStatus.PENDING,
-                BrokerRemovalDescription.PartitionReassignmentsStatus.PENDING,
+        BrokerRemovalStateRecord inProgressStatus = new BrokerRemovalStateRecord(brokerToRemove,
+                BrokerRemovalStateMachine.BrokerRemovalState.INITIAL_PLAN_COMPUTATION_INITIATED,
                 null);
-        when(persistenceStore.getBrokerRemovalStatus(brokerToRemove)).thenReturn(inProgressStatus);
-        BrokerRemovalStateTracker mockTracker = mock(BrokerRemovalStateTracker.class);
+        when(persistenceStore.getBrokerRemovalStateRecord(brokerToRemove)).thenReturn(inProgressStatus);
 
         // This will throw BrokerRemovalInProgressException
-        dbe.removeBroker(brokerToRemove, brokerEpoch, mockTracker, "uid");
+        dbe.removeBroker(brokerToRemove, brokerEpoch, "uid");
     }
 
     /**
      * Check that appropriate error is reported when other brokers are getting removed.
      */
     @Test(expected = BrokerRemovalInProgressException.class)
-    public void testRemoveBrokerFailureForExistingRemovals() {
+    public void testRemoveBrokerFailureForExistingRemovals() throws InterruptedException {
         int brokerToRemove = 1;
         Optional<Long> brokerEpoch = Optional.of(1L);
 
         KafkaConfig config = mock(KafkaConfig.class);
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
-        dbe.onActivation(config);
+        dbe.onActivation(initializationContext(config));
 
-        BrokerRemovalStatus inProgressStatus = new BrokerRemovalStatus(brokerToRemove + 1,
-                BrokerRemovalDescription.BrokerShutdownStatus.PENDING,
-                BrokerRemovalDescription.PartitionReassignmentsStatus.PENDING,
+        BrokerRemovalStateRecord inProgressStatus = new BrokerRemovalStateRecord(brokerToRemove + 1,
+                BrokerRemovalStateMachine.BrokerRemovalState.INITIAL_PLAN_COMPUTATION_INITIATED,
                 null);
-        when(persistenceStore.getBrokerRemovalStatus(brokerToRemove)).thenReturn(null);
-        when(persistenceStore.getAllBrokerRemovalStatus())
+        when(persistenceStore.getBrokerRemovalStateRecord(brokerToRemove)).thenReturn(null);
+        when(persistenceStore.getAllBrokerRemovalStateRecords())
                 .thenReturn(Collections.singletonMap(inProgressStatus.brokerId(), inProgressStatus));
 
-        BrokerRemovalStateTracker mockTracker = mock(BrokerRemovalStateTracker.class);
         // This will throw BrokerRemovalInProgressException
-        dbe.removeBroker(brokerToRemove, brokerEpoch, mockTracker, "uid");
+        dbe.removeBroker(brokerToRemove, brokerEpoch, "uid");
     }
 
     @Test(expected = InvalidRequestException.class)
-    public void testRemoveBrokerThrowsInvalidRequestExceptionIfNoActiveDatabalancer() {
+    public void testRemoveBrokerThrowsInvalidRequestExceptionIfNoActiveDatabalancer() throws InterruptedException {
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
         int brokerToRemove = 1;
         Optional<Long> brokerEpoch = Optional.of(1L);
 
-        BrokerRemovalStateTracker mockTracker = mock(BrokerRemovalStateTracker.class);
-        dbe.removeBroker(brokerToRemove, brokerEpoch, mockTracker, "uid");
+        dbe.removeBroker(brokerToRemove, brokerEpoch, "uid");
     }
 
     @Test
     @SuppressWarnings("unchecked")
-    public void testCancelBrokerRemovals_CallsFutureCancel() {
+    public void testCancelBrokerRemovals_CallsFutureCancel() throws InterruptedException {
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
         BrokerRemovalFuture mockFuture1 = mock(BrokerRemovalFuture.class);
         when(mockFuture1.cancel()).thenReturn(true);
@@ -974,7 +1008,7 @@ public class ConfluentDataBalanceEngineTest  {
     }
 
     @Test
-    public void testUpdateThrottleWhileRunning() {
+    public void testUpdateThrottleWhileRunning() throws InterruptedException {
         ConfluentDataBalanceEngine realDbe = getTestDataBalanceEngine();
         ConfluentDataBalanceEngine dbe = spy(realDbe);
         dbe.updateThrottle(100L);
@@ -983,7 +1017,7 @@ public class ConfluentDataBalanceEngineTest  {
     }
 
     @Test
-    public void testUpdateThrottleWhileStopped() {
+    public void testUpdateThrottleWhileStopped() throws InterruptedException {
         ConfluentDataBalanceEngine realDbe = getTestDataBalanceEngine();
         ConfluentDataBalanceEngine dbe = spy(realDbe);
         dbe.onDeactivation();
@@ -994,7 +1028,7 @@ public class ConfluentDataBalanceEngineTest  {
     }
 
     @Test
-    public void testUpdateAutoHeal() {
+    public void testUpdateAutoHeal() throws InterruptedException {
         ConfluentDataBalanceEngine realDbe = getTestDataBalanceEngine();
         ConfluentDataBalanceEngine dbe = spy(realDbe);
         dbe.setAutoHealMode(true);
@@ -1007,7 +1041,7 @@ public class ConfluentDataBalanceEngineTest  {
     }
 
     @Test
-    public void testUpdateAutoHealWhenStopped() {
+    public void testUpdateAutoHealWhenStopped() throws InterruptedException {
         ConfluentDataBalanceEngine realDbe = getTestDataBalanceEngine();
         ConfluentDataBalanceEngine dbe = spy(realDbe);
         dbe.onDeactivation();
@@ -1025,7 +1059,7 @@ public class ConfluentDataBalanceEngineTest  {
         ConfluentDataBalanceEngine realDbe = getTestDataBalanceEngine();
         ConfluentDataBalanceEngine dbe = spy(realDbe);
 
-        dbe.onActivation(config);
+        dbe.onActivation(initializationContext(config));
 
         dbe.addBrokers(brokersToAdd, mockExecCompletionCb,  testUid);
         verify(dbe).doAddBrokers(eq(brokersToAdd), eq(mockExecCompletionCb), eq(testUid));
@@ -1033,7 +1067,7 @@ public class ConfluentDataBalanceEngineTest  {
     }
 
     @Test
-    public void testAddBroker_pendingRemove() {
+    public void testAddBroker_pendingRemove() throws InterruptedException {
         int removingBroker = 1;
         Set<Integer> brokersToAdd = new HashSet<>(Collections.singletonList(10));
         String testUid = "testUid";
@@ -1042,15 +1076,14 @@ public class ConfluentDataBalanceEngineTest  {
         ConfluentDataBalanceEngine realDbe = getTestDataBalanceEngine();
         ConfluentDataBalanceEngine dbe = spy(realDbe);
 
-        dbe.onActivation(config);
+        dbe.onActivation(initializationContext(config));
 
-        BrokerRemovalStatus inProgressStatus = new BrokerRemovalStatus(removingBroker,
-                BrokerRemovalDescription.BrokerShutdownStatus.PENDING,
-                BrokerRemovalDescription.PartitionReassignmentsStatus.PENDING,
+        BrokerRemovalStateRecord inProgressStatus = new BrokerRemovalStateRecord(removingBroker,
+                BrokerRemovalStateMachine.BrokerRemovalState.INITIAL_PLAN_COMPUTATION_INITIATED,
                 null);
-        Map<Integer, BrokerRemovalStatus> removingBrokers = new HashMap<>();
+        Map<Integer, BrokerRemovalStateRecord> removingBrokers = new HashMap<>();
         removingBrokers.put(removingBroker, inProgressStatus);
-        when(persistenceStore.getAllBrokerRemovalStatus()).thenReturn(removingBrokers);
+        when(persistenceStore.getAllBrokerRemovalStateRecords()).thenReturn(removingBrokers);
 
         dbe.addBrokers(brokersToAdd, mockExecCompletionCb, testUid);
         verify(dbe, never()).doAddBrokers(any(), any(), any());
@@ -1066,15 +1099,14 @@ public class ConfluentDataBalanceEngineTest  {
         ConfluentDataBalanceEngine realDbe = getTestDataBalanceEngine();
         ConfluentDataBalanceEngine dbe = spy(realDbe);
 
-        dbe.onActivation(config);
+        dbe.onActivation(initializationContext(config));
 
-        BrokerRemovalStatus removedStatus = new BrokerRemovalStatus(removingBroker,
-                BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE,
-                BrokerRemovalDescription.PartitionReassignmentsStatus.COMPLETE,
+        BrokerRemovalStateRecord removedStatus = new BrokerRemovalStateRecord(removingBroker,
+                BrokerRemovalStateMachine.BrokerRemovalState.PLAN_EXECUTION_SUCCEEDED,
                 null);
-        Map<Integer, BrokerRemovalStatus> removingBrokers = new HashMap<>();
+        Map<Integer, BrokerRemovalStateRecord> removingBrokers = new HashMap<>();
         removingBrokers.put(removingBroker, removedStatus);
-        when(persistenceStore.getAllBrokerRemovalStatus()).thenReturn(removingBrokers);
+        when(persistenceStore.getAllBrokerRemovalStateRecords()).thenReturn(removingBrokers);
 
         dbe.addBrokers(brokersToAdd, mockExecCompletionCb, testUid);
         verify(dbe).doAddBrokers(eq(brokersToAdd), eq(mockExecCompletionCb), eq(testUid));
@@ -1091,19 +1123,53 @@ public class ConfluentDataBalanceEngineTest  {
         ConfluentDataBalanceEngine realDbe = getTestDataBalanceEngine();
         ConfluentDataBalanceEngine dbe = spy(realDbe);
 
-        dbe.onActivation(config);
+        dbe.onActivation(initializationContext(config));
 
-        BrokerRemovalStatus failedStatus = new BrokerRemovalStatus(removingBroker,
-                BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE,
-                BrokerRemovalDescription.PartitionReassignmentsStatus.CANCELED,
-                null);
-        Map<Integer, BrokerRemovalStatus> removingBrokers = new HashMap<>();
+        BrokerRemovalStateRecord failedStatus = new BrokerRemovalStateRecord(removingBroker,
+            BrokerRemovalStateMachine.BrokerRemovalState.PLAN_EXECUTION_CANCELED,
+            null);
+        Map<Integer, BrokerRemovalStateRecord> removingBrokers = new HashMap<>();
         removingBrokers.put(removingBroker, failedStatus);
-        when(persistenceStore.getAllBrokerRemovalStatus()).thenReturn(removingBrokers);
+        when(persistenceStore.getAllBrokerRemovalStateRecords()).thenReturn(removingBrokers);
 
         dbe.addBrokers(brokersToAdd, mockExecCompletionCb, testUid);
         verify(dbe).doAddBrokers(eq(brokersToAdd), eq(mockExecCompletionCb), eq(testUid));
         verify(mockCruiseControl).addBrokers(eq(brokersToAdd), eq(mockExecCompletionCb), eq(testUid));
     }
 
+    @Test
+    public void testRemoveBrokerStateTrackerContinuouslyUpdatesStatus() throws Throwable {
+        int brokerToRemove = 1;
+        Optional<Long> brokerEpoch = Optional.of(1L);
+
+        KafkaConfig config = mock(KafkaConfig.class);
+        ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
+        dbe.onActivation(initializationContext(config));
+        BrokerRemovalFuture exec = mock(BrokerRemovalFuture.class);
+        when(mockCruiseControl.removeBroker(eq(brokerToRemove), eq(brokerEpoch),
+            any(BalanceOpExecutionCompletionCallback.class), any(BrokerRemovalCallback.class), anyString())).thenReturn(exec);
+
+
+        BrokerRemovalStateRecord expectedStateRecord = new BrokerRemovalStateRecord(brokerToRemove,
+            BrokerRemovalStateMachine.BrokerRemovalState.INITIAL_PLAN_COMPUTATION_INITIATED,
+            null);
+
+        // act
+        dbe.removeBroker(brokerToRemove, brokerEpoch, "uid");
+
+        assertEquals("Expected to have a persisted broker removal state", 1, brokerRemovalStateRecordMap.size());
+        assertEquals(expectedStateRecord, brokerRemovalStateRecordMap.get(brokerToRemove));
+        assertEquals("Expected to have one broker removal state tracker in the context object",
+            1, dbe.context.brokerRemovalsStateTrackers.size());
+        BrokerRemovalStateTracker stateTracker = dbe.context.brokerRemovalsStateTrackers.get(brokerToRemove);
+        stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS);
+        stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_SUCCESS);
+        expectedStateRecord = new BrokerRemovalStateRecord(brokerToRemove,
+            BrokerRemovalStateMachine.BrokerRemovalState.PLAN_COMPUTATION_INITIATED, null);
+        BrokerRemovalStateRecord receivedStateRecord = brokerRemovalStateRecordMap.get(brokerToRemove);
+        assertEquals(expectedStateRecord.brokerShutdownStatus(), receivedStateRecord.brokerShutdownStatus());
+        assertEquals(expectedStateRecord.partitionReassignmentsStatus(), receivedStateRecord.partitionReassignmentsStatus());
+        assertEquals(expectedStateRecord.exception(), receivedStateRecord.exception());
+        assertEquals(expectedStateRecord.brokerId(), receivedStateRecord.brokerId());
+    }
 }

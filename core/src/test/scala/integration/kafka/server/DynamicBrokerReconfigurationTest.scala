@@ -31,7 +31,7 @@ import javax.management.ObjectName
 import com.yammer.metrics.core.MetricName
 import kafka.admin.ConfigCommand
 import kafka.api.{KafkaSasl, SaslSetup}
-import kafka.common.BrokerRemovalStatus
+import kafka.common.BrokerRemovalDescriptionInternal
 import kafka.controller.{ControllerBrokerStateInfo, ControllerChannelManager, DataBalanceManager}
 import kafka.log.LogConfig
 import kafka.message.ProducerCompressionCodec
@@ -1980,7 +1980,7 @@ class TestDataBalancer extends DataBalanceManager {
   var throttleConfig = ConfluentConfigs.BALANCER_THROTTLE_DEFAULT;
   var autoHealModeConfig = ConfluentConfigs.BALANCER_AUTO_HEAL_MODE_DEFAULT;
 
-  override def onElection(): Unit = {}
+  override def onElection(brokerEpochs: java.util.Map[java.lang.Integer, java.lang.Long]): Unit = {}
 
   override def onResignation(): Unit = {}
 
@@ -2008,7 +2008,7 @@ class TestDataBalancer extends DataBalanceManager {
     assertEquals("throttle doesn't match", throttleExpected, throttleConfig)
   }
 
-  override def brokerRemovals(): java.util.List[BrokerRemovalStatus] = List().asJava
+  override def brokerRemovals(): java.util.List[BrokerRemovalDescriptionInternal] = List().asJava
 }
 
 class MockFileConfigProvider extends FileConfigProvider {

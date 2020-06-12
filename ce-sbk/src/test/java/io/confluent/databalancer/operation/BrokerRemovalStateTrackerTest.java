@@ -6,7 +6,7 @@ package io.confluent.databalancer.operation;
 import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback;
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicReference;
-import kafka.common.BrokerRemovalStatus;
+import kafka.common.BrokerRemovalDescriptionInternal;
 import org.apache.kafka.clients.admin.BrokerRemovalDescription;
 import org.apache.kafka.common.errors.BrokerRemovalCanceledException;
 import org.apache.kafka.common.errors.ReassignmentInProgressException;
@@ -29,6 +29,7 @@ import static io.confluent.databalancer.operation.BrokerRemovalStateMachine.Brok
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 
@@ -81,46 +82,61 @@ public class BrokerRemovalStateTrackerTest {
   private Exception planComputationFailure = new Exception("Plan computation failed!");
   private Exception canceledException = new BrokerRemovalCanceledException("Broker removal was canceled");
   private AtomicReference<String> stateRef = new AtomicReference<>("TEST");
-  class TestListener implements BrokerRemovalProgressListener {
-    private BrokerRemovalStatus status;
-    private boolean terminalStateNotified = false;
+  private boolean terminalStateNotified = false;
+
+  class TestTerminalListener implements BrokerRemovalTerminationListener {
+    private BrokerRemovalStateMachine.BrokerRemovalState state;
+    private Exception exception;
 
     @Override
-    public void onProgressChanged(BrokerRemovalDescription.BrokerShutdownStatus shutdownStatus, BrokerRemovalDescription.PartitionReassignmentsStatus partitionReassignmentsStatus, Exception e) {
-      status = new BrokerRemovalStatus(brokerId, shutdownStatus, partitionReassignmentsStatus, e);
+    public void onTerminalState(int brokerId, BrokerRemovalStateMachine.BrokerRemovalState state, Exception e) {
+      if (!state.isTerminal()) {
+        throw new IllegalStateException("Registered a non-terminal state in onTerminalState()!");
+      }
+      terminalStateNotified = true;
+
+      if (this.state != null) {
+        throw new IllegalStateException("Registered a terminal state twice!");
+      }
+      this.state = state;
+      this.exception = e;
+    }
+  }
+
+  class TestListener implements BrokerRemovalProgressListener {
+    private BrokerRemovalDescriptionInternal status;
+    private BrokerRemovalStateMachine.BrokerRemovalState state;
+
+    public BrokerRemovalDescriptionInternal status() {
+      return status;
     }
 
     /**
-     * Called when the state of the removal operation reaches a terminal point
+     * Called whenever the state of the removal operation changes.
      *
-     * @param state - the terminal state
-     * @param e     - nullable, the exception that caused the terminal state
+     * @param state the new broker removal state the operation is in
+     * @param e     - nullable, an exception that occurred during the broker removal op
      */
     @Override
-    public void onTerminalState(BrokerRemovalStateMachine.BrokerRemovalState state, Exception e) {
-      if (!state.isTerminal()) {
-        throw new IllegalStateException("Got notified of a terminal state when we shouldn't have");
-      }
-      terminalStateNotified = true;
-    }
-
-    public BrokerRemovalStatus status() {
-      return status;
+    public void onProgressChanged(int brokerId, BrokerRemovalStateMachine.BrokerRemovalState state, Exception e) {
+      this.status = new BrokerRemovalDescriptionInternal(brokerId, state.brokerShutdownStatus(), state.partitionReassignmentsStatus(), e);
+      this.state = state;
     }
   }
 
   private TestListener listener = new TestListener();
+  private TestTerminalListener terminalListener = new TestTerminalListener();
 
   @Before
   public void setUp() {
     stateMachine = new BrokerRemovalStateMachine(brokerId);
-    stateTracker = new BrokerRemovalStateTracker(brokerId, stateMachine, listener, stateRef);
+    stateTracker = new BrokerRemovalStateTracker(brokerId, stateMachine, listener, terminalListener, stateRef);
     stateTracker.initialize();
   }
 
   @Test(expected = IllegalStateException.class)
   public void testAdvanceState_NotInitializedTracker_ThrowsException() {
-    BrokerRemovalStateTracker stateTracker = new BrokerRemovalStateTracker(brokerId, stateMachine, listener, stateRef);
+    BrokerRemovalStateTracker stateTracker = new BrokerRemovalStateTracker(brokerId, stateMachine, listener, terminalListener, stateRef);
     stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS);
   }
 
@@ -129,7 +145,7 @@ public class BrokerRemovalStateTrackerTest {
    */
   @Test(expected = IllegalStateException.class)
   public void testInitialize_InitializedTracker_ThrowsException() {
-    BrokerRemovalStateTracker stateTracker = new BrokerRemovalStateTracker(brokerId, stateMachine, listener, stateRef);
+    BrokerRemovalStateTracker stateTracker = new BrokerRemovalStateTracker(brokerId, stateMachine, listener, terminalListener, stateRef);
     stateTracker.initialize();
     stateTracker.initialize();
   }
@@ -204,7 +220,7 @@ public class BrokerRemovalStateTrackerTest {
     stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_SUCCESS);
     stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_COMPUTATION_SUCCESS);
     assertState(PLAN_EXECUTION_INITIATED);
-    stateTracker.cancel(canceledException);
+    stateTracker.cancel(canceledException, true);
     assertState(PLAN_EXECUTION_CANCELED, canceledException);
     assertStatesNotSeen(BROKER_SHUTDOWN_CANCELED, BROKER_SHUTDOWN_FAILED, PLAN_COMPUTATION_FAILED, INITIAL_PLAN_COMPUTATION_FAILED);
     assertFalse("Should not be able to cancel state tracker as its in a terminal state", stateTracker.canBeCanceled());
@@ -218,13 +234,30 @@ public class BrokerRemovalStateTrackerTest {
     stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS);
 
     // act
-    stateTracker.cancel(canceledException);
+    stateTracker.cancel(canceledException, true);
     assertState(BROKER_SHUTDOWN_CANCELED, canceledException);
-    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_FAILURE);
+    assertThrows(IllegalStateException.class, () -> stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_FAILURE));
 
     // assert - nothing should have changed
     assertState(BROKER_SHUTDOWN_CANCELED, canceledException);
     assertStatesNotSeen(BROKER_SHUTDOWN_FAILED);
+  }
+
+
+  /**
+   * Cancellation with a false registerEvent flag means we should not advance the state machine to a cancelled state
+   */
+  @Test
+  public void testCancel_NoEventRegistration() {
+    boolean toRegisterEvent = false;
+    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS);
+
+    // act
+    assertState(BROKER_SHUTDOWN_INITIATED);
+    stateTracker.cancel(canceledException, toRegisterEvent);
+    assertState(BROKER_SHUTDOWN_INITIATED); // state should not have moved
+    // further registrations fail
+    assertThrows(IllegalStateException.class, () -> stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_FAILURE));
   }
 
   /**
@@ -252,7 +285,7 @@ public class BrokerRemovalStateTrackerTest {
     stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS);
     stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_SUCCESS);
     assertState(PLAN_COMPUTATION_INITIATED);
-    stateTracker.cancel(canceledException);
+    stateTracker.cancel(canceledException, true);
     assertState(PLAN_COMPUTATION_CANCELED, canceledException);
   }
 
@@ -286,7 +319,7 @@ public class BrokerRemovalStateTrackerTest {
   public void testAdvanceStateTo_ShutdownCancellation() {
     stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS);
     assertState(BROKER_SHUTDOWN_INITIATED);
-    stateTracker.cancel(canceledException);
+    stateTracker.cancel(canceledException, true);
     assertState(BROKER_SHUTDOWN_CANCELED, canceledException);
   }
 
@@ -377,8 +410,10 @@ public class BrokerRemovalStateTrackerTest {
 
     assertEquals(state, stateMachine.currentState);
     assertStatesSeen(state);
+    assertEquals(state, listener.state);
+
     assertEquals(state.name(), stateRef.get());
-    assertEquals(state.name(), stateTracker.currentState());
+    assertEquals(state, stateTracker.currentState());
     if (exception == null) {
       assertNull("Expected no exception to be populated",
           listener.status().exception());
@@ -387,7 +422,9 @@ public class BrokerRemovalStateTrackerTest {
     }
     if (state.isTerminal()) {
       assertTrue("Expected listener to be notified of the terminal state",
-          listener.terminalStateNotified);
+          terminalStateNotified);
+      assertEquals(state, terminalListener.state);
+      assertEquals(exception, terminalListener.exception);
     }
   }
 

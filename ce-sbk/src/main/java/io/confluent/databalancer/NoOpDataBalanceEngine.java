@@ -1,11 +1,9 @@
-/**
+/*
  * Copyright 2020 Confluent Inc.
  */
 package io.confluent.databalancer;
 
 import io.confluent.databalancer.operation.BalanceOpExecutionCompletionCallback;
-import io.confluent.databalancer.operation.BrokerRemovalStateTracker;
-import kafka.server.KafkaConfig;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,7 +26,7 @@ public class NoOpDataBalanceEngine implements DataBalanceEngine {
     }
 
     @Override
-    public void onActivation(KafkaConfig kafkaConfig) { }
+    public void onActivation(EngineInitializationContext initializationContext) { }
 
     @Override
     public void onDeactivation() { }
@@ -53,7 +51,6 @@ public class NoOpDataBalanceEngine implements DataBalanceEngine {
     @Override
     public void removeBroker(int brokerToRemove,
                              Optional<Long> brokerToRemoveEpoch,
-                             BrokerRemovalStateTracker stateTracker,
                              String uid) {
         String msg = String.format("Received request to remove broker %d (uid %s) while SBK is not started.",
             brokerToRemove, uid);

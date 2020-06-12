@@ -64,7 +64,7 @@ object KafkaController extends Logging {
   type ListReassignmentsCallback = Either[Map[TopicPartition, ReplicaAssignment], ApiError] => Unit
   type AlterReassignmentsCallback = Either[Map[TopicPartition, ApiError], ApiError] => Unit
   type RemoveBrokerResultCallback = Option[ApiError] => Unit
-  type DescribeBrokerRemovalsResultCallback = Either[List[BrokerRemovalStatus], ApiError] => Unit
+  type DescribeBrokerRemovalsResultCallback = Either[List[BrokerRemovalDescriptionInternal], ApiError] => Unit
 }
 
 class KafkaController(val config: KafkaConfig,
@@ -285,7 +285,13 @@ class KafkaController(val config: KafkaConfig,
         unit = TimeUnit.MILLISECONDS)
     }
 
-    dataBalancer.foreach { _.onElection }
+    dataBalancer.foreach {
+      val brokerEpochsAsJava = controllerContext.liveBrokerIdAndEpochs.map {
+        case (brokerId, brokerEpoch) => (brokerId:java.lang.Integer, brokerEpoch:java.lang.Long)
+      }.asJava
+
+      _.onElection(brokerEpochsAsJava)
+    }
   }
 
   private def scheduleAutoLeaderRebalanceTask(delay: Long, unit: TimeUnit): Unit = {

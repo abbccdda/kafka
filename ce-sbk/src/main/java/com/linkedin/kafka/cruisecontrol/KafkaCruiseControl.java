@@ -13,7 +13,9 @@ import com.linkedin.kafka.cruisecontrol.analyzer.goals.PreferredLeaderElectionGo
 import com.linkedin.kafka.cruisecontrol.async.progress.OperationProgress;
 import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalFuture;
 import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalOptions;
+import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalPhase;
 import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalPhaseBuilder;
+import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalRestartablePhase;
 import com.linkedin.kafka.cruisecontrol.client.BlockingSendClient;
 import com.linkedin.kafka.cruisecontrol.common.KafkaCruiseControlThreadFactory;
 import com.linkedin.kafka.cruisecontrol.common.MetadataClient;
@@ -42,6 +44,8 @@ import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;
+
+import io.confluent.databalancer.operation.BrokerRemovalStateMachine;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.utils.SystemTime;
 import org.apache.kafka.common.utils.Time;
@@ -245,47 +249,112 @@ public class KafkaCruiseControl {
     BalanceOpExecutionCompletionCallback combinedCompletionCallback =
             composeRemovalExecutionCompletionCallbacks(brokersToRemove, executionCompletionCallback, progressCallback);
 
+    // Abort on-going executions and acquire a reservation on the executor
+    BrokerRemovalPhase<Void> reserveExecutorPhase = new BrokerRemovalRestartablePhase.BrokerRemovalRestartablePhaseBuilder<Void>()
+            .setAlwaysExecute(true)
+            .setPhase(new BrokerRemovalPhase<Void>() {
+              @Override
+              public Void execute(BrokerRemovalOptions removalOpts) throws Exception {
+                LOG.info("Reserving the Executor and aborting ongoing executions as part of broker removal operation for broker {}", broker);
+                Executor.ReservationHandle handle = _executor.reserveAndAbortOngoingExecutions(Duration.ofMinutes(1));
+                removalArgs.reservationHandle.set(handle);
+                LOG.info("Successfully reserved the Executor");
+                return null;
+              }
+
+              @Override
+              public BrokerRemovalStateMachine.BrokerRemovalState startState() {
+                return null;
+              }
+            }).build();
+
+    // Pre-shutdown plan computation - validate that a plan can be computed successfully
+    BrokerRemovalPhase<Void> initialPlanComputationPhase = new BrokerRemovalRestartablePhase.BrokerRemovalRestartablePhaseBuilder<Void>()
+            .setBrokerRemovalStateTracker(progressCallback)
+            .setPhase(new BrokerRemovalPhase<Void>() {
+              @Override
+              public Void execute(BrokerRemovalOptions removalOpts) throws Exception {
+                computeDrainBrokersPlan(removalOpts.brokersToRemove, Collections.emptyList(), removalOpts.operationProgress, removalOpts.planComputationOptions);
+                LOG.info("Successfully computed the remove broker plan for broker {}", broker);
+                return null;
+              }
+
+              @Override
+              public BrokerRemovalStateMachine.BrokerRemovalState startState() {
+                return BrokerRemovalStateMachine.BrokerRemovalState.INITIAL_PLAN_COMPUTATION_INITIATED;
+              }
+            }).build();
+
+    // Broker shutdown - shutdown the broker to be removed and wait for it to leave the cluster
+    BrokerRemovalPhase<Void> brokerShutdownPhase = new BrokerRemovalRestartablePhase.BrokerRemovalRestartablePhaseBuilder<Void>()
+            .setBrokerRemovalStateTracker(progressCallback)
+            .setPhase(new BrokerRemovalPhase<Void>() {
+              @Override
+              public Void execute(BrokerRemovalOptions removalOpts) throws Exception {
+                LOG.info("Attempting to shut down broker {} as part of broker removal operation", broker);
+                long start = _time.milliseconds();
+
+                boolean wasShutdown = _brokerShutdownManager.maybeShutdownBroker(broker, brokerEpoch);
+
+                long end = _time.milliseconds();
+                if (wasShutdown) {
+                  LOG.info("Broker {} was shut down successfully in {} milliseconds", broker, end - start);
+                } else {
+                  LOG.info("Broker {} was already shut down prior to broker removal - no shutdown request was sent.", broker);
+                }
+                return null;
+              }
+
+              @Override
+              public BrokerRemovalStateMachine.BrokerRemovalState startState() {
+                return BrokerRemovalStateMachine.BrokerRemovalState.BROKER_SHUTDOWN_INITIATED;
+              }
+            }).build();
+
+    // Actual plan computation - compute the plan which we'll execute to drain the broker
+    BrokerRemovalPhase<Void> planComputationPhase = new BrokerRemovalRestartablePhase.BrokerRemovalRestartablePhaseBuilder<Void>()
+            .setBrokerRemovalStateTracker(progressCallback)
+            .setPhase(new BrokerRemovalPhase<Void>() {
+              @Override
+              public Void execute(BrokerRemovalOptions removalOptions) throws Exception {
+                OptimizerResult plan = computeDrainBrokersPlan(
+                        removalOptions.brokersToRemove, Collections.emptyList(), removalOptions.operationProgress, removalOptions.planComputationOptions
+                );
+                removalOptions.setProposals(plan.goalProposals());
+                return null;
+              }
+
+              @Override
+              public BrokerRemovalStateMachine.BrokerRemovalState startState() {
+                return BrokerRemovalStateMachine.BrokerRemovalState.PLAN_COMPUTATION_INITIATED;
+              }
+            }).build();
+
+    // Plan execution - execute the partition reassignments to move replicas away from the broker (drain)
+    BrokerRemovalPhase<Future<?>> planExecutionPhase = new BrokerRemovalRestartablePhase.BrokerRemovalRestartablePhaseBuilder<Future<?>>()
+            .setBrokerRemovalStateTracker(progressCallback)
+            .setPhase(new BrokerRemovalPhase<Future<?>>() {
+              @Override
+              public Future<?> execute(BrokerRemovalOptions removalOptions) throws Exception {
+                Future<?> future = executeRemoval(removalOptions.proposals, removalOptions.brokersToRemove, false, _replicationThrottle, uuid, combinedCompletionCallback);
+                LOG.info("Successfully submitted the broker removal plan for broker {} (epoch {})", broker, brokerEpoch);
+                return future;
+              }
+
+              @Override
+              public BrokerRemovalStateMachine.BrokerRemovalState startState() {
+                return BrokerRemovalStateMachine.BrokerRemovalState.PLAN_EXECUTION_INITIATED;
+              }
+            }).build();
+
     BrokerRemovalPhaseBuilder brokerRemovalPhaseBuilder = new BrokerRemovalPhaseBuilder();
-    return brokerRemovalPhaseBuilder.composeRemoval(removalArgs, progressCallback,
-        removalOpts -> { // 0. Abort on-going executions and acquire a reservation on the executor
-          LOG.info("Reserving the Executor and aborting ongoing executions as part of broker removal operation for broker {}", broker);
-          Executor.ReservationHandle handle = _executor.reserveAndAbortOngoingExecutions(Duration.ofMinutes(1));
-          removalArgs.reservationHandle.set(handle);
-          LOG.info("Successfully reserved the Executor");
-          return null;
-        },
-        removalOpts -> { // 1. Pre-shutdown plan computation - validate that a plan can be computed successfully
-          computeDrainBrokersPlan(removalOpts.brokersToRemove, Collections.emptyList(), removalOpts.operationProgress, removalOpts.planComputationOptions);
-          LOG.info("Successfully computed the remove broker plan for broker {}", broker);
-          return null;
-        },
-        removalOptions -> { // 2. Broker shutdown - shutdown the broker to be removed and wait for it to leave the cluster
-          LOG.info("Attempting to shut down broker {} as part of broker removal operation", broker);
-          long start = _time.milliseconds();
-
-          boolean wasShutdown = _brokerShutdownManager.maybeShutdownBroker(broker, brokerEpoch);
-
-          long end = _time.milliseconds();
-          if (wasShutdown) {
-            LOG.info("Broker {} was shut down successfully in {} milliseconds", broker, end - start);
-          } else {
-            LOG.info("Broker {} was already shut down prior to broker removal - no shutdown request was sent.", broker);
-          }
-          return null;
-        },
-        removalOptions -> { // 3. Actual plan computation - compute the plan which we'll execute to drain the broker
-          OptimizerResult plan = computeDrainBrokersPlan(
-              removalOptions.brokersToRemove, Collections.emptyList(), removalOptions.operationProgress, removalOptions.planComputationOptions
-          );
-          removalOptions.setProposals(plan.goalProposals());
-          return null;
-        },
-        removalOptions -> { // 4. Plan execution - execute the partition reassignments to move replicas away from the broker (drain)
-          Future<?> future = executeRemoval(removalOptions.proposals, removalOptions.brokersToRemove, false, _replicationThrottle, uuid, combinedCompletionCallback);
-          LOG.info("Successfully submitted the broker removal plan for broker {} (epoch {})", broker, brokerEpoch);
-          return future;
-        }
-    );
+    return brokerRemovalPhaseBuilder.composeRemoval(removalArgs,
+            progressCallback,
+            reserveExecutorPhase,
+            initialPlanComputationPhase,
+            brokerShutdownPhase,
+            planComputationPhase,
+            planExecutionPhase);
   }
 
   /*

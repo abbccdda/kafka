@@ -7,17 +7,24 @@ import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.monitor.MockSampler;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.NoopSampleStore;
 import io.confluent.kafka.test.cluster.EmbeddedKafkaCluster;
+import io.confluent.license.validator.LicenseConfig;
 import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
 import kafka.server.KafkaConfig;
+import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.ServerSocket;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.stream.Collectors;
 
 import static com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore.BROKER_SAMPLE_STORE_TOPIC_PARTITION_COUNT_CONFIG;
 import static com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore.PARTITION_SAMPLE_STORE_TOPIC_PARTITION_COUNT_CONFIG;
@@ -35,42 +42,49 @@ import static org.junit.Assert.fail;
  * All SBK components are configured with the first broker as a bootstrap server.
  */
 public class EmbeddedSBKKafkaCluster extends EmbeddedKafkaCluster {
-  private int broker0Port;
-  private Logger logger;
-
-  /**
-   * Start all the brokers, ensuring they have the right
-   * bootstrap port configured for the sample store
-   */
-  public void startBrokers(int numBrokers, Properties overrideProps, Map<Integer, Map<String, String>> brokerOverrideProps) {
-    logger = LoggerFactory.getLogger(this.getClass());
-    try {
-      broker0Port = findUnusedPort();
-    } catch (IOException e) {
-      fail(String.format("Could not reserve port due to %s", e));
-    }
-
-    Properties properties = buildCommonProperties(overrideProps, broker0Port);
-
-    Properties broker0Props = new Properties(properties);
-    broker0Props.putAll(properties);
-    broker0Props.setProperty(KafkaConfig.PortProp(), Integer.toString(broker0Port));
-    broker0Props = buildBrokerProperties(broker0Props, brokerOverrideProps.getOrDefault(0, Collections.emptyMap()));
-    startBroker(0, broker0Props);
-    logger.info("Successfully started broker 0");
-
-    for (int i = 1; i < numBrokers; i++) {
-      Properties brokerProps = buildBrokerProperties(properties, brokerOverrideProps.getOrDefault(i, Collections.emptyMap()));
-      startBroker(i, brokerProps);
-    }
-    logger.info("Successfully started the rest of the {} brokers", numBrokers);
-  }
+  private static final Logger LOG = LoggerFactory.getLogger(EmbeddedSBKKafkaCluster.class);
+  private static final int REPLICATION_FACTOR = 2;
 
   @Override
   public void startBrokers(int numBrokers, Properties overrideProps) {
     startBrokers(numBrokers, overrideProps, Collections.emptyMap());
   }
-  
+
+  /**
+   * Start all the brokers, ensuring they have the right
+   * bootstrap port configured for the sample store.
+   * We start the brokers up concurrently in order to accommodate RF=2 (or larger)
+   * on topics that are required for Kafka startup (e.g license topic)
+   */
+  public void startBrokers(int numBrokers, Properties overrideProps,
+                           Map<Integer, Map<String, String>> brokerOverrideProps) {
+    if (numBrokers < REPLICATION_FACTOR) {
+      throw new IllegalArgumentException(String.format("Must have at least %d brokers up to accommodate the replication factor of %d", numBrokers, REPLICATION_FACTOR));
+    }
+    try {
+      int[] brokerPorts = new int[numBrokers];
+      for (int idx = 0; idx < numBrokers; idx++) {
+        brokerPorts[idx] = findUnusedPort();
+      }
+
+      String bootstrapServers = Arrays.stream(brokerPorts)
+              .mapToObj(port -> "localhost:" + port)
+              .collect(Collectors.joining(","));
+
+      List<Properties> brokerPropsList = new ArrayList<>();
+      for (int brokerId = 0; brokerId < numBrokers; brokerId++) {
+        Properties startProps = createBrokerConfig(brokerId, new Properties());
+        Properties properties = buildBrokerProperties(buildCommonProperties(startProps, overrideProps, bootstrapServers),
+            brokerOverrideProps.getOrDefault(brokerId, Collections.emptyMap()));
+        properties.setProperty(KafkaConfig.PortProp(), Integer.toString(brokerPorts[brokerId]));
+        brokerPropsList.add(properties);
+      }
+      concurrentStartBrokers(brokerPropsList, Duration.ofSeconds(60));
+    } catch (Exception e) {
+      fail(String.format("Could not start brokers due to %s", e));
+    }
+  }
+
   /**
    * Find an unused port on this system, to use for our Kafka
    * SBK needs a bootstrap server, but the standard test config
@@ -84,12 +98,12 @@ public class EmbeddedSBKKafkaCluster extends EmbeddedKafkaCluster {
     }
   }
 
-  private Properties buildCommonProperties(Properties overrideProps, int bootstrapPort) {
-    Properties properties = new Properties();
-
-    injectSbkProperties(properties, bootstrapPort);
-    properties.putAll(overrideProps);
-    return properties;
+  private Properties buildCommonProperties(Properties props, Properties overrideProps, String bootstrapServers) {
+    props.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+    props.put(KafkaConfig.ZkConnectProp(), zkConnect());
+    injectSbkProperties(props, bootstrapServers);
+    props.putAll(overrideProps);
+    return props;
   }
 
   private Properties buildBrokerProperties(Properties props, Map<String, String> overrideProps) {
@@ -99,19 +113,20 @@ public class EmbeddedSBKKafkaCluster extends EmbeddedKafkaCluster {
     return properties;
   }
 
-  private void injectSbkProperties(Properties props, int bootstrapPort) {
+  private void injectSbkProperties(Properties props, String bootstrapServers) {
     props.put(ConfluentConfigs.BALANCER_ENABLE_CONFIG, "true");
     props.put(ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_CONFIG, "5000000");
     props.put(ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_CONFIG, "5000000");
-    props.put(confluentBalancerConfig(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG),
-        String.format("localhost:%d", bootstrapPort));
+    props.put(confluentBalancerConfig(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG), bootstrapServers);
     props.put(confluentBalancerConfig(KafkaCruiseControlConfig.METADATA_MAX_AGE_CONFIG),
         "500");
     // use lower partition count for faster rebalances
     props.put(confluentBalancerConfig(PARTITION_SAMPLE_STORE_TOPIC_PARTITION_COUNT_CONFIG), "1");
     props.put(confluentBalancerConfig(BROKER_SAMPLE_STORE_TOPIC_PARTITION_COUNT_CONFIG), "1");
     // Even though we don't use the metrics reporter, its topic replicas config is used
-    props.put(ConfluentMetricsReporterConfig.TOPIC_REPLICAS_CONFIG, "2");
+    String replFactor = Integer.toString(REPLICATION_FACTOR);
+    props.put(ConfluentMetricsReporterConfig.TOPIC_REPLICAS_CONFIG, replFactor);
+    props.put(LicenseConfig.REPLICATION_FACTOR_PROP, replFactor);
     // larger concurrency limits for faster rebalances
     props.put(confluentBalancerConfig(KafkaCruiseControlConfig.NUM_CONCURRENT_PARTITION_MOVEMENTS_PER_BROKER_CONFIG), "50");
     props.put(confluentBalancerConfig(KafkaCruiseControlConfig.NUM_CONCURRENT_LEADER_MOVEMENTS_CONFIG), "50");
