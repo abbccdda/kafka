@@ -17,6 +17,7 @@ import io.confluent.databalancer.operation.BrokerRemovalStateTracker;
 import kafka.common.BrokerRemovalStatus;
 import io.confluent.databalancer.persistence.ApiStatePersistenceStore;
 import java.util.HashSet;
+
 import java.util.Set;
 
 import kafka.controller.DataBalanceManager;
@@ -263,18 +264,20 @@ public class KafkaDataBalanceManagerTest {
                 KafkaDataBalanceManager.getMetricsWhiteList());
         dataBalancer = new KafkaDataBalanceManager(initConfig, mockDataBalanceEngineFactory, dbMetricsRegistry, time);
         dataBalancer.onElection();
-        verifyMetricValue(metrics, 1);
+        verifyMetricValue(metrics, KafkaDataBalanceManager.ACTIVE_BALANCER_COUNT_METRIC_NAME, 1);
         dataBalancer.onResignation();
-        verifyMetricValue(metrics, 0);
+        verifyMetricValue(metrics, KafkaDataBalanceManager.ACTIVE_BALANCER_COUNT_METRIC_NAME, 0);
 
         cleanMetrics(metrics);
     }
 
-    private void verifyMetricValue(MetricsRegistry metricsRegistry, Integer expectedValue) {
+    private void verifyMetricValue(MetricsRegistry metricsRegistry, String metricSimpleName, Integer expectedValue) {
         Map<MetricName, Metric> metrics = metricsRegistry.allMetrics();
-        assertEquals(1, metrics.size());
-        MetricName metricName = new ArrayList<>(metrics.keySet()).get(0);
-        assertEquals("ActiveBalancerCount", metricName.getName());
+        // Note may throw if metric not present
+        MetricName metricName = metrics.keySet().stream().filter(m -> m.getName().equals(metricSimpleName)).findFirst().get();
+
+        assertEquals(1, metrics.keySet().stream().filter(m -> m.getName().equals(metricSimpleName)).count());
+
         assertEquals("kafka.databalancer", metricName.getGroup());
         assertEquals(expectedValue, ((Gauge<?>) metrics.get(metricName)).value());
     }
@@ -356,7 +359,7 @@ public class KafkaDataBalanceManagerTest {
                 BrokerRemovalDescription.PartitionReassignmentsStatus.FAILED,
                 expectedListenerException);
         assertEquals("Expected one removal status to be populated",
-            1, brokerRemovalStatusMap.size());
+                1, brokerRemovalStatusMap.size());
         assertTrue("Expected the removed broker's removal status to be populated",
                 brokerRemovalStatusMap.containsKey(brokerId));
         assertEquals(expectedStatus, brokerRemovalStatusMap.get(brokerId));
@@ -390,7 +393,7 @@ public class KafkaDataBalanceManagerTest {
                 null);
 
         assertEquals("Expected one removal status to be populated",
-            1, brokerRemovalStatusMap.size());
+                1, brokerRemovalStatusMap.size());
         assertTrue("Expected the removed broker's removal status to be populated",
                 brokerRemovalStatusMap.containsKey(brokerId));
         assertEquals(expectedStatus, brokerRemovalStatusMap.get(brokerId));
@@ -407,7 +410,7 @@ public class KafkaDataBalanceManagerTest {
                 expectedListenerException);
 
         assertEquals("Expected one removal status to be populated",
-            1, brokerRemovalStatusMap.size());
+                1, brokerRemovalStatusMap.size());
         assertTrue("Expected the removed broker's removal status to be populated",
                 brokerRemovalStatusMap.containsKey(brokerId));
         assertEquals(expectedStatus2,
@@ -460,7 +463,7 @@ public class KafkaDataBalanceManagerTest {
                 new KafkaDataBalanceManager.DataBalanceEngineFactory(mockActiveDataBalanceEngine, mockInactiveDataBalanceEngine);
 
         KafkaDataBalanceManager dataBalancer = new KafkaDataBalanceManager(initConfig, dbeFactory,
-            mockDbMetrics, time);
+                mockDbMetrics, time);
         dataBalancer.balanceEngine = mockActiveDataBalanceEngine;
         assertEquals(Collections.emptyList(), dataBalancer.brokerRemovals());
 
@@ -479,7 +482,7 @@ public class KafkaDataBalanceManagerTest {
 
         assertEquals(Arrays.asList(broker1Status, broker2Status), new ArrayList<>(brokerRemovalStatusMap.values()));
     }
-    
+
     /**
      * Confirm that add clears pending work after successful completion
      */
@@ -663,5 +666,33 @@ public class KafkaDataBalanceManagerTest {
         verify(mockActiveDataBalanceEngine).cancelBrokerRemoval(1);
         verify(mockActiveDataBalanceEngine, never()).cancelBrokerRemoval(3); // broker 3 should not be cancelled
         assertEquals(0, dataBalancer.brokerRemovalsStateTrackers.size()); // all state trackers should have been cleaned up
+    }
+
+    public void testAddMetric() {
+        MetricsRegistry metrics = KafkaYammerMetrics.defaultRegistry();
+
+        cleanMetrics(metrics);
+        DataBalancerMetricsRegistry dbMetricsRegistry = new DataBalancerMetricsRegistry(metrics,
+                KafkaDataBalanceManager.getMetricsWhiteList());
+        KafkaDataBalanceManager dataBalancer = new KafkaDataBalanceManager(initConfig,
+                new KafkaDataBalanceManager.DataBalanceEngineFactory(mockActiveDataBalanceEngine, mockInactiveDataBalanceEngine),
+                dbMetricsRegistry, time);
+
+        // No brokers adding on startup
+        dataBalancer.onElection();
+        verifyMetricValue(metrics, KafkaDataBalanceManager.BROKER_ADD_COUNT_METRIC_NAME, 0);
+
+        // Submit an add, count should go up
+        Set<Integer> newBrokers = new HashSet<>();
+        newBrokers.add(10);
+        dataBalancer.onBrokersStartup(newBrokers, newBrokers);
+
+        verifyMetricValue(metrics, KafkaDataBalanceManager.BROKER_ADD_COUNT_METRIC_NAME, 1);
+
+        verify(mockActiveDataBalanceEngine).addBrokers(eq(newBrokers), execCbCaptor.capture(), anyString());
+
+        // Success! Count should go back to 0
+        execCbCaptor.getValue().accept(true, null);
+        verifyMetricValue(metrics, KafkaDataBalanceManager.BROKER_ADD_COUNT_METRIC_NAME, 0);
     }
 }

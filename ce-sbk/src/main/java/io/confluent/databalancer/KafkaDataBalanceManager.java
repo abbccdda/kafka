@@ -27,12 +27,12 @@ import scala.Option;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.HashSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -41,6 +41,7 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
     private static final Logger LOG = LoggerFactory.getLogger(KafkaDataBalanceManager.class);
     public static final String ACTIVE_BALANCER_COUNT_METRIC_NAME = "ActiveBalancerCount";
     public static final String BROKER_REMOVAL_STATE_METRIC_NAME = "BrokerRemovalOperationState";
+    public static final String BROKER_ADD_COUNT_METRIC_NAME = "BrokerAddCount";
 
     // package private for testing
     // the whole set is used for brokerAdd operations so the whole set must be synchronized
@@ -139,10 +140,7 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
         this.dataBalancerMetricsRegistry.newGauge(KafkaDataBalanceManager.class, "ActiveBalancerCount",
                 () -> balanceEngine.isActive() ? 1 : 0, false);
         this.brokerRemovalsStateTrackers = new ConcurrentHashMap<>();
-        // Since multiple adds can be ongoing at one time, and correct generation of the add Requests means knowing which ones
-        // are actually truly currently pending, synchronize on the brokersToAdd object rather than use a Concurrent
-        // object, which may be in the middle of updates.
-        this.brokersToAdd = new HashSet<>();
+        this.brokersToAdd = ConcurrentHashMap.newKeySet();
     }
 
     /**
@@ -158,7 +156,7 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
             return;
         }
 
-        balanceEngine.onActivation(kafkaConfig);
+        activateEngine();
     }
 
     public boolean isActive() {
@@ -171,7 +169,7 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
      */
     @Override
     public synchronized void onResignation() {
-        balanceEngine.onDeactivation();
+        deactivateEngine();
         balanceEngine = dbeFactory.getInactiveDataBalanceEngine();
     }
 
@@ -203,9 +201,9 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
         if (!kafkaConfig.getBoolean(ConfluentConfigs.BALANCER_ENABLE_CONFIG).equals(oldConfig.getBoolean(ConfluentConfigs.BALANCER_ENABLE_CONFIG))) {
             // This node is eligible to be running the data balancer AND the enabled config changed.
             if (kafkaConfig.getBoolean(ConfluentConfigs.BALANCER_ENABLE_CONFIG)) {
-                balanceEngine.onActivation(kafkaConfig);
+                activateEngine();
             } else {
-                balanceEngine.onDeactivation();
+                deactivateEngine();
             }
             // All other changes are effectively applied by the startup/shutdown (CC has been started with the new config, or it's been shut down),
             // so config updates are done now. Finish.
@@ -242,10 +240,8 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
 
         // TODO: when operation arbitration logic is added in the DataBalanceEngine, that can decide what should be executed next, instead of doing it here. (CNKAF-757)
         Set<Integer> addingBrokers;
-        synchronized (brokersToAdd) {
-            brokersToAdd.addAll(emptyBrokers);
-            addingBrokers = new HashSet<>(brokersToAdd);
-        }
+        brokersToAdd.addAll(newBrokers);
+        addingBrokers = new HashSet<>(brokersToAdd);
         String operationUid = String.format("addBroker-%d", time.milliseconds());
 
         // On completion, clear set of brokers being added
@@ -253,11 +249,9 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
             // A successful completion should clear the added brokers. An exceptional completion should, as well.
             LOG.info("Add Operation completed with success value {}", opSuccess);
             if (opSuccess || ex != null) {
-                synchronized (brokersToAdd) {
-                    brokersToAdd.removeAll(addingBrokers);
-                    LOG.info("Broker Add op (of brokers {}) completion, remaining brokers to add: {}",
-                            addingBrokers, brokersToAdd);
-                }
+                brokersToAdd.removeAll(addingBrokers);
+                LOG.info("Broker Add op (of brokers {}) completion, remaining brokers to add: {}",
+                        addingBrokers, brokersToAdd);
             }
         };
 
@@ -393,5 +387,17 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
         Map<String, String> brokerIdTag = new HashMap<>();
         brokerIdTag.put("broker", String.valueOf(brokerId));
         return brokerIdTag;
+    }
+
+    private void activateEngine() {
+        balanceEngine.onActivation(kafkaConfig);
+        dataBalancerMetricsRegistry.newGauge(ConfluentDataBalanceEngine.class,
+                BROKER_ADD_COUNT_METRIC_NAME,
+                brokersToAdd::size,
+                true);
+    }
+
+    private void deactivateEngine() {
+        balanceEngine.onDeactivation();
     }
 }
