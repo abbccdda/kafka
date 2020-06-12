@@ -168,7 +168,7 @@ object ClusterLinkUtils extends Logging {
     */
   def updateMirrorProps(topic: String, localProps: Properties, remoteConfig: Config): Properties =
     resolveMirrorProps(localProps, Some(remoteConfig), (name: String) =>
-      warn(s"Unexpected configuration '$name' set for mirror topic '$topic'")
+      debug(s"Mirror-only configuration '$name' set for mirror topic '$topic'")
     )
 
   /**
