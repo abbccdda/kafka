@@ -260,24 +260,15 @@ public class Worker {
             final WorkerConnector workerConnector;
             ClassLoader savedLoader = plugins.currentThreadLoader();
             try {
-                final ConnectorConfig connConfig = new ConnectorConfig(plugins, connProps);
-                final String connClass = connConfig.getString(ConnectorConfig.CONNECTOR_CLASS_CONFIG);
-                log.info("Creating connector {} of type {}", connName, connClass);
-                final Connector connector = plugins.newConnector(connClass);
+                // By the time we arrive here, CONNECTOR_CLASS_CONFIG has been validated already
+                // Getting this value from the unparsed map will allow us to instantiate the
+                // right config (source or sink)
+                final String connClassProp = connProps.get(ConnectorConfig.CONNECTOR_CLASS_CONFIG);
+                log.info("Creating connector {} of type {}", connName, connClassProp);
+                final Connector connector = plugins.newConnector(connClassProp);
                 final OffsetStorageReader offsetReader = new OffsetStorageReaderImpl(
-                    offsetBackingStore,
-                    connName,
-                    internalKeyConverter,
-                    internalValueConverter
-                );
-                workerConnector = new WorkerConnector(
-                    connName,
-                    connector,
-                    ctx,
-                    metrics,
-                    statusListener,
-                    offsetReader
-                );
+                        offsetBackingStore, connName, internalKeyConverter, internalValueConverter);
+                workerConnector = new WorkerConnector(connName, connector, ctx, metrics, statusListener, offsetReader);
 
                 // Legacy metric for Backwards compatibility. Remove when all downstream clients
                 // (e.g. billing worker) use new worker-grouped metrics

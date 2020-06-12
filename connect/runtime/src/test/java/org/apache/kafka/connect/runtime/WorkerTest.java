@@ -25,10 +25,10 @@ import org.apache.kafka.common.MetricName;
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.ConfigException;
+import org.apache.kafka.common.config.provider.MockFileConfigProvider;
 import org.apache.kafka.common.metrics.MetricsReporter;
 import org.apache.kafka.common.metrics.stats.Avg;
 import org.apache.kafka.common.utils.AppInfoParser;
-import org.apache.kafka.common.config.provider.MockFileConfigProvider;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.connect.connector.ConnectorContext;
@@ -332,8 +332,8 @@ public class WorkerTest extends ThreadedTest {
         expectFileConfigProvider();
 
         EasyMock.expect(plugins.currentThreadLoader()).andReturn(delegatingLoader).times(2);
-        EasyMock.expect(plugins.newConnector("WorkerTestConnector")).andReturn(sinkConnector);
-        EasyMock.expect(sinkConnector.version()).andReturn("1.0");
+        EasyMock.expect(plugins.newConnector("WorkerTestConnector")).andReturn(sourceConnector);
+        EasyMock.expect(sourceConnector.version()).andReturn("1.0");
 
         connectorProps.put(ConnectorConfig.CONNECTOR_CLASS_CONFIG, "WorkerTestConnector");
 
@@ -341,6 +341,8 @@ public class WorkerTest extends ThreadedTest {
         EasyMock.expect(plugins.compareAndSwapLoaders(sourceConnector))
                 .andReturn(delegatingLoader)
                 .times(2);
+        EasyMock.expect(sourceConnector.config()).andReturn(WorkerTest.WorkerTestConnector.CONFIG_DEF);
+        EasyMock.expectLastCall();
         sourceConnector.initialize(anyObject(ConnectorContext.class));
         EasyMock.expectLastCall();
         sourceConnector.start(connectorProps);
@@ -404,6 +406,8 @@ public class WorkerTest extends ThreadedTest {
         EasyMock.expect(plugins.compareAndSwapLoaders(sourceConnector))
                 .andReturn(delegatingLoader)
                 .times(2);
+        EasyMock.expect(sourceConnector.config()).andReturn(WorkerTest.WorkerTestConnector.CONFIG_DEF);
+        EasyMock.expectLastCall();
         sourceConnector.initialize(anyObject(ConnectorContext.class));
         EasyMock.expectLastCall();
         sourceConnector.start(connectorProps);
@@ -1283,7 +1287,7 @@ public class WorkerTest extends ThreadedTest {
     }
 
     private void assertStatistics(Worker worker, int connectors, int tasks) {
-        assertStatusMetrics(tasks, "connector-total-task-count");
+        assertStatusMetrics((long) tasks, "connector-total-task-count");
         MetricGroup workerMetrics = worker.workerMetricsGroup().metricGroup();
         assertEquals(connectors, MockConnectMetrics.currentMetricValueAsDouble(worker.metrics(), workerMetrics, "connector-count"), 0.0001d);
         assertEquals(tasks, MockConnectMetrics.currentMetricValueAsDouble(worker.metrics(), workerMetrics, "task-count"), 0.0001d);
@@ -1439,6 +1443,7 @@ public class WorkerTest extends ThreadedTest {
                 anyObject(StatusBackingStore.class))
                 .andReturn(workerTask);
     }
+
     /* Name here needs to be unique as we are testing the aliasing mechanism */
     public static class WorkerTestConnector extends SourceConnector {
 

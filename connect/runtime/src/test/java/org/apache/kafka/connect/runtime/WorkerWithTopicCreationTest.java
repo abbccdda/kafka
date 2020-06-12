@@ -25,6 +25,7 @@ import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.provider.MockFileConfigProvider;
+import org.apache.kafka.common.utils.AppInfoParser;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.connect.connector.ConnectorContext;
@@ -211,6 +212,8 @@ public class WorkerWithTopicCreationTest extends ThreadedTest {
                 .andReturn(delegatingLoader)
                 .times(2);
 
+        EasyMock.expect(connector.config()).andReturn(WorkerWithTopicCreationTest.WorkerTestConnector.CONFIG_DEF);
+        EasyMock.expectLastCall();
         connector.initialize(anyObject(ConnectorContext.class));
         EasyMock.expectLastCall();
         connector.start(connectorProps);
@@ -330,6 +333,8 @@ public class WorkerWithTopicCreationTest extends ThreadedTest {
         EasyMock.expect(plugins.compareAndSwapLoaders(connector))
                 .andReturn(delegatingLoader)
                 .times(2);
+        EasyMock.expect(connector.config()).andReturn(WorkerWithTopicCreationTest.WorkerTestConnector.CONFIG_DEF);
+        EasyMock.expectLastCall();
         connector.initialize(anyObject(ConnectorContext.class));
         EasyMock.expectLastCall();
         connector.start(connectorProps);
@@ -393,6 +398,8 @@ public class WorkerWithTopicCreationTest extends ThreadedTest {
         EasyMock.expect(plugins.compareAndSwapLoaders(connector))
                 .andReturn(delegatingLoader)
                 .times(2);
+        EasyMock.expect(connector.config()).andReturn(WorkerWithTopicCreationTest.WorkerTestConnector.CONFIG_DEF);
+        EasyMock.expectLastCall();
         connector.initialize(anyObject(ConnectorContext.class));
         EasyMock.expectLastCall();
         connector.start(connectorProps);
@@ -473,6 +480,8 @@ public class WorkerWithTopicCreationTest extends ThreadedTest {
         EasyMock.expect(plugins.compareAndSwapLoaders(connector))
                 .andReturn(delegatingLoader)
                 .times(3);
+        EasyMock.expect(connector.config()).andReturn(WorkerWithTopicCreationTest.WorkerTestConnector.CONFIG_DEF);
+        EasyMock.expectLastCall();
         connector.initialize(anyObject(ConnectorContext.class));
         EasyMock.expectLastCall();
         connector.start(connectorProps);
@@ -987,13 +996,16 @@ public class WorkerWithTopicCreationTest extends ThreadedTest {
     @Test
     public void testProducerConfigsWithoutOverrides() {
         EasyMock.expect(connectorConfig.originalsWithPrefix(ConnectorConfig.CONNECTOR_CLIENT_PRODUCER_OVERRIDES_PREFIX)).andReturn(
-            new HashMap<String, Object>());
+                new HashMap<String, Object>());
         PowerMock.replayAll();
         Map<String, String> expectedConfigs = new HashMap<>(defaultProducerConfigs);
         expectedConfigs.put("client.id", "connector-producer-job-0");
-        expectedConfigs.put("metrics.context.connect.kafka.cluster.id", "test-cluster");
+        expectedConfigs.put("metrics.context.connect.kafka.cluster.id", CLUSTER_ID);
+        expectedConfigs.put("metrics.context.resource.version", AppInfoParser.getVersion());
+        expectedConfigs.put("metrics.context.resource.commit.id", AppInfoParser.getCommitId());
+        expectedConfigs.put("metrics.context.resource.type", WorkerConfig.CONNECT_RESOURCE_TYPE);
         assertEquals(expectedConfigs,
-                     Worker.producerConfigs(TASK_ID, "connector-producer-" + TASK_ID, config, connectorConfig, null, noneConnectorClientConfigOverridePolicy, CLUSTER_ID));
+                Worker.producerConfigs(TASK_ID, "connector-producer-" + TASK_ID, config, connectorConfig, null, noneConnectorClientConfigOverridePolicy, CLUSTER_ID));
     }
 
     @Test
@@ -1008,12 +1020,16 @@ public class WorkerWithTopicCreationTest extends ThreadedTest {
         expectedConfigs.put("acks", "-1");
         expectedConfigs.put("linger.ms", "1000");
         expectedConfigs.put("client.id", "producer-test-id");
-        expectedConfigs.put("metrics.context.connect.kafka.cluster.id", "test-cluster");
+        expectedConfigs.put("metrics.context.connect.kafka.cluster.id", CLUSTER_ID);
+        expectedConfigs.put("metrics.context.resource.version", AppInfoParser.getVersion());
+        expectedConfigs.put("metrics.context.resource.commit.id", AppInfoParser.getCommitId());
+        expectedConfigs.put("metrics.context.resource.type", WorkerConfig.CONNECT_RESOURCE_TYPE);
+
         EasyMock.expect(connectorConfig.originalsWithPrefix(ConnectorConfig.CONNECTOR_CLIENT_PRODUCER_OVERRIDES_PREFIX)).andReturn(
-            new HashMap<String, Object>());
+                new HashMap<String, Object>());
         PowerMock.replayAll();
         assertEquals(expectedConfigs,
-                     Worker.producerConfigs(TASK_ID, "connector-producer-" + TASK_ID, configWithOverrides, connectorConfig, null, allConnectorClientConfigOverridePolicy, CLUSTER_ID));
+                Worker.producerConfigs(TASK_ID, "connector-producer-" + TASK_ID, configWithOverrides, connectorConfig, null, allConnectorClientConfigOverridePolicy, CLUSTER_ID));
     }
 
     @Test
@@ -1029,15 +1045,19 @@ public class WorkerWithTopicCreationTest extends ThreadedTest {
         expectedConfigs.put("linger.ms", "5000");
         expectedConfigs.put("batch.size", "1000");
         expectedConfigs.put("client.id", "producer-test-id");
-        expectedConfigs.put("metrics.context.connect.kafka.cluster.id", "test-cluster");
+        expectedConfigs.put("metrics.context.connect.kafka.cluster.id", CLUSTER_ID);
+        expectedConfigs.put("metrics.context.resource.version", AppInfoParser.getVersion());
+        expectedConfigs.put("metrics.context.resource.commit.id", AppInfoParser.getCommitId());
+        expectedConfigs.put("metrics.context.resource.type", WorkerConfig.CONNECT_RESOURCE_TYPE);
+
         Map<String, Object> connConfig = new HashMap<String, Object>();
         connConfig.put("linger.ms", "5000");
         connConfig.put("batch.size", "1000");
         EasyMock.expect(connectorConfig.originalsWithPrefix(ConnectorConfig.CONNECTOR_CLIENT_PRODUCER_OVERRIDES_PREFIX))
-            .andReturn(connConfig);
+                .andReturn(connConfig);
         PowerMock.replayAll();
         assertEquals(expectedConfigs,
-                     Worker.producerConfigs(TASK_ID, "connector-producer-" + TASK_ID, configWithOverrides, connectorConfig, null, allConnectorClientConfigOverridePolicy, CLUSTER_ID));
+                Worker.producerConfigs(TASK_ID, "connector-producer-" + TASK_ID, configWithOverrides, connectorConfig, null, allConnectorClientConfigOverridePolicy, CLUSTER_ID));
     }
 
     @Test
@@ -1045,11 +1065,16 @@ public class WorkerWithTopicCreationTest extends ThreadedTest {
         Map<String, String> expectedConfigs = new HashMap<>(defaultConsumerConfigs);
         expectedConfigs.put("group.id", "connect-test");
         expectedConfigs.put("client.id", "connector-consumer-test-1");
-        expectedConfigs.put("metrics.context.connect.kafka.cluster.id", "test-cluster");
+        expectedConfigs.put("metrics.context.connect.kafka.cluster.id", CLUSTER_ID);
+        expectedConfigs.put("metrics.context.resource.version", AppInfoParser.getVersion());
+        expectedConfigs.put("metrics.context.resource.commit.id", AppInfoParser.getCommitId());
+        expectedConfigs.put("metrics.context.resource.type", WorkerConfig.CONNECT_RESOURCE_TYPE);
+
         EasyMock.expect(connectorConfig.originalsWithPrefix(ConnectorConfig.CONNECTOR_CLIENT_CONSUMER_OVERRIDES_PREFIX)).andReturn(new HashMap<>());
+
         PowerMock.replayAll();
         assertEquals(expectedConfigs, Worker.consumerConfigs(new ConnectorTaskId("test", 1), config, connectorConfig,
-                                                             null, noneConnectorClientConfigOverridePolicy, CLUSTER_ID));
+                null, noneConnectorClientConfigOverridePolicy, CLUSTER_ID));
     }
 
     @Test
@@ -1065,11 +1090,15 @@ public class WorkerWithTopicCreationTest extends ThreadedTest {
         expectedConfigs.put("auto.offset.reset", "latest");
         expectedConfigs.put("max.poll.records", "1000");
         expectedConfigs.put("client.id", "consumer-test-id");
-        expectedConfigs.put("metrics.context.connect.kafka.cluster.id", "test-cluster");
+        expectedConfigs.put("metrics.context.connect.kafka.cluster.id", CLUSTER_ID);
+        expectedConfigs.put("metrics.context.resource.version", AppInfoParser.getVersion());
+        expectedConfigs.put("metrics.context.resource.commit.id", AppInfoParser.getCommitId());
+        expectedConfigs.put("metrics.context.resource.type", WorkerConfig.CONNECT_RESOURCE_TYPE);
+
         EasyMock.expect(connectorConfig.originalsWithPrefix(ConnectorConfig.CONNECTOR_CLIENT_CONSUMER_OVERRIDES_PREFIX)).andReturn(new HashMap<>());
         PowerMock.replayAll();
         assertEquals(expectedConfigs, Worker.consumerConfigs(new ConnectorTaskId("test", 1), configWithOverrides, connectorConfig,
-                                                             null, noneConnectorClientConfigOverridePolicy, CLUSTER_ID));
+                null, noneConnectorClientConfigOverridePolicy, CLUSTER_ID));
 
     }
 
@@ -1086,15 +1115,19 @@ public class WorkerWithTopicCreationTest extends ThreadedTest {
         expectedConfigs.put("max.poll.records", "5000");
         expectedConfigs.put("max.poll.interval.ms", "1000");
         expectedConfigs.put("client.id", "connector-consumer-test-1");
-        expectedConfigs.put("metrics.context.connect.kafka.cluster.id", "test-cluster");
+        expectedConfigs.put("metrics.context.connect.kafka.cluster.id", CLUSTER_ID);
+        expectedConfigs.put("metrics.context.resource.version", AppInfoParser.getVersion());
+        expectedConfigs.put("metrics.context.resource.commit.id", AppInfoParser.getCommitId());
+        expectedConfigs.put("metrics.context.resource.type", WorkerConfig.CONNECT_RESOURCE_TYPE);
+
         Map<String, Object> connConfig = new HashMap<String, Object>();
         connConfig.put("max.poll.records", "5000");
         connConfig.put("max.poll.interval.ms", "1000");
         EasyMock.expect(connectorConfig.originalsWithPrefix(ConnectorConfig.CONNECTOR_CLIENT_CONSUMER_OVERRIDES_PREFIX))
-            .andReturn(connConfig);
+                .andReturn(connConfig);
         PowerMock.replayAll();
         assertEquals(expectedConfigs, Worker.consumerConfigs(new ConnectorTaskId("test", 1), configWithOverrides, connectorConfig,
-                                                             null, allConnectorClientConfigOverridePolicy, CLUSTER_ID));
+                null, allConnectorClientConfigOverridePolicy, CLUSTER_ID));
     }
 
     @Test(expected = ConnectException.class)
@@ -1108,11 +1141,12 @@ public class WorkerWithTopicCreationTest extends ThreadedTest {
         connConfig.put("max.poll.records", "5000");
         connConfig.put("max.poll.interval.ms", "1000");
         EasyMock.expect(connectorConfig.originalsWithPrefix(ConnectorConfig.CONNECTOR_CLIENT_CONSUMER_OVERRIDES_PREFIX))
-            .andReturn(connConfig);
+                .andReturn(connConfig);
         PowerMock.replayAll();
         Worker.consumerConfigs(new ConnectorTaskId("test", 1), configWithOverrides, connectorConfig,
-                               null, noneConnectorClientConfigOverridePolicy, CLUSTER_ID);
+                null, noneConnectorClientConfigOverridePolicy, CLUSTER_ID);
     }
+
 
     @Test
     public void testAdminConfigsClientOverridesWithAllPolicy() {
@@ -1131,13 +1165,17 @@ public class WorkerWithTopicCreationTest extends ThreadedTest {
         expectedConfigs.put("bootstrap.servers", "localhost:9092");
         expectedConfigs.put("client.id", "testid");
         expectedConfigs.put("metadata.max.age.ms", "10000");
-        expectedConfigs.put("metrics.context.connect.kafka.cluster.id", "test-cluster");
+        //we added a config on the fly
+        expectedConfigs.put("metrics.context.connect.kafka.cluster.id", CLUSTER_ID);
+        expectedConfigs.put("metrics.context.resource.version", AppInfoParser.getVersion());
+        expectedConfigs.put("metrics.context.resource.commit.id", AppInfoParser.getCommitId());
+        expectedConfigs.put("metrics.context.resource.type", WorkerConfig.CONNECT_RESOURCE_TYPE);
 
         EasyMock.expect(connectorConfig.originalsWithPrefix(ConnectorConfig.CONNECTOR_CLIENT_ADMIN_OVERRIDES_PREFIX))
-            .andReturn(connConfig);
+                .andReturn(connConfig);
         PowerMock.replayAll();
         assertEquals(expectedConfigs, Worker.adminConfigs(new ConnectorTaskId("test", 1), "", configWithOverrides, connectorConfig,
-                                                             null, allConnectorClientConfigOverridePolicy, CLUSTER_ID));
+                null, allConnectorClientConfigOverridePolicy, CLUSTER_ID));
     }
 
     @Test(expected = ConnectException.class)
@@ -1151,10 +1189,10 @@ public class WorkerWithTopicCreationTest extends ThreadedTest {
         connConfig.put("metadata.max.age.ms", "10000");
 
         EasyMock.expect(connectorConfig.originalsWithPrefix(ConnectorConfig.CONNECTOR_CLIENT_ADMIN_OVERRIDES_PREFIX))
-            .andReturn(connConfig);
+                .andReturn(connConfig);
         PowerMock.replayAll();
         Worker.adminConfigs(new ConnectorTaskId("test", 1), "", configWithOverrides, connectorConfig,
-                                                          null, noneConnectorClientConfigOverridePolicy, CLUSTER_ID);
+                null, noneConnectorClientConfigOverridePolicy, CLUSTER_ID);
     }
 
     private void assertStatusMetrics(long expected, String metricName) {
