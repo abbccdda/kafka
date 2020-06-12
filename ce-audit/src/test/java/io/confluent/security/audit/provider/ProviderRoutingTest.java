@@ -9,12 +9,16 @@ import static io.confluent.security.audit.telemetry.exporter.NonBlockingKafkaExp
 import static io.confluent.security.test.utils.User.scramUser;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.CRN_AUTHORITY_NAME_CONFIG;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.ENABLE_AUTHENTICATION_AUDIT_LOGS;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import io.cloudevents.CloudEvent;
 import io.cloudevents.v1.AttributesImpl;
+import io.confluent.kafka.server.plugins.auth.PlainSaslServer;
 import io.confluent.telemetry.events.cloudevents.extensions.RouteExtension;
 import io.confluent.security.audit.AuditLogConfig;
 import io.confluent.security.audit.AuditLogEntry;
@@ -30,36 +34,44 @@ import io.confluent.security.authorizer.RequestContext;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.ResourceType;
 import io.confluent.security.authorizer.Scope;
+
+import java.io.IOException;
 import java.net.InetAddress;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import io.confluent.security.authorizer.provider.ConfluentAuthorizationEvent;
+import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.requests.RequestHeader;
 import org.apache.kafka.common.resource.PatternType;
+import org.apache.kafka.common.security.auth.AuthenticationContext;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
+import org.apache.kafka.common.security.auth.SaslAuthenticationContext;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.SecurityUtils;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.metrics.Metrics;
+import org.apache.kafka.server.audit.AuditEventStatus;
+import org.apache.kafka.server.audit.AuthenticationEvent;
+import org.apache.kafka.server.audit.DefaultAuthenticationEvent;
 import org.apache.kafka.test.TestUtils;
 import org.junit.Test;
 
 @SuppressWarnings("unchecked")
 // Test routing
 public class ProviderRoutingTest {
+  // This test uses sample-audit-log-routing.json file content as the audit log routing config (See AuditLogRouterTest).
 
-  // Same as the AuditLogRouterTest.
-  private String json = "{\"destinations\":{\"bootstrap_servers\":[\"host1:port\",\"host2:port\"],\"topics\":{\"confluent-audit-log-events_success\":{\"retention_ms\":2592000000},\"confluent-audit-log-events_failure\":{\"retention_ms\":2592000000},\"confluent-audit-log-events_ksql\":{\"retention_ms\":2592000000},\"confluent-audit-log-events_connect_success\":{\"retention_ms\":2592000000},\"confluent-audit-log-events_connect_failure\":{\"retention_ms\":15552000000},\"confluent-audit-log-events_clicks_produce_allowed\":{\"retention_ms\":15552000000},\"confluent-audit-log-events_clicks_produce_denied\":{\"retention_ms\":15552000000},\"confluent-audit-log-events_clicks_consume_allowed\":{\"retention_ms\":15552000000},\"confluent-audit-log-events_clicks_consume_denied\":{\"retention_ms\":15552000000},\"confluent-audit-log-events_accounting\":{\"retention_ms\":15552000000},\"confluent-audit-log-events_cluster\":{\"retention_ms\":15552000000}}},\"default_topics\":{\"allowed\":\"confluent-audit-log-events_success\",\"denied\":\"confluent-audit-log-events_failure\"},\"excluded_principals\":[\"User:Alice\",\"User:service_account_id\"],\"routes\":{\"crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/ksql=ksql1\":{\"authorize\":{\"allowed\":\"\",\"denied\":\"confluent-audit-log-events_ksql\"}},\"crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/connect=*\":{\"authorize\":{\"allowed\":\"confluent-audit-log-events_connect_success\",\"denied\":\"confluent-audit-log-events_connect_failure\"}},\"crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=clicks\":{\"produce\":{\"allowed\":\"confluent-audit-log-events_clicks_produce_allowed\",\"denied\":\"confluent-audit-log-events_clicks_produce_denied\"},\"consume\":{\"allowed\":\"confluent-audit-log-events_clicks_consume_allowed\",\"denied\":\"confluent-audit-log-events_clicks_consume_denied\"}},\"crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=accounting-*\":{\"produce\":{\"allowed\":null,\"denied\":\"confluent-audit-log-events_accounting\"}},\"crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=*\":{\"produce\":{\"allowed\":\"\",\"denied\":\"confluent-audit-log-events_cluster\"},\"consume\":{\"denied\":\"confluent-audit-log-events_cluster\"}},\"crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA\":{\"interbroker\":{\"allowed\":\"\",\"denied\":\"confluent-audit-log-events_cluster\"},\"other\":{\"denied\":\"confluent-audit-log-events_cluster\"}},\"crn://mds1.example.com/kafka=*\":{\"interbroker\":{\"allowed\":\"\",\"denied\":\"confluent-audit-log-events_cluster\"},\"other\":{\"denied\":\"confluent-audit-log-events_cluster\"}}},\"metadata\":{\"resource_version\":\"f109371d0a856a40a2a96cca98f90ec2\",\"updated_at\":\"2019-08-21T18:31:47+00:00\"}}";
-  private String principal = "User:_confluent-audit";
-
-  private Map<String, Object> configs = Utils.mkMap(
+  private final Map<String, Object> configs = Utils.mkMap(
       Utils.mkEntry(
           AuditLogConfig.BOOTSTRAP_SERVERS_CONFIG,
           "localhost:9092"),
@@ -68,7 +80,6 @@ public class ProviderRoutingTest {
       Utils.mkEntry(
           AUDIT_EVENT_ROUTER_CONFIG,
           AuditLogRouterJsonConfigUtils.defaultConfig("localhost:9092", "", "")));
-
 
   private ConfluentAuditLogProvider providerWithMockExporter(String clusterId,
       Map<String, String> configOverrides) throws Exception {
@@ -79,10 +90,11 @@ public class ProviderRoutingTest {
                                                              Map<String, String> configOverrides,
                                                              Boolean startProvider) throws Exception {
     ConfluentAuditLogProvider provider = new ConfluentAuditLogProvider();
-    configs.put(AUDIT_EVENT_ROUTER_CONFIG, json);
+    configs.put(AUDIT_EVENT_ROUTER_CONFIG, routerConfig());
     configs.put(AuditLogConfig.EVENT_EXPORTER_CLASS_CONFIG, MockExporter.class.getName());
     configs.putAll(configOverrides);
     provider.configure(configs);
+    provider.onUpdate(new ClusterResource(clusterId));
     provider.setMetrics(new Metrics());
     if (startProvider) {
       CompletableFuture<Void> startFuture = provider
@@ -91,6 +103,11 @@ public class ProviderRoutingTest {
     }
 
     return provider;
+  }
+
+  private String routerConfig() throws IOException {
+    final String path = ProviderRoutingTest.class.getResource("/sample-audit-log-routing.json").getFile();
+    return new String(Files.readAllBytes(Paths.get(path)), StandardCharsets.UTF_8);
   }
 
   @Test
@@ -543,9 +560,9 @@ public class ProviderRoutingTest {
     ResourcePattern topicPattern = new ResourcePattern(new ResourceType("Topic"), "testTopic",
             PatternType.LITERAL);
     RequestContext requestContext = new MockRequestContext(
-            new RequestHeader(ApiKeys.CREATE_TOPICS, (short) 1, "", 1), "",
-            InetAddress.getLoopbackAddress(), principal, ListenerName.normalised("EXTERNAL"),
-            SecurityProtocol.SASL_SSL, RequestContext.KAFKA);
+        new RequestHeader(ApiKeys.CREATE_TOPICS, (short) 1, "", 1), "",
+        InetAddress.getLoopbackAddress(), principal, ListenerName.normalised("EXTERNAL"),
+        SecurityProtocol.SASL_SSL, RequestContext.KAFKA);
     Action write = new Action(clusterScope, topicPattern, new Operation("CreateTopics"), 1, logIfAllowed, logIfDenied);
     AuthorizePolicy policy = new AuthorizePolicy.SuperUser(AuthorizePolicy.PolicyType.SUPER_USER,
             principal);
@@ -553,7 +570,86 @@ public class ProviderRoutingTest {
     return new ConfluentAuthorizationEvent(clusterScope, requestContext, write, AuthorizeResult.ALLOWED, policy);
   }
 
-  private class MockRequestContext implements RequestContext {
+  @Test
+  public void testAuthenticationEventLoggedOnDefaultTopic() throws Throwable {
+    String expectedTopic = AuditLogRouterJsonConfig.TOPIC_PREFIX + "_success";
+
+    ConfluentAuditLogProvider provider = providerWithMockExporter("Test_Cluster",
+        Utils.mkMap(
+            Utils.mkEntry(ENABLE_AUTHENTICATION_AUDIT_LOGS, "true")
+        ));
+    AuthenticationEvent authenticationEvent = createAuthenticationEvent(AuditEventStatus.SUCCESS, "user1");
+
+    provider.logEvent(authenticationEvent);
+
+    MockExporter<AuditLogEntry> ma = (MockExporter) provider.getEventLogger().eventExporter();
+    assertEquals(1, ma.events.size());
+
+    CloudEvent<AttributesImpl, AuditLogEntry> event = ma.events.get(0);
+
+    assertTrue(event.getExtensions().containsKey(RouteExtension.Format.IN_MEMORY_KEY));
+    RouteExtension re = (RouteExtension) event.getExtensions()
+        .get(RouteExtension.Format.IN_MEMORY_KEY);
+    assertEquals(expectedTopic, re.getRoute());
+
+    provider.close();
+  }
+
+  @Test
+  public void testAuthenticationEventLoggedOnRoutedTopic() throws Throwable {
+    String expectedTopic = AuditLogRouterJsonConfig.TOPIC_PREFIX + "_authentication_failure";
+
+    ConfluentAuditLogProvider provider = providerWithMockExporter("63REM3VWREiYtMuVxZeplA",
+        Utils.mkMap(
+            Utils.mkEntry(ENABLE_AUTHENTICATION_AUDIT_LOGS, "true")
+        ));
+    AuthenticationEvent authenticationEvent = createAuthenticationEvent(AuditEventStatus.UNAUTHENTICATED, "user1");
+
+    provider.logEvent(authenticationEvent);
+
+    MockExporter<AuditLogEntry> ma = (MockExporter) provider.getEventLogger().eventExporter();
+    assertEquals(1, ma.events.size());
+
+    CloudEvent<AttributesImpl, AuditLogEntry> event = ma.events.get(0);
+
+    assertTrue(event.getExtensions().containsKey(RouteExtension.Format.IN_MEMORY_KEY));
+    RouteExtension re = (RouteExtension) event.getExtensions()
+        .get(RouteExtension.Format.IN_MEMORY_KEY);
+    assertEquals(expectedTopic, re.getRoute());
+
+    provider.close();
+  }
+
+  @Test
+  public void testAuthenticationEventExcludedUser() throws Throwable {
+    ConfluentAuditLogProvider provider = providerWithMockExporter("63REM3VWREiYtMuVxZeplA",
+        Utils.mkMap(
+            Utils.mkEntry(ENABLE_AUTHENTICATION_AUDIT_LOGS, "true")
+        ));
+
+    AuthenticationEvent authenticationEvent = createAuthenticationEvent(AuditEventStatus.UNAUTHENTICATED, "Alice");
+
+    provider.logEvent(authenticationEvent);
+
+    MockExporter<AuditLogEntry> ma = (MockExporter) provider.getEventLogger().eventExporter();
+    assertEquals(0, ma.events.size());
+
+    provider.close();
+  }
+
+  private DefaultAuthenticationEvent createAuthenticationEvent(AuditEventStatus auditEventStatus, String userName) {
+    PlainSaslServer server = mock(PlainSaslServer.class);
+    when(server.getMechanismName()).thenReturn(PlainSaslServer.PLAIN_MECHANISM);
+    when(server.userIdentifier()).thenReturn("APIKEY123");
+
+    KafkaPrincipal principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, userName);
+
+    AuthenticationContext authenticationContext = new SaslAuthenticationContext(server, SecurityProtocol.SASL_SSL,
+        InetAddress.getLoopbackAddress(), SecurityProtocol.SASL_SSL.name());
+    return new DefaultAuthenticationEvent(principal, authenticationContext, auditEventStatus);
+  }
+
+  private static class MockRequestContext implements RequestContext {
 
     public final RequestHeader header;
     public final String connectionId;

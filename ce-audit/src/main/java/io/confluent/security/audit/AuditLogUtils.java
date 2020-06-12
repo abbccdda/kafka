@@ -37,6 +37,7 @@ import java.util.Optional;
 
 public class AuditLogUtils {
   public final static String AUTHENTICATION_FAILED_EVENT_USER = "None:UNKNOWN_USER";
+  public static final String AUTHENTICATION_EVENT_NAME = "kafka.Authentication";
 
   private static void addAuthorizationInfo(AuthorizationInfo.Builder authorizationBuilder,
                                            AuthorizePolicy authorizePolicy) {
@@ -153,7 +154,7 @@ public class AuditLogUtils {
     String source = crnAuthority.canonicalCrn(authenticationEvent.getScope()).toString();
     AuditLogEntry.Builder builder = AuditLogEntry.newBuilder()
         .setServiceName(source)
-        .setMethodName("kafka.Authentication")
+        .setMethodName(AUTHENTICATION_EVENT_NAME)
         .setResourceName(source);
 
     //set authenticationInfo

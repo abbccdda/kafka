@@ -1,3 +1,5 @@
+// (Copyright) [2020 - 2020] Confluent, Inc.
+
 package io.confluent.security.audit.router;
 
 import io.confluent.security.audit.AuditLogEntry;

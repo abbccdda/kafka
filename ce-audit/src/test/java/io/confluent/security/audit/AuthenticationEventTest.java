@@ -36,6 +36,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.security.Principal;
 
+import static io.confluent.security.audit.AuditLogUtils.AUTHENTICATION_EVENT_NAME;
 import static io.confluent.security.audit.AuditLogUtils.AUTHENTICATION_FAILED_EVENT_USER;
 import static io.confluent.security.audit.provider.ConfluentAuditLogProvider.AUTHENTICATION_MESSAGE_TYPE;
 import static io.confluent.telemetry.events.EventLoggerConfig.DEFAULT_CLOUD_EVENT_ENCODING_CONFIG;
@@ -346,7 +347,7 @@ public class AuthenticationEventTest {
 
         AuditLogEntry auditLogEntry = cloudEvent.getData().get();
         assertEquals("crn://confluent.cloud/kafka=pkc-12345", auditLogEntry.getServiceName());
-        assertEquals("kafka.Authentication", auditLogEntry.getMethodName());
+        assertEquals(AUTHENTICATION_EVENT_NAME, auditLogEntry.getMethodName());
         assertEquals("crn://confluent.cloud/kafka=pkc-12345", auditLogEntry.getResourceName());
 
         AuthenticationInfo authenticationInfo = auditLogEntry.getAuthenticationInfo();

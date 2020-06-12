@@ -1,5 +1,8 @@
+// (Copyright) [2020 - 2020] Confluent, Inc.
+
 package io.confluent.security.audit.router;
 
+import static io.confluent.security.audit.AuditLogUtils.AUTHENTICATION_EVENT_NAME;
 import static io.confluent.security.audit.router.AuditLogRouter.SUPPRESSED;
 
 import io.confluent.crn.ConfluentResourceName.Element;
@@ -7,7 +10,6 @@ import io.confluent.crn.CrnSyntaxException;
 import io.confluent.security.audit.AuditLogEntry;
 import io.confluent.security.audit.AuditLogUtils;
 import io.confluent.security.audit.AuthenticationInfo;
-import io.confluent.security.authorizer.AuthorizeResult;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -15,6 +17,7 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.server.audit.AuditEventStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,6 +32,7 @@ public class AuditLogCategoryResultRouter implements Router {
   public static final String AUTHORIZE_CATEGORY = "authorize";
   public static final String DESCRIBE_CATEGORY = "describe";
   public static final String HEARTBEAT_CATEGORY = "heartbeat";
+  public static final String AUTHENTICATION_CATEGORY = "authentication";
 
   public static final Map<String, String> METHOD_CATEGORIES = Utils.mkMap(
       Utils.mkEntry("kafka.AddPartitionToTxn", PRODUCE_CATEGORY),
@@ -67,7 +71,9 @@ public class AuditLogCategoryResultRouter implements Router {
       Utils.mkEntry("kafka.Metadata", DESCRIBE_CATEGORY),
       Utils.mkEntry("kafka.OffsetForLeaderEpoch", DESCRIBE_CATEGORY),
 
-      Utils.mkEntry("kafka.Heartbeat", HEARTBEAT_CATEGORY)
+      Utils.mkEntry("kafka.Heartbeat", HEARTBEAT_CATEGORY),
+
+      Utils.mkEntry(AUTHENTICATION_EVENT_NAME, AUTHENTICATION_CATEGORY)
   );
   public static final Set<String> CATEGORIES;
 
@@ -77,11 +83,11 @@ public class AuditLogCategoryResultRouter implements Router {
   }
 
   public static final Set<String> DEFAULT_ENABLED_CATEGORIES =
-      Utils.mkSet(OTHER_CATEGORY, AUTHORIZE_CATEGORY);
+      Utils.mkSet(OTHER_CATEGORY, AUTHORIZE_CATEGORY, AUTHENTICATION_CATEGORY);
 
-  private final HashMap<String, HashMap<AuthorizeResult, String>> routes = new HashMap<>();
+  private final HashMap<String, HashMap<AuditLogRouterResult, String>> routes = new HashMap<>();
 
-  public AuditLogCategoryResultRouter setRoute(String category, AuthorizeResult result,
+  public AuditLogCategoryResultRouter setRoute(String category, AuditLogRouterResult result,
       String topic) {
     routes.computeIfAbsent(category, k -> new HashMap<>())
         .put(result, topic);
@@ -93,10 +99,17 @@ public class AuditLogCategoryResultRouter implements Router {
         .getOrDefault(entry.getMethodName(), OTHER_CATEGORY);
   }
 
-  private AuthorizeResult authorizeResult(AuditLogEntry entry) {
-    return entry.getAuthorizationInfo().getGranted()
-        ? AuthorizeResult.ALLOWED
-        : AuthorizeResult.DENIED;
+  private AuditLogRouterResult auditLogRouterResult(AuditLogEntry entry) {
+    if (AUTHENTICATION_EVENT_NAME.equals(entry.getMethodName())) {
+      String status = entry.getResult().getStatus();
+      return AuditEventStatus.SUCCESS == AuditEventStatus.valueOf(status)
+          ? AuditLogRouterResult.ALLOWED
+          : AuditLogRouterResult.DENIED;
+    } else {
+      return entry.getAuthorizationInfo().getGranted()
+          ? AuditLogRouterResult.ALLOWED
+          : AuditLogRouterResult.DENIED;
+    }
   }
 
   @Override
@@ -106,7 +119,7 @@ public class AuditLogCategoryResultRouter implements Router {
       if (!routes.containsKey(category)) {
         return Optional.empty();
       }
-      AuthorizeResult result = authorizeResult(auditLogEntry);
+      AuditLogRouterResult result = auditLogRouterResult(auditLogEntry);
       Optional<String> topic = Optional.ofNullable(routes.get(category).get(result));
       if (topic.isPresent() && !topic.get().isEmpty()
           && (CONSUME_CATEGORY.equals(category) || PRODUCE_CATEGORY.equals(category))) {

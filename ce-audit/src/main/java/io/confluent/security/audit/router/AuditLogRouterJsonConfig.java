@@ -1,3 +1,5 @@
+// (Copyright) [2020 - 2020] Confluent, Inc.
+
 package io.confluent.security.audit.router;
 
 import static java.util.stream.Collectors.joining;
@@ -9,7 +11,6 @@ import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.confluent.crn.ConfluentResourceName;
 import io.confluent.crn.CrnSyntaxException;
-import io.confluent.security.authorizer.AuthorizeResult;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -23,9 +24,9 @@ import org.apache.kafka.common.utils.Utils;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class AuditLogRouterJsonConfig {
 
-  public static final Map<String, AuthorizeResult> ALLOWED_RESULTS =
-      Utils.mkMap(Utils.mkEntry("allowed", AuthorizeResult.ALLOWED),
-          Utils.mkEntry("denied", AuthorizeResult.DENIED));
+  public static final Map<String, AuditLogRouterResult> ALLOWED_RESULTS =
+      Utils.mkMap(Utils.mkEntry("allowed", AuditLogRouterResult.ALLOWED),
+          Utils.mkEntry("denied", AuditLogRouterResult.DENIED));
 
   public static final String TOPIC_PREFIX = "confluent-audit-log-events";
   public static final String DEFAULT_TOPIC = TOPIC_PREFIX;
@@ -168,7 +169,7 @@ public class AuditLogRouterJsonConfig {
     validateRoutes(config, allowedTopics);
   }
 
-  public static AuthorizeResult result(String resultName) {
+  public static AuditLogRouterResult result(String resultName) {
     return ALLOWED_RESULTS.get(resultName);
   }
 

@@ -3,6 +3,8 @@
  */
 package io.confluent.security.audit;
 
+import static io.confluent.security.audit.AuditLogUtils.AUTHENTICATION_EVENT_NAME;
+import static io.confluent.security.audit.AuditLogUtils.AUTHENTICATION_FAILED_EVENT_USER;
 import static io.confluent.security.audit.router.AuditLogRouter.SUPPRESSED;
 import static org.junit.Assert.assertTrue;
 
@@ -11,7 +13,12 @@ import io.confluent.security.audit.router.AuditLogRouter;
 import io.confluent.security.audit.router.AuditLogRouterJsonConfig;
 import java.io.IOException;
 import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.Optional;
+
+import org.apache.kafka.server.audit.AuditEventStatus;
 import org.apache.log4j.Logger;
 import org.apache.log4j.PatternLayout;
 import org.apache.log4j.WriterAppender;
@@ -23,7 +30,7 @@ public class AuditLogRouterTest {
 
   /*
 
-  These tests use this config:
+  These tests use this config. This is copied to sample-audit-log-routing.json
 
 {
      "destinations": {
@@ -66,19 +73,26 @@ public class AuditLogRouterTest {
             },
             "confluent-audit-log-events_cluster": {
                 "retention_ms": 15552000000
+            },
+            "confluent-audit-log-events_authentication_success": {
+                "retention_ms": 15552000000
+            },
+            "confluent-audit-log-events_authentication_failure": {
+                "retention_ms": 15552000000
             }
         }
     },
     // If no routes specify a different topic, audit logs are sent to these topics
     "default_topics": {
-        "allowed": "confluent-audit-log-events_success",  // Topic to send successful authorizations to
-        "denied": "confluent-audit-log-events_failure"  // Topic to send failed authorizations to
+        "allowed": "confluent-audit-log-events_success",  // Topic to send successful events to
+        "denied": "confluent-audit-log-events_failure"  // Topic to send failed events to
     },
     // Don't log authorizations for these principals.
     // Note: the Audit Log principal is automatically excluded
     "excluded_principals": [
         "User:Alice",
-        "User:service_account_id"
+        "User:service_account_id",
+        "None:UNKNOWN_USER"
     ],
     "routes": {
         // MDS Authorization Audit logging
@@ -133,6 +147,11 @@ public class AuditLogRouterTest {
                 "allowed": "", // empty string topic name means that the log message is not sent
                 "denied": "confluent-audit-log-events_cluster"
             },
+            // Configure audit log routing for authentication events
+           "authentication": {
+                "allowed": "confluent-audit-log-events_authentication_success",
+                "denied": "confluent-audit-log-events_authentication_failure"
+             },
             // All other events
             "other": {
                 // because "allowed" is not specified, it defaults to default_topic.allowed
@@ -159,12 +178,17 @@ public class AuditLogRouterTest {
     }
 }
  */
-  private String json = "{\"destinations\":{\"bootstrap_servers\":[\"host1:port\",\"host2:port\"],\"topics\":{\"confluent-audit-log-events_success\":{\"retention_ms\":2592000000},\"confluent-audit-log-events_failure\":{\"retention_ms\":2592000000},\"confluent-audit-log-events_ksql\":{\"retention_ms\":2592000000},\"confluent-audit-log-events_connect_success\":{\"retention_ms\":2592000000},\"confluent-audit-log-events_connect_failure\":{\"retention_ms\":15552000000},\"confluent-audit-log-events_clicks_produce_allowed\":{\"retention_ms\":15552000000},\"confluent-audit-log-events_clicks_produce_denied\":{\"retention_ms\":15552000000},\"confluent-audit-log-events_clicks_consume_allowed\":{\"retention_ms\":15552000000},\"confluent-audit-log-events_clicks_consume_denied\":{\"retention_ms\":15552000000},\"confluent-audit-log-events_accounting\":{\"retention_ms\":15552000000},\"confluent-audit-log-events_cluster\":{\"retention_ms\":15552000000}}},\"default_topics\":{\"allowed\":\"confluent-audit-log-events_success\",\"denied\":\"confluent-audit-log-events_failure\"},\"excluded_principals\":[\"User:Alice\",\"User:service_account_id\"],\"routes\":{\"crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/ksql=ksql1\":{\"authorize\":{\"allowed\":\"\",\"denied\":\"confluent-audit-log-events_ksql\"}},\"crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/connect=*\":{\"authorize\":{\"allowed\":\"confluent-audit-log-events_connect_success\",\"denied\":\"confluent-audit-log-events_connect_failure\"}},\"crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=clicks\":{\"produce\":{\"allowed\":\"confluent-audit-log-events_clicks_produce_allowed\",\"denied\":\"confluent-audit-log-events_clicks_produce_denied\"},\"consume\":{\"allowed\":\"confluent-audit-log-events_clicks_consume_allowed\",\"denied\":\"confluent-audit-log-events_clicks_consume_denied\"}},\"crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=accounting-*\":{\"produce\":{\"allowed\":null,\"denied\":\"confluent-audit-log-events_accounting\"}},\"crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=*\":{\"produce\":{\"allowed\":\"\",\"denied\":\"confluent-audit-log-events_cluster\"},\"consume\":{\"denied\":\"confluent-audit-log-events_cluster\"}},\"crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA\":{\"interbroker\":{\"allowed\":\"\",\"denied\":\"confluent-audit-log-events_cluster\"},\"other\":{\"denied\":\"confluent-audit-log-events_cluster\"}},\"crn://mds1.example.com/kafka=*\":{\"interbroker\":{\"allowed\":\"\",\"denied\":\"confluent-audit-log-events_cluster\"},\"other\":{\"denied\":\"confluent-audit-log-events_cluster\"}}},\"metadata\":{\"resource_version\":\"f109371d0a856a40a2a96cca98f90ec2\",\"updated_at\":\"2019-08-21T18:31:47+00:00\"}}";
+
   private AuditLogRouter router;
 
   @Before
   public void setUp() throws Exception {
-    router = new AuditLogRouter(AuditLogRouterJsonConfig.load(json), 10000);
+    router = new AuditLogRouter(AuditLogRouterJsonConfig.load(routerConfig()), 10000);
+  }
+
+  private String routerConfig() throws IOException {
+    final String path = AuditLogRouterTest.class.getResource("/sample-audit-log-routing.json").getFile();
+    return new String(Files.readAllBytes(Paths.get(path)), StandardCharsets.UTF_8);
   }
 
   private AuditLogEntry sampleEvent(String subject, String method, String principal,
@@ -178,6 +202,25 @@ public class AuditLogRouterTest {
                 .build())
             .setAuthorizationInfo(AuthorizationInfo.newBuilder()
                 .setGranted(granted))
+            .build();
+  }
+
+  private AuditLogEntry sampleAuthenticationEvent(String subject, String principal, AuditEventStatus eventStatus) {
+    return
+        AuditLogEntry.newBuilder()
+            .setResourceName(subject)
+            .setMethodName(AUTHENTICATION_EVENT_NAME)
+            .setAuthenticationInfo(AuthenticationInfo.newBuilder()
+                .setPrincipal(principal)
+                .setMetadata(AuthenticationMetadata.newBuilder()
+                    .setMechanism("SASL")
+                    .setIdentifier("test")
+                    .build())
+                .build())
+            .setResult(Result.newBuilder()
+                .setStatus(eventStatus.name())
+                .setMessage("test")
+                .build())
             .build();
   }
 
@@ -200,6 +243,19 @@ public class AuditLogRouterTest {
         router.topic(
             sampleEvent("crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=clicks",
                 "kafka.Produce", "User:service_account_id", true)));
+
+    // Suppress authentication message from "None:UNKNOWN_USER"
+    Assert.assertEquals(Optional.of(""),
+        router.topic(
+            sampleAuthenticationEvent("crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=clicks",
+                AUTHENTICATION_FAILED_EVENT_USER, AuditEventStatus.UNKNOWN_USER_DENIED)));
+
+    // Don't suppress authentication message from Bob
+    Assert.assertEquals(Optional.of("confluent-audit-log-events_success"),
+        router.topic(
+            sampleAuthenticationEvent("crn://mds1.example.com/kafka=XYZ",
+                 "User:Bob", AuditEventStatus.SUCCESS)));
+
   }
 
   @Test
@@ -464,4 +520,47 @@ public class AuditLogRouterTest {
     assertTrue(logText.contains("Principal User:Bob should be excluded from audit logging"));
   }
 
+  @Test
+  public void testAuthenticationEvents() {
+    // Test authentication events to specific topic
+
+    // Authentication success goes to confluent-audit-log-events_authentication_success
+    Assert.assertEquals(Optional.of("confluent-audit-log-events_authentication_success"),
+        router.topic(
+            sampleAuthenticationEvent("crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA",
+                "User:Bob", AuditEventStatus.SUCCESS)));
+
+    // Authentication failure goes to confluent-audit-log-events_authentication_failure
+    Assert.assertEquals(Optional.of("confluent-audit-log-events_authentication_failure"),
+        router.topic(
+            sampleAuthenticationEvent("crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA",
+                "User:Bob", AuditEventStatus.UNAUTHENTICATED)));
+
+    // unknown user denied goes to confluent-audit-log-events_authentication_failure
+    Assert.assertEquals(Optional.of("confluent-audit-log-events_authentication_failure"),
+        router.topic(
+            sampleAuthenticationEvent("crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA",
+                "User:Bob", AuditEventStatus.UNKNOWN_USER_DENIED)));
+
+
+    // Other cluster  authentication events should go to default topics
+
+    // Authentication success goes to confluent-audit-log-events_success
+    Assert.assertEquals(Optional.of("confluent-audit-log-events_success"),
+        router.topic(
+            sampleAuthenticationEvent("crn://mds1.example.com/kafka=other_cluster",
+                "User:Bob", AuditEventStatus.SUCCESS)));
+
+    // Authentication failure goes to confluent-audit-log-events_failure
+    Assert.assertEquals(Optional.of("confluent-audit-log-events_failure"),
+        router.topic(
+            sampleAuthenticationEvent("crn://mds1.example.com/kafka=other_cluster",
+                "User:Bob", AuditEventStatus.UNAUTHENTICATED)));
+
+    // unknown user denied goes to confluent-audit-log-events_failure
+    Assert.assertEquals(Optional.of("confluent-audit-log-events_failure"),
+        router.topic(
+            sampleAuthenticationEvent("crn://mds1.example.com/kafka=other_cluster",
+                "User:Bob", AuditEventStatus.UNKNOWN_USER_DENIED)));
+  }
 }

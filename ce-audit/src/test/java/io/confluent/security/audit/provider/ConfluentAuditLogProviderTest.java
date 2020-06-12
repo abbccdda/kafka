@@ -46,6 +46,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
+import static io.confluent.security.audit.AuditLogUtils.AUTHENTICATION_EVENT_NAME;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_LOGGER_ENABLE_CONFIG;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.CRN_AUTHORITY_NAME_CONFIG;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.ENABLE_AUTHENTICATION_AUDIT_LOGS;
@@ -261,7 +262,7 @@ public class ConfluentAuditLogProviderTest {
     AuditLogEntry ae = event.getData().get();
     assertEquals("crn://mds.example.com/kafka=63REM3VWREiYtMuVxZeplA", ae.getServiceName());
     assertEquals("crn://mds.example.com/kafka=63REM3VWREiYtMuVxZeplA", ae.getResourceName());
-    assertEquals("kafka.Authentication", ae.getMethodName());
+    assertEquals(AUTHENTICATION_EVENT_NAME, ae.getMethodName());
     assertEquals("User:user1", ae.getAuthenticationInfo().getPrincipal());
     assertEquals("APIKEY123", ae.getAuthenticationInfo().getMetadata().getIdentifier());
     assertEquals("SASL_PLAINTEXT/PLAIN", ae.getAuthenticationInfo().getMetadata().getMechanism());
