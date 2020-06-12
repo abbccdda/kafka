@@ -150,6 +150,7 @@ public class SslConfigs {
     }
 
     public static final Set<String> RECONFIGURABLE_CONFIGS = Utils.mkSet(
+            SslConfigs.SSL_CIPHER_SUITES_CONFIG,
             SslConfigs.SSL_KEYSTORE_TYPE_CONFIG,
             SslConfigs.SSL_KEYSTORE_LOCATION_CONFIG,
             SslConfigs.SSL_KEYSTORE_PASSWORD_CONFIG,
@@ -162,7 +163,6 @@ public class SslConfigs {
             BrokerSecurityConfigs.SSL_CLIENT_AUTH_CONFIG,
             SslConfigs.SSL_PROTOCOL_CONFIG,
             SslConfigs.SSL_PROVIDER_CONFIG,
-            SslConfigs.SSL_CIPHER_SUITES_CONFIG,
             SslConfigs.SSL_ENABLED_PROTOCOLS_CONFIG,
             SslConfigs.SSL_KEYMANAGER_ALGORITHM_CONFIG,
             SslConfigs.SSL_TRUSTMANAGER_ALGORITHM_CONFIG,

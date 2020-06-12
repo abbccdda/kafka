@@ -23,6 +23,7 @@ import scala.Some;
 import java.io.File;
 import java.util.Map;
 import java.util.Properties;
+import scala.collection.mutable.ArrayBuffer;
 
 import static org.junit.Assert.assertNotNull;
 
@@ -35,8 +36,10 @@ public class LdapTestUtils {
     Properties ldapConf = MiniKdcWithLdapService.createConfig();
     if (securityProtocol == LdapSecurityProtocol.SSL) {
       File ldapTrustStore = File.createTempFile("truststore", ".jks");
-      Properties ldapSslProps = TestUtils.sslConfigs(Mode.SERVER, false,
-              new Some<>(ldapTrustStore), "ldap", "localhost", TestSslUtils.DEFAULT_TLS_PROTOCOL_FOR_TESTS);
+      Properties ldapSslProps = TestUtils.sslConfigs(
+          Mode.SERVER, false,
+          new Some<>(ldapTrustStore), "ldap", "localhost",
+          TestSslUtils.DEFAULT_TLS_PROTOCOL_FOR_TESTS, new ArrayBuffer<>());
       MiniKdcWithLdapService.addSslConfig(ldapConf, ldapSslProps);
     }
 

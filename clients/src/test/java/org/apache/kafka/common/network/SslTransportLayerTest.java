@@ -1168,6 +1168,55 @@ public class SslTransportLayerTest {
         NetworkTestUtils.checkClientConnection(newClientSelector, "3", 100, 10);
     }
 
+    @Test
+    public void testServerCipherDynamicUpdate() throws Exception {
+        // Start server for test.
+        final String serverCipher = "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256";
+
+        SecurityProtocol securityProtocol = SecurityProtocol.SSL;
+        sslServerConfigs.put(BrokerSecurityConfigs.SSL_CLIENT_AUTH_CONFIG, "required");
+        sslServerConfigs.put(SslConfigs.SSL_CIPHER_SUITES_CONFIG, Collections.singletonList(serverCipher));
+        TestSecurityConfig config = new TestSecurityConfig(sslServerConfigs);
+        ListenerName listenerName = ListenerName.forSecurityProtocol(securityProtocol);
+        ChannelBuilder serverChannelBuilder = ChannelBuilders.serverChannelBuilder(listenerName,
+                false, securityProtocol, config, null, null, time, new LogContext());
+        server = new NioEchoServer(listenerName, securityProtocol, config,
+                "localhost", serverChannelBuilder, null, time);
+        server.start();
+        InetSocketAddress addr = new InetSocketAddress("localhost", server.port());
+
+        // Verify client connecting to server with the same settings.
+        String idForOldServer = "0";
+        Selector initialClient = createSelector(sslClientConfigs);
+        initialClient.connect(idForOldServer, addr, BUFFER_SIZE, BUFFER_SIZE);
+        NetworkTestUtils.checkClientConnection(initialClient, idForOldServer, 100, 10);
+
+        // Create new client configs.
+        String newCipherName = "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256";
+        Map<String, Object> clientConfigsWithNewCipher = sslClientConfigs;
+        clientConfigsWithNewCipher.put(SslConfigs.SSL_CIPHER_SUITES_CONFIG, Collections.singletonList(newCipherName));
+
+        // Verify client using these configs fails to connect.
+        Selector newClient = createSelector(clientConfigsWithNewCipher);
+        newClient.connect(idForOldServer, addr, BUFFER_SIZE, BUFFER_SIZE);
+        NetworkTestUtils.waitForChannelClose(newClient, idForOldServer, ChannelState.State.AUTHENTICATION_FAILED);
+
+        // Create new server configs.
+        Map<String, Object> serverConfigsWithNewCipher = sslServerConfigs;
+        serverConfigsWithNewCipher.put(SslConfigs.SSL_CIPHER_SUITES_CONFIG, Collections.singletonList(newCipherName));
+
+        // Switch to new configs at server.
+        ListenerReconfigurable reconfigurableBuilder = (ListenerReconfigurable) serverChannelBuilder;
+        assertEquals(listenerName, reconfigurableBuilder.listenerName());
+        reconfigurableBuilder.validateReconfiguration(serverConfigsWithNewCipher);
+        reconfigurableBuilder.reconfigure(serverConfigsWithNewCipher);
+
+        // Verify client now successfully connects to server.
+        String idForNewServer = "1";
+        newClient.connect(idForNewServer, addr, BUFFER_SIZE, BUFFER_SIZE);
+        NetworkTestUtils.checkClientConnection(newClient, idForNewServer, 100, 10);
+    }
+
     /**
      * Tests if client can plugin customize ssl.engine.factory
      */

@@ -95,7 +95,7 @@ object DynamicBrokerConfig {
     ReplicationQuotaManagerConfig.ReconfigurableConfigs ++
     Set(KafkaConfig.AutoCreateTopicsEnableProp)
 
-  private val ClusterLevelListenerConfigs = Set(KafkaConfig.MaxConnectionsProp)
+  private val ClusterLevelListenerConfigs = Set(KafkaConfig.MaxConnectionsProp, KafkaConfig.SslCipherSuitesProp)
   private val PerBrokerConfigs = (DynamicSecurityConfigs ++ DynamicListenerConfig.ReconfigurableConfigs).diff(
     ClusterLevelListenerConfigs)
   private val ListenerMechanismConfigs = Set(KafkaConfig.SaslJaasConfigProp,

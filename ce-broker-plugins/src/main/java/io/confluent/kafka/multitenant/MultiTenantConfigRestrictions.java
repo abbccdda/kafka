@@ -7,6 +7,7 @@ import kafka.server.KafkaConfig;
 import org.apache.kafka.common.config.ConfluentTopicConfig;
 import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
+import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.utils.Utils;
 
 import java.util.Set;
@@ -15,7 +16,7 @@ import java.util.stream.Stream;
 
 public class MultiTenantConfigRestrictions {
 
-  public static final String EXTERNAL_LISTENER_PREFIX = "listener.name.external.";
+  public static final String EXTERNAL_LISTENER_PREFIX = new ListenerName("external").configPrefix();
 
   // Listeners are not exposed to Cloud users, so they send configs without a listener prefix even
   // though the changes should only affect the external listener. To ensure the right semantics,
