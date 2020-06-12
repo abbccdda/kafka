@@ -14,6 +14,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class ListClusterLinksResponse extends AbstractResponse {
 
@@ -29,7 +30,8 @@ public class ListClusterLinksResponse extends AbstractResponse {
             entryDatas.add(new EntryData()
                     .setLinkName(clusterLink.linkName())
                     .setLinkId(clusterLink.linkId())
-                    .setClusterId(clusterLink.clusterId()));
+                    .setClusterId(clusterLink.clusterId())
+                    .setTopics(clusterLink.topics().map(topics -> new ArrayList<>(topics)).orElse(null)));
         }
 
         this.data = new ListClusterLinksResponseData()
@@ -57,7 +59,10 @@ public class ListClusterLinksResponse extends AbstractResponse {
 
         List<ClusterLinkListing> clusterLinks = new ArrayList<>(data.entries().size());
         for (EntryData entryData : data.entries()) {
-            clusterLinks.add(new ClusterLinkListing(entryData.linkName(), entryData.linkId(), entryData.clusterId()));
+            clusterLinks.add(new ClusterLinkListing(entryData.linkName(),
+                                                    entryData.linkId(),
+                                                    entryData.clusterId(),
+                                                    Optional.ofNullable(entryData.topics())));
         }
         result.complete(clusterLinks);
     }

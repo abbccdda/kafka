@@ -3330,7 +3330,10 @@ class KafkaApis(val requestChannel: RequestChannel,
         listClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.CLUSTER_AUTHORIZATION_FAILED.exception))
 
     } else try {
-      val result = clusterLinkAdminManager.listClusterLinks().asJava
+      val linkNames = listClusterLinksRequest.linkNames.asScala.map(_.asScala.toSet)
+      val includeTopics = listClusterLinksRequest.includeTopics
+
+      val result = clusterLinkAdminManager.listClusterLinks(linkNames, includeTopics).asJava
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         new ListClusterLinksResponse(result, requestThrottleMs))
 

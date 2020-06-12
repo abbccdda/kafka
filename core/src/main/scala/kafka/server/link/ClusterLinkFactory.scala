@@ -108,7 +108,7 @@ object ClusterLinkFactory {
                           validateLink: Boolean,
                           timeoutMs: Int): CompletableFuture[Void]
 
-    def listClusterLinks(): Seq[ClusterLinkListing]
+    def listClusterLinks(linkNames: Option[Set[String]], includeTopics: Boolean): Seq[ClusterLinkListing]
 
     def deleteClusterLink(linkName: String, validateOnly: Boolean, force: Boolean): Unit
 
@@ -218,7 +218,7 @@ object ClusterLinkDisabled {
       throw exception()
     }
 
-    override def listClusterLinks(): Seq[ClusterLinkListing] = {
+    override def listClusterLinks(linkNames: Option[Set[String]], includeTopics: Boolean): Seq[ClusterLinkListing] = {
       throw exception()
     }
 

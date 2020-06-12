@@ -92,7 +92,7 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
   private var replicaManager: ReplicaManager = _
 
   var adminManager: AdminManager = _
-  private var controller: KafkaController = _
+  var controller: KafkaController = _
   private var authorizer: Option[Authorizer] = _
   private var interBrokerEndpoint: Endpoint = _
   private var destAdminClient: ConfluentAdmin = _

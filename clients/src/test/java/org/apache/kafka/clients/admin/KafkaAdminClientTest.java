@@ -3816,11 +3816,13 @@ public class KafkaAdminClientTest {
             env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
 
             List<ClusterLinkListing> responseData = new ArrayList<>();
-            responseData.add(new ClusterLinkListing("cluster-1", UUID.randomUUID(), "cluster-id-1"));
-            responseData.add(new ClusterLinkListing("cluster-2a", UUID.randomUUID(), "cluster-id-2"));
-            responseData.add(new ClusterLinkListing("cluster-2b", UUID.randomUUID(), "cluster-id-2"));
-            responseData.add(new ClusterLinkListing("cluster-3", UUID.randomUUID(), null));
-            responseData.add(new ClusterLinkListing("cluster+4", UUID.randomUUID(), "cluster-id-4"));
+            responseData.add(new ClusterLinkListing("cluster-1", UUID.randomUUID(), "cluster-id-1", Optional.empty()));
+            responseData.add(new ClusterLinkListing("cluster-2a", UUID.randomUUID(), "cluster-id-2", Optional.empty()));
+            responseData.add(new ClusterLinkListing("cluster-2b", UUID.randomUUID(), "cluster-id-2", Optional.empty()));
+            responseData.add(new ClusterLinkListing("cluster-3", UUID.randomUUID(), null, Optional.empty()));
+            responseData.add(new ClusterLinkListing("cluster+4", UUID.randomUUID(), "cluster-id-4", Optional.empty()));
+            responseData.add(new ClusterLinkListing("cluster-5", UUID.randomUUID(), "cluster-id-5",
+                                                    Optional.of(Arrays.asList("topic-1", "topic-2"))));
 
             env.kafkaClient().prepareResponse(new ListClusterLinksResponse(responseData, 0));
 
@@ -3847,7 +3849,8 @@ public class KafkaAdminClientTest {
                 cluster.controller().id(),
                 Collections.emptyList()));
 
-            List<ClusterLinkListing> responseData = singletonList(new ClusterLinkListing("cluster-1", UUID.randomUUID(), "cluster-id-1"));
+            List<ClusterLinkListing> responseData =
+                singletonList(new ClusterLinkListing("cluster-1", UUID.randomUUID(), "cluster-id-1", Optional.empty()));
 
             env.kafkaClient().prepareResponse(new ListClusterLinksResponse(responseData, 0));
 

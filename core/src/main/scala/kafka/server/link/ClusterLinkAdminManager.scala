@@ -3,7 +3,7 @@
  */
 package kafka.server.link
 
-import java.util.{Properties, UUID}
+import java.util.{Collection, Optional, Properties, UUID}
 import java.util.concurrent.{CompletableFuture, ExecutionException}
 
 import kafka.api.KAFKA_2_3_IV1
@@ -18,7 +18,7 @@ import org.apache.kafka.common.errors.{ClusterAuthorizationException, ClusterLin
 import org.apache.kafka.common.requests.{AlterMirrorsRequest, AlterMirrorsResponse, ApiError, ClusterLinkListing, NewClusterLink}
 
 import scala.jdk.CollectionConverters._
-import scala.collection.Seq
+import scala.collection.mutable
 
 class ClusterLinkAdminManager(val config: KafkaConfig,
                               val clusterId: String,
@@ -79,9 +79,19 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
     result
   }
 
-  def listClusterLinks(): Seq[ClusterLinkListing] = {
-    clusterLinkManager.listClusterLinks.map { clusterLinkData =>
-      new ClusterLinkListing(clusterLinkData.linkName, clusterLinkData.linkId, clusterLinkData.clusterId.orNull)
+  def listClusterLinks(linkNames: Option[Set[String]], includeTopics: Boolean): Seq[ClusterLinkListing] = {
+    val clusterLinkDatas = clusterLinkManager.listClusterLinks.filter(cld => linkNames.forall(_.contains(cld.linkName)))
+    val topics = if (includeTopics)
+      Some(getAllTopicsForLinkIds(clusterLinkDatas.map(_.linkId).toSet))
+    else
+      None
+
+    clusterLinkDatas.map { cld =>
+      val linkTopics = topics.map(_.get(cld.linkId).getOrElse(Iterable.empty)) match {
+        case Some(lt) => Optional.of(lt.asJavaCollection)
+        case None => Optional.empty[Collection[String]]
+      }
+      new ClusterLinkListing(cld.linkName, cld.linkId, cld.clusterId.orNull, linkTopics)
     }
   }
 
@@ -90,14 +100,9 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
 
     val linkId = clusterLinkManager.resolveLinkIdOrThrow(linkName)
     if (!force) {
-      val allTopics = zkClient.getAllTopicsInCluster()
-      if (allTopics.nonEmpty) {
-        val topicsInUse = zkClient.getClusterLinkForTopics(allTopics).filter { case (_, state) =>
-          state.mirrorIsEstablished && state.linkId == linkId
-        }.keys
-        if (topicsInUse.nonEmpty)
-          throw new ClusterLinkInUseException(s"Cluster link '$linkName' with ID '$linkId' in used by topics: $topicsInUse")
-      }
+      val topicsInUse = getAllTopicsForLinkIds(Set(linkId)).get(linkId).getOrElse(Set.empty)
+      if (topicsInUse.nonEmpty)
+        throw new ClusterLinkInUseException(s"Cluster link '$linkName' with ID '$linkId' in used by topics: $topicsInUse")
     }
 
     if (!validateOnly)
@@ -219,6 +224,21 @@ class ClusterLinkAdminManager(val config: KafkaConfig,
     }
 
     linkClusterId
+  }
+
+  /**
+    * Returns all of the topics that are linked for the provided link IDs.
+    *
+    * @param linkIds the link IDs to resolve topics for
+    * @return a map from link ID to its topics
+    */
+  private def getAllTopicsForLinkIds(linkIds: Set[UUID]): Map[UUID, Set[String]] = {
+    val result = mutable.Map[UUID, mutable.Set[String]]()
+    clusterLinkManager.controller.controllerContext.linkedTopics.foreach { case (topic, state) =>
+      if (state.mirrorIsEstablished && linkIds.contains(state.linkId))
+        result.getOrElseUpdate(state.linkId, mutable.Set.empty[String]) += topic
+    }
+    result.map { case (k, v) => k -> v.toSet }.toMap
   }
 
 }

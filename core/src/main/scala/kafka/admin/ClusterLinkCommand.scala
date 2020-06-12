@@ -3,7 +3,7 @@
  */
 package kafka.admin
 
-import java.util.Properties
+import java.util.{Collections, Optional, Properties}
 import java.util.concurrent.ExecutionException
 
 import joptsimple._
@@ -150,14 +150,22 @@ object ClusterLinkCommand extends Logging {
   }
 
   private def listClusterLinks(opts: ClusterLinkCommandOptions, client: ConfluentAdmin): Unit = {
-    val options = new ListClusterLinksOptions()
+    val linkName = opts.valueAsOption(opts.linkNameOpt)
+    val includeTopics = opts.options.has(opts.includeTopicsOpt)
+    val options = new ListClusterLinksOptions().includeTopics(includeTopics)
+    linkName.foreach(ln => options.linkNames(Optional.of(Collections.singletonList(ln))))
     val result = client.listClusterLinks(options).result().get().asScala
-    if (result.isEmpty)
-      println("No cluster links found.")
-    else
-      result.foreach {
-        case cl => println(s"Link name: '${cl.linkName}', link ID: '${cl.linkId}', cluster ID: '${cl.clusterId}'")
+    if (result.nonEmpty) {
+      result.foreach { cl =>
+        print(s"Link name: '${cl.linkName}', link ID: '${cl.linkId}', cluster ID: '${cl.clusterId}'")
+        if (cl.topics.isPresent)
+          print(s", topics: ${cl.topics.get}")
+        println()
       }
+    } else linkName match {
+      case Some(ln) => println(s"Link name '$ln' not found.")
+      case None => println("No cluster links found.")
+    }
   }
 
   private def deleteClusterLink(opts: ClusterLinkCommandOptions, client: ConfluentAdmin): Unit = {
@@ -226,6 +234,7 @@ private final class ClusterLinkCommandOptions(args: Array[String]) extends Comma
   val forceOpt = parser.accepts("force", "When deleting a link, force its deletion even if there's outstanding references (e.g. topic mirrors) to the link.")
   val validateOnlyOpt = parser.accepts("validate-only", "Whether to only validate the action but not apply it.")
   val excludeValidateLinkOpt = parser.accepts("exclude-validate-link", "If set, then when creating a link, do not attempt to validate the link with the link's cluster.")
+  val includeTopicsOpt = parser.accepts("include-topics", "If set, then when listing cluster links, include the topics that are linked.")
 
   options = parser.parse(args: _*)
 
@@ -268,9 +277,9 @@ private final class ClusterLinkCommandOptions(args: Array[String]) extends Comma
     if (options.has(createOpt) || options.has(deleteOpt))
       verifyRequiredArgs(parser, options, linkNameOpt)
 
-    verifyInvalidArgs(parser, options, createOpt, Set(forceOpt))
-    verifyInvalidArgs(parser, options, listOpt, Set(linkNameOpt, clusterIdOpt, configOpt, configFileOpt, forceOpt, excludeValidateLinkOpt))
-    verifyInvalidArgs(parser, options, deleteOpt, Set(clusterIdOpt, configOpt, configFileOpt, excludeValidateLinkOpt))
+    verifyInvalidArgs(parser, options, createOpt, Set(forceOpt, includeTopicsOpt))
+    verifyInvalidArgs(parser, options, listOpt, Set(clusterIdOpt, configOpt, configFileOpt, forceOpt, excludeValidateLinkOpt))
+    verifyInvalidArgs(parser, options, deleteOpt, Set(clusterIdOpt, configOpt, configFileOpt, excludeValidateLinkOpt, includeTopicsOpt))
   }
 
   def checkArgs(): Unit = {

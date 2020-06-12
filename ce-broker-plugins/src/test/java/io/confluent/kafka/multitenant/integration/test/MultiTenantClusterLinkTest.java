@@ -10,6 +10,7 @@ import io.confluent.kafka.multitenant.quota.TenantQuotaCallback;
 import io.confluent.kafka.server.plugins.policy.TopicPolicyConfig;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.kafka.test.utils.SecurityTestUtils;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -34,6 +35,7 @@ import org.apache.kafka.clients.admin.Config;
 import org.apache.kafka.clients.admin.ConfigEntry;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.clients.admin.CreateClusterLinksOptions;
+import org.apache.kafka.clients.admin.ListClusterLinksOptions;
 import org.apache.kafka.clients.admin.NewPartitions;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.admin.NewTopicMirror;
@@ -53,6 +55,7 @@ import org.apache.kafka.common.config.ConfigResource.Type;
 import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
+import org.apache.kafka.common.requests.ClusterLinkListing;
 import org.apache.kafka.common.requests.NewClusterLink;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.resource.ResourcePattern;
@@ -65,6 +68,7 @@ import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.test.IntegrationTest;
 import org.apache.kafka.test.TestUtils;
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -100,6 +104,7 @@ public class MultiTenantClusterLinkTest {
     destCluster.createClusterLink(destCluster.admin, linkName, sourceCluster);
 
     createMirroredTopic();
+    //verifyTopicListing();
     verifyTopicMirroring();
 
     addSourcePartitionsAndVerifyMirror(4);
@@ -118,6 +123,7 @@ public class MultiTenantClusterLinkTest {
 
     destCluster.createClusterLink(destCluster.admin, linkName, sourceCluster);
     createMirroredTopic();
+    //verifyTopicListing();
     verifyTopicMirroring();
     verifyAclAndOffsetMigration();
 
@@ -161,6 +167,18 @@ public class MultiTenantClusterLinkTest {
     NewTopic newTopic = new NewTopic(topic, Optional.empty(), Optional.of((short) 1))
         .mirror(Optional.of(new NewTopicMirror(linkName, topic)));
     destCluster.admin.createTopics(Collections.singleton(newTopic)).all().get();
+  }
+
+  private void verifyTopicListing() throws Exception {
+    ListClusterLinksOptions options = new ListClusterLinksOptions().includeTopics(true);
+    Collection<ClusterLinkListing> listings = destCluster.admin.listClusterLinks(options).result().get();
+    Assert.assertEquals(1, listings.size());
+    ClusterLinkListing listing = listings.iterator().next();
+    Assert.assertEquals(linkName, listing.linkName());
+    Assert.assertTrue(listing.topics().isPresent());
+    Collection<String> topics = listing.topics().get();
+    Assert.assertEquals(1, topics.size());
+    Assert.assertEquals(topic, topics.iterator().next());
   }
 
   /**

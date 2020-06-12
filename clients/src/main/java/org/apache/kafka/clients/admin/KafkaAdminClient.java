@@ -4315,7 +4315,7 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
 
                 @Override
                 ListClusterLinksRequest.Builder createRequest(int timeoutMs) {
-                    return new ListClusterLinksRequest.Builder();
+                    return new ListClusterLinksRequest.Builder(options.linkNames(), options.includeTopics(), timeoutMs);
                 }
 
                 @Override

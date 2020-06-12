@@ -17,7 +17,7 @@ import java.util
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.regex.Pattern
-import java.util.{Collections, Optional, Properties}
+import java.util.{Collection, Collections, Optional, Properties}
 
 import kafka.admin.ConsumerGroupCommand.{ConsumerGroupCommandOptions, ConsumerGroupService}
 import kafka.log.LogConfig
@@ -615,7 +615,7 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
     Collections.singleton(new NewClusterLink(linkName, null, Map("bootstrap.servers" -> "localhost:9092").asJava)),
     false, false, 10000).build()
 
-  private def listClusterLinksRequest = new ListClusterLinksRequest.Builder().build()
+  private def listClusterLinksRequest = new ListClusterLinksRequest.Builder(Optional.empty[Collection[String]], false, 10000).build()
 
   private def deleteClusterLinksRequest = new DeleteClusterLinksRequest.Builder(
     Collections.singleton(linkName), false, true, 10000).build()
