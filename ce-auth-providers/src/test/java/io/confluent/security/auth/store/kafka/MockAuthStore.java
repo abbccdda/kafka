@@ -42,6 +42,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
@@ -132,14 +134,17 @@ public class MockAuthStore extends KafkaAuthStore {
   }
 
   @Override
-  public void startService(Collection<URL> nodeUrls) {
+  public CompletionStage<Void> startService(Collection<URL> nodeUrls) {
     super.startService(nodeUrls);
 
+    CompletableFuture<Void> future = new CompletableFuture<>();
     try {
       TestUtils.waitForCondition(() -> coordinatorClient != null, "Coordinator client not created");
+      future.complete(null);
     } catch (Exception e) {
-      throw new RuntimeException(e);
+      future.completeExceptionally(e);
     }
+    return future;
   }
 
   @Override

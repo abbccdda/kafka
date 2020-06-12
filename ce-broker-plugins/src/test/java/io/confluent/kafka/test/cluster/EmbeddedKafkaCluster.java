@@ -19,6 +19,7 @@ package io.confluent.kafka.test.cluster;
 
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.license.validator.LicenseConfig;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -26,6 +27,7 @@ import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -116,7 +118,7 @@ public class EmbeddedKafkaCluster {
    * initialized using the topic. Brokers need to be started concurrently since the topic
    * can be created only when sufficient number of brokers are registered.
    */
-  public void concurrentStartBrokers(List<Properties> brokerConfigs) throws Exception {
+  public void concurrentStartBrokers(List<Properties> brokerConfigs, Duration timeout) throws Exception {
     int numBrokers = brokerConfigs.size();
     List<Future<EmbeddedKafka>> brokerFutures = new ArrayList<>(numBrokers);
     ExecutorService executorService = Executors.newFixedThreadPool(numBrokers);
@@ -130,7 +132,7 @@ public class EmbeddedKafkaCluster {
       }
 
       for (Future<EmbeddedKafka> future : brokerFutures) {
-        EmbeddedKafka broker = future.get();
+        EmbeddedKafka broker = future.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
         brokers.add(broker);
         log.debug("Kafka instance started: {}", broker);
       }

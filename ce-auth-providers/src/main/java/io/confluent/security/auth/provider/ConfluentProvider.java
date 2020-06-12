@@ -220,11 +220,16 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
       authenticateCallbackHandler.configure(configs, "PLAIN", Collections.emptyList());
     }
 
+    CompletableFuture<Void> failFuture = new CompletableFuture<>();
     if (usesMetadataFromThisKafkaCluster()) {
-      authStore.startService(metadataServerConfig.metadataServerAdvertisedListeners());
+      authStore.startService(metadataServerConfig.metadataServerAdvertisedListeners())
+          .exceptionally(e -> {
+            failFuture.completeExceptionally(e);
+            return null;
+          });
     }
 
-    return authStore.startReader()
+    return CompletableFuture.anyOf(authStore.startReader().toCompletableFuture(), failFuture)
         .thenApply(unused -> {
           if (usesMetadataFromThisKafkaCluster()) {
             EmbeddedAuthorizer authorizer = createRbacAuthorizer();

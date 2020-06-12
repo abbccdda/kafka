@@ -41,8 +41,9 @@ public interface AuthStore extends Configurable, Closeable {
    *                  unique across the cluster since they are used as node ids for master writer
    *                  election. The URLs are also used for redirection of update requests to the
    *                  current master writer of the metadata service.
+   * @return Completion stage that completes when the service starts up and elects a master writer.
    */
-  void startService(Collection<URL> serverUrls);
+  CompletionStage<Void> startService(Collection<URL> serverUrls);
 
   /**
    * Returns a cache that stores all data read from the auth topic.

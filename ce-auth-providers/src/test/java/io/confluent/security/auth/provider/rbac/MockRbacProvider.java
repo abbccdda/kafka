@@ -60,7 +60,8 @@ public class MockRbacProvider extends ConfluentProvider implements MetadataProvi
     }
 
     @Override
-    public void startService(Collection<URL> serverUrls) {
+    public CompletionStage<Void> startService(Collection<URL> serverUrls) {
+      return CompletableFuture.completedFuture(null);
     }
 
     @Override

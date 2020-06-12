@@ -27,6 +27,7 @@ import io.confluent.security.authorizer.acl.AclRule;
 import io.confluent.security.minikdc.MiniKdcWithLdapService;
 import io.confluent.security.store.kafka.KafkaStoreConfig;
 import java.net.URL;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -70,6 +71,10 @@ public class RbacClusters {
   private List<KafkaAuthWriter> authWriters;
 
   public RbacClusters(Config config) throws Exception {
+    this(config, true);
+  }
+
+  public RbacClusters(Config config, boolean autoStart) throws Exception {
     this.config = config;
     metadataCluster = new EmbeddedKafkaCluster();
     metadataCluster.startZooKeeper();
@@ -81,19 +86,20 @@ public class RbacClusters {
     else
       miniKdcWithLdapService = null;
 
-    List<Properties> metadataBrokerProps = new ArrayList<>(config.numMetadataServers);
-    for (int i = 0; i < config.numMetadataServers; i++)
-      metadataBrokerProps.add(metadataCluster.createBrokerConfig(100 + i, metadataClusterServerConfig(i)));
-    metadataCluster.concurrentStartBrokers(metadataBrokerProps);
-
-    updateAuthWriters();
-    assertNotNull("Master writer not elected:", masterWriter());
 
     kafkaCluster = new EmbeddedKafkaCluster();
-    kafkaCluster.startZooKeeper();
-    createUsers(kafkaCluster, config.brokerUser, config.userNames);
-    createAclBindings(kafkaCluster, config.serverAclBindings);
-    kafkaCluster.startBrokers(config.numKafkaServers, serverConfig());
+    if (autoStart) {
+      List<Properties> metadataBrokerProps = new ArrayList<>(config.numMetadataServers);
+      startMetadataCluster(Duration.ofSeconds(30));
+
+      updateAuthWriters();
+      assertNotNull("Master writer not elected:", masterWriter());
+
+      kafkaCluster.startZooKeeper();
+      createUsers(kafkaCluster, config.brokerUser, config.userNames);
+      createAclBindings(kafkaCluster, config.serverAclBindings);
+      kafkaCluster.startBrokers(config.numKafkaServers, serverConfig());
+    }
   }
 
   public String kafkaClusterId() {
@@ -102,6 +108,13 @@ public class RbacClusters {
 
   public String metadataClusterId() {
     return metadataCluster.kafkas().get(0).kafkaServer().clusterId();
+  }
+
+  public void startMetadataCluster(Duration timeout) throws Exception {
+    List<Properties> metadataBrokerProps = new ArrayList<>(config.numMetadataServers);
+    for (int i = 0; i < config.numMetadataServers; i++)
+      metadataBrokerProps.add(metadataCluster.createBrokerConfig(100 + i, metadataClusterServerConfig(i)));
+    metadataCluster.concurrentStartBrokers(metadataBrokerProps, timeout);
   }
 
   public void produceConsume(String user,

@@ -2,6 +2,7 @@
 
 package io.confluent.security.test.integration.rbac;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 
 import io.confluent.kafka.test.utils.KafkaTestUtils;
@@ -11,16 +12,19 @@ import io.confluent.license.License;
 import io.confluent.license.test.utils.LicenseTestUtils;
 import io.confluent.license.validator.ConfluentLicenseValidator.LicenseStatus;
 import io.confluent.security.authorizer.AccessRule;
+import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
 import io.confluent.security.authorizer.PermissionType;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.store.NotMasterWriterException;
 import io.confluent.security.test.utils.RbacClusters;
 import io.confluent.security.test.utils.RbacClusters.Config;
 import io.confluent.security.test.utils.RbacTestUtils;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import kafka.log.LogConfig$;
 import org.apache.kafka.clients.admin.AdminClient;
@@ -34,12 +38,14 @@ import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.acl.AclPermissionType;
 import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.config.ConfigResource.Type;
+import org.apache.kafka.common.errors.InvalidConfigurationException;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.errors.NotLeaderForPartitionException;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.resource.ResourceType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.server.http.MetadataServerConfig;
 import org.apache.kafka.test.IntegrationTest;
 import org.apache.kafka.test.TestUtils;
 import org.junit.After;
@@ -210,6 +216,19 @@ public class RbacEndToEndAuthorizationTest {
     rbacClusters.waitUntilAccessAllowed(DEVELOPER2, APP1_TOPIC);
     rbacClusters.produceConsume(DEVELOPER2, APP1_TOPIC, APP1_CONSUMER_GROUP, true);
     RbacTestUtils.verifyMetadataStoreMetrics();
+  }
+
+  @Test(timeout = 30000)
+  public void testDuplicateMdsUrls() throws Throwable {
+    config = config.addMetadataServer()
+        .overrideMetadataBrokerConfig(MetadataServerConfig.METADATA_SERVER_ADVERTISED_LISTENERS_PROP,
+            "http://localhost:8080")
+        .overrideMetadataBrokerConfig(ConfluentAuthorizerConfig.INIT_TIMEOUT_PROP, "60000");
+    rbacClusters = new RbacClusters(config.withLicense(), false);
+    ExecutionException e = assertThrows(ExecutionException.class,
+        () -> rbacClusters.startMetadataCluster(Duration.ofSeconds(30)));
+    assertEquals(CompletionException.class, e.getCause().getClass());
+    assertEquals(InvalidConfigurationException.class, e.getCause().getCause().getClass());
   }
 
   private void setupRbacClusters(int numMetadataServers) throws Exception {
