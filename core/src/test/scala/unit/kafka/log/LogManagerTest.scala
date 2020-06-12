@@ -161,6 +161,17 @@ class LogManagerTest {
     assertTrue(!logFile.exists)
   }
 
+  private def reconfigureMaxSegmentDeletedPerRun(logDeletionMaxSegmentsPerRun: Int): Unit = {
+    def kafkaConfigWithCleanerConfig(logDeletionMaxSegmentsPerRun: Int): KafkaConfig = {
+      val props = TestUtils.createBrokerConfig(0, "localhost:2181")
+      props.put(KafkaConfig.LogDeletionMaxSegmentsPerRunProp, logDeletionMaxSegmentsPerRun.toString)
+      KafkaConfig.fromProps(props)
+    }
+    val oldConfig = kafkaConfigWithCleanerConfig(logManager.maxSegmentsDeletedPerRun)
+    val newConfig = kafkaConfigWithCleanerConfig(logDeletionMaxSegmentsPerRun)
+    logManager.reconfigure(oldConfig, newConfig)
+  }
+
   @Test
   def testLogDeletionMaxSegmentsPerRunExpiredSegments(): Unit = {
     val log = logManager.getOrCreateLog(new TopicPartition(name, 0), () => logConfig)
@@ -174,18 +185,6 @@ class LogManagerTest {
     log.updateHighWatermark(log.logEndOffset)
     val numSegments = log.numberOfSegments
 
-    def reconfigureMaxSegmentDeletedPerRun(logDeletionMaxSegmentsPerRun: Int): Unit = {
-      def kafkaConfigWithCleanerConfig(logDeletionMaxSegmentsPerRun: Int): KafkaConfig = {
-        val props = TestUtils.createBrokerConfig(0, "localhost:2181")
-        props.put(KafkaConfig.LogDeletionMaxSegmentsPerRunProp, logDeletionMaxSegmentsPerRun.toString)
-        KafkaConfig.fromProps(props)
-      }
-      // Verify cleaning done with logDeletionMaxSegmentsPerRun = 1
-      val oldConfig = kafkaConfigWithCleanerConfig(logManager.maxSegmentsDeletedPerRun)
-      val newConfig = kafkaConfigWithCleanerConfig(logDeletionMaxSegmentsPerRun)
-      logManager.reconfigure(oldConfig, newConfig)
-    }
-
     // reconfigure it to 0 to disallow any retention based segments to delete in the cleanup run
     reconfigureMaxSegmentDeletedPerRun(0)
     log.localLogSegments.foreach(_.log.file.setLastModified(time.milliseconds))
@@ -197,6 +196,63 @@ class LogManagerTest {
     reconfigureMaxSegmentDeletedPerRun(log.numberOfSegments)
     time.sleep(logManager.retentionCheckMs + 1)
     assertEquals("Now there should only be only one segment in the index.", 1, log.numberOfSegments)
+  }
+
+  /**
+   * Tests the behavior of 'confluent.tier.segment.hotset.roll.min.bytes' property in the presence of
+   * 'log.deletion.max.segments.per.run' property. Verifies that the LogManager cleanup logic
+   * attempts a force roll on all deletable logs, even in a case where the number of deletions
+   * are limited to a value lower than the # of deletable logs.
+   */
+  @Test
+  def testLogDeletionMaxSegmentsPerRunAlongWithTierSegmentHotsetRollMinBytes(): Unit = {
+    logManager.shutdown()
+    logManager = createLogManager()
+
+    def createRecords = TestUtils.singletonRecords(value = "test".getBytes, timestamp = time.milliseconds - maxLogAgeMs - 1)
+    val recordSize = createRecords.sizeInBytes()
+
+    val tierLocalHotsetMs = 10 * 60 * 60L
+    val tierSegmentHotsetRollMinBytes = 5 * recordSize
+    val updatedLogProps: Properties = new Properties()
+    updatedLogProps.putAll(logProps)
+    updatedLogProps.put(LogConfig.SegmentBytesProp, 10 * recordSize: java.lang.Integer)
+    updatedLogProps.put(LogConfig.TierSegmentHotsetRollMinBytesProp, tierSegmentHotsetRollMinBytes: java.lang.Integer)
+    updatedLogProps.put(LogConfig.TierLocalHotsetMsProp, tierLocalHotsetMs: java.lang.Long)
+    updatedLogProps.put(LogConfig.SegmentMsProp, Long.MaxValue: java.lang.Long)
+    updatedLogProps.put(LogConfig.RetentionBytesProp, Long.MaxValue: java.lang.Long)
+    updatedLogProps.put(LogConfig.TierEnableProp, true: java.lang.Boolean)
+    val updatedLogConfig = LogConfig(updatedLogProps)
+    val log1 = logManager.getOrCreateLog(new TopicPartition(name, 0), () => updatedLogConfig)
+    val log2 = logManager.getOrCreateLog(new TopicPartition(name, 1), () => updatedLogConfig)
+
+    // Create 3 segments in each log, and, make the active segment with 5 records
+    // (i.e. such that it equals tierSegmentHotsetRollMinBytes). This is so that the active segment
+    // becomes eligible for roll whenever log.maybeForceRoll() gets called in the future.
+    for (_ <- 1 to 25) {
+      log1.appendAsLeader(createRecords, leaderEpoch = 0)
+      log2.appendAsLeader(createRecords, leaderEpoch = 0)
+    }
+    assertTrue("There should be 3 segments now.", log1.numberOfSegments == 3)
+    assertTrue("There should be 3 segments now.", log2.numberOfSegments == 3)
+    log1.updateHighWatermark(log1.logEndOffset)
+    log2.updateHighWatermark(log2.logEndOffset)
+
+    // Reconfigure max segments deleted to 1, so that upto 1 segment can be deleted in the cleanup run.
+    reconfigureMaxSegmentDeletedPerRun(1)
+
+    // Sleep long enough so as to enable a force roll of both logs when
+    // logManager.cleanupLogsAndMaybeForceRoll() gets called.
+    time.sleep(tierLocalHotsetMs + 1)
+    logManager.cleanupLogsAndMaybeForceRoll()
+
+    // Now, expect that 1 segment has been deleted from either log1 or log2, and, both logs have been
+    // force rolled (the force rolling creates the +1 segment taking the segment count from 3->4 in
+    // one of the logs and 2->3 segments in the other log).
+    assertTrue(
+      "Should have 1 segment removed from either of the 2 logs.",
+      (log1.numberOfSegments == 3) && (log2.numberOfSegments == 4) ||
+      (log1.numberOfSegments == 4) && (log2.numberOfSegments == 3))
   }
 
   /**

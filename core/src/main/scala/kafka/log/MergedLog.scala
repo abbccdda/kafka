@@ -273,6 +273,10 @@ class MergedLog(private[log] val localLog: Log,
     deleteOldSegments(Int.MaxValue)
   }
 
+  override def maybeForceRoll(): Unit = {
+    localLog.maybeForceRoll()
+  }
+
   override def deleteOldSegments(maxNumSegmentsToDelete: Int): Int = {
     // Delete all eligible local segments if tiering is disabled. If tiering is enabled, allow deletion for eligible
     // tiered segments only. Local segments that have not been tiered yet must not be deleted.
@@ -311,9 +315,6 @@ class MergedLog(private[log] val localLog: Log,
         // maybeIncrementLogStartOffset will set the new local log start offset, delete any
         // producer state snapshot files prior to this.
         localLog.producerStateManager.deleteSnapshotsBefore(localLogStartOffset)
-      } else {
-        // We may force active segment of tiered log to roll.
-        localLog.maybeForceRoll()
       }
 
       retentionDeleted + hotsetDeleted
@@ -1127,6 +1128,11 @@ sealed trait AbstractLog {
     * @return Number of segments deleted.
     */
   def deleteOldSegments(maxNumSegmentsToDelete: Int): Int
+
+  /**
+   * Optionally force the log roll if a certain criteria is met. The criteria is implementation specific.
+   */
+  def maybeForceRoll(): Unit
 
   /**
     * @return The size of this log in bytes including tiered segments, if any. If the log consists of tiered segments,
