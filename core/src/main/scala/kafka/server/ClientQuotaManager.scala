@@ -726,6 +726,7 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
 
   def shutdown(): Unit = {
     throttledChannelReaper.shutdown()
+    removeDiskThrottlerMetrics()
   }
 
   class DefaultQuotaCallback extends ClientQuotaCallback {
