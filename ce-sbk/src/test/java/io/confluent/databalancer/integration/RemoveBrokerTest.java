@@ -3,14 +3,21 @@ package io.confluent.databalancer.integration;
 import io.confluent.databalancer.KafkaDataBalanceManager;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import kafka.server.KafkaServer;
 import org.apache.kafka.clients.admin.BrokerRemovalDescription;
+import org.apache.kafka.clients.admin.NewPartitionReassignment;
+import org.apache.kafka.common.Node;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.utils.Exit;
 import org.apache.kafka.test.IntegrationTest;
 import org.apache.kafka.test.TestUtils;
@@ -68,8 +75,23 @@ public class RemoveBrokerTest extends DataBalancerClusterTestHarness {
   @Test
   public void testRemoveBroker() throws InterruptedException, ExecutionException {
     KafkaTestUtils.createTopic(adminClient, "test-topic", 20, 2);
-    KafkaServer controllerServer = controllerKafkaServer();
-    KafkaDataBalanceManager dataBalancer = (KafkaDataBalanceManager) controllerServer.kafkaController().dataBalancer().get();
+    removeBroker(notControllerKafkaServer());
+  }
+
+  /**
+   * If we are to move all replicas off the broker to be removed,
+   * the removal should still complete successfully despite there being no goal proposals to execute
+   */
+  @Test
+  public void testRemoveBroker_NoProposalsShouldComplete() throws InterruptedException, ExecutionException {
+    while (moveReplicasOffBroker(brokerToRemoveId).size() != 0) {
+      info("Moving replicas off of broker {}", brokerToRemoveId);
+    }
+    removeBroker(notControllerKafkaServer());
+  }
+
+  private void removeBroker(KafkaServer server) throws InterruptedException, ExecutionException {
+    int brokerToRemoveId = server.config().brokerId();
 
     info("Removing broker with id {}", brokerToRemoveId);
     adminClient.removeBrokers(Collections.singletonList(brokerToRemoveId)).all().get();
@@ -110,7 +132,47 @@ public class RemoveBrokerTest extends DataBalancerClusterTestHarness {
     assertTrue("Expected Exit to be called", exited.get());
     TestUtils.waitForCondition(() -> adminClient.describeCluster().nodes().get().size() == initialBrokerCount() - 1,
         60_000L, "Cluster size did not shrink!");
+    // get the controller last in case it changed during the test
+    KafkaServer controllerServer = controllerKafkaServer();
+    KafkaDataBalanceManager dataBalancer = (KafkaDataBalanceManager) controllerServer.kafkaController().dataBalancer().get();
     assertEquals("Expected one broker removal to be stored in memory", 1, dataBalancer.brokerRemovals().size());
   }
 
+  /**
+   * Return all the brokers without the one which is getting removed
+   */
+  private List<Integer> brokerIdsWithoutRemovedBroker(int removedBrokerId) {
+    List<Integer> brokers = servers.stream().map(server -> server.config().brokerId()).collect(Collectors.toList());
+    brokers.remove(removedBrokerId);
+    return brokers;
+  }
+
+  private List<TopicPartition> partitionsOnBroker(int brokerId) throws ExecutionException, InterruptedException {
+    Set<String> topics = adminClient.listTopics().names().get();
+    List<TopicPartition> topicPartitions = adminClient.describeTopics(topics).all().get().entrySet().stream()
+        .flatMap(kv -> kv.getValue()
+            .partitions().stream()
+            .filter(tpInfo -> tpInfo.replicas().stream().map(Node::id).anyMatch(id -> id == brokerId))
+            .map(tpInfo -> new TopicPartition(kv.getKey(), tpInfo.partition())))
+        .collect(Collectors.toList());
+    info("Partitions on broker {} are {}", brokerId, topicPartitions);
+    return topicPartitions;
+  }
+
+  /**
+   * Reassigns all the replicas away from the given broker
+   * @return All the remaining, if any, replicas on broker #{@code brokerId}
+   */
+  private List<TopicPartition> moveReplicasOffBroker(int brokerId) throws ExecutionException, InterruptedException {
+    List<Integer> brokerIds = brokerIdsWithoutRemovedBroker(brokerId);
+    List<TopicPartition> topicPartitions = partitionsOnBroker(brokerId);
+    adminClient.alterPartitionReassignments(topicPartitions.stream().collect(Collectors.toMap(
+        tp -> tp,
+        tp -> Optional.of(new NewPartitionReassignment(brokerIds))
+    ))).all().get();
+    TestUtils.waitForCondition(() -> adminClient.listPartitionReassignments().reassignments().get().size() == 0,
+        60_000L,
+        () -> "Expected all ongoing partition reassignments to finish");
+    return partitionsOnBroker(brokerId);
+  }
 }

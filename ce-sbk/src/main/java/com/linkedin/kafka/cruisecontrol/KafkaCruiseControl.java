@@ -56,6 +56,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -875,9 +876,8 @@ public class KafkaCruiseControl {
           null, null, replicationThrottle, uuid,
           completionCallback);
     } else {
-      throw new IllegalStateException(
-          String.format("Cannot execute a removal for brokers %s when there are no proposals to execute!", removedBrokers)
-      );
+      LOG.info("Not executing any proposals for removal operation {} since none exist", uuid);
+      return new CompletableFuture<>();
     }
   }
 
