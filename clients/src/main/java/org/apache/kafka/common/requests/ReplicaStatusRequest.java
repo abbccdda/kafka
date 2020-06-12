@@ -68,7 +68,7 @@ public class ReplicaStatusRequest extends AbstractRequest {
     public static class Builder extends AbstractRequest.Builder<ReplicaStatusRequest> {
         private final ReplicaStatusRequestData data;
 
-        public Builder(Set<TopicPartition> partitions) {
+        public Builder(Set<TopicPartition> partitions, boolean includeLinkedReplicas) {
             super(ApiKeys.REPLICA_STATUS);
 
             Map<String, List<Integer>> topicToPartitions = new HashMap<>();
@@ -83,7 +83,9 @@ public class ReplicaStatusRequest extends AbstractRequest {
                         .setPartitions(entry.getValue()));
             }
 
-            this.data = new ReplicaStatusRequestData().setTopics(dataTopics);
+            this.data = new ReplicaStatusRequestData()
+                .setTopics(dataTopics)
+                .setIncludeLinkedReplicas(includeLinkedReplicas);
         }
 
         @Override

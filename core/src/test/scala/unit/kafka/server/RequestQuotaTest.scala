@@ -580,7 +580,7 @@ class RequestQuotaTest extends BaseRequestTest {
           new AlterMirrorsRequest.Builder(List.empty.asJava, false, 1000);
 
         case ApiKeys.REPLICA_STATUS =>
-          new ReplicaStatusRequest.Builder(Collections.singleton(new TopicPartition("test", 0)))
+          new ReplicaStatusRequest.Builder(Collections.singleton(new TopicPartition("test", 0)), false)
     }
   }
 

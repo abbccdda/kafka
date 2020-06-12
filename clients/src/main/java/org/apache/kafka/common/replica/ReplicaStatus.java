@@ -5,6 +5,7 @@
 package org.apache.kafka.common.replica;
 
 import java.util.Objects;
+import java.util.Optional;
 import org.apache.kafka.common.Confluent;
 
 /**
@@ -22,6 +23,7 @@ public class ReplicaStatus {
     private final long logEndOffset;
     private final long lastCaughtUpTimeMs;
     private final long lastFetchTimeMs;
+    private final Optional<String> linkName;
 
     public ReplicaStatus(int brokerId,
                          boolean isLeader,
@@ -32,7 +34,8 @@ public class ReplicaStatus {
                          long logStartOffset,
                          long logEndOffset,
                          long lastCaughtUpTimeMs,
-                         long lastFetchTimeMs) {
+                         long lastFetchTimeMs,
+                         Optional<String> linkName) {
         this.brokerId = brokerId;
         this.isLeader = isLeader;
         this.isObserver = isObserver;
@@ -43,6 +46,7 @@ public class ReplicaStatus {
         this.logEndOffset = logEndOffset;
         this.lastCaughtUpTimeMs = lastCaughtUpTimeMs;
         this.lastFetchTimeMs = lastFetchTimeMs;
+        this.linkName = Objects.requireNonNull(linkName);
     }
 
     /**
@@ -123,32 +127,41 @@ public class ReplicaStatus {
         return lastFetchTimeMs;
     }
 
+    /**
+     * The cluster link name over which the replica status was fetched, or empty if local.
+     */
+    public Optional<String> linkName() {
+        return linkName;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         ReplicaStatus that = (ReplicaStatus) o;
-        return brokerId == that.brokerId &&
-                isLeader == that.isLeader &&
-                isObserver == that.isObserver &&
-                isIsrEligible == that.isIsrEligible &&
-                isInIsr == that.isInIsr &&
-                isCaughtUp == that.isCaughtUp &&
-                logStartOffset == that.logStartOffset &&
-                logEndOffset == that.logEndOffset &&
-                lastCaughtUpTimeMs == that.lastCaughtUpTimeMs &&
-                lastFetchTimeMs == that.lastFetchTimeMs;
+        return Objects.equals(brokerId, that.brokerId) &&
+                Objects.equals(isLeader, that.isLeader) &&
+                Objects.equals(isObserver, that.isObserver) &&
+                Objects.equals(isIsrEligible, that.isIsrEligible) &&
+                Objects.equals(isInIsr, that.isInIsr) &&
+                Objects.equals(isCaughtUp, that.isCaughtUp) &&
+                Objects.equals(logStartOffset, that.logStartOffset) &&
+                Objects.equals(logEndOffset, that.logEndOffset) &&
+                Objects.equals(lastCaughtUpTimeMs, that.lastCaughtUpTimeMs) &&
+                Objects.equals(lastFetchTimeMs, that.lastFetchTimeMs) &&
+                Objects.equals(linkName, that.linkName);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(brokerId, isLeader, isObserver, isIsrEligible, isInIsr, isCaughtUp,
-                            logStartOffset, logEndOffset, lastCaughtUpTimeMs, lastFetchTimeMs);
+        return Objects.hash(brokerId, isLeader, isObserver, isIsrEligible, isInIsr,
+                            isCaughtUp, logStartOffset, logEndOffset, lastCaughtUpTimeMs,
+                            lastFetchTimeMs, linkName);
     }
 
     @Override
     public String toString() {
-        return "ReplicaStatus{" +
+        return "ReplicaStatus(" +
                 "brokerId=" + brokerId +
                 ", isLeader=" + isLeader +
                 ", isObserver=" + isObserver +
@@ -159,6 +172,7 @@ public class ReplicaStatus {
                 ", logEndOffset=" + logEndOffset +
                 ", lastCaughtUpTimeMs=" + lastCaughtUpTimeMs +
                 ", lastFetchTimeMs=" + lastFetchTimeMs +
-                '}';
+                ", linkName=" + linkName +
+                ')';
     }
 }

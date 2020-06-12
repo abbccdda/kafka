@@ -32,7 +32,7 @@ class ReplicaStatusRequestTest extends BaseRequestTest {
     // Generates replica status request for all possible versions and validates the response
     def sendReplicaStatusRequestAndValidateResponse(brokerId: Int, error: Errors): Unit = {
       for (ver <- ApiKeys.REPLICA_STATUS.oldestVersion to ApiKeys.REPLICA_STATUS.latestVersion()) {
-        val request = new ReplicaStatusRequest.Builder(Set(topicPartition).asJava).build(ver.toShort)
+        val request = new ReplicaStatusRequest.Builder(Set(topicPartition).asJava, false).build(ver.toShort)
         val replicaStatusResponse = connectAndReceive[ReplicaStatusResponse](request, destination = brokerSocketServer(brokerId))
         assertEquals(s"Unexpected number of topics in response", 1, replicaStatusResponse.data().topics().size())
         assertEquals(s"Unexpected topic in response", topic, replicaStatusResponse.data().topics().get(0).name())

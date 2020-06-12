@@ -3,7 +3,7 @@
  */
 package kafka.admin
 
-import java.util.Properties
+import java.util.{Optional, Properties}
 import java.util.concurrent.ExecutionException
 import joptsimple.ArgumentAcceptingOptionSpec
 
@@ -25,8 +25,11 @@ import scala.concurrent.duration._
 import scala.collection.Seq
 
 object ReplicaStatusCommand extends Logging {
-  private val allColumns = List("Topic", "Partition", "Replica", "IsLeader", "IsObserver", "IsIsrEligible", "IsInIsr", "IsCaughtUp",
-    "LastCaughtUpLagMs", "LastFetchLagMs", "LogStartOffset", "LogEndOffset")
+  private[admin] def headers(includeClusterLink: Boolean): List[String] = {
+    val clusterLink = if (includeClusterLink) List("ClusterLink") else List.empty
+    List("Topic", "Partition", "Replica") ++ clusterLink ++ List("IsLeader", "IsObserver", "IsIsrEligible",
+      "IsInIsr", "IsCaughtUp", "LastCaughtUpLagMs", "LastFetchLagMs", "LogStartOffset", "LogEndOffset")
+  }
 
   case class Args(topics: Seq[String],
     partitions: Seq[Int],
@@ -34,7 +37,8 @@ object ReplicaStatusCommand extends Logging {
     observers: Option[Boolean],
     verboseOutput: Boolean,
     jsonOutput: Boolean,
-    excludeInternalTopics: Boolean)
+    excludeInternalTopics: Boolean,
+    includeLinkedReplicas: Boolean)
 
   def main(args: Array[String]): Unit = {
     run(args, 30.second)
@@ -105,24 +109,28 @@ object ReplicaStatusCommand extends Logging {
     }
 
     debug(s"Calling AdminClient.replicaStatus(${topicPartitions})")
-    val result = client.replicaStatus(topicPartitions.toSet.asJava, new ReplicaStatusOptions)
+    val options = new ReplicaStatusOptions().includeLinkedReplicas(args.includeLinkedReplicas)
+    val result = client.replicaStatus(topicPartitions.toSet.asJava, options)
 
     val entries = mutable.ListBuffer[List[String]]()
     result.result.asScala.toList.sortBy { case (key, _) =>
       (key.topic, key.partition)
     }.foreach { case (partition, replicas) =>
-      val status = replicas.get.asScala.sortBy(_.brokerId)
-      val leaderTimeMs = status.filter(_.isLeader).map(_.lastCaughtUpTimeMs).headOption.getOrElse[Long](0)
-      status.filterNot(st => args.leaders.exists(_ != st.isLeader) || args.observers.exists(_ != st.isObserver))
-        .map(entries += toEntries(args, partition, _, leaderTimeMs))
+        val status = replicas.get.asScala.sortBy { rs =>
+          (rs.linkName.orElse(""), rs.brokerId)
+        }
+        val leaderTimeMs = status.filter(_.isLeader).map(_.lastCaughtUpTimeMs).headOption.getOrElse[Long](0)
+        status.filterNot(st => args.leaders.exists(_ != st.isLeader) || args.observers.exists(_ != st.isObserver))
+          .map(entries += toEntries(args, partition, _, leaderTimeMs))
     }
 
+    val hdrs = headers(args.includeLinkedReplicas)
     if (args.jsonOutput)
-      printJson(entries.toList)
+      printJson(hdrs, entries.toList)
     else if (args.verboseOutput)
-      printVerbose(entries.toList)
+      printVerbose(hdrs, entries.toList)
     else
-      printCompact(args, entries.toList)
+      printCompact(hdrs, entries.toList)
   }
 
   private def toEntries(args: Args, partition: TopicPartition, status: ReplicaStatus, leaderTimeMs: Long): List[String] = {
@@ -131,11 +139,19 @@ object ReplicaStatusCommand extends Logging {
 
     def toLogOffsetStr(logOffset: Long): String = if (logOffset >= 0) logOffset.toString else "-1"
 
-    List(
-      partition.topic,
+    def toClusterLinkStr(linkName: Optional[String]): String = if (linkName.isPresent)
+      linkName.get
+    else if (args.jsonOutput)
+      "\"\""
+    else
+      "-"
+
+    val clusterLink = if (args.includeLinkedReplicas) List(toClusterLinkStr(status.linkName)) else List.empty
+    List(partition.topic,
       partition.partition.toString,
-      status.brokerId.toString,
-      status.isLeader.toString,
+      status.brokerId.toString) ++
+    clusterLink ++
+    List(status.isLeader.toString,
       status.isObserver.toString,
       status.isIsrEligible.toString,
       status.isInIsr.toString,
@@ -147,7 +163,7 @@ object ReplicaStatusCommand extends Logging {
     )
   }
 
-  private def printJson(entries: List[List[String]]): Unit = {
+  private def printJson(headers: List[String], entries: List[List[String]]): Unit = {
     if (entries.isEmpty) {
       println("[]")
       return
@@ -205,7 +221,7 @@ object ReplicaStatusCommand extends Logging {
       println("          {")
       entry.zipWithIndex.foreach { case(subEntry, subIndex) =>
         if (subIndex >= 2) {
-          print(s"            ${addQuotes(allColumns(subIndex))}: ${subEntry}")
+          print(s"            ${addQuotes(headers(subIndex))}: ${subEntry}")
           if (subIndex < entry.size - 1)
             println(",")
           else
@@ -221,9 +237,9 @@ object ReplicaStatusCommand extends Logging {
     println("]")
   }
 
-  private def printVerbose(entries: List[List[String]]): Unit = {
+  private def printVerbose(headers: List[String], entries: List[List[String]]): Unit = {
     entries.zipWithIndex.foreach { case (entry, index) =>
-      allColumns.zip(entry).foreach { subEntry =>
+      headers.zip(entry).foreach { subEntry =>
         println(s"${subEntry._1}: ${subEntry._2}")
       }
       if (index < entries.size - 1)
@@ -231,9 +247,9 @@ object ReplicaStatusCommand extends Logging {
     }
   }
 
-  private def printCompact(args: Args, entries: List[List[String]]): Unit = {
+  private def printCompact(headers: List[String], entries: List[List[String]]): Unit = {
     val maxWidth = mutable.ArrayBuffer[Int]()
-    allColumns.zipWithIndex.foreach { case (name, index) =>
+    headers.zipWithIndex.foreach { case (name, index) =>
       maxWidth += name.size
     }
     entries.foreach { entry =>
@@ -251,7 +267,7 @@ object ReplicaStatusCommand extends Logging {
       println
     }
 
-    printEntries(allColumns)
+    printEntries(headers)
     entries.foreach(printEntries(_))
   }
 
@@ -302,6 +318,7 @@ object ReplicaStatusCommand extends Logging {
     val verboseOutputArg = commandOptions.options.has(commandOptions.verboseOutputOpt)
     val jsonOutputArg = commandOptions.options.has(commandOptions.jsonOutputOpt)
     val excludeInternalTopicsArg = commandOptions.options.has(commandOptions.excludeInternalTopicsOpt)
+    val includeLinkedReplicasArg = commandOptions.options.has(commandOptions.includeLinkedReplicasOpt)
 
     def parseBoolOpt(spec: ArgumentAcceptingOptionSpec[String]): Option[Boolean] = {
       if (!commandOptions.options.has(spec))
@@ -317,7 +334,8 @@ object ReplicaStatusCommand extends Logging {
     val leadersArg = parseBoolOpt(commandOptions.leadersOpt)
     val observersArg = parseBoolOpt(commandOptions.observersOpt)
 
-    Args(topicsArg, partitionsArg, leadersArg, observersArg, verboseOutputArg, jsonOutputArg, excludeInternalTopicsArg)
+    Args(topicsArg, partitionsArg, leadersArg, observersArg,
+      verboseOutputArg, jsonOutputArg, excludeInternalTopicsArg, includeLinkedReplicasArg)
   }
 }
 
@@ -359,6 +377,8 @@ private final class ReplicaStatusCommandOptions(args: Array[String]) extends Com
     .accepts("json", "If set, show output in JSON format.")
   val excludeInternalTopicsOpt = parser
     .accepts("exclude-internal", "If set, exclude internal topics. All topics will be displayed by default.")
+  val includeLinkedReplicasOpt = parser
+    .accepts("include-linked", "If set, include remote replicas that are linked with the partitions.")
 
   options = parser.parse(args: _*)
 }

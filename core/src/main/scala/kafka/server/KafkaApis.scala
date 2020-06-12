@@ -21,7 +21,7 @@ import java.lang.{Byte => JByte}
 import java.lang.{Long => JLong}
 import java.nio.ByteBuffer
 import java.util
-import java.util.{Collections, Optional}
+import java.util.{Collections, Optional, UUID}
 import java.util.concurrent.{CompletableFuture, ConcurrentHashMap, ExecutionException}
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -73,6 +73,7 @@ import org.apache.kafka.common.protocol.{ApiKeys, Errors}
 import org.apache.kafka.common.record._
 import org.apache.kafka.common.replica.ClientMetadata
 import org.apache.kafka.common.replica.ClientMetadata.DefaultClientMetadata
+import org.apache.kafka.common.replica.ReplicaStatus
 import org.apache.kafka.common.requests.FindCoordinatorRequest.CoordinatorType
 import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
 import org.apache.kafka.common.requests._
@@ -221,51 +222,98 @@ class KafkaApis(val requestChannel: RequestChannel,
   }
 
   def handleReplicaStatusRequest(request: RequestChannel.Request): Unit = {
-    def toPartitionResponse(partition: TopicPartition, authorized: Boolean): ReplicaStatusPartitionResponse = {
-      val response = new ReplicaStatusPartitionResponse()
-        .setPartitionIndex(partition.partition())
-      if (!authorized) {
-        response
-          .setErrorCode(Errors.TOPIC_AUTHORIZATION_FAILED.code)
-          .setReplicas(null)
-      } else try {
-        val replicas = replicaManager.getPartitionOrException(partition, expectLeader = true).replicaStatus()
-        response
-          .setErrorCode(Errors.NONE.code)
-          .setReplicas(replicas.map { status =>
-            new ReplicaStatusReplicaResponse()
-              .setId(status.brokerId)
-              .setIsLeader(status.isLeader())
-              .setIsObserver(status.isObserver())
-              .setIsIsrEligible(status.isIsrEligible())
-              .setIsInIsr(status.isInIsr())
-              .setIsCaughtUp(status.isCaughtUp())
-              .setLogStartOffset(status.logStartOffset())
-              .setLogEndOffset(status.logEndOffset())
-              .setLastCaughtUpTimeMs(status.lastCaughtUpTimeMs())
-              .setLastFetchTimeMs(status.lastFetchTimeMs())
-          }.asJava)
-      } catch {
-        case e: Throwable =>
-          response
-            .setErrorCode(Errors.forException(e).code)
-            .setReplicas(null)
+    val requestData = request.body[ReplicaStatusRequest].data
+    val includeLinkedReplicas = requestData.includeLinkedReplicas
+
+    def toPartitionResponseError(partition: Int, e: Throwable): ReplicaStatusPartitionResponse =
+      new ReplicaStatusPartitionResponse()
+        .setPartitionIndex(partition)
+        .setErrorCode(Errors.forException(e).code)
+        .setReplicas(null)
+
+    def toPartitionResponse(partition: Int, future: CompletableFuture[Seq[ReplicaStatus]]): ReplicaStatusPartitionResponse = try {
+      val replicas = future.get
+      new ReplicaStatusPartitionResponse()
+        .setPartitionIndex(partition)
+        .setErrorCode(Errors.NONE.code)
+        .setReplicas(replicas.map { status =>
+          new ReplicaStatusReplicaResponse()
+            .setId(status.brokerId)
+            .setIsLeader(status.isLeader())
+            .setIsObserver(status.isObserver())
+            .setIsIsrEligible(status.isIsrEligible())
+            .setIsInIsr(status.isInIsr())
+            .setIsCaughtUp(status.isCaughtUp())
+            .setLogStartOffset(status.logStartOffset())
+            .setLogEndOffset(status.logEndOffset())
+            .setLastCaughtUpTimeMs(status.lastCaughtUpTimeMs())
+            .setLastFetchTimeMs(status.lastFetchTimeMs())
+            .setLinkName(status.linkName().orElse(null))
+        }.asJava)
+    } catch {
+      case e: ExecutionException => toPartitionResponseError(partition, e.getCause)
+      case e: Throwable => toPartitionResponseError(partition, e)
+    }
+
+    val futuresMap = mutable.Map.empty[TopicPartition, CompletableFuture[Seq[ReplicaStatus]]]
+    val linkMap = mutable.Map.empty[UUID, mutable.Set[TopicPartition]]
+
+    requestData.topics.asScala.foreach { topicRequest =>
+      val topic = topicRequest.name
+      val authorized = authorize(request.context, DESCRIBE, TOPIC, topic)
+      topicRequest.partitions.asScala.foreach { partition =>
+        val tp = new TopicPartition(topic, partition)
+        val future = try {
+          if (!authorized)
+            throw new TopicAuthorizationException(s"Failed to authorize topic '$topic'")
+          val part = replicaManager.getPartitionOrException(tp, expectLeader = true)
+          val linkId = part.getClusterLinkId
+          if (includeLinkedReplicas)
+            linkId.foreach(lid => linkMap.getOrElseUpdate(lid, mutable.Set()) += tp)
+          CompletableFuture.completedFuture[Seq[ReplicaStatus]](part.replicaStatus())
+        } catch {
+          case e: Throwable =>
+            val future = new CompletableFuture[Seq[ReplicaStatus]]
+            future.completeExceptionally(e)
+            future
+        }
+        futuresMap += tp -> future
       }
     }
 
-    val requestData = request.body[ReplicaStatusRequest].data
-    val responseData = new ReplicaStatusResponseData()
-      .setErrorCode(0)
-      .setTopics(requestData.topics.asScala.map { topicRequest =>
-        val authorized = authorize(request.context, DESCRIBE, TOPIC, topicRequest.name)
-        new ReplicaStatusTopicResponse()
-          .setName(topicRequest.name)
-          .setPartitions(topicRequest.partitions.asScala.map { partition =>
-            toPartitionResponse(new TopicPartition(topicRequest.name, partition), authorized)
-          }.asJava)
-      }.asJava)
+    def sendResponseCallback(): Unit = {
+      val responseData = new ReplicaStatusResponseData()
+        .setErrorCode(0)
+        .setTopics(requestData.topics.asScala.map { topicRequest =>
+          val topic = topicRequest.name
+          new ReplicaStatusTopicResponse()
+            .setName(topic)
+            .setPartitions(topicRequest.partitions.asScala.map { partition =>
+              toPartitionResponse(partition, futuresMap(new TopicPartition(topic, partition)))
+            }.toList.asJava)
+        }.toList.asJava)
 
-    sendResponseMaybeThrottle(request, throttleTimeMs => new ReplicaStatusResponse(responseData.setThrottleTimeMs(throttleTimeMs)))
+      sendResponseMaybeThrottle(request, throttleTimeMs => new ReplicaStatusResponse(responseData.setThrottleTimeMs(throttleTimeMs)))
+    }
+
+    if (!config.clusterLinkEnable || linkMap.isEmpty) {
+      sendResponseCallback()
+    } else {
+      linkMap.map { case (linkId, partitions) =>
+        val linkClient = clusterLinkAdminManager.clusterLinkManager.clientManager(linkId)
+        linkClient.foreach { client =>
+          client.replicaStatus(partitions).foreach { case (tp, linkFuture) =>
+            val future = futuresMap(tp)
+            if (!future.isCompletedExceptionally) {
+              val combinedFuture = CompletableFuture.allOf(future, linkFuture)
+                .thenApply[Seq[ReplicaStatus]](_ => future.get ++ linkFuture.get)
+              futuresMap.update(tp, combinedFuture)
+            }
+          }
+        }
+      }
+      clusterLinkAdminManager.purgatory.tryCompleteElseWatch(config.connectionsMaxIdleMs, futuresMap.values.toSeq, sendResponseCallback)
+    }
   }
 
   def handleLeaderAndIsrRequest(request: RequestChannel.Request): Unit = {

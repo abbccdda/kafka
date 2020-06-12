@@ -2992,7 +2992,8 @@ public class KafkaAdminClientTest {
     private ReplicaStatusReplicaResponse newReplicaStatusReplicaResponse(int brokerId, boolean isLeader, boolean isObserver,
                                                                          boolean isIsrEligible, boolean isInIsr, boolean isCaughtUp,
                                                                          long logStartOffset, long logEndOffset,
-                                                                         long lastCaughtUpTimeMs, long lastFetchTimeMs) {
+                                                                         long lastCaughtUpTimeMs, long lastFetchTimeMs,
+                                                                         Optional<String> linkName) {
         return new ReplicaStatusReplicaResponse()
                 .setId(brokerId)
                 .setIsLeader(isLeader)
@@ -3003,7 +3004,8 @@ public class KafkaAdminClientTest {
                 .setLogStartOffset(logStartOffset)
                 .setLogEndOffset(logEndOffset)
                 .setLastCaughtUpTimeMs(lastCaughtUpTimeMs)
-                .setLastFetchTimeMs(lastFetchTimeMs);
+                .setLastFetchTimeMs(lastFetchTimeMs)
+                .setLinkName(linkName.orElse(null));
     }
 
     @Test
@@ -3016,9 +3018,120 @@ public class KafkaAdminClientTest {
         nodes.put(0, new Node(0, "localhost", 8121));
         nodes.put(1, new Node(1, "localhost", 8122));
 
+        TopicPartition tp = new TopicPartition(topic, 0);
+        Node[] nodesArray = new Node[] {nodes.get(0), nodes.get(1)};
+        List<Integer> replicas = Arrays.asList(0, 1);
+
+        List<PartitionInfo> partitionInfos = new ArrayList<>(1);
+        partitionInfos.add(new PartitionInfo(topic, 0, nodes.get(0), nodesArray, nodesArray));
+
+        Cluster cluster = new Cluster("mockClusterId", nodes.values(),
+                partitionInfos, Collections.<String>emptySet(),
+                Collections.<String>emptySet(), nodes.get(0));
+
+        try (AdminClientUnitTestEnv env = new AdminClientUnitTestEnv(cluster)) {
+          env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
+
+          List<MetadataResponse.PartitionMetadata> partitionMetadata = new ArrayList<>();
+          partitionMetadata.add(new MetadataResponse.PartitionMetadata(
+                  Errors.NONE, tp, Optional.of(nodes.get(0).id()), Optional.of(5),
+                  replicas, replicas, Collections.emptyList()));
+
+          List<MetadataResponse.TopicMetadata> topicMetadata = new ArrayList<>();
+          topicMetadata.add(new MetadataResponse.TopicMetadata(Errors.NONE, topic, false, partitionMetadata));
+          env.kafkaClient().prepareResponse(MetadataResponse.prepareResponse(
+                  cluster.nodes(),
+                  cluster.clusterResource().clusterId(),
+                  cluster.controller().id(),
+                  topicMetadata));
+
+          final long leaderTimeMs = time.milliseconds();
+          final long followerTimeMs = leaderTimeMs - 10000;
+          final long observerTimeMs = leaderTimeMs - 1000;
+          List<ReplicaStatusReplicaResponse> replicaResponse = new ArrayList<ReplicaStatusReplicaResponse>();
+          replicaResponse.add(newReplicaStatusReplicaResponse(
+              0, /* isLeader = */ true, /* isObserver = */ false,
+              /* isIsrEligible = */ true, /* isInIsr = */ true, /* isCaughtUp = */ true,
+              10, 100, leaderTimeMs, leaderTimeMs, Optional.empty()));
+          replicaResponse.add(newReplicaStatusReplicaResponse(
+              1, /* isLeader = */ false, /* isObserver = */ false,
+              /* isIsrEligible = */ true, /* isInIsr = */ false, /* isCaughtUp = */ false,
+              5, 50, followerTimeMs, followerTimeMs, Optional.empty()));
+          replicaResponse.add(newReplicaStatusReplicaResponse(
+              2, /* isLeader = */ false, /* isObserver = */ true,
+              /* isIsrEligible = */ false, /* isInIsr = */ false, /* isCaughtUp = */ true,
+              10, 100, observerTimeMs, observerTimeMs, Optional.of("link-name")));
+          List<ReplicaStatusPartitionResponse> partitionResponse = new ArrayList<ReplicaStatusPartitionResponse>();
+          partitionResponse.add(new ReplicaStatusPartitionResponse()
+              .setPartitionIndex(0)
+              .setReplicas(replicaResponse)
+              .setErrorCode(Errors.NONE.code()));
+          List<ReplicaStatusTopicResponse> topicResponse = new ArrayList<ReplicaStatusTopicResponse>();
+          topicResponse.add(new ReplicaStatusTopicResponse()
+              .setName(topic)
+              .setPartitions(partitionResponse));
+          ReplicaStatusResponseData responseData = new ReplicaStatusResponseData()
+              .setTopics(topicResponse);
+
+          env.kafkaClient().prepareResponse(new ReplicaStatusResponse(responseData));
+
+          Set<TopicPartition> topicPartitions = new HashSet<TopicPartition>(1);
+          topicPartitions.add(tp);
+          ReplicaStatusResult adminResult = env.adminClient().replicaStatus(topicPartitions, new ReplicaStatusOptions());
+          assertEquals(adminResult.result().size(), 1);
+
+          KafkaFuture<List<ReplicaStatus>> result = adminResult.result().get(tp);
+          assertNotNull(result);
+          assertEquals(3, result.get().size());
+          ReplicaStatus result0 = result.get().get(0);
+          assertEquals(0, result0.brokerId());
+          assertTrue(result0.isLeader());
+          assertFalse(result0.isObserver());
+          assertTrue(result0.isIsrEligible());
+          assertTrue(result0.isInIsr());
+          assertTrue(result0.isCaughtUp());
+          assertEquals(10, result0.logStartOffset());
+          assertEquals(100, result0.logEndOffset());
+          assertEquals(leaderTimeMs, result0.lastCaughtUpTimeMs());
+          assertEquals(leaderTimeMs, result0.lastFetchTimeMs());
+          assertFalse(result0.linkName().isPresent());
+          ReplicaStatus result1 = result.get().get(1);
+          assertEquals(1, result1.brokerId());
+          assertFalse(result1.isLeader());
+          assertFalse(result1.isObserver());
+          assertTrue(result1.isIsrEligible());
+          assertFalse(result1.isInIsr());
+          assertFalse(result1.isCaughtUp());
+          assertEquals(5, result1.logStartOffset());
+          assertEquals(50, result1.logEndOffset());
+          assertEquals(followerTimeMs, result1.lastCaughtUpTimeMs());
+          assertEquals(followerTimeMs, result1.lastFetchTimeMs());
+          assertFalse(result1.linkName().isPresent());
+          ReplicaStatus result2 = result.get().get(2);
+          assertEquals(2, result2.brokerId());
+          assertFalse(result2.isLeader());
+          assertTrue(result2.isObserver());
+          assertFalse(result2.isIsrEligible());
+          assertFalse(result2.isInIsr());
+          assertTrue(result2.isCaughtUp());
+          assertEquals(10, result2.logStartOffset());
+          assertEquals(100, result2.logEndOffset());
+          assertEquals(observerTimeMs, result2.lastCaughtUpTimeMs());
+          assertEquals(observerTimeMs, result2.lastFetchTimeMs());
+          assertEquals("link-name", result2.linkName().get());
+        }
+    }
+
+    @Test
+    public void testReplicaStatusErrors() throws Exception {
+        final String topic = "replica-status-topic";
+
+        HashMap<Integer, Node> nodes = new HashMap<>();
+        nodes.put(0, new Node(0, "localhost", 8121));
+        nodes.put(1, new Node(1, "localhost", 8122));
+
         TopicPartition tp0 = new TopicPartition(topic, 0);
         TopicPartition tp1 = new TopicPartition(topic, 1);
-        TopicPartition tp2 = new TopicPartition(topic, 2);
         Node[] nodesArray = new Node[] {nodes.get(0), nodes.get(1)};
         List<Integer> replicas = Arrays.asList(0, 1);
 
@@ -3035,10 +3148,7 @@ public class KafkaAdminClientTest {
 
           List<MetadataResponse.PartitionMetadata> partitionMetadata = new ArrayList<>();
           partitionMetadata.add(new MetadataResponse.PartitionMetadata(
-                  Errors.NONE, tp0, Optional.of(nodes.get(0).id()), Optional.of(5),
-                  replicas, replicas, Collections.emptyList()));
-          partitionMetadata.add(new MetadataResponse.PartitionMetadata(
-                  Errors.NOT_LEADER_FOR_PARTITION, tp1, Optional.of(nodes.get(1).id()), Optional.of(5),
+                  Errors.NOT_LEADER_FOR_PARTITION, tp0, Optional.of(nodes.get(1).id()), Optional.of(5),
                   replicas, replicas, Collections.emptyList()));
 
           List<MetadataResponse.TopicMetadata> topicMetadata = new ArrayList<>();
@@ -3049,102 +3159,36 @@ public class KafkaAdminClientTest {
                   cluster.controller().id(),
                   topicMetadata));
 
-          final long leaderTimeMs = time.milliseconds();
-          final long followerTimeMs = leaderTimeMs - 10000;
-          final long observerTimeMs = leaderTimeMs - 1000;
-          List<ReplicaStatusReplicaResponse> replicaResponse0 = new ArrayList<ReplicaStatusReplicaResponse>();
-          replicaResponse0.add(newReplicaStatusReplicaResponse(
-              0, /* isLeader = */ true, /* isObserver = */ false,
-              /* isIsrEligible = */ true, /* isInIsr = */ true, /* isCaughtUp = */ true,
-              10, 100, leaderTimeMs, leaderTimeMs));
-          replicaResponse0.add(newReplicaStatusReplicaResponse(
-              1, /* isLeader = */ false, /* isObserver = */ false,
-              /* isIsrEligible = */ true, /* isInIsr = */ false, /* isCaughtUp = */ false,
-              5, 50, followerTimeMs, followerTimeMs));
-          replicaResponse0.add(newReplicaStatusReplicaResponse(
-              2, /* isLeader = */ false, /* isObserver = */ true,
-              /* isIsrEligible = */ false, /* isInIsr = */ false, /* isCaughtUp = */ true,
-              10, 100, observerTimeMs, observerTimeMs));
-          List<ReplicaStatusPartitionResponse> partitionResponse0 = new ArrayList<ReplicaStatusPartitionResponse>();
-          partitionResponse0.add(new ReplicaStatusPartitionResponse()
+          List<ReplicaStatusPartitionResponse> partitionResponse = new ArrayList<ReplicaStatusPartitionResponse>();
+          partitionResponse.add(new ReplicaStatusPartitionResponse()
               .setPartitionIndex(0)
-              .setReplicas(replicaResponse0)
-              .setErrorCode(Errors.NONE.code()));
-          List<ReplicaStatusTopicResponse> topicResponse0 = new ArrayList<ReplicaStatusTopicResponse>();
-          topicResponse0.add(new ReplicaStatusTopicResponse()
-              .setName(topic)
-              .setPartitions(partitionResponse0));
-          ReplicaStatusResponseData responseData0 = new ReplicaStatusResponseData()
-              .setTopics(topicResponse0);
-          env.kafkaClient().prepareResponse(new ReplicaStatusResponse(responseData0));
-
-          List<ReplicaStatusPartitionResponse> partitionResponse1 = new ArrayList<ReplicaStatusPartitionResponse>();
-          partitionResponse1.add(new ReplicaStatusPartitionResponse()
-              .setPartitionIndex(1)
               .setReplicas(null)
               .setErrorCode(Errors.NOT_LEADER_FOR_PARTITION.code()));
-          List<ReplicaStatusTopicResponse> topicResponse1 = new ArrayList<ReplicaStatusTopicResponse>();
-          topicResponse1.add(new ReplicaStatusTopicResponse()
+          List<ReplicaStatusTopicResponse> topicResponse = new ArrayList<ReplicaStatusTopicResponse>();
+          topicResponse.add(new ReplicaStatusTopicResponse()
               .setName(topic)
-              .setPartitions(partitionResponse1));
-          ReplicaStatusResponseData responseData1 = new ReplicaStatusResponseData()
-              .setTopics(topicResponse1);
-          env.kafkaClient().prepareResponse(new ReplicaStatusResponse(responseData1));
+              .setPartitions(partitionResponse));
+          ReplicaStatusResponseData responseData = new ReplicaStatusResponseData()
+              .setTopics(topicResponse);
+
+          env.kafkaClient().prepareResponse(new ReplicaStatusResponse(responseData));
 
           Set<TopicPartition> topicPartitions = new HashSet<TopicPartition>();
           topicPartitions.add(tp0);
           topicPartitions.add(tp1);
-          topicPartitions.add(tp2);
           ReplicaStatusResult result = env.adminClient().replicaStatus(topicPartitions, new ReplicaStatusOptions());
-          assertEquals(result.result().size(), 3);
+          assertEquals(result.result().size(), 2);
 
           KafkaFuture<List<ReplicaStatus>> result0 = result.result().get(tp0);
           assertNotNull(result0);
-          assertTrue(result0.get().size() == 3);
-          ReplicaStatus result00 = result0.get().get(0);
-          assertTrue(result00.brokerId() == 0);
-          assertTrue(result00.isLeader());
-          assertFalse(result00.isObserver());
-          assertTrue(result00.isIsrEligible());
-          assertTrue(result00.isInIsr());
-          assertTrue(result00.isCaughtUp());
-          assertTrue(result00.logStartOffset() == 10);
-          assertTrue(result00.logEndOffset() == 100);
-          assertTrue(result00.lastCaughtUpTimeMs() == leaderTimeMs);
-          assertTrue(result00.lastFetchTimeMs() == leaderTimeMs);
-          ReplicaStatus result01 = result0.get().get(1);
-          assertTrue(result01.brokerId() == 1);
-          assertFalse(result01.isLeader());
-          assertFalse(result01.isObserver());
-          assertTrue(result01.isIsrEligible());
-          assertFalse(result01.isInIsr());
-          assertFalse(result01.isCaughtUp());
-          assertTrue(result01.logStartOffset() == 5);
-          assertTrue(result01.logEndOffset() == 50);
-          assertTrue(result01.lastCaughtUpTimeMs() == followerTimeMs);
-          assertTrue(result01.lastFetchTimeMs() == followerTimeMs);
-          ReplicaStatus result02 = result0.get().get(2);
-          assertTrue(result02.brokerId() == 2);
-          assertFalse(result02.isLeader());
-          assertTrue(result02.isObserver());
-          assertFalse(result02.isIsrEligible());
-          assertFalse(result02.isInIsr());
-          assertTrue(result02.isCaughtUp());
-          assertTrue(result02.logStartOffset() == 10);
-          assertTrue(result02.logEndOffset() == 100);
-          assertTrue(result02.lastCaughtUpTimeMs() == observerTimeMs);
-          assertTrue(result02.lastFetchTimeMs() == observerTimeMs);
+          TestUtils.assertFutureError(result0, NotLeaderForPartitionException.class);
 
-          KafkaFuture<List<ReplicaStatus>> result1 = result.result().get(new TopicPartition(topic, 1));
+          KafkaFuture<List<ReplicaStatus>> result1 = result.result().get(tp1);
           assertNotNull(result1);
-          TestUtils.assertFutureError(result1, NotLeaderForPartitionException.class);
+          TestUtils.assertFutureError(result1, UnknownTopicOrPartitionException.class);
 
           KafkaFuture<List<ReplicaStatus>> result2 = result.result().get(new TopicPartition(topic, 2));
-          assertNotNull(result2);
-          TestUtils.assertFutureError(result2, UnknownTopicOrPartitionException.class);
-
-          KafkaFuture<List<ReplicaStatus>> result3 = result.result().get(new TopicPartition(topic, 3));
-          assertNull(result3);
+          assertNull(result2);
         }
     }
 

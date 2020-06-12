@@ -98,6 +98,8 @@ object ClusterLinkFactory {
   }
 
   trait AdminManager {
+    def clusterLinkManager: ClusterLinkFactory.LinkManager
+
     def purgatory: DelayedFuturePurgatory
 
     def createClusterLink(newClusterLink: NewClusterLink,
@@ -199,6 +201,10 @@ object ClusterLinkDisabled {
     * invoked through the API throw an exception.
     */
   object AdminManager extends ClusterLinkFactory.AdminManager {
+
+    override def clusterLinkManager: ClusterLinkFactory.LinkManager = {
+      throw exception()
+    }
 
     override def purgatory: DelayedFuturePurgatory = {
       throw exception()

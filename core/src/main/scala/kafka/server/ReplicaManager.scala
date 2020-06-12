@@ -262,7 +262,7 @@ class ReplicaManager(val config: KafkaConfig,
                      val delayedElectLeaderPurgatory: DelayedOperationPurgatory[DelayedElectLeader],
                      val delayedListOffsetsPurgatory: DelayedOperationPurgatory[DelayedListOffsets],
                      val tierReplicaComponents: TierReplicaComponents,
-                     clusterLinkManager: Option[ClusterLinkFactory.LinkManager],
+                     val clusterLinkManager: Option[ClusterLinkFactory.LinkManager],
                      threadNamePrefix: Option[String]) extends Logging with KafkaMetricsGroup {
 
   def this(config: KafkaConfig,

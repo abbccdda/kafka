@@ -1679,7 +1679,8 @@ class Partition(val topicPartition: TopicPartition,
         new ReplicaStatus(localBrokerId, true,
           assignmentState.observers.contains(localBrokerId),
           isBrokerIsrEligible(localBrokerId), true, true,
-          leaderLog.logStartOffset, leaderLog.logEndOffset, curTimeMs, curTimeMs) ::
+          leaderLog.logStartOffset, leaderLog.logEndOffset,
+          curTimeMs, curTimeMs, Optional.empty[String]) ::
           remoteReplicasMap.values.map { replica =>
             new ReplicaStatus(replica.brokerId, false,
               assignmentState.observers.contains(replica.brokerId),
@@ -1687,7 +1688,7 @@ class Partition(val topicPartition: TopicPartition,
               inSyncReplicaIds.contains(replica.brokerId),
               isFollowerInSync(replica, leaderLog.highWatermark),
               replica.logStartOffset, replica.logEndOffsetMetadata.messageOffset,
-              replica.lastCaughtUpTimeMs, replica.lastFetchTimeMs)
+              replica.lastCaughtUpTimeMs, replica.lastFetchTimeMs, Optional.empty[String])
           }.toList
 
       case None =>

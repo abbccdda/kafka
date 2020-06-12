@@ -76,7 +76,6 @@ class ClusterLinkSyncTopicsConfigsTest {
 
     val syncTopicsConfigs = new ClusterLinkSyncTopicsConfigs(clientManager, syncIntervalMs = 100,
       metrics, Collections.emptyMap())
-    syncTopicsConfigs.startup()
     syncTopicsConfigs.runOnce().get(5, TimeUnit.SECONDS)
 
     verifyMock()
@@ -106,7 +105,6 @@ class ClusterLinkSyncTopicsConfigsTest {
 
     val syncTopicsConfigs = new ClusterLinkSyncTopicsConfigs(clientManager, syncIntervalMs = 100,
       metrics, Collections.emptyMap())
-    syncTopicsConfigs.startup()
     syncTopicsConfigs.runOnce().get(5, TimeUnit.SECONDS)
 
     verifyMock()
@@ -136,7 +134,6 @@ class ClusterLinkSyncTopicsConfigsTest {
 
     val syncTopicsConfigs = new ClusterLinkSyncTopicsConfigs(clientManager, syncIntervalMs = 100,
       metrics, Collections.emptyMap())
-    syncTopicsConfigs.startup()
     syncTopicsConfigs.runOnce().get(5, TimeUnit.SECONDS)
     syncTopicsConfigs.runOnce().get(5, TimeUnit.SECONDS)
 
@@ -160,7 +157,6 @@ class ClusterLinkSyncTopicsConfigsTest {
 
     val syncTopicsConfigs = new ClusterLinkSyncTopicsConfigs(clientManager, syncIntervalMs = 100,
       metrics, Collections.emptyMap())
-    syncTopicsConfigs.startup()
     val e = intercept[ExecutionException] {
       syncTopicsConfigs.runOnce().get(5, TimeUnit.SECONDS)
     }
@@ -205,7 +201,6 @@ class ClusterLinkSyncTopicsConfigsTest {
 
     val syncTopicsConfigs = new ClusterLinkSyncTopicsConfigs(clientManager, syncIntervalMs = 100,
       metrics, Collections.emptyMap())
-    syncTopicsConfigs.startup()
     syncTopicsConfigs.runOnce().get(5, TimeUnit.SECONDS)
 
     verifyMock()
@@ -246,7 +241,6 @@ class ClusterLinkSyncTopicsConfigsTest {
 
     val syncTopicsConfigs = new ClusterLinkSyncTopicsConfigs(clientManager, syncIntervalMs = 100,
       metrics, Collections.emptyMap())
-    syncTopicsConfigs.startup()
     syncTopicsConfigs.runOnce().get(5, TimeUnit.SECONDS)
     syncTopicsConfigs.runOnce().get(5, TimeUnit.SECONDS)
 

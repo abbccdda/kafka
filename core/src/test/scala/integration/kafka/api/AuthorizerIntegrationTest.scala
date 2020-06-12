@@ -609,7 +609,7 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
 
   private def describeBrokerRemovalsRequest = new DescribeBrokerRemovalsRequest.Builder().build()
 
-  private def replicaStatusRequest = new ReplicaStatusRequest.Builder(Collections.singleton(tp)).build()
+  private def replicaStatusRequest = new ReplicaStatusRequest.Builder(Collections.singleton(tp), false).build()
 
   private def createClusterLinksRequest = new CreateClusterLinksRequest.Builder(
     Collections.singleton(new NewClusterLink(linkName, null, Map("bootstrap.servers" -> "localhost:9092").asJava)),
