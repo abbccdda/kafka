@@ -140,8 +140,13 @@ public class KafkaStoreConfig extends AbstractConfig {
     });
     configs.put(TopicConfig.CLEANUP_POLICY_CONFIG, TopicConfig.CLEANUP_POLICY_COMPACT);
     configs.put(TopicConfig.UNCLEAN_LEADER_ELECTION_ENABLE_CONFIG, "false");
-    configs.put(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, String.valueOf(Math.min(replicationFactor, 2)));
+    configs.put(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, String.valueOf(minInSyncReplicas()));
     return  new NewTopic(topic, numPartitions, replicationFactor).configs(configs);
+  }
+
+  public int minInSyncReplicas() {
+    short replicationFactor = getShort(REPLICATION_FACTOR_PROP);
+    return Math.min(replicationFactor, 2);
   }
 
   @Override
