@@ -2229,10 +2229,23 @@ class KafkaApisTest {
 
     val metadataCache: MetadataCache = EasyMock.createNiceMock(classOf[MetadataCache])
     EasyMock.expect(metadataCache.getClusterMetadata(anyString(), anyObject(classOf[ListenerName]))).andReturn(cluster)
-    EasyMock.expect(metadataCache.getAliveBroker(brokerToRemove.id))
-      .andReturn(None)
+    EasyMock.expect(metadataCache.getAliveBroker(brokerToRemove.id)).andReturn(None)
 
-    EasyMock.replay(controller, metadataCache)
+    val partition1State: UpdateMetadataPartitionState  = EasyMock.createNiceMock(classOf[UpdateMetadataPartitionState])
+    EasyMock.expect(partition1State.replicas()).andReturn(
+      List(brokerToRemove.id():java.lang.Integer, 2:java.lang.Integer, 3:java.lang.Integer).asJava)
+    EasyMock.expect(partition1State.observers()).andReturn(
+      List(4:java.lang.Integer, 5:java.lang.Integer).asJava)
+
+    val partition2State: UpdateMetadataPartitionState  = EasyMock.createNiceMock(classOf[UpdateMetadataPartitionState])
+    EasyMock.expect(partition2State.replicas()).andReturn(
+      List(2:java.lang.Integer, 3:java.lang.Integer, 4:java.lang.Integer).asJava)
+    EasyMock.expect(partition2State.observers()).andReturn(List(5:java.lang.Integer).asJava)
+
+    EasyMock.expect(metadataCache.getPartitionInfo("topic-1", 0)).andReturn(Some(partition1State))
+    EasyMock.expect(metadataCache.getPartitionInfo("topic-2", 0)).andReturn(Some(partition2State))
+
+    EasyMock.replay(controller, metadataCache, partition1State, partition2State)
 
     val brokerId = new BrokerId().setBrokerId(brokerToRemove.id)
     val request = new RemoveBrokersRequest.Builder(Collections.singleton(brokerId)).build(0);

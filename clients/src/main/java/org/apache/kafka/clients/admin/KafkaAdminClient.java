@@ -4122,6 +4122,14 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
     public RemoveBrokersResult removeBrokers(List<Integer> brokersToRemove, RemoveBrokersOptions options) {
         final Map<Integer, KafkaFutureImpl<Void>> removeBrokerFutures = new HashMap<>(brokersToRemove.size());
         final Map<Integer, KafkaFutureImpl<Void>> invalidRemoveBrokerFutures = new HashMap<>();
+
+        if (brokersToRemove.isEmpty()) {
+            KafkaFutureImpl<Void> future = new KafkaFutureImpl<>();
+            future.completeExceptionally(new InvalidRequestException("Broker to remove list is empty."));
+            invalidRemoveBrokerFutures.put(null, future);
+            return new RemoveBrokersResult(new HashMap<>(invalidRemoveBrokerFutures));
+        }
+
         for (Integer brokerToRemove: brokersToRemove) {
             if (brokerToRemove == null) {
                 continue;

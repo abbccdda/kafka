@@ -2806,12 +2806,19 @@ class KafkaApis(val requestChannel: RequestChannel,
     }
 
     if (metadataCache.getAliveBroker(brokerToRemove).isEmpty) {
-      val partitionWithRemovedBroker = topicPartitionsList.filter { partitions: Seq[PartitionInfo] =>
-        partitions.exists { partitionInfo =>
-          (partitionInfo.replicas ++ partitionInfo.observers).exists(broker => broker != null && broker.id == brokerToRemove)
-        }
+      // Go over all topics and their partitions to check if broker to be removed hosts at least one replica
+      val brokerToRemoveHostsReplica = topicPartitionsList.exists {
+        // For partitions of a topic, convert PartitionInfo to UpdateMetadataPartitionState which contains broker id
+        // even if they are not alive
+        partitions => partitions.flatMap {
+          partitionInfo => metadataCache.getPartitionInfo(partitionInfo.topic(), partitionInfo.partition())
+        }.flatMap {
+          // Get all broker ids from partition state
+          state => state.replicas().asScala ++ state.observers().asScala
+        }.contains(brokerToRemove)
       }
-      if (partitionWithRemovedBroker.isEmpty)
+
+      if (!brokerToRemoveHostsReplica)
         throw new InvalidRequestException(s"Unknown broker id specified: $brokersToRemove")
     }
 

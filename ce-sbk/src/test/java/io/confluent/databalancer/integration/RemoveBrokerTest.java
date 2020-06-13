@@ -3,6 +3,23 @@
  */
 package io.confluent.databalancer.integration;
 
+import io.confluent.kafka.test.utils.KafkaTestUtils;
+import kafka.server.KafkaServer;
+import org.apache.kafka.clients.admin.BrokerRemovalDescription;
+import org.apache.kafka.clients.admin.NewPartitionReassignment;
+import org.apache.kafka.common.Node;
+import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.errors.InvalidRequestException;
+import org.apache.kafka.common.utils.Exit;
+import org.apache.kafka.test.IntegrationTest;
+import org.apache.kafka.test.TestUtils;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.experimental.categories.Category;
+import org.junit.rules.Timeout;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
@@ -14,24 +31,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
-import io.confluent.kafka.test.utils.KafkaTestUtils;
-import kafka.server.KafkaServer;
-import org.apache.kafka.clients.admin.BrokerRemovalDescription;
-import org.apache.kafka.clients.admin.NewPartitionReassignment;
-import org.apache.kafka.common.Node;
-import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.utils.Exit;
-import org.apache.kafka.test.IntegrationTest;
-import org.apache.kafka.test.TestUtils;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.experimental.categories.Category;
-import org.junit.rules.Timeout;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -83,6 +84,48 @@ public class RemoveBrokerTest extends DataBalancerClusterTestHarness {
   public void testRemoveController() throws InterruptedException, ExecutionException {
     KafkaTestUtils.createTopic(adminClient, "test-topic", 20, 2);
     removeBroker(controllerKafkaServer());
+  }
+
+  /**
+   * Confirm that we can remove broker that is not alive. And while we have got a live cluster
+   * setup, also validate input parameter checks.
+   */
+  @Test
+  public void testDeadBroker() throws Exception {
+    KafkaTestUtils.createTopic(adminClient, "test-topic", 20, 2);
+
+    // Call remove with empty broker list
+    InvalidRequestException ex = null;
+    try {
+      adminClient.removeBrokers(Collections.emptyList()).all().get();
+    } catch (ExecutionException e) {
+      ex = (InvalidRequestException) e.getCause();
+    }
+    assertNotNull("Able to remove broker with empty list.", ex);
+
+    // Call remove with negative broker id
+    ex = null;
+    try {
+      adminClient.removeBrokers(Collections.singletonList(-1)).all().get();
+    } catch (ExecutionException e) {
+      ex = (InvalidRequestException) e.getCause();
+    }
+    assertNotNull("Able to remove broker with negative id.", ex);
+
+    // Call remove with non existent broker id
+    ex = null;
+    try {
+      adminClient.removeBrokers(Collections.singletonList(1_000)).all().get();
+    } catch (ExecutionException e) {
+      ex = (InvalidRequestException) e.getCause();
+    }
+    assertNotNull("Able to remove non existent broker with id: 1000", ex);
+
+    KafkaServer brokerToRemove = notControllerKafkaServer();
+    brokerToRemove.shutdown();
+    exited.set(true);
+
+    removeBroker(brokerToRemove);
   }
 
   private void removeBroker(KafkaServer server) throws InterruptedException, ExecutionException {
