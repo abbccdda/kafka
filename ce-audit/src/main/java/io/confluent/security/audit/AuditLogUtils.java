@@ -12,6 +12,7 @@ import io.confluent.crn.ConfluentServerCrnAuthority;
 import io.confluent.crn.CrnSyntaxException;
 import io.confluent.kafka.security.audit.event.ConfluentAuthenticationEvent;
 import io.confluent.kafka.server.plugins.auth.PlainSaslServer;
+import io.confluent.security.audit.router.AuditLogCategoryResultRouter.RequestNameOverrides;
 import io.confluent.security.authorizer.AclAccessRule;
 import io.confluent.security.authorizer.AuthorizePolicy;
 import io.confluent.security.authorizer.AuthorizeResult;
@@ -19,6 +20,9 @@ import io.confluent.security.authorizer.RequestContext;
 import io.confluent.security.authorizer.provider.ConfluentAuthorizationEvent;
 import io.confluent.security.rbac.RbacAccessRule;
 import io.confluent.security.rbac.RoleBinding;
+import java.util.Optional;
+import javax.net.ssl.SSLSession;
+import javax.security.sasl.SaslServer;
 import org.apache.kafka.common.acl.AccessControlEntry;
 import org.apache.kafka.common.errors.AuthenticationException;
 import org.apache.kafka.common.protocol.ApiKeys;
@@ -30,10 +34,6 @@ import org.apache.kafka.common.security.auth.SslAuthenticationContext;
 import org.apache.kafka.server.audit.AuditEventStatus;
 import org.apache.kafka.server.audit.AuthenticationErrorInfo;
 import org.apache.kafka.server.audit.AuthenticationEvent;
-
-import javax.net.ssl.SSLSession;
-import javax.security.sasl.SaslServer;
-import java.util.Optional;
 
 public class AuditLogUtils {
   public final static String AUTHENTICATION_FAILED_EVENT_USER = "None:UNKNOWN_USER";
@@ -84,7 +84,7 @@ public class AuditLogUtils {
     int requestType = authorizationEvent.requestContext().requestType();
     if (requestType < 0) {
       if (RequestContext.MDS.equals(authorizationEvent.requestContext().requestSource())) {
-        requestName = "Authorize";
+        requestName = RequestNameOverrides.MDS_AUTHORIZE.name;
       } else {
         throw new RuntimeException("Got unexpected requestType not from MDS: " + requestType);
       }
@@ -93,9 +93,9 @@ public class AuditLogUtils {
       if (requestKey == ApiKeys.FETCH) {
         // Ideally, we'd use the mapping in AclMapper, but this doesn't depend on ce-broker-plugins
         if ("ClusterAction".equals(authorizationEvent.action().operation().name())) {
-          requestName = "FetchFollower";
+          requestName = RequestNameOverrides.KAFKA_FETCH_FOLLOWER.name;
         } else {
-          requestName = "FetchConsumer";
+          requestName = RequestNameOverrides.KAFKA_FETCH_CONSUMER.name;
         }
       } else {
         requestName = requestKey.name;
