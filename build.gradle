@@ -2132,6 +2132,7 @@ project(':connect:basic-auth-extension') {
 }
 
 project(':ce-sbk') {
+  group = "io.confluent"
   archivesBaseName = "ce-sbk_${versions.baseScala}"
 
   dependencies {
