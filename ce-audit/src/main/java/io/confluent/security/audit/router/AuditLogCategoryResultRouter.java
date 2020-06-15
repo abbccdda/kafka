@@ -68,7 +68,7 @@ public class AuditLogCategoryResultRouter implements Router {
 
   public static final Map<String, String> METHOD_CATEGORIES;
   static {
-    ImmutableMap.Builder<String, String> builder = ImmutableMap.<String,String>builder()
+    ImmutableMap.Builder<String, String> builder = ImmutableMap.<String, String>builder()
         //PRODUCE
         .put(entry(ADD_PARTITIONS_TO_TXN, PRODUCE_CATEGORY))
         .put(entry(END_TXN, PRODUCE_CATEGORY))
