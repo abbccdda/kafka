@@ -2164,9 +2164,10 @@ class Log(@volatile private var _dir: File,
         // 'timeWaitedForRoll' call is not in append context hence called with current time as both params.
         val timeElapsed = activeSegment.timeWaitedForRoll(currentMs, currentMs)
         val reachedForcedRollMs = timeElapsed > config.tierLocalHotsetMs
+        val activeSegmentSize = activeSegment.size
 
-        if (config.tierLocalHotsetMs > 0 && reachedForcedRollMs && size >= config.tierSegmentHotsetRollMinBytes) {
-          info(s"Forcing roll of new log segment at size $size after $timeElapsed ms.")
+        if (config.tierLocalHotsetMs > 0 && reachedForcedRollMs && activeSegmentSize >= config.tierSegmentHotsetRollMinBytes) {
+          info(s"Forcing roll of new log segment at size $activeSegmentSize after $timeElapsed ms.")
           roll()
         }
       }

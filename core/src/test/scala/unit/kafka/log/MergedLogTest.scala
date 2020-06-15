@@ -361,8 +361,9 @@ class MergedLogTest {
 
     // create a log.
     val tierLocalHotsetMs = 10 * 60 * 60L
+    val numRecordsPerSegment = 10
     val logConfig = LogTest.createLogConfig(
-      segmentBytes = 10 * recordSize,
+      segmentBytes = numRecordsPerSegment * recordSize,
       tierEnable = true,
       tierSegmentHotsetRollMinBytes = 5 * recordSize,
       segmentMs = Long.MaxValue,
@@ -372,39 +373,45 @@ class MergedLogTest {
     // Create log with just active segment.
     val log = createMergedLog(logConfig)
 
+    // Populate few segments, to ensure the test is setup to focus on verifying roll logic on
+    // active segments.
+    val numRolledSegments = 5
+    for (_ <- 1 to (numRolledSegments * numRecordsPerSegment))
+      log.appendAsLeader(createRecords, leaderEpoch = 0)
+
     log.appendAsLeader(createRecords, 0)
-    assertEquals("There should be only active segment", 1, log.numberOfSegments)
+    assertEquals(s"There should be $numRolledSegments rolled segments + 1 active segment", numRolledSegments + 1, log.numberOfSegments)
     log.maybeForceRoll
-    assertEquals("There should be only active segment", 1, log.numberOfSegments)
+    assertEquals(s"There should be $numRolledSegments rolled segments + 1 active segment", numRolledSegments + 1, log.numberOfSegments)
 
     for (_ <- 1 to 2)
       log.appendAsLeader(createRecords, leaderEpoch = 0)
 
     // Make sure that append has not caused any size based roll.
-    assertEquals("There should be only active segment", 1, log.numberOfSegments)
-
-    // Before writing tierSegmentHotsetRollMinBytes, make sure that there is only one active
+    assertEquals(s"There should be $numRolledSegments rolled segments + 1 active segment", numRolledSegments + 1, log.numberOfSegments)
+    // Before writing tierSegmentHotsetRollMinBytes, we make sure that there are 5 rolled segments + 1 active
     // segment even when tierLocalHotsetMs has elapsed.
     mockTime.sleep(tierLocalHotsetMs + 1)
-    assertEquals("There should be only active segment", 1, log.numberOfSegments)
+    log.maybeForceRoll
+    assertEquals(s"There should be $numRolledSegments rolled segments + 1 active segment", numRolledSegments + 1, log.numberOfSegments)
 
-    // After writing tierSegmentHotsetRollMinBytes, make sure that maybeForceRoll rolls as tierLocalHotsetMs has
-    // passed since first message in active segment.
+    // After writing tierSegmentHotsetRollMinBytes, make sure that maybeForceRoll rolls the active segment
+    // as tierLocalHotsetMs has passed since first message in active segment.
     for (_ <- 3 to 5)
       log.appendAsLeader(createRecords, leaderEpoch = 0)
     log.maybeForceRoll
-    assertEquals("There should be rolled segment plus the active one", 2, log.numberOfSegments)
+    assertEquals(s"There should be $numRolledSegments rolled segments + 2 active segments", 7, log.numberOfSegments)
 
     // After writing another tierSegmentHotsetRollMinBytes, make sure that roll does not automatically
-    // trigger unless maybeForceRoll is called
+    // trigger unless maybeForceRoll is called.
     for (_ <- 1 to 5)
       log.appendAsLeader(createRecords, leaderEpoch = 0)
     mockTime.sleep(tierLocalHotsetMs + 1)
-    assertEquals("There should be rolled segment plus the active one", 2, log.numberOfSegments)
+    assertEquals(s"There should be $numRolledSegments rolled segments + 2 active segments", numRolledSegments + 2, log.numberOfSegments)
 
     // Now, trigger the roll and check if it has rolled the active segment.
     log.maybeForceRoll()
-    assertEquals("There should be 2 rolled segment plus the active one", 3, log.numberOfSegments)
+    assertEquals(s"There should be $numRolledSegments rolled segments + 4 active segments", numRolledSegments + 3, log.numberOfSegments)
   }
 
   @Test
