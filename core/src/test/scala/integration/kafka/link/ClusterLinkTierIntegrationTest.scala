@@ -12,7 +12,6 @@ import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.{ConfluentTopicConfig, TopicConfig}
 import org.apache.kafka.test.IntegrationTest
-import org.junit.Assert.assertTrue
 import org.junit.{Before, Test}
 import org.junit.experimental.categories.Category
 
@@ -106,8 +105,8 @@ class ClusterLinkTierIntegrationTest extends AbstractClusterLinkIntegrationTest 
 
   private def simulateRetention(cluster: ClusterLinkTestHarness): Unit = {
     partitions.foreach { tp =>
-      val numDeleted = leaderLog(cluster, tp).deleteOldSegments()
-      assertTrue("tiered segments should have been deleted", numDeleted > 0)
+      TestUtils.waitUntilTrue(() => leaderLog(cluster, tp).deleteOldSegments() > 0,
+        "tiered segments should have been deleted")
     }
   }
 
