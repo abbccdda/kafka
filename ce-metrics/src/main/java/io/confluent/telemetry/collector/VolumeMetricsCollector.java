@@ -56,7 +56,11 @@ public class VolumeMetricsCollector implements MetricsCollector {
             );
 
         public VolumeMetricsCollectorConfig(Map<?, ?> originals) {
-            super(CONFIG, originals);
+            this(originals, true);
+        }
+
+        public VolumeMetricsCollectorConfig(Map<?, ?> originals, boolean doLog) {
+            super(CONFIG, originals, doLog);
         }
 
         String[] getBrokerLogVolumes() {

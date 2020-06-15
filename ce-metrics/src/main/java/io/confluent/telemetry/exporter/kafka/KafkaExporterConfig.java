@@ -128,7 +128,11 @@ public class KafkaExporterConfig extends ExporterConfig {
             .build();
 
     public KafkaExporterConfig(Map<String, ?> originals) {
-        super(CONFIG, DEPRECATION_TRANSLATER.translate(originals));
+        this(originals, true);
+    }
+
+    public KafkaExporterConfig(Map<String, ?> originals, boolean doLog) {
+        super(CONFIG, DEPRECATION_TRANSLATER.translate(originals), doLog);
     }
 
     public static void main(String[] args) {

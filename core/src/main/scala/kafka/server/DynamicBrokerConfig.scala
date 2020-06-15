@@ -21,6 +21,7 @@ import java.util
 import java.util.{Collections, Properties}
 import java.util.concurrent.locks.ReentrantReadWriteLock
 
+import com.typesafe.scalalogging.Logger
 import kafka.cluster.EndPoint
 import kafka.log.{LogCleaner, LogConfig, LogManager}
 import kafka.network.SocketServer
@@ -37,6 +38,7 @@ import org.apache.kafka.common.network.{ListenerName, ListenerReconfigurable}
 import org.apache.kafka.common.security.authenticator.LoginManager
 import org.apache.kafka.common.utils.Utils
 import org.apache.kafka.common.config.internals.ConfluentConfigs
+import org.slf4j.LoggerFactory
 
 import scala.collection._
 import scala.jdk.CollectionConverters._
@@ -93,7 +95,8 @@ object DynamicBrokerConfig {
     DynamicBalancerConfig.ReconfigurableConfigs ++
     LogManager.ReconfigurableConfigs ++
     ReplicationQuotaManagerConfig.ReconfigurableConfigs ++
-    Set(KafkaConfig.AutoCreateTopicsEnableProp)
+    Set(KafkaConfig.AutoCreateTopicsEnableProp) ++
+    Set(ConfluentConfigs.AUTO_ENABLE_TELEMETRY_REPORTER_CONFIG)
 
   private val ClusterLevelListenerConfigs = Set(KafkaConfig.MaxConnectionsProp, KafkaConfig.SslCipherSuitesProp)
   private val PerBrokerConfigs = (DynamicSecurityConfigs ++ DynamicListenerConfig.ReconfigurableConfigs).diff(
@@ -752,12 +755,18 @@ class DynamicThreadPool(server: KafkaServer) extends BrokerReconfigurable {
 
 class DynamicMetricsReporters(brokerId: Int, server: KafkaServer) extends Reconfigurable {
 
+  val logger = Logger(LoggerFactory.getLogger("DynamicMetricsReporters"))
+
   private val dynamicConfig = server.config.dynamicConfig
   private val metrics = server.metrics
   private val propsOverride = Map[String, AnyRef](KafkaConfig.BrokerIdProp -> brokerId.toString)
   private val currentReporters = mutable.Map[String, MetricsReporter]()
 
-  createReporters(dynamicConfig.currentKafkaConfig.getList(KafkaConfig.MetricReporterClassesProp),
+  private[server] val telemetryReporterClass = "io.confluent.telemetry.reporter.TelemetryReporter"
+  private[server] val legacyTelemetryReporterClass = "io.confluent.telemetry.reporter.KafkaServerMetricsReporter"
+  private val isTelemetryOnClasspath = checkForTelemetryReporterClass()
+
+  createReporters(metricsReporterClasses(dynamicConfig.currentKafkaConfig.values()).asJava,
     Collections.emptyMap[String, Object])
 
   private[server] def currentMetricsReporters: List[MetricsReporter] = currentReporters.values.toList
@@ -767,6 +776,7 @@ class DynamicMetricsReporters(brokerId: Int, server: KafkaServer) extends Reconf
   override def reconfigurableConfigs(): util.Set[String] = {
     val configs = new util.HashSet[String]()
     configs.add(KafkaConfig.MetricReporterClassesProp)
+    configs.add(ConfluentConfigs.AUTO_ENABLE_TELEMETRY_REPORTER_CONFIG)
     currentReporters.values.foreach {
       case reporter: Reconfigurable => configs.addAll(reporter.reconfigurableConfigs)
       case _ =>
@@ -822,8 +832,49 @@ class DynamicMetricsReporters(brokerId: Int, server: KafkaServer) extends Reconf
     currentReporters.remove(className).foreach(metrics.removeReporter)
   }
 
+  private def checkForTelemetryReporterClass(): Boolean = {
+    try {
+      Utils.loadClass(telemetryReporterClass, classOf[MetricsReporter])
+      true
+    } catch {
+      case foo: ClassNotFoundException => {
+        logger.error("TelemetryReporter is not on the classpath. Continuing without telemetry...")
+        false
+      }
+    }
+  }
+
+  /**
+   * Add the telemetry reporter if it's not set already and
+   * 'confluent.reporters.telemetry.auto.enable' is true.
+   */
+  private def maybeAddTelemetry(classes: mutable.Buffer[String], configs: util.Map[String, _]): Option[String] = {
+    if (!classes.contains(telemetryReporterClass)
+      && configs.get(ConfluentConfigs.AUTO_ENABLE_TELEMETRY_REPORTER_CONFIG).asInstanceOf[Boolean]
+      && isTelemetryOnClasspath) {
+      Option(telemetryReporterClass)
+    } else {
+      Option.empty
+    }
+  }
+
+  /**
+   * Because our two reporter classes are aliased internally, we also need to alias them here
+   * to avoid ever initializing the same reporter twice.
+   */
+  private def aliasLegacyTelemetryReporter(classes: util.List[String]): util.List[String] = {
+    val newClasses : util.List[String] = new util.ArrayList[String](classes)
+    if (isTelemetryOnClasspath
+      && newClasses.removeAll(Collections.singletonList(legacyTelemetryReporterClass))) {
+      newClasses.add(telemetryReporterClass)
+    }
+    newClasses
+  }
+
   private def metricsReporterClasses(configs: util.Map[String, _]): mutable.Buffer[String] = {
-    configs.get(KafkaConfig.MetricReporterClassesProp).asInstanceOf[util.List[String]].asScala
+    val classes = aliasLegacyTelemetryReporter(
+      configs.get(KafkaConfig.MetricReporterClassesProp).asInstanceOf[util.List[String]]).asScala
+    classes ++ maybeAddTelemetry(classes, configs)
   }
 }
 object DynamicListenerConfig {

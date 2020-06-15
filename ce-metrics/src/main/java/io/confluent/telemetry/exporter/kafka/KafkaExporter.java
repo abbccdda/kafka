@@ -73,7 +73,7 @@ public class KafkaExporter implements Exporter, MetricsCollectorProvider {
     private final AtomicReference<Exception> droppedEventException = new AtomicReference<>();
     private long lastLoggedTimestamp = 0;
     private long lastLoggedCount = 0;
-
+    private volatile boolean isClosed = false;
 
     public KafkaExporter(Builder builder) {
         this.adminClientProperties = Objects.requireNonNull(builder.adminClientProperties);
@@ -128,7 +128,7 @@ public class KafkaExporter implements Exporter, MetricsCollectorProvider {
 
             synchronized (this.producer) {
                 // producer may already be closed if we are shutting down
-                if (!Thread.currentThread().isInterrupted()) {
+                if (!Thread.currentThread().isInterrupted() && !isClosed) {
                     log.trace("Generated metric message : {}", metric);
                     this.producer.send(
                         new ProducerRecord<byte[], Metric>(
@@ -180,6 +180,7 @@ public class KafkaExporter implements Exporter, MetricsCollectorProvider {
     public void close() throws Exception {
         if (this.producer != null) {
             synchronized (this.producer) {
+                this.isClosed = true;
                 this.producer.close(Duration.ofMillis(0));
             }
         }

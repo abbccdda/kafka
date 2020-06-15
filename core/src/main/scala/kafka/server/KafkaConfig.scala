@@ -1626,6 +1626,10 @@ object KafkaConfig {
       .defineInternal(ConfluentConfigs.BACKPRESSURE_DISK_RECOVERY_FACTOR_CONFIG, DOUBLE,
         ConfluentConfigs.BACKPRESSURE_DISK_RECOVERY_FACTOR_DEFAULT, LOW, ConfluentConfigs.BACKPRESSURE_DISK_RECOVERY_FACTOR_DOC)
 
+      .define(ConfluentConfigs.AUTO_ENABLE_TELEMETRY_REPORTER_CONFIG, BOOLEAN,
+              ConfluentConfigs.AUTO_ENABLE_TELEMETRY_REPORTER_DEFAULT, LOW,
+              ConfluentConfigs.AUTO_ENABLE_TELEMETRY_REPORTER_DOC)
+
       /** *********** Confluent balancer configuration *****************/
       .defineInternal(ConfluentConfigs.BALANCER_CLASS_CONFIG, STRING,
                       ConfluentConfigs.BALANCER_CLASS_DEFAULT, LOW,

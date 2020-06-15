@@ -312,8 +312,8 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
 
     public ConfluentTelemetryConfig(Map<String, ?> originals, boolean doLog) {
         super(CONFIG, reconcileConfigs(originals), doLog);
-        this.volumeMetricsCollectorConfig = new VolumeMetricsCollectorConfig(originals);
-        this.exporterConfigMap = createExporterMap();
+        this.volumeMetricsCollectorConfig = new VolumeMetricsCollectorConfig(originals, doLog);
+        this.exporterConfigMap = createExporterMap(doLog);
         if (this.enabledExporters().isEmpty()) {
             log.warn("no telemetry exporters are enabled");
         }
@@ -430,7 +430,7 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
         return ImmutableMap.of();
     }
 
-    private Map<String, ExporterConfig> createExporterMap() {
+    private Map<String, ExporterConfig> createExporterMap(boolean doLog) {
         String configPrefix = PREFIX_EXPORTER;
         Map<String, Map<String, Object>> exporters = Maps.newHashMap();
 
@@ -472,9 +472,9 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
 
             ExporterConfig config = null;
             if (exporterType.equals(ExporterConfig.ExporterType.kafka)) {
-                config = new KafkaExporterConfig(entry.getValue());
+                config = new KafkaExporterConfig(entry.getValue(), doLog);
             } else if (exporterType.equals(ExporterConfig.ExporterType.http)) {
-                config = new HttpExporterConfig(entry.getValue());
+                config = new HttpExporterConfig(entry.getValue(), doLog);
             } else {
                 // we should never hit this since we've already validated the type above
                 throw new RuntimeException("unexpected ExporterType value");
