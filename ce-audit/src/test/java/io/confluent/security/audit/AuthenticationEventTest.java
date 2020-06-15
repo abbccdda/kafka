@@ -13,6 +13,7 @@ import io.confluent.kafka.server.plugins.auth.PlainSaslServer;
 import io.confluent.security.authorizer.Scope;
 import io.confluent.telemetry.events.Event;
 import org.apache.kafka.common.config.SaslConfigs;
+import org.apache.kafka.common.errors.IllegalSaslStateException;
 import org.apache.kafka.common.errors.SaslAuthenticationException;
 import org.apache.kafka.common.errors.SslAuthenticationException;
 import org.apache.kafka.common.security.auth.AuthenticationContext;
@@ -152,6 +153,24 @@ public class AuthenticationEventTest {
             "APIKEY123",
             "UNAUTHENTICATED",
             "Bad password for user");
+    }
+
+    @Test
+    public void testSaslPlainAuthenticationFailureEvent_5() throws CrnSyntaxException {
+        AuthenticationContext authenticationContext = new SaslAuthenticationContext(null, SecurityProtocol.SASL_SSL,
+            InetAddress.getLoopbackAddress(), SecurityProtocol.SASL_SSL.name());
+
+        // test unexpected Kafka request during SASL handshake
+        IllegalSaslStateException authenticationException = new IllegalSaslStateException("Unexpected Kafka request of type METADATA during SASL handshake.");
+        DefaultAuthenticationEvent authenticationEvent = new
+            DefaultAuthenticationEvent(null, authenticationContext, AuditEventStatus.UNAUTHENTICATED, authenticationException);
+
+        CloudEvent<AttributesImpl, AuditLogEntry> cloudEvent = getCloudEvent(authenticationEvent);
+        verifyCloudEvent(cloudEvent, AUTHENTICATION_FAILED_EVENT_USER,
+            "SASL_SSL",
+            "",
+            "UNAUTHENTICATED",
+            "Unexpected Kafka request of type METADATA during SASL handshake.");
     }
 
     @Test

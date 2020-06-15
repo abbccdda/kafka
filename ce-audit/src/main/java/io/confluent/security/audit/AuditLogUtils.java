@@ -20,6 +20,7 @@ import io.confluent.security.authorizer.RequestContext;
 import io.confluent.security.authorizer.provider.ConfluentAuthorizationEvent;
 import io.confluent.security.rbac.RbacAccessRule;
 import io.confluent.security.rbac.RoleBinding;
+
 import java.util.Optional;
 import javax.net.ssl.SSLSession;
 import javax.security.sasl.SaslServer;
@@ -213,7 +214,8 @@ public class AuditLogUtils {
       return context.securityProtocol().name;
     } else if (context instanceof SaslAuthenticationContext) {
       SaslServer saslServer = ((SaslAuthenticationContext) context).server();
-      return context.securityProtocol().name + "/" +  saslServer.getMechanismName();
+      return (saslServer == null) ? context.securityProtocol().name :
+          context.securityProtocol().name + "/" +  saslServer.getMechanismName();
     } else {
       return "";
     }
