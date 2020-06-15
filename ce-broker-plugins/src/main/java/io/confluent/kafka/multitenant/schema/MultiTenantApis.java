@@ -385,14 +385,12 @@ public class MultiTenantApis {
           }
           break;
 
-          /*
         case LIST_CLUSTER_LINKS:
           if (field != null && field.name.equals("topics")) {
             return Optional.some(
                 new ArrayTenantTransformer(type, TenantTransform.REMOVE_PREFIX));
           }
           break;
-          */
 
         default:
           // fall through

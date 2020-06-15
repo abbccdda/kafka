@@ -104,7 +104,7 @@ public class MultiTenantClusterLinkTest {
     destCluster.createClusterLink(destCluster.admin, linkName, sourceCluster);
 
     createMirroredTopic();
-    //verifyTopicListing();
+    verifyTopicListing();
     verifyTopicMirroring();
 
     addSourcePartitionsAndVerifyMirror(4);
@@ -123,7 +123,7 @@ public class MultiTenantClusterLinkTest {
 
     destCluster.createClusterLink(destCluster.admin, linkName, sourceCluster);
     createMirroredTopic();
-    //verifyTopicListing();
+    verifyTopicListing();
     verifyTopicMirroring();
     verifyAclAndOffsetMigration();
 
