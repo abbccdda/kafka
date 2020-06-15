@@ -25,29 +25,28 @@ import com.linkedin.kafka.cruisecontrol.exception.OptimizationFailureException;
 import com.linkedin.kafka.cruisecontrol.executor.ExecutionProposal;
 import com.linkedin.kafka.cruisecontrol.model.Broker;
 import com.linkedin.kafka.cruisecontrol.model.ClusterModel;
-
 import com.linkedin.kafka.cruisecontrol.model.ReplicaPlacementInfo;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import org.apache.kafka.common.TopicPartition;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
 import static com.linkedin.kafka.cruisecontrol.analyzer.AnalyzerUnitTestUtils.goal;
 import static com.linkedin.kafka.cruisecontrol.common.DeterministicCluster.RACK_BY_BROKER;
 import static com.linkedin.kafka.cruisecontrol.common.DeterministicCluster.unbalanced;
 import static com.linkedin.kafka.cruisecontrol.common.DeterministicCluster.unbalanced2;
 import static com.linkedin.kafka.cruisecontrol.common.DeterministicCluster.unbalanced3;
-import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 /**
@@ -79,10 +78,10 @@ public class ExcludedBrokersForReplicaMoveTest {
     p.add(params(3, RackAwareGoal.class, noExclusion, null, DeterministicCluster.rackAwareSatisfiable(), noDeadBroker, true));
     // Without excluded broker, rack aware satisfiable cluster, one dead broker (No exception, Proposal expected, Expected to look optimized)
     p.add(params(4, RackAwareGoal.class, noExclusion, null, DeterministicCluster.rackAwareSatisfiable(), deadBroker0, true));
-    // With single excluded broker, rack aware unsatisfiable cluster, no dead broker (Exception)
-    p.add(params(5, RackAwareGoal.class, excludeB1, OptimizationFailureException.class, DeterministicCluster.rackAwareUnsatisfiable(), noDeadBroker, null));
+    // With single excluded broker, rack aware unsatisfiable cluster, no dead broker (No exception, rack distribution will be acceptably uneven)
+    p.add(params(5, RackAwareGoal.class, excludeB1, null, DeterministicCluster.rackAwareUnevenDistribution(), noDeadBroker, true));
     // With single excluded broker, rack aware unsatisfiable cluster, one dead broker (Exception)
-    p.add(params(6, RackAwareGoal.class, excludeB1, OptimizationFailureException.class, DeterministicCluster.rackAwareUnsatisfiable(), deadBroker0, null));
+    p.add(params(6, RackAwareGoal.class, excludeB1, OptimizationFailureException.class, DeterministicCluster.rackAwareUnevenDistribution(), deadBroker0, null));
 
     // ============ReplicaCapacityGoal============
     // Test: With single excluded broker, satisfiable cluster, no dead brokers (No exception, No proposal

@@ -216,7 +216,7 @@ public class DeterministicClusterTest {
     p.add(params(new BalancingConstraint(balancingConstraint), DeterministicCluster.rackAwareSatisfiable(),
                  kafkaAssignerGoals, kafkaAssignerVerifications, null));
     // Rack-aware unsatisfiable.
-    p.add(params(new BalancingConstraint(balancingConstraint), DeterministicCluster.rackAwareUnsatisfiable(),
+    p.add(params(new BalancingConstraint(balancingConstraint), DeterministicCluster.rackAwareUnevenDistribution(),
                  kafkaAssignerGoals, kafkaAssignerVerifications, OptimizationFailureException.class));
 
     return p;

@@ -127,6 +127,10 @@ public class ClusterModel implements Serializable {
     return (new ClusterModelStats()).populate(this, balancingConstraint);
   }
 
+  public Set<String> aliveRackIds() {
+    return _racksById.values().stream().filter(Rack::isRackAlive).map(Rack::id).collect(Collectors.toSet());
+  }
+
   /**
    * Get the rack with the rack id if it is found in the cluster; null otherwise.
    */

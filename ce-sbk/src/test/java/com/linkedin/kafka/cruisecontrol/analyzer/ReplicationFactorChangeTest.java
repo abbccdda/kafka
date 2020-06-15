@@ -101,8 +101,7 @@ public class ReplicationFactorChangeTest {
   private static Class<? extends Throwable> expectedExceptionClass(short replicationFactor,
                                                                    Class<? extends Goal> goalClass,
                                                                    boolean smallCluster) {
-    if ((replicationFactor == LARGE_REPLICATION_FACTOR && goalClass == RackAwareGoal.class) ||
-        (replicationFactor == LARGE_REPLICATION_FACTOR && goalClass == ReplicaCapacityGoal.class && !smallCluster)) {
+    if (replicationFactor == LARGE_REPLICATION_FACTOR && goalClass == ReplicaCapacityGoal.class && !smallCluster) {
       return OptimizationFailureException.class;
     }
     return null;
