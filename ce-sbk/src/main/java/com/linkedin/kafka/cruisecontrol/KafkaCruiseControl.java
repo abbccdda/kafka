@@ -946,6 +946,7 @@ public class KafkaCruiseControl {
           completionCallback);
     } else {
       LOG.info("Not executing any proposals for removal operation {} since none exist", uuid);
+      completionCallback.accept(true, null);
       return new CompletableFuture<>();
     }
   }

@@ -511,6 +511,35 @@ public class KafkaCruiseControlTest {
     }
 
     @Test
+    public void removeBroker_emptyPlanShouldCompleteSuccessfully() throws Throwable {
+        String uuid = "uuid";
+        when(loadMonitor.clusterModel(anyLong(), any(), any())).thenReturn(clusterModel);
+        Set<ExecutionProposal> emptyProposals = new HashSet<>();
+        when(optimizerResult.goalProposals()).thenReturn(emptyProposals);
+        when(goalOptimizer.optimizations(
+            eq(clusterModel), eq(Collections.emptyList()), any(), isNull(),
+            eq(Collections.emptySet()), eq(Collections.emptySet()), eq(false),
+            eq(Collections.emptySet()), isNull(), eq(false))).thenReturn(optimizerResult);
+
+        kafkaCruiseControl.removeBroker(BROKER_ID_TO_REMOVE, BROKER_EPOCH_TO_REMOVE,
+            mockExecutionCompletionCb, mockRemovalCallback, uuid).execute(REMOVAL_TIMEOUT);
+
+        verify(clusterModel, times(2)).setBrokerState(BROKER_ID_TO_REMOVE, Broker.State.DEAD);
+        verify(mockRemovalCallback)
+            .registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS);
+        verify(mockRemovalCallback)
+            .registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_SUCCESS);
+        verify(mockRemovalCallback)
+            .registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_COMPUTATION_SUCCESS);
+        verify(executor).reserveAndAbortOngoingExecutions(Duration.ofMinutes(1));
+        verifyNoProposalsExecuted();
+        verify(mockExecutionCompletionCb).accept(true, null);
+        verify(mockRemovalCallback)
+            .registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_EXECUTION_SUCCESS);
+    }
+
+
+    @Test
     public void removeBroker_executionFailure() throws Throwable {
         String uuid = "uuid";
         Set<Integer> brokersToRemove = new HashSet<>();
@@ -546,7 +575,7 @@ public class KafkaCruiseControlTest {
     }
 
     private void verifyNoProposalsExecuted() {
-        verify(executor, never()).executeProposals(anySet(), anySet(), any(), any(), any(), any(), any(), any(), any(), any(), isNull());
+        verify(executor, never()).executeProposals(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
