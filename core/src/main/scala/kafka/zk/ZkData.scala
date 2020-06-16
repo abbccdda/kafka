@@ -831,10 +831,29 @@ object ClusterLinkZNode {
   }
 }
 
+case class FailedBroker(brokerId: Integer, failedAt: java.lang.Long) {
+}
+
 object FailedBrokersZNode {
-  def path = "/DataBalancerBrokerList"
-  def encode(brokerListString : String): Array[Byte] = brokerListString.getBytes(UTF_8)
-  def decode(bytes: Array[Byte]): String = new String(bytes, UTF_8)
+  def path = "/failed_brokers"
+
+  def encode(failedBrokers:Seq[FailedBroker]): Array[Byte] = {
+    val failedBrokersMap = mutable.Map(
+      "brokers" -> failedBrokers.map {
+        failedBroker => Map("id" -> failedBroker.brokerId,
+          "failedAt" -> failedBroker.failedAt).asJava
+      }.asJava
+    )
+    Json.encodeAsBytes(failedBrokersMap.asJava)
+  }
+
+  def decode(bytes: Array[Byte]): Seq[FailedBroker] = {
+    Json.parseBytes(bytes).map(_.asJsonObject("brokers")).map {
+      brokers => brokers.asJsonArray.iterator.map(_.asJsonObject).map {
+       broker => FailedBroker(broker("id").to[Int], broker("failedAt").to[Long])
+     }.toSeq
+    }.getOrElse(Seq.empty[FailedBroker])
+  }
 }
 
 object ZkData {

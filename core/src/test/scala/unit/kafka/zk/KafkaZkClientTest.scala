@@ -1323,6 +1323,18 @@ class KafkaZkClientTest extends ZooKeeperTestHarness {
     assertEquals(0, getDeletedClusterLinks.size)
   }
 
+  @Test
+  def testFailedBrokers(): Unit = {
+    val failedBrokers = Seq(
+      FailedBroker(0, 1234L),
+      FailedBroker(1, 5678L),
+      FailedBroker(2, 9012L)
+    )
+    val jsonString = "{\"brokers\":[{\"id\":0,\"failedAt\":1234},{\"id\":1,\"failedAt\":5678},{\"id\":2,\"failedAt\":9012}]}"
+    assertEquals(jsonString, new String(FailedBrokersZNode.encode(failedBrokers), UTF_8))
+    assertEquals(FailedBrokersZNode.decode(jsonString.getBytes(UTF_8)), failedBrokers)
+  }
+
   class ExpiredKafkaZkClient private (zooKeeperClient: ZooKeeperClient, isSecure: Boolean, time: Time)
     extends KafkaZkClient(zooKeeperClient, isSecure, time) {
     // Overwriting this method from the parent class to force the client to re-register the Broker.

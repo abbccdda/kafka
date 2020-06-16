@@ -16,15 +16,16 @@ import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.stream.Collectors;
 import kafka.utils.ShutdownableThread;
 import kafka.zk.KafkaZkClient;
+import kafka.zk.FailedBroker;
 import org.apache.kafka.common.utils.Time;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.collection.JavaConverters;
 
 import static com.linkedin.kafka.cruisecontrol.detector.AnomalyDetectorUtils.MAX_METADATA_WAIT_MS;
-import static java.util.stream.Collectors.toSet;
 
 
 /**
@@ -114,7 +115,7 @@ public class BrokerFailureDetector extends ShutdownableThread {
   }
 
   /**
-   * "// Package-private for testing"
+   * Package-private for testing
    * This function is not thread-safe and should not be used otherwise.
    */
   Map<Integer, Long> failedBrokers() {
@@ -127,12 +128,16 @@ public class BrokerFailureDetector extends ShutdownableThread {
   }
 
   private void persistFailedBrokerList() {
-    kafkaZkClient.setOrCreateFailedBrokerList(failedBrokerString());
+    List<FailedBroker> failedBrokers = _failedBrokers.entrySet()
+        .stream().map(e -> new FailedBroker(e.getKey(), e.getValue()))
+        .collect(Collectors.toList());
+    kafkaZkClient.setOrCreateFailedBrokers(failedBrokers);
   }
 
   private void loadPersistedFailedBrokerList() {
-    String failedBrokerListString = kafkaZkClient.getFailedBrokerList();
-    parsePersistedFailedBrokers(failedBrokerListString);
+    JavaConverters.asJavaCollection(kafkaZkClient.getFailedBrokers())
+      .stream().forEach(
+        broker -> _failedBrokers.put(broker.brokerId(), broker.failedAt()));
   }
 
   /**
@@ -161,7 +166,7 @@ public class BrokerFailureDetector extends ShutdownableThread {
   private Set<Integer> aliveBrokers() {
     // We get the alive brokers from ZK directly.
     return JavaConverters.asJavaCollection(kafkaZkClient.getSortedBrokerList())
-      .stream().map(n -> (Integer) n).collect(toSet());
+      .stream().map(n -> (Integer) n).collect(Collectors.toSet());
   }
 
   private String failedBrokerString() {

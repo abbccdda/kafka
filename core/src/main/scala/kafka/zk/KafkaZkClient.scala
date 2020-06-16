@@ -18,7 +18,7 @@
 package kafka.zk
 
 import java.util.{Properties, UUID}
-
+import scala.jdk.CollectionConverters._
 import com.yammer.metrics.core.MetricName
 import kafka.api.LeaderAndIsr
 import kafka.cluster.Broker
@@ -452,7 +452,7 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
     }.toMap
   }
 
-  def setOrCreateFailedBrokerList(brokerList: String): Unit = {
+  def setOrCreateFailedBrokers(failedBrokers: java.util.List[FailedBroker]): Unit = {
 
     def set(brokerListData: Array[Byte]): SetDataResponse = {
       val setDataRequest = SetDataRequest(FailedBrokersZNode.path, brokerListData, ZkVersion.MatchAnyVersion)
@@ -465,11 +465,11 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
       retryRequestUntilConnected(createRequest)
     }
 
-    val brokerListData = FailedBrokersZNode.encode(brokerList)
-    val setDataResponse = set(brokerListData)
+    val failedBrokersAsBytes = FailedBrokersZNode.encode(failedBrokers.asScala)
+    val setDataResponse = set(failedBrokersAsBytes)
     setDataResponse.resultCode match {
       case Code.NONODE =>
-        val createDataResponse = create(brokerListData)
+        val createDataResponse = create(failedBrokersAsBytes)
         createDataResponse.maybeThrow
       case _ => setDataResponse.maybeThrow
     }
@@ -477,14 +477,14 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
 
   /**
     * Get failed brokers from ZK
-    * @return Failed broker list as a string
+    * @return Failed brokers
     */
-  def getFailedBrokerList(): String = {
+  def getFailedBrokers(): Seq[FailedBroker] = {
     val getDataRequest = GetDataRequest(FailedBrokersZNode.path)
     val getDataResponse = retryRequestUntilConnected(getDataRequest)
     getDataResponse.resultCode match {
       case Code.OK => FailedBrokersZNode.decode(getDataResponse.data)
-      case Code.NONODE => ""
+      case Code.NONODE => Seq.empty[FailedBroker]
       case _ => throw getDataResponse.resultException.get
     }
   }
