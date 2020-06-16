@@ -15,7 +15,7 @@ import com.yammer.metrics.core.Gauge
 import kafka.api.LeaderAndIsr
 import kafka.log.MergedLogTest.LogRanges
 import kafka.metrics.KafkaYammerMetrics
-import kafka.server.{BrokerTopicStats, FetchDataInfo, FetchLogEnd, LogDirFailureChannel, TierFetchDataInfo, TierState}
+import kafka.server.{BrokerTopicStats, FetchDataInfo, FetchLogEnd, LogDirFailureChannel, LogOffsetMetadata, TierFetchDataInfo, TierState}
 import kafka.server.epoch.EpochEntry
 import kafka.tier.{TierTimestampAndOffset, TopicIdPartition}
 import kafka.tier.domain.{TierObjectMetadata, TierTopicInitLeader}
@@ -1237,6 +1237,8 @@ class MergedLogTest {
       }
     })
     // delete local segments up to one segment after the last tiered segment
+    log.maybeIncrementHighWatermark(LogOffsetMetadata(log.localLogSegments.toList.last.baseOffset))
+    // NOTE: deleteSegments' 'to' param is exclusive, hence 'lastTieredOffset + 2'
     log.localLog.deleteSegments(log.localLogSegments(from = 0L, to = lastTieredOffset + 2))
     assert(log.localLogStartOffset > lastTieredOffset + 1)
     // invoke recovery on local log and check log boundaries
