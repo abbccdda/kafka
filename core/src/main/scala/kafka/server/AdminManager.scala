@@ -248,9 +248,8 @@ class AdminManager(val config: KafkaConfig,
 
         // For responses with DescribeConfigs permission, populate metadata and configs
         includeConfigsAndMetadata.get(topic.name).foreach { result =>
-          val logConfig = LogConfig.fromProps(KafkaServer.copyKafkaConfigToLog(config), configs)
           val createEntry = createTopicConfigEntry(logConfig, configs, includeSynonyms = false, includeDocumentation = false)(_, _)
-          val topicConfigs = logConfig.values.asScala.map { case (k, v) =>
+          val topicConfigs = filterTopicConfigs(logConfig.values.asScala, None).map { case (k, v) =>
             val entry = createEntry(k, v)
             val source = ConfigSource.values.indices.map(_.toByte)
               .find(i => ConfigSource.forId(i.toByte) == entry.source)
