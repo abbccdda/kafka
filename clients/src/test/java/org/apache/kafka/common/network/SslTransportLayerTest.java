@@ -1171,7 +1171,8 @@ public class SslTransportLayerTest {
     @Test
     public void testServerCipherDynamicUpdate() throws Exception {
         // Start server for test.
-        final String serverCipher = "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256";
+        final String serverCipher = tlsProtocol.equals("TLSv1.3") ?
+            "TLS_AES_256_GCM_SHA384" : "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384";
 
         SecurityProtocol securityProtocol = SecurityProtocol.SSL;
         sslServerConfigs.put(BrokerSecurityConfigs.SSL_CLIENT_AUTH_CONFIG, "required");
@@ -1192,7 +1193,8 @@ public class SslTransportLayerTest {
         NetworkTestUtils.checkClientConnection(initialClient, idForOldServer, 100, 10);
 
         // Create new client configs.
-        String newCipherName = "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256";
+        String newCipherName = tlsProtocol.equals("TLSv1.3") ?
+            "TLS_AES_128_GCM_SHA256" : "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256";
         Map<String, Object> clientConfigsWithNewCipher = sslClientConfigs;
         clientConfigsWithNewCipher.put(SslConfigs.SSL_CIPHER_SUITES_CONFIG, Collections.singletonList(newCipherName));
 
