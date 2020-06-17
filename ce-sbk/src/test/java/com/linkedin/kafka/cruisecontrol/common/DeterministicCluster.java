@@ -511,7 +511,7 @@ public class DeterministicCluster {
    * <li>Number of Partitions: 13.</li>
    * <li>Topics: A, B, C, D, E</li>
    * <li>Replication factor/Topic: A:2, B:2, C:2, D:2, E:1</li>
-   * <li>Partitions/Topic: A: 3, B:1, C:1, D:1, E:1</li>
+   * <li>Partitions/Topic: A: 3, B:1, C:1, D:1, E:3</li>
    *
    * @return A medium test cluster.
    */
@@ -525,6 +525,8 @@ public class DeterministicCluster {
     TopicPartition pInfoC0 = new TopicPartition("C", 0);
     TopicPartition pInfoD0 = new TopicPartition("D", 0);
     TopicPartition pInfoE0 = new TopicPartition("E", 0);
+    TopicPartition pInfoE1 = new TopicPartition("E", 1);
+    TopicPartition pInfoE2 = new TopicPartition("E", 2);
 
     // Create replicas for TopicA.
     cluster.createReplica(RACK_BY_BROKER.get(1).toString(), 1, pInfoA0, 0, true);
@@ -542,8 +544,10 @@ public class DeterministicCluster {
     // Create replicas for TopicD.
     cluster.createReplica(RACK_BY_BROKER.get(1).toString(), 1, pInfoD0, 0, true);
     cluster.createReplica(RACK_BY_BROKER.get(2).toString(), 2, pInfoD0, 1, false);
-    // Create single replica for TopicE to put one broker over the low utilization threshold
+    // Put all partitions for TopicE on one broker to put it over the low utilization threshold
     cluster.createReplica(RACK_BY_BROKER.get(2).toString(), 2, pInfoE0, 0, true);
+    cluster.createReplica(RACK_BY_BROKER.get(2).toString(), 2, pInfoE1, 0, true);
+    cluster.createReplica(RACK_BY_BROKER.get(2).toString(), 2, pInfoE2, 0, true);
 
     // Create snapshots and push them to the cluster.
     List<Long> windows = Collections.singletonList(1L);
@@ -560,7 +564,11 @@ public class DeterministicCluster {
     cluster.setReplicaLoad(RACK_BY_BROKER.get(2).toString(), 2, pInfoA1, createLoad(3.0, 4.0, 0.0, 6.0), windows);
     cluster.setReplicaLoad(RACK_BY_BROKER.get(2).toString(), 2, pInfoA2, createLoad(4.0, 5.0, 0.0, 3.0), windows);
     cluster.setReplicaLoad(RACK_BY_BROKER.get(2).toString(), 2, pInfoE0, createLoad(2.0, 3.0, 3.0,
-            brokerCapacity.get(Resource.DISK) * 0.5), windows);
+            brokerCapacity.get(Resource.DISK) * 0.3), windows);
+    cluster.setReplicaLoad(RACK_BY_BROKER.get(2).toString(), 2, pInfoE1, createLoad(2.0, 3.0, 3.0,
+            brokerCapacity.get(Resource.DISK) * 0.3), windows);
+    cluster.setReplicaLoad(RACK_BY_BROKER.get(2).toString(), 2, pInfoE2, createLoad(2.0, 3.0, 3.0,
+            brokerCapacity.get(Resource.DISK) * 0.3), windows);
 
     return cluster;
   }

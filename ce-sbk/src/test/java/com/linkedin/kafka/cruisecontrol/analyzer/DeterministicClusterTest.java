@@ -44,6 +44,7 @@ import java.util.Map;
 import java.util.Properties;
 
 import static com.linkedin.kafka.cruisecontrol.analyzer.OptimizationVerifier.Verification.BROKEN_BROKERS;
+import static com.linkedin.kafka.cruisecontrol.analyzer.OptimizationVerifier.Verification.GOAL_VIOLATION;
 import static com.linkedin.kafka.cruisecontrol.analyzer.OptimizationVerifier.Verification.NEW_BROKERS;
 import static com.linkedin.kafka.cruisecontrol.analyzer.OptimizationVerifier.Verification.NO_SOFT_GOAL_PROPOSALS;
 import static com.linkedin.kafka.cruisecontrol.analyzer.OptimizationVerifier.Verification.REGRESSION;
@@ -60,6 +61,7 @@ public class DeterministicClusterTest {
   private List<String> _goalNameByPriority;
   private List<OptimizationVerifier.Verification> _verifications;
   private Class<? extends Throwable> _expectedException;
+  private boolean _isTriggeredByGoalViolation;
 
   /**
    * Constructor for Deterministic Cluster Test.
@@ -72,12 +74,14 @@ public class DeterministicClusterTest {
                                   ClusterModel cluster,
                                   List<String> goalNameByPriority,
                                   List<OptimizationVerifier.Verification> verifications,
-                                  Class<? extends Throwable> expectedException) {
+                                  Class<? extends Throwable> expectedException,
+                                  boolean isTriggeredByGoalViolation) {
     _balancingConstraint = balancingConstraint;
     _cluster = cluster;
     _goalNameByPriority = goalNameByPriority;
     _verifications = verifications;
     _expectedException = expectedException;
+    _isTriggeredByGoalViolation = isTriggeredByGoalViolation;
   }
 
   /**
@@ -142,20 +146,21 @@ public class DeterministicClusterTest {
       List<OptimizationVerifier.Verification> lowUtilizationVerifications = new ArrayList<>(verifications);
       lowUtilizationVerifications.add(NO_SOFT_GOAL_PROPOSALS);
       p.add(params(lowUtilizationConstraint, DeterministicCluster.smallClusterModel(TestConstants.BROKER_CAPACITY),
-                   hardAndResourceDistributionGoalsByPriority, lowUtilizationVerifications, null));
+                   hardAndResourceDistributionGoalsByPriority, lowUtilizationVerifications, null, true));
     }
     // -- TEST DECK #2: MEDIUM CLUSTER.
     for (Double balancePercentage : balancePercentages) {
       balancingConstraint.setResourceBalancePercentage(balancePercentage);
       p.add(params(new BalancingConstraint(balancingConstraint), DeterministicCluster.mediumClusterModel(TestConstants.BROKER_CAPACITY),
                    goalNameByPriority, verifications, null));
+
       // With a high low utilization threshold
       BalancingConstraint lowUtilizationConstraint = new BalancingConstraint(balancingConstraint);
       lowUtilizationConstraint.setLowUtilizationThreshold(TestConstants.LOW_UTILIZATION_THRESHOLD);
       List<OptimizationVerifier.Verification> lowUtilizationVerifications = new ArrayList<>(verifications);
       lowUtilizationVerifications.add(NO_SOFT_GOAL_PROPOSALS);
       p.add(params(lowUtilizationConstraint, DeterministicCluster.mediumClusterModel(TestConstants.BROKER_CAPACITY),
-              hardAndResourceDistributionGoalsByPriority, lowUtilizationVerifications, null));
+              hardAndResourceDistributionGoalsByPriority, lowUtilizationVerifications, null, true));
     }
 
     // ----------##TEST: CAPACITY THRESHOLD.
@@ -200,8 +205,10 @@ public class DeterministicClusterTest {
 
     BalancingConstraint lowUtilizationConstraint = new BalancingConstraint(balancingConstraint);
     lowUtilizationConstraint.setLowUtilizationThreshold(TestConstants.LOW_UTILIZATION_THRESHOLD);
-    p.add(params(new BalancingConstraint(balancingConstraint), DeterministicCluster.singleLoadedBrokerModel(TestConstants.BROKER_CAPACITY),
-            goalNameByPriority, verifications, null));
+    List<OptimizationVerifier.Verification> lowUtilizationVerifications = new ArrayList<>(verifications);
+    lowUtilizationVerifications.add(GOAL_VIOLATION);
+    p.add(params(new BalancingConstraint(lowUtilizationConstraint), DeterministicCluster.singleLoadedBrokerModel(TestConstants.BROKER_CAPACITY),
+            Collections.singletonList(DiskUsageDistributionGoal.class.getName()), lowUtilizationVerifications, null, true));
 
     List<String> kafkaAssignerGoals = Arrays.asList(KafkaAssignerEvenRackAwareGoal.class.getName(),
                                                     KafkaAssignerDiskUsageDistributionGoal.class.getName());
@@ -227,7 +234,16 @@ public class DeterministicClusterTest {
                                  List<String> goalNameByPriority,
                                  List<OptimizationVerifier.Verification> verifications,
                                  Class<? extends Throwable> expectedException) {
-    return new Object[]{balancingConstraint, cluster, goalNameByPriority, verifications, expectedException};
+    return params(balancingConstraint, cluster, goalNameByPriority, verifications, expectedException, false);
+  }
+
+  private static Object[] params(BalancingConstraint balancingConstraint,
+                                 ClusterModel cluster,
+                                 List<String> goalNameByPriority,
+                                 List<OptimizationVerifier.Verification> verifications,
+                                 Class<? extends Throwable> expectedException,
+                                 boolean isTriggeredByGoalViolation) {
+    return new Object[]{balancingConstraint, cluster, goalNameByPriority, verifications, expectedException, isTriggeredByGoalViolation};
   }
 
   @Test
@@ -237,8 +253,9 @@ public class DeterministicClusterTest {
         assertTrue("Deterministic Cluster Test failed to improve the existing state.",
                 _verifications.contains(NO_SOFT_GOAL_PROPOSALS) ?
                         OptimizationVerifier.executeGoalsFor(_balancingConstraint, _cluster, _goalNameByPriority,
-                                Collections.emptySet(), _verifications, true, true) :
-                        OptimizationVerifier.executeGoalsFor(_balancingConstraint, _cluster, _goalNameByPriority, _verifications));
+                                Collections.emptySet(), _verifications, true, _isTriggeredByGoalViolation) :
+                        OptimizationVerifier.executeGoalsFor(_balancingConstraint, _cluster, _goalNameByPriority,
+                                Collections.emptySet(), _verifications, false, _isTriggeredByGoalViolation));
       } catch (OptimizationFailureException optimizationFailureException) {
         // This exception is thrown if rebalance fails due to alive brokers having insufficient capacity.
         if (!optimizationFailureException.getMessage().contains("Insufficient healthy cluster capacity for resource")) {

@@ -1032,7 +1032,7 @@ public abstract class ResourceDistributionGoal extends AbstractGoal {
     // Only honor the low utilization threshold if the rebalance was triggered by a goal violation anomaly. If it
     // was triggered by a user, assume that it is intentional even if the utilization is low
     return optimizationOptions.isTriggeredByGoalViolation() ?
-            _balancingConstraint.lowUtilizationThreshold(resource()) * clusterModel.capacityFor(resource()) :
+            _balancingConstraint.lowUtilizationThreshold(resource()) :
             0.0;
   }
 
