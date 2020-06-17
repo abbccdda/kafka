@@ -195,10 +195,41 @@ public interface TierPartitionState {
     boolean isTieringEnabled();
 
     /**
-     * Called when tiering is enabled for this tier topic partition.
+     * Indicates if a partition may have some tiered data, essentially whether tiered storage is currently enabled or was enabled
+     * earlier for this partition.
+     * This method is called by work flows that require access to existing tiered segments, no matter the current status of
+     * tierEnable configuration. For example, when tierEnable is switched to false for a given topic partition, we still need
+     * to access tiered segments to serve fetch requests and open the TierPartitionState channel for keeping track of current
+     * leader epoch and tiered segments as they get deleted.
+     * @return true when tiering is enabled currently, or at any time in the past; false otherwise
+     */
+    boolean mayContainTieredData();
+
+    /**
+     * Called when a replica receives OFFSET_TIERED exception while replicating from leader. In case when tier storage has
+     * been disabled for the partition, a new replica added to the assignment will neither see tier.enable config set, nor
+     * will it have the flushed(persistent) TierPartitionState file from when tier.enable was true. These are the conditions
+     * to open up a TierPartitionState file for materializing the tier state for a tiered partition. This method opens the
+     * TierPartitionState file for such replicas. Caller will use the returned value to register FileTierPartitionState with
+     * TierTopicConsumer for materialization.
+     * @return true, if TierPartitionState file was opened by this method; false otherwise.
      * @throws IOException
      */
-    void enableTierConfig() throws IOException;
+    boolean maybeOpenChannelOnOffsetTieredException() throws IOException;
+
+    /**
+     * Called when tiering is enabled for this tier topic partition.
+     * @return true if the TierPartitionState channel is opened by this method; false if the channel was already open.
+     * Caller will use this flag to register TierPartitionState with TierTopicConsumer for materialization.
+     * @throws IOException
+     */
+    boolean enableTierConfig() throws IOException;
+
+    /**
+     * Reset the tier(ing) enabled flag at TierPartitionState. This function is called when tiered storage is disabled
+     * for the partition.
+     */
+    void disableTierConfig();
 
     /**
      * flush data contained in this TierPartitionState to disk.

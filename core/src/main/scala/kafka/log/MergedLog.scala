@@ -154,7 +154,7 @@ class MergedLog(private[log] val localLog: Log,
     tags)
 
   def recoverLocalLogAfterUncleanLeaderElection(tieredState: TierState): Unit = lock synchronized {
-    if (!tierPartitionState.isTieringEnabled)
+    if (!tierPartitionState.mayContainTieredData())
       return
 
     def divergenceOffset(): Option[Long] = {
@@ -204,10 +204,13 @@ class MergedLog(private[log] val localLog: Log,
     val newTierEnable = tierLogComponents.partitionStateFactory.mayEnableTiering(topicPartition, newConfig)
 
     if (oldTierEnable && !newTierEnable) {
-      throw new IllegalStateException("Tiering cannot be disabled for a topic that has already been tiered")
+      // We won't close TierPartitionState channel because we want tier topic materialization to continue for an up to date
+      // and complete view of the log, at least till we have some of the segments tiered. At this point, we disable the
+      // tiering enabled flag at TierPartitionState to stop any further archiving.
+      tierPartitionState.disableTierConfig()
     } else if (!oldTierEnable && newTierEnable && tierPartitionState.topicIdPartition.isPresent) {
-      tierPartitionState.enableTierConfig()
-      maybeBeginTierMaterialization()
+      if (tierPartitionState.enableTierConfig())
+        maybeBeginTierMaterialization()
     }
 
     localLog.updateConfig(newConfig)
@@ -282,7 +285,8 @@ class MergedLog(private[log] val localLog: Log,
     // tiered segments only. Local segments that have not been tiered yet must not be deleted.
     if (!config.tierEnable) {
       val deleted = localLog.deleteOldSegments(None, maxNumSegmentsToDelete)
-      maybeIncrementLogStartOffset(localLogStartOffset)
+      // Partitions that follow this path may have had `tierEnable = true` in past and thereby, may have some segments tiered.
+      maybeIncrementLogStartOffset(firstTieredOffset.getOrElse(localLogStartOffset))
       deleted
     } else {
       val retentionDeleted = localLog.deleteOldSegments(None, maxNumSegmentsToDelete)  // apply retention: all segments are eligible for deletion
@@ -384,6 +388,8 @@ class MergedLog(private[log] val localLog: Log,
   }
 
   override def materializeTierStateUntilOffset(targetOffset: Long): Future[TierObjectMetadata] = {
+    if (tierPartitionState.maybeOpenChannelOnOffsetTieredException())
+      maybeBeginTierMaterialization()
     tierPartitionState.materializeUpto(targetOffset)
   }
 
@@ -571,8 +577,9 @@ class MergedLog(private[log] val localLog: Log,
   }
 
   private def maybeBeginTierMaterialization(): Unit = {
-    // We can begin tier partition state materialization if tiering is enabled for the topic and if we have a topic id assigned
-    if (!isDeleted && tierPartitionState.isTieringEnabled) {
+    // We can begin tier partition state materialization if tiering is enabled for the topic and if we have a topic id assigned.
+    // Materialization is also required in cases where tiering might have been disabled but some segments still reside at object store.
+    if (!isDeleted && tierPartitionState.mayContainTieredData()) {
       val clientCtx = new ClientCtx {
         override def process(metadata: AbstractTierMetadata, offsetAndEpoch: state.OffsetAndEpoch): TierPartitionState.AppendResult = {
           tierPartitionState.append(metadata, offsetAndEpoch)

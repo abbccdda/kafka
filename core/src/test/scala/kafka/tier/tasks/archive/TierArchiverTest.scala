@@ -25,6 +25,7 @@ import org.mockito.stubbing.Answer
 
 import scala.jdk.CollectionConverters._
 import scala.concurrent.ExecutionContext.Implicits.global
+import scala.language.reflectiveCalls
 
 class TierArchiverTest {
   @Test
@@ -175,6 +176,98 @@ class TierArchiverTest {
     assertEquals(240L, metricValue[Long]("TotalLagWithoutErrorPartitions"))
     assertEquals(120, metricValue[Long]("PartitionLagMaxValue"))
     assertEquals(6, metricValue[Int]("LaggingPartitionsCount"))
+  }
+
+  @Test
+  def testLagCalculationWithArchivingDisabled(): Unit = {
+    val replicaManager = mock(classOf[ReplicaManager])
+
+    val partition1 = new TopicPartition("mytopic-1", 0)
+    val partition2 = new TopicPartition("mytopic-2", 0)
+    val partition3 = new TopicPartition("mytopic-3", 0)
+
+    // Map of TopicPartition -> (PerSegmentSize, TierPartitionStatus)
+    val topicIdPartitionsMap = Map(
+      partition1 -> (20, TierPartitionStatus.ONLINE),
+      partition2 -> (10, TierPartitionStatus.ONLINE),
+      partition3 -> (30, TierPartitionStatus.ONLINE),
+    )
+
+    // start w/ calculation for partitions with archiving enabled
+    // Using an Answer object so we can alter the value of tieringEnabled returned by mock objects
+    val answer = new Answer[Boolean]() {
+      var tieringEnabled = true
+
+      override def answer(invocation: InvocationOnMock): Boolean = {
+        tieringEnabled
+      }
+    }
+
+    val partitions =
+      topicIdPartitionsMap.map { case (topicPartition, partitionInfo) =>
+        val segmentSize = partitionInfo._1
+        val status = partitionInfo._2
+
+        val segment = mock(classOf[LogSegment])
+        when(segment.size).thenReturn(segmentSize)
+
+        val log = mock(classOf[AbstractLog])
+        when(replicaManager.getLog(topicPartition)).thenReturn(Some(log))
+
+        // 4 segments, each with the same segment size
+        when(log.tierableLogSegments).thenReturn(List(segment, segment, segment, segment))
+        when(log.topicPartition).thenReturn(topicPartition)
+
+        val tierPartitionState = mock(classOf[TierPartitionState])
+        when(tierPartitionState.isTieringEnabled).thenAnswer(answer)
+        when(tierPartitionState.status).thenReturn(status)
+        when(log.tierPartitionState).thenReturn(tierPartitionState)
+
+        val partition = mock(classOf[Partition])
+        when(partition.log).thenReturn(Some(log))
+        partition
+      }
+
+    when(replicaManager.leaderPartitionsIterator).thenAnswer(new Answer[Iterator[Partition]] {
+      override def answer(invocation: InvocationOnMock): Iterator[Partition] = {
+        partitions.iterator
+      }
+    })
+    val tierTopicManager = mock(classOf[TierTopicManager])
+    val tierObjectStore = mock(classOf[TierObjectStore])
+    val time = new MockTime()
+    val config = TierTasksConfig(numThreads = 2)
+    TestUtils.clearYammerMetrics()
+    val archiver = new TierArchiver(
+      config,
+      replicaManager,
+      tierTopicManager,
+      tierObjectStore,
+      CancellationContext.newContext(),
+      config.numThreads,
+      time)
+
+    // verify partitions w/ archiving enabled calculate lag correctly
+    var laggingPartitions = archiver.partitionLagInfo
+    assertEquals(3, laggingPartitions.size)
+    assertEquals((partition3, TierPartitionStatus.ONLINE, 120), laggingPartitions(0))
+    assertEquals((partition1, TierPartitionStatus.ONLINE, 80), laggingPartitions(1))
+    assertEquals((partition2, TierPartitionStatus.ONLINE, 40), laggingPartitions(2))
+
+    archiver.logPartitionLagInfo()
+    // Expect the total lag to match that of: num_logs x num_segments_per_log x per_segment_size
+    assertEquals(240L, metricValue[Long]("TotalLag"))
+
+    // Disable Archiving on the partitions
+    answer.tieringEnabled = false
+
+    // none of the partitions should be lagging, since not archiving
+    laggingPartitions = archiver.partitionLagInfo
+    assertEquals(0, laggingPartitions.size)
+
+    archiver.logPartitionLagInfo()
+    // Expect the total lag to equal 0
+    assertEquals(0L, metricValue[Long]("TotalLag"))
   }
 
   private def metricValue[T](name: String): T = {

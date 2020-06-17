@@ -20,7 +20,6 @@ import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.function.BiConsumer
 
-import kafka.log.LogConfig
 import kafka.server.KafkaConfig
 import kafka.tier.TopicIdPartition
 import kafka.tier.domain.TierPartitionDeleteInitiate
@@ -31,7 +30,7 @@ import kafka.zk.KafkaZkClient
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.RetriableException
 
-import scala.collection.{Set, immutable}
+import scala.collection.Set
 import scala.collection.mutable.ListBuffer
 
 import scala.collection.mutable
@@ -41,7 +40,6 @@ trait DeletionClient {
   def deleteTopicDeletions(topics: Seq[String], epochZkVersion: Int): Unit
   def mutePartitionModifications(topic: String): Unit
   def sendMetadataUpdate(partitions: Set[TopicPartition]): Unit
-  def topicConfig(topic: String, config: KafkaConfig): LogConfig
   def completeDeleteTopic(topic: String): Unit
   def retryDeletion(): Unit
 }
@@ -63,13 +61,6 @@ class ControllerDeletionClient(controller: KafkaController, zkClient: KafkaZkCli
 
   override def sendMetadataUpdate(partitions: Set[TopicPartition]): Unit = {
     controller.sendUpdateMetadataRequest(controller.controllerContext.liveOrShuttingDownBrokerIds.toSeq, partitions)
-  }
-
-  override def topicConfig(topic: String, config: KafkaConfig): LogConfig = {
-    val (topicConfigs, failed) = zkClient.getLogConfigs(immutable.Set(topic), config.originals)
-    if (failed.nonEmpty)
-      throw failed.head._2
-    topicConfigs(topic)
   }
 
   /**
@@ -288,15 +279,6 @@ class TopicDeletionManager(config: KafkaConfig,
     replicaStateMachine.handleStateChanges(failedReplicas.toSeq, OfflineReplica)
   }
 
-  private def tieredDeletionNeeded(topic: String): Boolean = {
-    if (config.tierFeature) {
-      val topicConfig = client.topicConfig(topic, config)
-      topicConfig.tierEnable && !topicConfig.compact
-    } else {
-      false
-    }
-  }
-
   /**
     * Initiate deletion for for a tiered topic. This involves writing a PartitionDeleteInitiate message to the tier topic
     * for all partitions being deleted. The actual deletion of topic state in ZK is delayed until messages for all
@@ -370,8 +352,8 @@ class TopicDeletionManager(config: KafkaConfig,
     // Track the topic as being deleted
     controllerContext.topicsWithDeletionBeingCompleted += topic
 
-    // If this is a tiered topic, initiate topic deletion for it. If the topic is not tiered, initiate delete completion.
-    if (tieredDeletionNeeded(topic))
+    // If tier feature is enabled, initiate deletion of any tiered objects, else initiate delete completion.
+    if (config.tierFeature)
       asyncDeleteTieredTopic(topic)
     else
       finishTopicDelete(topic)

@@ -30,7 +30,7 @@ public class TierReplicaManager {
      * @param leaderEpoch Leader epoch
      */
     public synchronized void becomeLeader(TierPartitionState tierPartitionState, int leaderEpoch) {
-        if (tierPartitionState.isTieringEnabled()) {
+        if (tierPartitionState.mayContainTieredData()) {
             log.debug("Firing becomeLeader listeners for tiered topic {}", tierPartitionState.topicIdPartition());
             changeListeners.forEach(listener -> listener.onBecomeLeader(tierPartitionState.topicIdPartition().get(), leaderEpoch));
         }
@@ -41,7 +41,7 @@ public class TierReplicaManager {
      * @param tierPartitionState Tier state file for partition becoming leader
      */
     public synchronized void becomeFollower(TierPartitionState tierPartitionState) {
-        if (tierPartitionState.isTieringEnabled()) {
+        if (tierPartitionState.mayContainTieredData()) {
             log.debug("Firing becomeFollower listeners for tiered topic {}", tierPartitionState.topicIdPartition());
             changeListeners.forEach(listener -> listener.onBecomeFollower(tierPartitionState.topicIdPartition().get()));
         }

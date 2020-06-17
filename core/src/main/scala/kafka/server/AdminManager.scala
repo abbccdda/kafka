@@ -656,7 +656,7 @@ class AdminManager(val config: KafkaConfig,
     val currentConfigs = LogConfig.fromProps(currentDefault, adminZkClient.fetchEntityConfig(ConfigType.Topic, topic))
     val proposedConfigs = LogConfig.fromProps(currentDefault, configProps)
 
-    LogConfig.validateChange(currentConfigs, proposedConfigs, config.interBrokerProtocolVersion)
+    LogConfig.validateChange(currentConfigs, proposedConfigs, config.interBrokerProtocolVersion, config.tierFeature)
 
     if (zkClient.getClusterLinkForTopics(immutable.Set(topic)).get(topic).exists(_.mirrorIsEstablished)) {
       if (!isIncremental)

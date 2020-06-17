@@ -457,11 +457,9 @@ object LogConfig {
 
   def validateChange(current: LogConfig,
                      proposed: LogConfig,
-                     interBrokerProtocolVersion: ApiVersion): Unit = {
-    if (current.tierEnable && !proposed.tierEnable)
-      throw new InvalidConfigurationException("Configs cannot be altered to disable tiering")
-
-    if (current.tierEnable && !current.compact && proposed.compact)
+                     interBrokerProtocolVersion: ApiVersion,
+                     tierFeatureEnabled: Boolean): Unit = {
+    if (tierFeatureEnabled && !current.compact && proposed.compact)
       throw new InvalidConfigurationException(s"Altering topic configuration from `${TopicConfig.CLEANUP_POLICY_DELETE}` " +
         s"to `${TopicConfig.CLEANUP_POLICY_COMPACT}` is not supported. Please create a new topic with " +
         s"`${TopicConfig.CLEANUP_POLICY_COMPACT}` policy specified instead.")

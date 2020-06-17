@@ -166,6 +166,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     // in the file relative to the old file, etc.
     private volatile State state;
     private volatile TopicIdPartition topicIdPartition;
+    // Indicates whether tiering has been enabled currently for this log
     private volatile boolean tieringEnabled;
     private volatile String basePath;
     private volatile File dir;
@@ -188,7 +189,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         this.tieringEnabled = tieringEnabled;
         this.state = State.EMPTY;
         this.version = version;
-        maybeOpenChannel();
+        maybeOpenChannel(false);
     }
 
     @Override
@@ -210,7 +211,7 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
 
         topicIdPartition = new TopicIdPartition(topicPartition.topic(), topicId, topicPartition.partition());
         log.info("Setting topicIdPartition {}", topicIdPartition);
-        maybeOpenChannel();
+        maybeOpenChannel(false);
 
         return true;
     }
@@ -223,9 +224,36 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
     }
 
     @Override
-    public void enableTierConfig() throws IOException {
-        this.tieringEnabled = true;
-        maybeOpenChannel();
+    public boolean enableTierConfig() throws IOException {
+        stateResourceReadWriteLock.writeLock().lock();
+        try {
+            synchronized (stateLock) {
+                this.tieringEnabled = true;
+                if (!status().isOpen()) {
+                    // This function is called on the tier enable path but FileTierPartitionState could already be open if tiered storage
+                    // was enabled in the past for this topic. In that case, we keep the FileTierPartitionState open to keep materializing
+                    // deleted tiered segments and leader epoch changes. Caller will use the returned flag to avoid duplicate
+                    // registration of FileTierPartitionState with TierTopicConsumer.
+                    maybeOpenChannel(false);
+                    return true;
+                }
+                return false;
+            }
+        } finally {
+            stateResourceReadWriteLock.writeLock().unlock();
+        }
+    }
+
+    @Override
+    public void disableTierConfig() {
+        stateResourceReadWriteLock.writeLock().lock();
+        try {
+            synchronized (stateLock) {
+                this.tieringEnabled = false;
+            }
+        } finally {
+            stateResourceReadWriteLock.writeLock().unlock();
+        }
     }
 
     @Override
@@ -402,9 +430,6 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         stateResourceReadWriteLock.readLock().lock();
         try {
             synchronized (stateLock) {
-                if (!tieringEnabled)
-                    throw new IllegalStateException("Illegal state for tier partition. " +
-                            "tieringEnabled: " + tieringEnabled + " basePath: " + basePath);
                 state.beginCatchup();
             }
         } finally {
@@ -417,9 +442,6 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         stateResourceReadWriteLock.readLock().lock();
         try {
             synchronized (stateLock) {
-                if (!tieringEnabled)
-                    throw new IllegalStateException("Illegal state for tier partition. " +
-                            "tieringEnabled: " + tieringEnabled + " basePath: " + basePath);
                 state.onCatchUpComplete();
             }
         } finally {
@@ -739,12 +761,50 @@ public class FileTierPartitionState implements TierPartitionState, AutoCloseable
         state = newState;
     }
 
-    @SuppressWarnings("deprecation")
-    private void maybeOpenChannel() throws IOException {
+    public boolean mayContainTieredData() {
+        stateResourceReadWriteLock.readLock().lock();
+        try {
+            synchronized (stateLock) {
+                return topicIdPartition != null && (state.status.isOpen());
+            }
+        } finally {
+            stateResourceReadWriteLock.readLock().unlock();
+        }
+    }
+
+    public boolean maybeOpenChannelOnOffsetTieredException() throws IOException {
         stateResourceReadWriteLock.writeLock().lock();
         try {
             synchronized (stateLock) {
-                if (tieringEnabled && !state.status.isOpen()) {
+                // We need to open channel on the OFFSET_TIERED handling path when a new replica is added to assignment, and
+                // tiered storage has been disabled for the partition. For other cases, the channel would have been opened at
+                // the time of log loading/creation.
+                if (!state.status.isOpen()) {
+                    maybeOpenChannel(true);
+                    if (!state.status.isOpen())
+                        throw new IllegalStateException("Could not open TierPartitionState channel. Current state is " + status());
+                    return true;
+                }
+            }
+        } finally {
+            stateResourceReadWriteLock.writeLock().unlock();
+        }
+        return false;
+    }
+
+    @SuppressWarnings("deprecation")
+    private void maybeOpenChannel(boolean onOffsetTiered) throws IOException {
+        stateResourceReadWriteLock.writeLock().lock();
+        try {
+            synchronized (stateLock) {
+                // Conditions to open FileTierPartitionState channel for materialization:
+                // 1. tier storage is enabled for the topic
+                // 2. tier storage may be disabled now but was enabled earlier(identified by presence of a flushed FileTierPartitionState file)
+                // 3. when a replica is added to the assignment and it receives OFFSET_TIERED exception while replicating from leader.
+                //    Conditions 1 and 2 may not be true for such replicas.
+                // We also check if the FileTierPartitionState file has already been opened.
+                if ((tieringEnabled || Files.exists(flushedFilePath(basePath)) || onOffsetTiered) &&
+                        !state.status.isOpen()) {
                     Path flushedFilePath = flushedFilePath(basePath);
                     Path mutableFilePath = mutableFilePath(basePath);
 

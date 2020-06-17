@@ -18,7 +18,7 @@ import kafka.metrics.KafkaMetricsGroup
 import kafka.server.ReplicaManager
 import kafka.server.epoch.LeaderEpochFileCache
 import kafka.tier.domain.{TierObjectMetadata, TierSegmentUploadComplete, TierSegmentUploadInitiate}
-import kafka.tier.exceptions.{TierMetadataRetriableException, TierObjectStoreRetriableException}
+import kafka.tier.exceptions.{NotTierablePartitionException, TierMetadataRetriableException, TierObjectStoreRetriableException}
 import kafka.tier.fetcher.CancellationContext
 import kafka.tier.state.TierPartitionState
 import kafka.tier.state.TierPartitionState.AppendResult
@@ -228,6 +228,53 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
   }
 
   @Test
+  def testExceptionDuringInitiateUploadWhenTieringDisabled(): Unit = {
+
+    val leaderEpoch = 0
+    val tierPartitionState = mock(classOf[TierPartitionState])
+    val logSegment = mockLogSegment(tmpFile)
+    val partition = mock(classOf[Partition])
+    val log = mockAbstractLog(logSegment)
+    val mockProducerStateManager = mock(classOf[ProducerStateManager])
+
+    val uploadableSegment = UploadableSegment(log, logSegment, 100, None, None, None)
+    when(log.createUploadableSegment(logSegment)).thenReturn(uploadableSegment)
+    when(log.tierPartitionState).thenReturn(tierPartitionState)
+    when(log.tierableLogSegments).thenReturn(Seq(logSegment))
+    when(log.collectAbortedTransactions(any(), any())).thenReturn(List[AbortedTxn]())
+    when(log.leaderEpochCache).thenReturn(None)
+    when(log.producerStateManager).thenReturn(mockProducerStateManager)
+
+    when(mockProducerStateManager.snapshotFileForOffset(any())).thenReturn(None)
+
+    when(tierPartitionState.tierEpoch).thenReturn(leaderEpoch)
+    when(tierPartitionState.lastLocalMaterializedSrcOffsetAndEpoch()).thenReturn(new OffsetAndEpoch(100L, Optional.of(0)))
+    when(tierPartitionState.isTieringEnabled).thenReturn(false)
+    when(replicaManager.getLog(topicIdPartition.topicPartition)).thenReturn(Some(log))
+    when(replicaManager.getPartitionOrError(topicIdPartition.topicPartition(), expectLeader = true)).thenReturn(Right(partition))
+    when(partition.getIsUncleanLeader).thenReturn(false)
+    when(partition.log).thenReturn(Some(log))
+
+    when(tierTopicManager.addMetadata(any(classOf[TierSegmentUploadInitiate])))
+      .thenReturn(CompletableFuture.completedFuture(AppendResult.ACCEPTED))
+
+    val maybeInitUploadState = ArchiveTask.maybeInitiateUpload(
+      BeforeUpload(leaderEpoch),
+      topicIdPartition,
+      time,
+      tierTopicManager,
+      tierObjectStore,
+      replicaManager)
+
+    Try(Await.result(maybeInitUploadState, 1 second)) match {
+      case Success(state) =>
+        fail(s"Unexpected transition to next state ${state.toString} when partition has tiering disabled")
+      case Failure(ex) =>
+        assertEquals(s"Unexpected exception", classOf[NotTierablePartitionException], ex.getClass)
+    }
+  }
+
+  @Test
   def testSegmentDeletedDuringUpload(): Unit = {
     val nextState = testExceptionHandlingDuringUpload(new NoSuchFileException("segment deleted"), deleteSegment = true)
     assertThrows[SegmentDeletedException] {
@@ -252,6 +299,7 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
       .getMock[TierPartitionState]()
 
     when(tierPartitionState.lastLocalMaterializedSrcOffsetAndEpoch).thenReturn(new OffsetAndEpoch(0L, Optional.empty()))
+    when(tierPartitionState.isTieringEnabled).thenReturn(true)
 
     val emptyLog = mock(classOf[AbstractLog])
       when(emptyLog.tierableLogSegments)
@@ -288,6 +336,7 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
     val leaderEpoch = 0
     val tierPartitionState = mockTierPartitionState(leaderEpoch)
     when(tierPartitionState.lastLocalMaterializedSrcOffsetAndEpoch).thenReturn(new OffsetAndEpoch(0L, Optional.empty()))
+    when(tierPartitionState.isTieringEnabled).thenReturn(true)
 
     val logSegment = mockLogSegment(tmpFile)
 
@@ -323,6 +372,7 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
     val leaderEpoch = 0
     val tierPartitionState = mockTierPartitionState(leaderEpoch)
     when(tierPartitionState.lastLocalMaterializedSrcOffsetAndEpoch).thenReturn(new OffsetAndEpoch(0L, Optional.empty()))
+    when(tierPartitionState.isTieringEnabled).thenReturn(true)
 
     val logSegment = mockLogSegment(tmpFile)
 
@@ -449,6 +499,7 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
     when(log.tierPartitionState).thenReturn(tierPartitionState)
     when(tierPartitionState.tierEpoch).thenReturn(leaderEpoch)
     when(tierPartitionState.lastLocalMaterializedSrcOffsetAndEpoch()).thenReturn(new OffsetAndEpoch(100L, Optional.of(0)))
+    when(tierPartitionState.isTieringEnabled).thenReturn(true)
     when(replicaManager.getLog(topicIdPartition.topicPartition)).thenReturn(Some(log))
     when(replicaManager.getPartitionOrError(topicIdPartition.topicPartition(), expectLeader = true)).thenReturn(Right(partition))
     when(partition.getIsUncleanLeader).thenReturn(uncleanLeader)
@@ -482,6 +533,7 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
     val mockProducerStateManager = mock(classOf[ProducerStateManager])
 
     when(log.tierPartitionState).thenReturn(tierPartitionState)
+    when(tierPartitionState.isTieringEnabled).thenReturn(true)
     when(tierPartitionState.tierEpoch).thenReturn(leaderEpoch)
     when(replicaManager.getLog(topicIdPartition.topicPartition)).thenReturn(Some(log))
     when(replicaManager.getPartitionOrError(topicIdPartition.topicPartition(), expectLeader = true)).thenReturn(Right(partition))

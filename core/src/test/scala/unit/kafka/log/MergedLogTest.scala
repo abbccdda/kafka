@@ -1175,6 +1175,7 @@ class MergedLogTest {
     val logDirFailureChannel = new LogDirFailureChannel(10)
     val offsetToMetadata = new java.util.TreeMap[Long, TierObjectMetadata]()
     when(tierPartitionState.isTieringEnabled).thenReturn(true)
+    when(tierPartitionState.mayContainTieredData()).thenReturn(true)
     when(tierPartitionState.topicIdPartition()).thenReturn(Optional.of(topicIdPartition))
     when(tierPartitionStateFactory.initState(logDir, topicPartition, logConfig, logDirFailureChannel)).thenReturn(tierPartitionState)
     doNothing().when(tierTopicConsumer).register(ArgumentMatchers.any(), ArgumentMatchers.any())
@@ -1192,8 +1193,9 @@ class MergedLogTest {
       logDirFailureChannel,
       tierLogComponents)
 
-    // Append to log such that we have 2 segments after the one containing offset 101L. We will simulate tiering till
-    // the segment containing offset 100L. We will further delete all local segments till the segments subsequent segment.
+    // Append to log such that we have 2 segments after the one containing offset 101L. We will simulate that all segments
+    // till the one containing offset 100L have been tiered. We will further delete local segments till the first un-tiered
+    // segment(included).
     // Example: For local segments as (0, 59)(60, 119)(120, 179)(180, 239), we will tier up to segment (60, 119) and delete
     // up to (120, 179), there by introducing a hole in the local log and tiered segments
     appendToLogAsLeader(log, LeaderAndIsr.initialLeaderEpoch, 120)

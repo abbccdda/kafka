@@ -270,6 +270,10 @@ object ArchiveTask extends Logging {
             throw new TierMetadataRetriableException(s"Backing off as $topicIdPartition is undergoing unclean leader recovery")
 
           partition.log.flatMap { log =>
+            // Stop archiving if partition specific tier config has been disabled.
+            if (!log.tierPartitionState.isTieringEnabled)
+              throw new NotTierablePartitionException(topicIdPartition)
+
             if (log.tierPartitionState.tierEpoch != state.leaderEpoch)
               throw new TierArchiverFencedException(topicIdPartition)
 

@@ -1,17 +1,23 @@
+/*
+ Copyright 2020 Confluent Inc.
+ */
 package kafka.server
 
-import java.util.Properties
+import java.util
+import java.util.concurrent.TimeUnit
+import java.util.{Collections, Properties}
 
 import kafka.log.{LogSegment, TierLogSegment}
 import kafka.log.AbstractLog
 import kafka.server.epoch.EpochEntry
 import kafka.utils.TestUtils
+import org.apache.kafka.clients.admin.{AlterConfigOp, ConfigEntry}
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.config.{ConfluentTopicConfig, TopicConfig}
+import org.apache.kafka.common.config.{ConfigResource, ConfluentTopicConfig, TopicConfig}
 import org.junit.Assert.assertEquals
 import org.junit.{Before, Test}
-import scala.jdk.CollectionConverters._
 
+import scala.jdk.CollectionConverters._
 import scala.collection.mutable
 
 class TieredPartitionRecoveryTest extends BaseRequestTest {
@@ -269,7 +275,7 @@ class TieredPartitionRecoveryTest extends BaseRequestTest {
   }
 
   @Test
-  def testRecoveryAtUncleanLeaderWithTieringDisabled(): Unit = {
+  def testRecoveryAtUncleanLeaderForTopicCreatedWithTieringDisabled(): Unit = {
     // Recover non-tiered partition after an unclean leader election. New leader's local log must become the accepted
     // state of the log.
     props.put(ConfluentTopicConfig.TIER_ENABLE_CONFIG, "false")
@@ -309,6 +315,92 @@ class TieredPartitionRecoveryTest extends BaseRequestTest {
     } finally {
       iterator.close()
     }
+  }
+
+  @Test
+  def testRecoveryAtUncleanLeaderWithTieredDataButTieringSinceDisabled(): Unit = {
+    // TestCase 1: Unclean leader election at a partition that has some data tiered but `config.tierEnable` has since been
+    // set to false. Such cases require the tiered segments to be taken into account when recovery is performed, even though
+    // tiered storage has now been disabled for the partition.
+    TestUtils.waitUntilControllerElected(zkClient)
+    props.put(TopicConfig.SEGMENT_BYTES_CONFIG, "4096") // segment size: 4 KB
+    props.put(ConfluentTopicConfig.TIER_LOCAL_HOTSET_BYTES_CONFIG, "4096") // hot set size: 4KB
+    val (replica1Id, replica1, _, replica2) = createTestTopic(props)
+    // shutdown follower and wait for the ISR to shrink
+    replica2.shutdown()
+    waitForIsrToChangeTo(leader = replica1, Set(replica1Id))
+    TestUtils.waitUntilTrue(() =>
+      !replica1.replicaManager.getPartitionOrException(topicPartition, expectLeader = true).getIsUncleanLeader,
+      "Waiting for log to be clean", 60000)
+    // produce records and wait for segments to tier
+    val log1 = replica1.replicaManager.getLog(topicPartition).get
+    val numMessages = 100
+    var totalMessages = 0
+    while(log1.numberOfSegments < 4) {
+      TestUtils.generateAndProduceMessages(servers.toSeq, topicName, numMessages)
+      totalMessages += numMessages
+    }
+    TestUtils.waitUntilTrue(() =>
+      log1.logEndOffset == totalMessages &&
+      log1.tierPartitionState.numSegments() >= log1.numberOfSegments - 1 &&
+      log1.localLogStartOffset > log1.logStartOffset,
+      s"Timeout waiting for all messages to be written and tiered ${log1.tierPartitionState.numSegments()} ${log1.numberOfSegments}", 30000)
+    val expectedLogStartOffset = log1.logStartOffset
+    val lastTieredOffset = tierLogSegments(log1).last.endOffset
+    // disable tiered storage for the partition
+    changeTopicConfig(ConfluentTopicConfig.TIER_ENABLE_CONFIG, "false")
+    TestUtils.waitUntilTrue(() => !log1.tierPartitionState.isTieringEnabled, "Timed out waiting for tiering to disable", 30000)
+    // shutdown leader, and then start the follower which will become an unclean leader.
+    val log1LocalLogStartOffset = log1.localLogStartOffset
+    val log1LogEndOffset = log1.logEndOffset
+    replica1.shutdown()
+    replica2.startup()
+    // wait for recovery to complete and verify the log start and end offsets
+    waitForReplicaToBeLeader(topicPartition, newLeader = replica2)
+    val log2 = replica2.replicaManager.getLog(topicPartition).get
+    TestUtils.waitUntilTrue(() => !log2.tierPartitionState.isTieringEnabled, "Timed out waiting for tiering to disable", 30000)
+    assertEquals("Post recovery, LogStartOffset does not match first tiered offset", expectedLogStartOffset, log2.logStartOffset)
+    assertEquals("Post recovery, LogEndOffset does not match last tiered offset", lastTieredOffset + 1, log2.logEndOffset)
+    assertEquals("Post recovery, LocalLogStartOffset does not match last tiered offset", lastTieredOffset + 1, log2.localLogStartOffset)
+    assertEquals("Post recovery, LocalLogEndOffset does not match last tiered offset", lastTieredOffset + 1, log2.localLogEndOffset)
+    // TestCase 2: Unclean leader election happens after all the tiered data has been deleted due to log retention.
+    // append more data to the new leader, and then set retention (bytes) such that old leader's data is deleted due to retention
+    val oldSize = log2.size
+    val targetEndOffset = log2.logEndOffset * 2
+    while(log2.logEndOffset < targetEndOffset)
+      TestUtils.generateAndProduceMessages(servers.toSeq, topicName, numMessages)
+    val retentionBytes = log2.size - oldSize
+    changeTopicConfig(TopicConfig.RETENTION_BYTES_CONFIG, retentionBytes.toString)
+    val startOffsetAfterRetention: Long = {
+      var size = 0L
+      var startOffset = log2.localLogSegments.toList.last.baseOffset
+      log2.localLogSegments.toList.reverse.foreach(seg => if (size < retentionBytes) {
+        size += seg.size
+        startOffset = seg.baseOffset
+      })
+      startOffset
+    }
+    TestUtils.waitUntilTrue(() => log2.logStartOffset == startOffsetAfterRetention,
+      s"Timed out waiting for logStartOffset to change (expected: ${startOffsetAfterRetention} actual: ${log2.logStartOffset}", 30000)
+    TestUtils.waitUntilTrue(() => log2.tierPartitionState.numSegments() == 0, "Timed out waiting for tiered segments to delete", 30000)
+    replica2.shutdown()
+    replica1.startup()
+    // wait for recovery to complete and verify the log start and end offsets
+    waitForReplicaToBeLeader(topicPartition, newLeader = replica1)
+    val log3 = replica1.replicaManager.getLog(topicPartition).get
+    TestUtils.waitUntilTrue(() => log1LocalLogStartOffset == log3.logStartOffset, "Unexpected LogStartOffset", 30000)
+    assertEquals("Unexpected LogEndOffset", log1LogEndOffset, log3.logEndOffset)
+    assertEquals("Unexpected LocalLogStartOffset", log1LocalLogStartOffset, log3.localLogStartOffset)
+    assertEquals("Unexpected LocalLogEndOffset", log1LogEndOffset, log3.localLogEndOffset)
+    assert(log3.tierPartitionState.numSegments() == 0)
+  }
+
+  private def changeTopicConfig(key: String, value: String): Unit = {
+    val alterConfigOp = new AlterConfigOp(new ConfigEntry(key, value), AlterConfigOp.OpType.SET)
+    val configs = new util.HashMap[ConfigResource, util.Collection[AlterConfigOp]]
+    configs.put(new ConfigResource(ConfigResource.Type.TOPIC, topicName), Collections.singletonList(alterConfigOp))
+    val adminClient = createAdminClient()
+    adminClient.incrementalAlterConfigs(configs).all().get(5, TimeUnit.SECONDS)
   }
 
   private def createTestTopic(props: Properties): (Int, KafkaServer, Int, KafkaServer) = {

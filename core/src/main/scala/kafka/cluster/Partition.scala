@@ -644,6 +644,8 @@ class Partition(val topicPartition: TopicPartition,
       if (!hasActiveLink) {
         leaderLog.maybeAssignEpochStartOffset(leaderEpoch, leaderEpochStartOffset)
       }
+      // TopicId must be set before Archive/Deletion tasks are created or unclean leader related recovery is started.
+      // Both these threads require an open FileTierPartitionState which in turn needs TopicId to have been set.
       if (partitionState.topicId != MessageUtil.ZERO_UUID)
         leaderLog.assignTopicId(partitionState.topicId)
 
@@ -866,7 +868,7 @@ class Partition(val topicPartition: TopicPartition,
     // If a recovery action is already in progress, chain onto the on-going task
     val future = uncleanLeaderRecoveryFutureOpt.getOrElse(CompletableFuture.completedFuture(null))
 
-    if (tierPartitionState.isTieringEnabled) {
+    if (tierPartitionState.mayContainTieredData()) {
       def throwIfEpochChanged(): Unit = {
         if (leaderEpoch != this.leaderEpoch)
           throw new InterruptedException(s"[Partition: ${topicPartition}] Cancelling recovery as epoch $leaderEpoch does not match current epoch ${this.leaderEpoch}")

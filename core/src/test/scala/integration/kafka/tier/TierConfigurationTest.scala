@@ -1,11 +1,13 @@
 package kafka.tier
 
 import java.util
+import java.util.concurrent.TimeUnit
 import java.util.{Collections, Properties}
 
 import kafka.api.IntegrationTestHarness
 import kafka.log.LogConfig
 import kafka.server.KafkaConfig
+import kafka.utils.TestUtils
 import org.apache.kafka.clients.admin.{AlterConfigOp, AlterConfigsResult, ConfigEntry}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.ConfigResource
@@ -34,7 +36,7 @@ class TierConfigurationTest extends IntegrationTestHarness {
     serverConfig.setProperty(KafkaConfig.TierEnableProp, "true")
     super.setUp()
     createTopic(topicPartition.topic)
-    assertInvalid(enableCompaction())
+    assertInvalid(changeTopicConfigUsingAlterConfigs(LogConfig.CleanupPolicyProp, LogConfig.Compact))
 
     servers.foreach { server =>
       assertTrue(server.logManager.getLog(topicPartition).get.tierPartitionState.isTieringEnabled)
@@ -47,7 +49,7 @@ class TierConfigurationTest extends IntegrationTestHarness {
     val topicConfig = new Properties()
     topicConfig.setProperty(LogConfig.TierEnableProp, "true")
     createTopic(topicPartition.topic, topicConfig = topicConfig)
-    assertInvalid(enableCompaction())
+    assertInvalid(changeTopicConfigUsingAlterConfigs(LogConfig.CleanupPolicyProp, LogConfig.Compact))
 
     servers.foreach { server =>
       assertTrue(server.logManager.getLog(topicPartition).get.tierPartitionState.isTieringEnabled)
@@ -64,15 +66,73 @@ class TierConfigurationTest extends IntegrationTestHarness {
     createTopic(topicPartition.topic, topicConfig = topicConfig)
 
     // trying to set compact property again is permissible
-    enableCompaction().all().get
+    changeTopicConfigUsingAlterConfigs(LogConfig.CleanupPolicyProp, LogConfig.Compact).all().get(5, TimeUnit.SECONDS)
 
     servers.foreach { server =>
       assertFalse(server.logManager.getLog(topicPartition).get.tierPartitionState.isTieringEnabled)
     }
   }
 
-  private def enableCompaction(): AlterConfigsResult = {
-    val alterConfigOp = new AlterConfigOp(new ConfigEntry(LogConfig.CleanupPolicyProp, LogConfig.Compact), AlterConfigOp.OpType.SET)
+  @Test
+  def testEnableTierOnCompactedTopicIsNotAllowed(): Unit = {
+    serverConfig.setProperty(KafkaConfig.TierEnableProp, "true")
+    super.setUp()
+    val topicConfig = new Properties()
+    topicConfig.setProperty(LogConfig.CleanupPolicyProp, LogConfig.Compact)
+    createTopic(topicPartition.topic, topicConfig = topicConfig)
+    // This operation will not throw an exception because (tier.enable = true && compact) is a valid config for a compacted
+    // topic created on a tiering enabled broker. But tiering is still not going to be enabled for such topic because of
+    // the checks at tierPartitionStateFactory#mayEnabledTiering
+    changeTopicConfigUsingAlterConfigs(LogConfig.TierEnableProp, "true").all().get(5, TimeUnit.SECONDS)
+    servers.foreach { server =>
+      TestUtils.waitUntilTrue(() => !server.logManager.getLog(topicPartition).get.tierPartitionState.isTieringEnabled,
+        "Timed out waiting for tiered storage to be disabled", 5000)
+    }
+  }
+
+  @Test
+  def testDisableTieringWhenSetAtTopicLevel(): Unit = {
+    super.setUp()
+    val topicConfig = new Properties()
+    topicConfig.setProperty(LogConfig.TierEnableProp, "true")
+    createTopic(topicPartition.topic, topicConfig = topicConfig)
+    servers.foreach { server =>
+      assertTrue(server.logManager.getLog(topicPartition).get.tierPartitionState.isTieringEnabled)
+    }
+    changeTopicConfigUsingAlterConfigs(LogConfig.TierEnableProp, "false").all().get(5, TimeUnit.SECONDS)
+    servers.foreach { server =>
+      TestUtils.waitUntilTrue(() => !server.logManager.getLog(topicPartition).get.tierPartitionState.isTieringEnabled,
+        "Timed out waiting for tiered storage to be disabled", 5000)
+    }
+  }
+
+  @Test
+  def testDisableTieringWhenSetAtBrokerLevel(): Unit = {
+    serverConfig.setProperty(KafkaConfig.TierEnableProp, "true")
+    super.setUp()
+    createTopic(topicPartition.topic)
+    servers.foreach { server =>
+      assertTrue(server.logManager.getLog(topicPartition).get.tierPartitionState.isTieringEnabled)
+    }
+    changeTopicConfigUsingAlterConfigs(LogConfig.TierEnableProp, "false").all().get(5, TimeUnit.SECONDS)
+    servers.foreach { server =>
+      TestUtils.waitUntilTrue(() => !server.logManager.getLog(topicPartition).get.tierPartitionState.isTieringEnabled,
+        "Timed out waiting for tiered storage to be disabled", 5000)
+    }
+  }
+
+  @Test
+  def testEnableCompactionWhenTierFeatureEnabledIsNotAllowed(): Unit = {
+    // We cannot enable compaction on a topic partition using incremental alter configs when tier feature is enabled.
+    serverConfig.setProperty(KafkaConfig.TierFeatureProp, "true")
+    super.setUp()
+    createTopic(topicPartition.topic)
+
+    assertInvalid(changeTopicConfigUsingAlterConfigs(LogConfig.CleanupPolicyProp, LogConfig.Compact))
+  }
+
+  private def changeTopicConfigUsingAlterConfigs(propKey: String, propValue: String): AlterConfigsResult = {
+    val alterConfigOp = new AlterConfigOp(new ConfigEntry(propKey, propValue), AlterConfigOp.OpType.SET)
     val configs = new util.HashMap[ConfigResource, util.Collection[AlterConfigOp]]
     configs.put(new ConfigResource(ConfigResource.Type.TOPIC, topicPartition.topic), Collections.singletonList(alterConfigOp))
 
