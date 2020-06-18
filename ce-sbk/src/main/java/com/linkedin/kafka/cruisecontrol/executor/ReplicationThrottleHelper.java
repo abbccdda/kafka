@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.ExecutionException;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -36,6 +37,7 @@ import scala.Option;
 import static com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig.AUTO_THROTTLE;
 import static java.lang.String.valueOf;
 import static scala.collection.JavaConverters.asJavaCollection;
+import static org.apache.kafka.clients.admin.ConfigEntry.ConfigSource.STATIC_BROKER_CONFIG;
 
 /**
  * CONFLUENT: We use a single instance of this helper throughout the
@@ -56,14 +58,23 @@ class ReplicationThrottleHelper {
   private Admin _adminClient;
   private Long _throttleRate;
   private final Long _originalThrottleRate;
+  private boolean _overrideStaticThrottleRate;
 
-  ReplicationThrottleHelper(KafkaZkClient kafkaZkClient, Admin adminClient, Long throttleRate) {
+  /**
+   * @param throttleRate - the throttle rate to set
+   * @param overrideStaticThrottleRate - whether to override any statically-set throttle rates
+   */
+  ReplicationThrottleHelper(KafkaZkClient kafkaZkClient, Admin adminClient, Long throttleRate,
+                            boolean overrideStaticThrottleRate) {
     this._kafkaZkClient = kafkaZkClient;
     this._adminZkClient = new AdminZkClient(kafkaZkClient);
     this._adminClient = adminClient;
     this._throttleRate = throttleRate;
     this._originalThrottleRate = throttleRate;
-    LOG.info("Set throttle rate {}", this._throttleRate);
+    this._overrideStaticThrottleRate = overrideStaticThrottleRate;
+    LOG.info("Set throttle rate {}. Will " +
+        (overrideStaticThrottleRate ? "" : "not") +
+        " override static throttles when setting the rate.", this._throttleRate);
   }
 
   Long getThrottleRate() {
@@ -84,37 +95,70 @@ class ReplicationThrottleHelper {
   void setThrottles(List<ExecutionProposal> replicaMovementProposals, LoadMonitor loadMonitor)
       throws InterruptedException {
     if (throttlingEnabled()) {
-
-      // Compute the throttle from the current load. Because this method is only called during proposal execution,
-      // the load monitor will have enough metrics for this computation
-      if (this._throttleRate == AUTO_THROTTLE) {
-        this._throttleRate = loadMonitor.computeThrottle();
+      try {
+        doSetThrottles(replicaMovementProposals, loadMonitor);
+      } catch (InterruptedException ie) {
+        LOG.error("Interrupted while setting rebalance throttle.", ie);
+        throw ie;
+      } catch (Exception e) {
+        LOG.error("Unexpected exception while setting rebalance throttle.", e);
+        throw new RuntimeException(e);
       }
-      Set<Integer> participatingBrokers = getParticipatingBrokers(replicaMovementProposals);
-      Set<Integer> brokersWithStaticThrottles = getBrokersWithStaticThrottles(participatingBrokers);
-      Map<String, Set<String>> throttledReplicas = getThrottledReplicasByTopic(replicaMovementProposals,
-          brokersWithStaticThrottles);
-      LOG.info("Setting a rebalance throttle of {} bytes/sec to {} brokers and {} topics. " +
-              "Brokers {} already have static throttles set",
-          _throttleRate,
-          Utils.join(participatingBrokers, ", "),
-          Utils.join(throttledReplicas.keySet(), ", "),
-          Utils.join(brokersWithStaticThrottles, ", "));
-
-      participatingBrokers.forEach(this::setLeaderThrottledRateIfUnset);
-      participatingBrokers.forEach(this::setFollowerThrottledRateIfUnset);
-      throttledReplicas.forEach(this::setLeaderThrottledReplicas);
-      throttledReplicas.forEach(this::setFollowerThrottledReplicas);
     } else {
       LOG.info("Skipped setting rebalance throttle because it is not enabled");
     }
   }
 
+  private void doSetThrottles(List<ExecutionProposal> replicaMovementProposals, LoadMonitor loadMonitor) throws
+      ExecutionException, InterruptedException {
+
+    // Compute the throttle from the current load. Because this method is only called at the start of proposal execution,
+    // the load monitor will have enough metrics for this computation
+    if (this._throttleRate == AUTO_THROTTLE) {
+      this._throttleRate = loadMonitor.computeThrottle();
+    }
+
+    Set<Integer> participatingBrokers = getParticipatingBrokers(replicaMovementProposals);
+
+    Map<ConfigResource, Config> brokerConfigs = fetchBrokerConfigs(participatingBrokers);
+    Set<Integer> brokersWithStaticThrottles = filterBrokersWithStaticThrottles(brokerConfigs);
+    Map<String, Set<String>> throttledReplicas = getThrottledReplicasByTopic(replicaMovementProposals,
+        brokersWithStaticThrottles);
+    LOG.info("Setting a rebalance throttle of {} bytes/sec to {} brokers and {} topics. " +
+            "Brokers {} already have static throttles set",
+        _throttleRate,
+        Utils.join(participatingBrokers, ", "),
+        Utils.join(throttledReplicas.keySet(), ", "),
+        Utils.join(brokersWithStaticThrottles, ", "));
+
+    for (Integer brokerId : participatingBrokers) {
+      Config brokerConfig = brokerConfigs.get(new ConfigResource(ConfigResource.Type.BROKER, Integer.toString(brokerId)));
+      if (brokerConfig == null) {
+        throw new IllegalStateException(
+            String.format("Could not find config for broker %d when setting rebalance throttle", brokerId)
+        );
+      }
+      setLeaderThrottledRateIfUnset(brokerId, brokerConfig);
+      setFollowerThrottledRateIfUnset(brokerId, brokerConfig);
+    }
+    throttledReplicas.forEach(this::setLeaderThrottledReplicas);
+    throttledReplicas.forEach(this::setFollowerThrottledReplicas);
+  }
+
+  private Map<ConfigResource, Config> fetchBrokerConfigs(Set<Integer> participatingBrokers)
+      throws ExecutionException, InterruptedException {
+    LOG.info("Fetching configs for brokers {}", participatingBrokers);
+    List<ConfigResource> configResources = participatingBrokers.stream()
+        .map(brokerId -> new ConfigResource(ConfigResource.Type.BROKER, brokerId.toString()))
+        .collect(Collectors.toList());
+    return _adminClient.describeConfigs(configResources).all().get();
+  }
+
   /**
-   * @param participatingBrokers - the brokers to check for static throttles
+   * @param configs - the configs for the brokers we want to check
    * @return - a set of broker IDs whose static replication throttle for all replicas is enabled
    */
-  private Set<Integer> getBrokersWithStaticThrottles(Set<Integer> participatingBrokers) throws InterruptedException {
+  private Set<Integer> filterBrokersWithStaticThrottles(Map<ConfigResource, Config> configs) throws InterruptedException {
     // filter only the brokers who have both leader and follower throttling enabled
     Predicate<Map.Entry<ConfigResource, Config>> staticThrottleFilter =
         configResourceConfigEntry -> {
@@ -130,22 +174,9 @@ class ReplicationThrottleHelper {
               followerConfig.value().equals("*"));
     };
 
-    List<ConfigResource> configResources = participatingBrokers.stream()
-        .map(brokerId -> new ConfigResource(ConfigResource.Type.BROKER, brokerId.toString()))
-        .collect(Collectors.toList());
-
-    try {
-      Map<ConfigResource, Config> configs = _adminClient.describeConfigs(configResources).all().get();
-
-      return configs.entrySet().stream().filter(staticThrottleFilter)
-          .map(entry -> Integer.parseInt(entry.getKey().name()))
-          .collect(Collectors.toSet());
-    } catch (InterruptedException ie) {
-      throw ie;
-    } catch (Exception e) {
-      LOG.error("Caught Exception while describing static throttle configs", e);
-      return Collections.emptySet();
-    }
+    return configs.entrySet().stream().filter(staticThrottleFilter)
+        .map(entry -> Integer.parseInt(entry.getKey().name()))
+        .collect(Collectors.toSet());
   }
 
   // Reset back to AUTO_THROTTLE after an execution completes. This allows us to compute a new throttle once at the
@@ -261,17 +292,29 @@ class ReplicationThrottleHelper {
     return throttledReplicasByTopic;
   }
 
-  private void setLeaderThrottledRateIfUnset(int brokerId) {
-    setThrottledRateIfUnset(brokerId, LEADER_THROTTLED_RATE);
+  private void setLeaderThrottledRateIfUnset(int brokerId, Config brokerConfig) {
+    setThrottledRateIfUnset(brokerId, brokerConfig, LEADER_THROTTLED_RATE);
   }
 
-  private void setFollowerThrottledRateIfUnset(int brokerId) {
-    setThrottledRateIfUnset(brokerId, FOLLOWER_THROTTLED_RATE);
+  private void setFollowerThrottledRateIfUnset(int brokerId, Config brokerConfig) {
+    setThrottledRateIfUnset(brokerId, brokerConfig, FOLLOWER_THROTTLED_RATE);
   }
 
-  private void setThrottledRateIfUnset(int brokerId, String configKey) {
+  private void setThrottledRateIfUnset(int brokerId, Config brokerConfig, String configKey) {
     assert _throttleRate != null;
     assert configKey.equals(LEADER_THROTTLED_RATE) || configKey.equals(FOLLOWER_THROTTLED_RATE);
+
+    if (!_overrideStaticThrottleRate) {
+      // do not set throttle rates if a static rate is set
+      ConfigEntry entry = brokerConfig.get(configKey);
+      if (entry != null && entry.source() == STATIC_BROKER_CONFIG &&
+          entry.value() != null && !entry.value().isEmpty()) {
+        LOG.debug("Not setting {} for broker {} because pre-existing throttle of {} was already set statically.",
+            configKey, brokerId, entry.value());
+        return;
+      }
+    }
+
     Properties config = _kafkaZkClient.getEntityConfigs(ConfigType.Broker(), String.valueOf(brokerId));
     Object oldThrottleRate = config.setProperty(configKey, String.valueOf(_throttleRate));
     if (oldThrottleRate == null) {

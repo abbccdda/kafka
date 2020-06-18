@@ -819,6 +819,13 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   public static final Long DEFAULT_BROKER_REMOVAL_SHUTDOWN_MS = 600000L; // 10 minutes
 
   /**
+   * <code>static.throttle.rate.override.enabled</code>
+   */
+  public static final String OVERRIDE_STATIC_THROTTLES_CONFIG = "static.throttle.rate.override.enabled";
+  private static final String OVERRIDE_STATIC_THROTTLES_DOC = "Whether Cruise Control will override statically-set " +
+      "throttles on the broker when executing proposals";
+
+  /**
    * <code>max.volume.throughput</code>
    */
   public static final String MAX_VOLUME_THROUGHPUT_MB_CONFIG = "max.volume.throughput.mb";
@@ -1358,6 +1365,11 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 0.2,
                 ConfigDef.Importance.MEDIUM,
                 DISK_READ_RATIO_DOC)
+        .define(OVERRIDE_STATIC_THROTTLES_CONFIG,
+                ConfigDef.Type.BOOLEAN,
+                false,
+                ConfigDef.Importance.HIGH,
+                OVERRIDE_STATIC_THROTTLES_DOC)
         .define(SELF_HEALING_BROKER_FAILURE_ENABLED_CONFIG,
                 ConfigDef.Type.BOOLEAN,
                 false,

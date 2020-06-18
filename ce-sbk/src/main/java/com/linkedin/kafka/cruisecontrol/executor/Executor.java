@@ -222,7 +222,8 @@ public class Executor {
                                                          TimeUnit.SECONDS);
     _throttleHelper = throttleHelper != null ? throttleHelper :
             new ReplicationThrottleHelper(_kafkaZkClient, _adminClient,
-        config.getLong(KafkaCruiseControlConfig.DEFAULT_REPLICATION_THROTTLE_CONFIG));
+        config.getLong(KafkaCruiseControlConfig.DEFAULT_REPLICATION_THROTTLE_CONFIG),
+        config.getBoolean(KafkaCruiseControlConfig.OVERRIDE_STATIC_THROTTLES_CONFIG));
   }
 
   @SuppressWarnings("deprecation")

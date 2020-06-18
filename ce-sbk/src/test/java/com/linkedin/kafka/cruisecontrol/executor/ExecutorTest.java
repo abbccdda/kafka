@@ -41,6 +41,7 @@ import kafka.server.KafkaConfig$;
 import kafka.zk.KafkaZkClient;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.admin.ConfigEntry;
 import org.apache.kafka.clients.admin.CreateTopicsResult;
 import org.apache.kafka.clients.admin.DeleteTopicsResult;
 import org.apache.kafka.clients.admin.KafkaAdminClient;
@@ -51,6 +52,7 @@ import org.apache.kafka.common.Node;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.TopicPartitionInfo;
+import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.config.ConfluentTopicConfig;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.SystemTime;
@@ -1108,9 +1110,23 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     waitUntilExecutionFinishes(executor);
 
     assertFalse(testNotification.get().executionSucceeded());
-    assertTrue(testNotification.get().exception() instanceof IllegalStateException);
-    assertEquals(msg, testNotification.get().exception().getMessage());
+    assertTrue(testNotification.get().exception() instanceof RuntimeException);
+    assertTrue(testNotification.get().exception().getCause() instanceof IllegalStateException);
+    assertTrue(String.format(
+        "Did not get expected exception message. Expected to contain [%s], but instead it was [%s]",
+        msg, testNotification.get().exception().getMessage()),
+        testNotification.get().exception().getMessage().contains(msg));
     EasyMock.verify(mockLoadMonitor);
+  }
+
+  private void mockDescribeConfigs(KafkaAdminClient adminClient, List<Integer> brokers) throws ExecutionException, InterruptedException {
+    Collection<ConfigResource> configResources = configResourcesForBrokers(brokers);
+    Map<String, List<ConfigEntry>> results = new HashMap<>();
+    for (Integer brokerId : brokers) {
+      results.put(Integer.toString(brokerId), Collections.emptyList());
+    }
+
+    KafkaCruiseControlUnitTestUtils.mockDescribeConfigs(adminClient, configResources, results);
   }
 
   @Test
@@ -1154,12 +1170,11 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
     };
     KafkaAdminClient adminClient = EasyMock.mock(KafkaAdminClient.class);
     List<Integer> expectedThrottledBrokers = Arrays.asList(0, 1);
-    KafkaCruiseControlUnitTestUtils.mockDescribeConfigs(adminClient,
-            configResourcesForBrokers(expectedThrottledBrokers), Collections.emptyMap());
+    mockDescribeConfigs(adminClient, expectedThrottledBrokers);
     EasyMock.replay(adminClient);
     ReplicationThrottleHelper throttleHelper = new ReplicationThrottleHelper(
             KafkaCruiseControlUtils.createKafkaZkClient(zookeeper().connectionString(), "CruiseControlExecutor",
-                    "Executor", false), adminClient, AUTO_THROTTLE);
+                    "Executor", false), adminClient, AUTO_THROTTLE, true);
     Executor executor = new Executor(config, time, KafkaCruiseControlUnitTestUtils.getMetricsRegistry(metricsRegistry),
             metadataClient, 86400000L, 43200000L, notifier, getMockAnomalyDetector(RANDOM_UUID),
             KafkaCruiseControlUtils.createAdmin(config.originals()), throttleHelper);
