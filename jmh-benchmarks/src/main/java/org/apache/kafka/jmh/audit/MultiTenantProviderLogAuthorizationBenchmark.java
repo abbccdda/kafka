@@ -70,30 +70,30 @@ public class MultiTenantProviderLogAuthorizationBenchmark {
 
   private long counter = 0;
 
-  private final LogAuthorizationArguments[] args = new LogAuthorizationArguments[LogAuthorizationBenchmarkDefaults.DISTINCT_KEYS];
+  private final LogAuthorizationArguments[] args = new LogAuthorizationArguments[ProviderBenchmarkDefaults.DISTINCT_KEYS];
   private ConfluentAuditLogProvider provider;
 
   @Setup(Level.Trial)
   public void setUp()
       throws Exception {
     TenantMetadata metadata = new TenantMetadata(TENANT_ID, TENANT_ID);
-    for (int i = 0; i < LogAuthorizationBenchmarkDefaults.DISTINCT_KEYS; i++) {
-      Scope scope = Scope.kafkaClusterScope(LogAuthorizationBenchmarkDefaults.CLUSTER_ID);
+    for (int i = 0; i < ProviderBenchmarkDefaults.DISTINCT_KEYS; i++) {
+      Scope scope = Scope.kafkaClusterScope(ProviderBenchmarkDefaults.CLUSTER_ID);
       KafkaPrincipal principal =
-          new MultiTenantPrincipal("" + i % LogAuthorizationBenchmarkDefaults.USERS, metadata);
+          new MultiTenantPrincipal("" + i % ProviderBenchmarkDefaults.USERS, metadata);
       ResourcePattern topic = new ResourcePattern(new ResourceType("Topic"),
-          TENANT_ID + "_topic" + i % LogAuthorizationBenchmarkDefaults.TOPICS,
+          TENANT_ID + "_topic" + i % ProviderBenchmarkDefaults.TOPICS,
           PatternType.LITERAL);
       RequestContext context = new MockRequestContext(
           new RequestHeader(
-              LogAuthorizationBenchmarkDefaults.API_KEYS[i
-                  % LogAuthorizationBenchmarkDefaults.API_KEYS.length], (short) 1, "", i), "",
+              ProviderBenchmarkDefaults.API_KEYS[i
+                  % ProviderBenchmarkDefaults.API_KEYS.length], (short) 1, "", i), "",
           InetAddress.getLoopbackAddress(), principal, ListenerName.normalised("EXTERNAL"),
           SecurityProtocol.SASL_SSL, RequestContext.KAFKA);
       Action action = new Action(scope, topic.resourceType(), topic.name(),
           new Operation(
-              LogAuthorizationBenchmarkDefaults.ACTIONS[i
-                  % LogAuthorizationBenchmarkDefaults.ACTIONS.length]));
+              ProviderBenchmarkDefaults.ACTIONS[i
+                  % ProviderBenchmarkDefaults.ACTIONS.length]));
       AuthorizeResult result =
           i % 2 == 0 ? AuthorizeResult.ALLOWED : AuthorizeResult.DENIED;
       AuthorizePolicy policy = new AuthorizePolicy.SuperUser(AuthorizePolicy.PolicyType.SUPER_USER,
@@ -102,17 +102,17 @@ public class MultiTenantProviderLogAuthorizationBenchmark {
       args[i] = new LogAuthorizationArguments(scope, context, action, result, policy);
     }
 
-    LogAuthorizationBenchmarkDefaults.noneProvider.setSanitizer(
+    ProviderBenchmarkDefaults.noneProvider.setSanitizer(
         TenantSanitizer::tenantAuditEvent);
-    LogAuthorizationBenchmarkDefaults.createProvider.setSanitizer(
+    ProviderBenchmarkDefaults.createProvider.setSanitizer(
         TenantSanitizer::tenantAuditEvent);
-    LogAuthorizationBenchmarkDefaults.createProduceOneLogProvider.setSanitizer(
+    ProviderBenchmarkDefaults.createProduceOneLogProvider.setSanitizer(
         TenantSanitizer::tenantAuditEvent);
-    LogAuthorizationBenchmarkDefaults.createProduceSomeLogProvider.setSanitizer(
+    ProviderBenchmarkDefaults.createProduceSomeLogProvider.setSanitizer(
         TenantSanitizer::tenantAuditEvent);
-    LogAuthorizationBenchmarkDefaults.createProduceAllLogProvider.setSanitizer(
+    ProviderBenchmarkDefaults.createProduceAllLogProvider.setSanitizer(
         TenantSanitizer::tenantAuditEvent);
-    LogAuthorizationBenchmarkDefaults.everythingLogProvider.setSanitizer(
+    ProviderBenchmarkDefaults.everythingLogProvider.setSanitizer(
         TenantSanitizer::tenantAuditEvent);
   }
 
@@ -128,9 +128,9 @@ public class MultiTenantProviderLogAuthorizationBenchmark {
 
   @Benchmark
   public void testLogAuthorizationNone() {
-    provider = LogAuthorizationBenchmarkDefaults.noneProvider;
+    provider = ProviderBenchmarkDefaults.noneProvider;
     counter++;
-    int index = (int) (counter % LogAuthorizationBenchmarkDefaults.DISTINCT_KEYS);
+    int index = (int) (counter % ProviderBenchmarkDefaults.DISTINCT_KEYS);
     LogAuthorizationArguments arg = args[index];
     provider
         .logEvent(new ConfluentAuthorizationEvent(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
@@ -139,9 +139,9 @@ public class MultiTenantProviderLogAuthorizationBenchmark {
 
   @Benchmark
   public void testLogAuthorizationCreate() {
-    provider = LogAuthorizationBenchmarkDefaults.createProvider;
+    provider = ProviderBenchmarkDefaults.createProvider;
     counter++;
-    int index = (int) (counter % LogAuthorizationBenchmarkDefaults.DISTINCT_KEYS);
+    int index = (int) (counter % ProviderBenchmarkDefaults.DISTINCT_KEYS);
     LogAuthorizationArguments arg = args[index];
     provider
         .logEvent(new ConfluentAuthorizationEvent(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
@@ -150,9 +150,9 @@ public class MultiTenantProviderLogAuthorizationBenchmark {
 
   @Benchmark
   public void testLogAuthorizationCreateProduceOne() {
-    provider = LogAuthorizationBenchmarkDefaults.createProduceOneLogProvider;
+    provider = ProviderBenchmarkDefaults.createProduceOneLogProvider;
     counter++;
-    int index = (int) (counter % LogAuthorizationBenchmarkDefaults.DISTINCT_KEYS);
+    int index = (int) (counter % ProviderBenchmarkDefaults.DISTINCT_KEYS);
     LogAuthorizationArguments arg = args[index];
     provider
         .logEvent(new ConfluentAuthorizationEvent(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
@@ -161,9 +161,9 @@ public class MultiTenantProviderLogAuthorizationBenchmark {
 
   @Benchmark
   public void testLogAuthorizationCreateProduceSome() {
-    provider = LogAuthorizationBenchmarkDefaults.createProduceSomeLogProvider;
+    provider = ProviderBenchmarkDefaults.createProduceSomeLogProvider;
     counter++;
-    int index = (int) (counter % LogAuthorizationBenchmarkDefaults.DISTINCT_KEYS);
+    int index = (int) (counter % ProviderBenchmarkDefaults.DISTINCT_KEYS);
     LogAuthorizationArguments arg = args[index];
     provider
         .logEvent(new ConfluentAuthorizationEvent(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
@@ -172,9 +172,9 @@ public class MultiTenantProviderLogAuthorizationBenchmark {
 
   @Benchmark
   public void testLogAuthorizationCreateProduceAll() {
-    provider = LogAuthorizationBenchmarkDefaults.createProduceAllLogProvider;
+    provider = ProviderBenchmarkDefaults.createProduceAllLogProvider;
     counter++;
-    int index = (int) (counter % LogAuthorizationBenchmarkDefaults.DISTINCT_KEYS);
+    int index = (int) (counter % ProviderBenchmarkDefaults.DISTINCT_KEYS);
     LogAuthorizationArguments arg = args[index];
     provider
         .logEvent(new ConfluentAuthorizationEvent(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
@@ -183,9 +183,9 @@ public class MultiTenantProviderLogAuthorizationBenchmark {
 
   @Benchmark
   public void testLogAuthorizationEverything() {
-    provider = LogAuthorizationBenchmarkDefaults.everythingLogProvider;
+    provider = ProviderBenchmarkDefaults.everythingLogProvider;
     counter++;
-    int index = (int) (counter % LogAuthorizationBenchmarkDefaults.DISTINCT_KEYS);
+    int index = (int) (counter % ProviderBenchmarkDefaults.DISTINCT_KEYS);
     LogAuthorizationArguments arg = args[index];
     provider
         .logEvent(new ConfluentAuthorizationEvent(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
