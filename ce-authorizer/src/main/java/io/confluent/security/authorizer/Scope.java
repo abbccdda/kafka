@@ -9,12 +9,12 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.regex.Pattern;
+import org.apache.kafka.common.utils.Utils;
 
 /**
  * Hierarchical scopes for role bindings. This is used to scope roles bindings or other scoped
@@ -37,202 +37,204 @@ import java.util.Set;
  *
  * JSON Examples:
  * 1) A Scope with no hierarchy.
- *   {
- *     "path" : [],
- *     "clusters" : {
- *       "kafka-cluster" : "kafkaClusterA",
- *       "connect-cluster" : "connectCluster1"
+ * {
+ *     "path": [],
+ *     "clusters": {
+ *         "kafka-cluster": "kafkaClusterA",
+ *         "connect-cluster": "connectCluster1"
  *     }
- *   }
+ * }
  *
  * 2) A Scope with hierarchy.
- *   {
- *     "path" : [ "myorg", "staging ],
- *     "clusters" : {
- *       "kafka-cluster" : "kafkaClusterA",
- *       "connect-cluster" : "connectCluster1"
+ * {
+ *     "path": ["org=myorg", "env=staging"],
+ *     "clusters": {
+ *         "kafka-cluster": "kafkaClusterA",
+ *         "connect-cluster": "connectCluster1"
  *     }
- *   }
+ * }
  *
  * 3) A Scope with only hierarchy.
- *   {
- *     "path" : [ "myorg" ],
+ * {
+ *     "path": ["org=myorg"],
  *     "clusters" : {}
- *   }
+ * }
  */
 public class Scope {
 
-  public static final Scope ROOT_SCOPE = new Scope(Collections.emptyList(), Collections.emptyMap());
-  public static final String KAFKA_CLUSTER_TYPE = "kafka-cluster";
+    public static final Scope ROOT_SCOPE = new Scope(Collections.emptyList(), Collections.emptyMap());
+    public static final String KAFKA_CLUSTER_TYPE = "kafka-cluster";
 
-  private final Scope parent;
-  private final List<String> path;
-  private final Map<String, String> clusters;
+    public static final String CLUSTER_BINDING_SCOPE = "cluster";
+    public static final String ROOT_BINDING_SCOPE = "root";
+    public static final Set<String> RESERVED_BINDING_SCOPES =
+            Collections.unmodifiableSet(Utils.mkSet(CLUSTER_BINDING_SCOPE, ROOT_BINDING_SCOPE));
+    public static final Pattern SCOPE_TYPE_PATTERN = Pattern.compile("[a-zA-Z-]+");
 
-  @JsonCreator
-  public Scope(@JsonProperty("path") List<String> path,
-               @JsonProperty("clusters") Map<String, String> clusters) {
-    this.path = path == null ? Collections.emptyList() : new ArrayList<>(path);
-    this.clusters = clusters == null ? Collections.emptyMap() : new HashMap<>(clusters);
-    if (!this.clusters.isEmpty())
-      this.parent = new Scope(this.path, Collections.emptyMap());
-    else if (!this.path.isEmpty())
-      this.parent = new Scope(this.path.subList(0, this.path.size() - 1), Collections.emptyMap());
-    else
-      this.parent = null;
-  }
-
-  @JsonProperty
-  public List<String> path() {
-    return path;
-  }
-
-  @JsonProperty
-  public Map<String, String>  clusters() {
-    return clusters;
-  }
-
-  public Scope parent() {
-    return parent;
-  }
-
-  public void validate() {
-    clusters.forEach((k, v) -> {
-      if (k == null || k.isEmpty())
-        throw new InvalidScopeException("Empty cluster type for cluster id " + v);
-      if (v == null || v.isEmpty())
-        throw new InvalidScopeException("Empty cluster id for cluster type " + k);
-    });
-    path.forEach(p -> {
-      if (p == null || p.isEmpty())
-        throw new InvalidScopeException("Empty scope path entry");
-    });
-  }
-
-  public boolean containsScope(Scope o) {
-    if (o == null)
-      return false;
-    else if (this.equals(o))
-      return true;
-    else
-      return containsScope(o.parent);
-  }
-
-  public ScopeType scopeType() {
-    if (!this.clusters.isEmpty()) {
-      return ScopeType.CLUSTER;
-    }
-    if (this.path.isEmpty()) {
-      return ScopeType.ROOT;
-    }
-    // This implementation is currently Confluent-Cloud specific
-    String lastPathElement = this.path.get(this.path.size() - 1);
-    // scopes are `organization=org_id` or `environment=env_id`
-    String[] parts = lastPathElement.split("=");
-    if (parts.length != 2) {
-      return ScopeType.UNKNOWN;
-    }
-    try {
-      return ScopeType.valueOf(parts[0].toUpperCase(Locale.ROOT));
-    } catch (IllegalArgumentException e) {
-      return ScopeType.UNKNOWN;
-    }
-  }
-
-  /**
-   * Returns a scope with the appropriate scope type that has the given scope type.
-   * The scope can be this scope, if it's of the given type. Null is returned
-   * if there is no enclosing scope of the given type.
-   */
-  public Scope enclosingScope(ScopeType scopeType) {
-    if (scopeType == ScopeType.RESOURCE) {
-      return this;
-    }
-    if (this.scopeType() == scopeType) {
-      return this;
-    }
-    if (this.parent == null) {
-      return null;
-    }
-    return this.parent.enclosingScope(scopeType);
-  }
-
-  public Set<Scope> enclosingScopes() {
-    HashSet<Scope> scopes = new HashSet<>();
-    Scope next = this;
-    while (next != null) {
-      scopes.add(next);
-      next = next.parent;
-    }
-    return scopes;
-  }
-
-  @Override
-  public boolean equals(Object o) {
-    if (this == o) {
-      return true;
-    }
-    if (!(o instanceof Scope)) {
-      return false;
-    }
-
-    Scope that = (Scope) o;
-    return Objects.equals(path, that.path) && Objects.equals(clusters, that.clusters);
-  }
-
-  @Override
-  public int hashCode() {
-    return Objects.hash(path, clusters);
-  }
-
-  @Override
-  public String toString() {
-    return "Scope(" +
-        "path='" + path + '\'' +
-        ", clusters='" + clusters + '\'' +
-        ')';
-  }
-
-  public static Scope kafkaClusterScope(String kafkaClusterId) {
-    return new Builder().withCluster(KAFKA_CLUSTER_TYPE, kafkaClusterId).build();
-  }
-
-  public static Scope intermediateScope(String... scopeEntries) {
-    return new Builder(Arrays.asList(scopeEntries)).build();
-  }
-
-  public static class Builder {
+    private final Scope parent;
     private final List<String> path;
     private final Map<String, String> clusters;
 
-    public Builder(String... path) {
-      this(Arrays.asList(path));
+    @JsonCreator
+    public Scope(@JsonProperty("path") List<String> path,
+                 @JsonProperty("clusters") Map<String, String> clusters) {
+        this.path = path == null ? Collections.emptyList() : new ArrayList<>(path);
+        this.clusters = clusters == null ? Collections.emptyMap() : new HashMap<>(clusters);
+        if (!this.clusters.isEmpty())
+            this.parent = new Scope(this.path, Collections.emptyMap());
+        else if (!this.path.isEmpty())
+            this.parent = new Scope(this.path.subList(0, this.path.size() - 1), Collections.emptyMap());
+        else
+            this.parent = null;
     }
 
-    public Builder(List<String> path) {
-      this.path = new ArrayList<>(path);
-      this.clusters = new HashMap<>();
+    public static Scope kafkaClusterScope(String kafkaClusterId) {
+        return new Builder().withCluster(KAFKA_CLUSTER_TYPE, kafkaClusterId).build();
     }
 
-    public Builder withKafkaCluster(String clusterId) {
-      return withCluster(KAFKA_CLUSTER_TYPE, clusterId);
+    public static Scope intermediateScope(String... scopeEntries) {
+        return new Builder(Arrays.asList(scopeEntries)).build();
     }
 
-    public Builder withCluster(String clusterType, String clusterId) {
-      if (clusters.putIfAbsent(Objects.requireNonNull(clusterType, "clusterType"), Objects.requireNonNull(clusterId, "clusterId")) != null) {
-        throw new IllegalArgumentException("Cluster already present in scope: " + clusterType);
-      }
-      return this;
+    @JsonProperty
+    public List<String> path() {
+        return path;
     }
 
-    public Builder addPath(String name) {
-      path.add(name);
-      return this;
+    @JsonProperty
+    public Map<String, String> clusters() {
+        return clusters;
     }
 
-    public Scope build() {
-      return new Scope(path, clusters);
+    public Scope parent() {
+        return parent;
     }
 
-  }
+    public void validate() {
+        clusters.forEach((k, v) -> {
+            if (k == null || k.isEmpty())
+                throw new InvalidScopeException("Empty cluster type for cluster id " + v);
+            if (v == null || v.isEmpty())
+                throw new InvalidScopeException("Empty cluster id for cluster type " + k);
+        });
+        path.forEach(p -> {
+            if (p == null || p.isEmpty())
+                throw new InvalidScopeException("Empty scope path entry");
+            String[] parts = p.split("=");
+            if (parts.length != 2) {
+                throw new InvalidScopeException(
+                        "Path components must be of the form type=identifier: " + p);
+            }
+            if (RESERVED_BINDING_SCOPES.contains(parts[0])) {
+                throw new InvalidScopeException(
+                        "Binding scope '" + parts[0] + "' is reserved: " + p);
+            }
+            if (!SCOPE_TYPE_PATTERN.matcher(parts[0]).matches()) {
+                throw new InvalidScopeException(
+                        "Path component types may only contain letters and '-': " + parts[0]);
+            }
+        });
+    }
+
+    public boolean containsScope(Scope o) {
+        if (o == null)
+            return false;
+        else if (this.equals(o))
+            return true;
+        else
+            return containsScope(o.parent);
+    }
+
+    public String bindingScope() {
+        if (!this.clusters.isEmpty()) {
+            return CLUSTER_BINDING_SCOPE;
+        }
+        if (this.path.isEmpty()) {
+            return ROOT_BINDING_SCOPE;
+        }
+        String lastPathElement = this.path.get(this.path.size() - 1);
+        // scopes are `organization=org_id` or `environment=env_id`
+        String[] parts = lastPathElement.split("=");
+        if (parts.length != 2) {
+            throw new InvalidScopeException(
+                    "Path components must be of the form type=identifier:" + lastPathElement);
+        }
+        return parts[0];
+    }
+
+    /**
+     * Starts at this scope and works up through its chain of parent scopes,
+     * returning the first scope it finds that has a bindingScope that matches
+     * the specified bindingScope. Returns null if no scope in the chain matches
+     */
+    public Scope ancestorWithBindingScope(String bindingScope) {
+        if (this.bindingScope().equals(bindingScope)) {
+            return this;
+        }
+        if (this.parent == null) {
+            return null;
+        }
+        return this.parent.ancestorWithBindingScope(bindingScope);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof Scope)) {
+            return false;
+        }
+
+        Scope that = (Scope) o;
+        return Objects.equals(path, that.path) && Objects.equals(clusters, that.clusters);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(path, clusters);
+    }
+
+    @Override
+    public String toString() {
+        return "Scope(" +
+                "path='" + path + '\'' +
+                ", clusters='" + clusters + '\'' +
+                ')';
+    }
+
+    public static class Builder {
+        private final List<String> path;
+        private final Map<String, String> clusters;
+
+        public Builder(String... path) {
+            this(Arrays.asList(path));
+        }
+
+        public Builder(List<String> path) {
+            this.path = new ArrayList<>(path);
+            this.clusters = new HashMap<>();
+        }
+
+        public Builder withKafkaCluster(String clusterId) {
+            return withCluster(KAFKA_CLUSTER_TYPE, clusterId);
+        }
+
+        public Builder withCluster(String clusterType, String clusterId) {
+            if (clusters.putIfAbsent(Objects.requireNonNull(clusterType, "clusterType"), Objects.requireNonNull(clusterId, "clusterId")) != null) {
+                throw new IllegalArgumentException("Cluster already present in scope: " + clusterType);
+            }
+            return this;
+        }
+
+        public Builder addPath(String name) {
+            path.add(name);
+            return this;
+        }
+
+        public Scope build() {
+            return new Scope(path, clusters);
+        }
+
+    }
 }

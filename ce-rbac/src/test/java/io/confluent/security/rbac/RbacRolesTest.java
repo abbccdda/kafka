@@ -2,9 +2,15 @@
 
 package io.confluent.security.rbac;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+
 import io.confluent.security.authorizer.Operation;
 import io.confluent.security.authorizer.ResourceType;
-import io.confluent.security.authorizer.ScopeType;
+import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.utils.JsonMapper;
 import io.confluent.security.authorizer.utils.JsonTestUtils;
 import java.util.Arrays;
@@ -14,18 +20,15 @@ import java.util.stream.Collectors;
 import org.apache.kafka.common.utils.Utils;
 import org.junit.Test;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
-
 public class RbacRolesTest {
 
   private static final String ADMIN_ROLE = "{ \"name\" : \"admin\" , \"policy\" : " +
-      "{ \"scopeType\" : \"Cluster\", \"allowedOperations\" : [{ \"resourceType\" : \"Topic\", \"operations\" : [\"All\"]}] }}";
+      "{ \"bindingScope\" : \"cluster\", \"bindWithResource\": false, \"allowedOperations\" : [{ \"resourceType\" : \"Topic\", \"operations\" : [\"All\"]}] }}";
   private static final String DEVELOPER_ROLE = "{ \"name\" : \"developer\" , \"policy\" : " +
-      "{ \"scopeType\" : \"Resource\", \"allowedOperations\" : [{ \"resourceType\" : \"Metrics\", \"operations\" : [\"Monitor\"]}] }}";
+      "{ \"bindingScope\" : \"cluster\", \"bindWithResource\": true, \"allowedOperations\" : [{ \"resourceType\" : \"Metrics\", \"operations\" : [\"Monitor\"]}] }}";
 
-  private RbacRoles rbacRoles = new RbacRoles(Collections.emptyList());
+  private RbacRoles rbacRoles = new RbacRoles(Collections.emptyList(),
+          Arrays.asList("cluster", "environment", "organization", "root"));
 
   @Test
   public void testRoleDefinitions() throws Exception {
@@ -35,7 +38,8 @@ public class RbacRolesTest {
     assertEquals("admin", role.name());
     AccessPolicy accessPolicy = role.accessPolicies().values().stream().findFirst().get();
     assertNotNull(accessPolicy);
-    assertEquals(ScopeType.CLUSTER, accessPolicy.scopeType());
+    assertFalse(accessPolicy.bindWithResource());
+    assertEquals(Scope.CLUSTER_BINDING_SCOPE, accessPolicy.bindingScope());
     verifyAccessPolicy(accessPolicy, "Topic", "All");
 
     addRoles(DEVELOPER_ROLE);
@@ -43,7 +47,8 @@ public class RbacRolesTest {
     Role role2 = rbacRoles.role("developer");
     AccessPolicy accessPolicy2 = role2.accessPolicies().values().stream().findFirst().get();
     assertNotNull(accessPolicy2);
-    assertEquals(ScopeType.RESOURCE, accessPolicy2.scopeType());
+    assertTrue(accessPolicy2.bindWithResource());
+    assertEquals(Scope.CLUSTER_BINDING_SCOPE, accessPolicy2.bindingScope());
     verifyAccessPolicy(accessPolicy2, "Metrics", "Monitor");
 
     assertEquals(accessPolicy, accessPolicy(JsonMapper.objectMapper().writeValueAsString(accessPolicy)));
@@ -53,38 +58,67 @@ public class RbacRolesTest {
   @Test(expected = InvalidRoleDefinitionException.class)
   public void testRoleWithUnknownScope() throws Exception {
     String json = "{ \"name\" : \"admin\" , \"policy\" : " +
-        "{ \"scope\" : \"unknown\", \"allowedOperations\" : [{ \"resourceType\" : \"All\", \"operations\" : [\"All\"]}] }}";
+        "{ \"bindingScope\" : \"unknown\", \"bindWithResource\" : false, \"allowedOperations\" : [{ \"resourceType\" : \"All\", \"operations\" : [\"All\"]}] }}";
     addRoles(json);
+  }
+  
+  private AccessPolicy onlyPolicy(Role role) {
+    Collection<AccessPolicy> policies = role.accessPolicies().values();
+    assertEquals(1, policies.size());
+    return policies.iterator().next();
   }
 
   @Test
   public void testDefaultRoles() throws Exception {
     RbacRoles rbacRoles = RbacRoles.loadDefaultPolicy(false);
 
-    assertEquals(ScopeType.CLUSTER, rbacRoles.role("SystemAdmin")
-            .accessPolicies().values().stream().findFirst().get().scopeType());
-    assertEquals(ScopeType.CLUSTER, rbacRoles.role("UserAdmin")
-            .accessPolicies().values().stream().findFirst().get().scopeType());
-    assertEquals(ScopeType.CLUSTER, rbacRoles.role("ClusterAdmin")
-            .accessPolicies().values().stream().findFirst().get().scopeType());
-    assertEquals(ScopeType.CLUSTER, rbacRoles.role("Operator")
-            .accessPolicies().values().stream().findFirst().get().scopeType());
-    assertEquals(ScopeType.CLUSTER, rbacRoles.role("SecurityAdmin")
-            .accessPolicies().values().stream().findFirst().get().scopeType());
-    assertEquals(ScopeType.RESOURCE, rbacRoles.role("ResourceOwner")
-            .accessPolicies().values().stream().findFirst().get().scopeType());
-    assertEquals(ScopeType.RESOURCE, rbacRoles.role("DeveloperRead")
-            .accessPolicies().values().stream().findFirst().get().scopeType());
-    assertEquals(ScopeType.RESOURCE, rbacRoles.role("DeveloperWrite")
-            .accessPolicies().values().stream().findFirst().get().scopeType());
-    assertEquals(ScopeType.RESOURCE, rbacRoles.role("DeveloperManage")
-            .accessPolicies().values().stream().findFirst().get().scopeType());
+    assertEquals(Scope.CLUSTER_BINDING_SCOPE, 
+            onlyPolicy(rbacRoles.role("SystemAdmin")).bindingScope());
+    assertFalse(
+            onlyPolicy(rbacRoles.role("SystemAdmin")).bindWithResource());
 
-    assertTrue(rbacRoles.role("UserAdmin")
-            .accessPolicies().values().stream().findFirst().get()
+    assertEquals(Scope.CLUSTER_BINDING_SCOPE,  
+            onlyPolicy(rbacRoles.role("UserAdmin")).bindingScope());
+    assertFalse(
+            onlyPolicy(rbacRoles.role("UserAdmin")).bindWithResource());
+
+    assertEquals(Scope.CLUSTER_BINDING_SCOPE,  
+            onlyPolicy(rbacRoles.role("ClusterAdmin")).bindingScope());
+    assertFalse(
+            onlyPolicy(rbacRoles.role("ClusterAdmin")).bindWithResource());
+
+    assertEquals(Scope.CLUSTER_BINDING_SCOPE,  
+            onlyPolicy(rbacRoles.role("Operator")).bindingScope());
+    assertFalse(
+            onlyPolicy(rbacRoles.role("Operator")).bindWithResource());
+
+    assertEquals(Scope.CLUSTER_BINDING_SCOPE,  
+            onlyPolicy(rbacRoles.role("SecurityAdmin")).bindingScope());
+    assertFalse(
+            onlyPolicy(rbacRoles.role("SecurityAdmin")).bindWithResource());
+
+    assertEquals(Scope.CLUSTER_BINDING_SCOPE,
+            onlyPolicy(rbacRoles.role("ResourceOwner")).bindingScope());
+    assertTrue(
+            onlyPolicy(rbacRoles.role("ResourceOwner")).bindWithResource());
+
+    assertEquals(Scope.CLUSTER_BINDING_SCOPE,
+            onlyPolicy(rbacRoles.role("DeveloperRead")).bindingScope());
+    assertTrue(
+            onlyPolicy(rbacRoles.role("DeveloperRead")).bindWithResource());
+
+    assertEquals(Scope.CLUSTER_BINDING_SCOPE,
+            onlyPolicy(rbacRoles.role("DeveloperWrite")).bindingScope());
+    assertTrue(
+            onlyPolicy(rbacRoles.role("DeveloperWrite")).bindWithResource());
+
+    assertEquals(Scope.CLUSTER_BINDING_SCOPE,
+            onlyPolicy(rbacRoles.role("DeveloperManage")).bindingScope());
+    assertTrue(onlyPolicy(rbacRoles.role("DeveloperManage")).bindWithResource());
+
+    assertTrue(onlyPolicy(rbacRoles.role("UserAdmin"))
         .allowedOperations(new ResourceType("Cluster")).contains(new Operation("Alter")));
-    assertTrue(rbacRoles.role("ResourceOwner")
-            .accessPolicies().values().stream().findFirst().get()
+    assertTrue(onlyPolicy(rbacRoles.role("ResourceOwner"))
         .allowedOperations(new ResourceType("Group")).contains(new Operation("Read")));
   }
 
@@ -94,32 +128,52 @@ public class RbacRolesTest {
     RbacRoles rbacRoles = RbacRoles.loadDefaultPolicy(true);
 
     Role bindingAdmin = rbacRoles.role("CCloudRoleBindingAdmin");
-    assertEquals(Arrays.asList(ScopeType.ROOT),
+    assertEquals(Arrays.asList(Scope.ROOT_BINDING_SCOPE),
             bindingAdmin.accessPolicies().keySet()
                     .stream().sorted().collect(Collectors.toList()));
-    assertEquals(ScopeType.ROOT, bindingAdmin.accessPolicies().get(ScopeType.ROOT).scopeType());
+    assertEquals(Scope.ROOT_BINDING_SCOPE, bindingAdmin.accessPolicies().get(Scope.ROOT_BINDING_SCOPE).bindingScope());
 
 
     Role orgAdmin = rbacRoles.role("OrganizationAdmin");
-    assertEquals(Arrays.asList(ScopeType.ORGANIZATION),
+    assertEquals(Arrays.asList("organization"),
             orgAdmin.accessPolicies().keySet()
                     .stream().sorted().collect(Collectors.toList()));
-    assertEquals(ScopeType.ORGANIZATION, orgAdmin.accessPolicies().get(ScopeType.ORGANIZATION).scopeType());
+    assertEquals("organization", orgAdmin.accessPolicies().get("organization").bindingScope());
 
     Role envAdmin = rbacRoles.role("EnvironmentAdmin");
-    assertEquals(Arrays.asList(ScopeType.ENVIRONMENT, ScopeType.ORGANIZATION),
+    assertEquals(Arrays.asList("environment", "organization"),
             envAdmin.accessPolicies().keySet()
                     .stream().sorted().collect(Collectors.toList()));
-    assertEquals(ScopeType.ENVIRONMENT, envAdmin.accessPolicies().get(ScopeType.ENVIRONMENT).scopeType());
-    assertEquals(ScopeType.ORGANIZATION, envAdmin.accessPolicies().get(ScopeType.ORGANIZATION).scopeType());
+    assertEquals("environment", envAdmin.accessPolicies().get("environment").bindingScope());
+    assertEquals("organization", envAdmin.accessPolicies().get("organization").bindingScope());
 
     Role clusterAdmin = rbacRoles.role("CloudClusterAdmin");
-    assertEquals(Arrays.asList(ScopeType.CLUSTER, ScopeType.ORGANIZATION),
+    assertEquals(Arrays.asList(Scope.CLUSTER_BINDING_SCOPE, "organization"),
             clusterAdmin.accessPolicies().keySet()
                     .stream().sorted().collect(Collectors.toList()));
-    assertEquals(ScopeType.CLUSTER, clusterAdmin.accessPolicies().get(ScopeType.CLUSTER).scopeType());
-    assertEquals(ScopeType.ORGANIZATION, clusterAdmin.accessPolicies().get(ScopeType.ORGANIZATION).scopeType());
+    assertEquals(Scope.CLUSTER_BINDING_SCOPE, clusterAdmin.accessPolicies().get(Scope.CLUSTER_BINDING_SCOPE).bindingScope());
+    assertEquals("organization", clusterAdmin.accessPolicies().get("organization").bindingScope());
+  }
 
+  @Test
+  public void testInvalidBindingScopes() {
+    String[][] tests = {
+            {"root", "first binding scope must be 'cluster'"},
+            {"cluster, root, org", "binding scope 'root' must be last"},
+            {"cluster, org=, root", "bindingScopes may only contain letters and '-': 'org='"},
+            {"cluster, org, cluster, root", "bindingScopes may not be repeated: 'cluster'"},
+            {"cluster, org, org, root", "bindingScopes may not be repeated: 'org'"},
+            {"cluster, org, root, root", "binding scope 'root' must be last"},
+    };
+
+    for (String[] test : tests) {
+      try {
+        new RbacRoles(Collections.emptyList(), Arrays.asList(test[0].split(", *")));
+        fail("Didn't throw");
+      } catch (InvalidRoleDefinitionException e) {
+        assertEquals(test[1], e.getMessage());
+      }
+    }
   }
 
   private void addRoles(String rolesJson) {

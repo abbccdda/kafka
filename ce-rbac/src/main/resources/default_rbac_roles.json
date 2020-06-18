@@ -36,20 +36,27 @@
       resourceType:Topic operation:Read patternType:LITERAL name:*
 
 
- RBAC Role types / what does "scopeType" mean?
+ RBAC Role types / what do "bindingScope" and "bindWithResource" mean?
  ----
- Unfortunately we have a number of overloaded/reused words that make things confusing.
-  - "scopeType" and the Scope object that RBAC uses to uniquely identify a physical cluster are
-    unrelated concepts.
-  - "Cluster as scopeType" and "Cluster as ResourceType" are two different things.
 
- Roles with "scopeType":"Cluster" are referred to as "cluster roles".  Rolebinding a principal to
-  a cluster role gives them the ability to perform all of the operations specified by the role on
-  all resources in the cluster as defined by the role.
+ An RBAC role binding has two pieces of information that together identify what the
+ binding applies to: the Scope, and the Resources. In Confluent Platform, the Scope
+ must always refer to a cluster. This is not true in Confluent Cloud, where the Scope
+ may refer to a broader scope like an environment or an organization.
+
+ Several roles are bound using no resources. We can think of these as "Cluster"
+ roles. They grant permissions on all resources of a particular type in the cluster.
+ All of the "Admin" roles and the "Operator" role fall in this category.
+ It is an error to bind these roles and specify a resource,
+ and their access policy is marked with `"bindWithResource": false`.
 
   Example : the ClusterAdmin role has
 
-      "allowedOperations" : [
+      "name" : "ClusterAdmin",
+      "policy" : {
+        "bindingScope" : "cluster",
+        "bindWithResource" : false,
+        "allowedOperations" : [
           {
             "resourceType" : "Cluster",
             "operations" : [... "AlterConfigs" ...]
@@ -60,26 +67,24 @@
   So granting Bob ClusterAdmin on a Kafka cluster means Bob can AlterConfigs of both the
    Kafka cluster and all Topics in it.
 
+ Other roles are always bound with specific resources. We can think of these as
+ "Resource" roles. They grant permissions on resources specified as literals, prefixes,
+ or wildcards. The "ResourceOwner" and "Developer..." roles fall in this category.
+ It is an error to bind thse roles without specifying a resource,
+ and their access policy is marked with `"bindWithResource": true`.
 
- Roles with "scopeType":"Resource" are referred to as "resource roles".   Rolebinding a principal
- to a role on specific resources (or all resources of a type with LITERAL/*) gives them the ability
- to perform all of the operations specified by the role on the matching resources
-
-  Example : granting Bob DeveloperRead for Topic "foo" gets Bob the ability to Read and Describe
-   that topic (which would be two ACLs.)
+  Example : granting Bob DeveloperRead for Topic "foo" on a Kafka cluster gets Bob the
+   ability to Read and Describe that topic (which would be two ACLs.)
 
       "name" : "DeveloperRead",
       "policy" : {
-        "scopeType" : "Resource",
+        "bindingScope" : "cluster",
+        "bindWithResource" : true,
         "allowedOperations" : [
           {
             "resourceType" : "Topic",
             "operations" : ["Read", "Describe"]  // would be two ACLs
           },
-
-
- TL;DR : scopeType is really "roleType", with value Resource meaning "ala carte" resource grants and
-  Cluster meaning "bundled" resource grants.
 
 
  Taxonomy of ResourceTypes
@@ -126,11 +131,13 @@
 */
 
 {
+  "bindingScopes": ["cluster"],
   "roles" : [
     {
       "name" : "SystemAdmin",
       "policy" : {
-        "scopeType" : "Cluster",
+        "bindingScope" : "cluster",
+        "bindWithResource": false,
         "allowedOperations" : [
           {
             "resourceType" : "All",
@@ -142,7 +149,8 @@
     {
       "name" : "UserAdmin",
       "policy" : {
-        "scopeType" : "Cluster",
+        "bindingScope" : "cluster",
+        "bindWithResource": false,
         "allowedOperations" : [
           {
             "resourceType" : "Cluster",
@@ -170,7 +178,8 @@
     {
       "name" : "ClusterAdmin",
       "policy" : {
-        "scopeType" : "Cluster",
+        "bindingScope" : "cluster",
+        "bindWithResource": false,
         "allowedOperations" : [
           {
             "resourceType" : "Cluster",
@@ -214,7 +223,8 @@
     {
       "name" : "Operator",
       "policy" : {
-        "scopeType" : "Cluster",
+        "bindingScope" : "cluster",
+        "bindWithResource": false,
         "allowedOperations" : [
           {
             "resourceType" : "Topic",
@@ -242,7 +252,8 @@
     {
       "name" : "SecurityAdmin",
       "policy" : {
-        "scopeType" : "Cluster",
+        "bindingScope" : "cluster",
+        "bindWithResource": false,
         "allowedOperations" : [
           {
             "resourceType" : "All",
@@ -254,7 +265,8 @@
     {
       "name" : "AuditAdmin",
       "policy" : {
-        "scopeType" : "Cluster",
+        "bindingScope" : "cluster",
+        "bindWithResource": false,
         "allowedOperations" : [
           {
             "resourceType" : "Cluster",
@@ -266,7 +278,8 @@
     {
       "name" : "ResourceOwner",
       "policy" : {
-        "scopeType" : "Resource",
+        "bindingScope" : "cluster",
+        "bindWithResource": true,
         "allowedOperations" : [
           {
             "resourceType" : "Topic",
@@ -302,7 +315,8 @@
     {
       "name" : "DeveloperRead",
       "policy" : {
-        "scopeType" : "Resource",
+        "bindingScope" : "cluster",
+        "bindWithResource": true,
         "allowedOperations" : [
           {
             "resourceType" : "Topic",
@@ -334,7 +348,8 @@
     {
       "name" : "DeveloperWrite",
       "policy" : {
-        "scopeType" : "Resource",
+        "bindingScope" : "cluster",
+        "bindWithResource": true,
         "allowedOperations" : [
           {
             "resourceType" : "Topic",
@@ -370,7 +385,8 @@
     {
       "name" : "DeveloperManage",
       "policy" : {
-        "scopeType" : "Resource",
+        "bindingScope" : "cluster",
+        "bindWithResource": true,
         "allowedOperations" : [
           {
             "resourceType" : "Topic",

@@ -3,14 +3,11 @@
 package io.confluent.security.rbac;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.confluent.security.authorizer.Operation;
 import io.confluent.security.authorizer.ResourceType;
-import io.confluent.security.authorizer.ScopeType;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -22,27 +19,29 @@ import java.util.stream.Collectors;
  */
 public class AccessPolicy {
 
-  private final ScopeType scopeType;
+  private final String bindingScope;
+  private final boolean bindWithResource;
   private final Map<ResourceType, Collection<Operation>> allowedOperations;
 
   @JsonCreator
-  public AccessPolicy(@JsonProperty("scopeType") String scopeType,
+  public AccessPolicy(@JsonProperty("bindingScope") String bindingScope,
+                      @JsonProperty("bindWithResource") Boolean bindWithResource,
                       @JsonProperty("allowedOperations") Collection<ResourceOperations> allowedOperations) {
-    ScopeType type;
-    try {
-      type = ScopeType.valueOf(scopeType.toUpperCase(Locale.ROOT));
-    } catch (NullPointerException npe) {
-      type = ScopeType.UNKNOWN;
-    }
-    this.scopeType = type;
+    this.bindingScope = Objects.requireNonNull(bindingScope);
+    this.bindWithResource = Objects.requireNonNull(bindWithResource);
     this.allowedOperations = allowedOperations.stream()
         .collect(Collectors.toMap(op -> new ResourceType(op.resourceType),
             op -> op.operations.stream().map(Operation::new).collect(Collectors.toList())));
   }
 
   @JsonProperty
-  public ScopeType scopeType() {
-    return scopeType;
+  public String bindingScope() {
+    return bindingScope;
+  }
+
+  @JsonProperty
+  public boolean bindWithResource() {
+    return bindWithResource;
   }
 
   @JsonProperty
@@ -58,11 +57,6 @@ public class AccessPolicy {
     return ops == null ? Collections.emptySet() : ops;
   }
 
-  @JsonIgnore
-  public boolean hasResourceScope() {
-    return ScopeType.RESOURCE == scopeType;
-  }
-
   @Override
   public boolean equals(Object o) {
     if (this == o) {
@@ -74,13 +68,14 @@ public class AccessPolicy {
 
     AccessPolicy that = (AccessPolicy) o;
 
-    return Objects.equals(this.scopeType, that.scopeType) &&
-        Objects.equals(this.allowedOperations, that.allowedOperations);
+    return Objects.equals(this.bindWithResource, that.bindWithResource) &&
+            Objects.equals(this.bindingScope, that.bindingScope) &&
+            Objects.equals(this.allowedOperations, that.allowedOperations);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(scopeType, allowedOperations);
+    return Objects.hash(bindingScope, allowedOperations);
   }
 
   public static class ResourceOperations {

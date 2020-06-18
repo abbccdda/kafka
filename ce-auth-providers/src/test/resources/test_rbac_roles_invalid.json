@@ -4,12 +4,14 @@
 // This role definition is invalid (includes both "policy" and "policies"), to test that that
 // is checked
 {
+  "bindingScopes": ["cluster", "region", "division", "business-unit", "root"],
   "roles" : [
 
     {
-      "name" : "EnvClusterAdmin",
+      "name" : "RegionManager",
       "policy" : {
-        "scopeType" : "Cluster",
+        "bindingScope" : "region",
+        "bindWithResource": false,
         "allowedOperations" : [
           {
             "resourceType" : "All",
@@ -18,7 +20,8 @@
         ]
       },
       "policies" : [{
-        "scopeType" : "Environment",
+        "bindingScope" : "division",
+        "bindWithResource": false,
         "allowedOperations" : [
           {
             "resourceType" : "Cluster",
@@ -26,7 +29,8 @@
           }
         ]
       },{
-        "scopeType" : "Cluster",
+        "bindingScope" : "cluster",
+        "bindWithResource": false,
         "allowedOperations" : [
           {
             "resourceType" : "Cluster",

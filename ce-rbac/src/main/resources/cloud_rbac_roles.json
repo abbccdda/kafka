@@ -35,13 +35,26 @@ In addition to permissions on the resource that the admin controls, SecurityMeta
 permissions are necessary to allow the admin to set role bindings on scope types other than
 Resource.
 
+Unlike Confluent Platform, where all roles are bound at the cluster scope, in Confluent
+Cloud, bindings may also be at "higher" scopes. The hierarchy is defined in this document
+in the "bindingScopes" key. The value is an *ordered* list of the scopes at which roles
+can be bound, from most-specific to most-general.
+
+A role must be bound at the most specific bindingScope of its policies. For example,
+the EnvironmentAdmin role has policies with bindingScopes of "organization" and
+"environment", and "bindingScopes" tells us that "environment" is more specific,
+so the scope used when binding EnvironmentAdmin must be "environment". If and only if
+bindWithResource is true for any of a role's policies, that role must be bound with a resource.
+
 */
 {
+  "bindingScopes": ["cluster", "environment", "organization", "root"],
   "roles": [
     {
       "name": "CCloudRoleBindingAdmin",
       "policy": {
-        "scopeType": "Root",
+        "bindingScope": "root",
+        "bindWithResource": false,
         "allowedOperations": [
           {
             "resourceType": "Organization",
@@ -58,7 +71,8 @@ Resource.
       "name": "OrganizationAdmin",
       "policies": [
         {
-          "scopeType": "Organization",
+          "bindingScope": "organization",
+          "bindWithResource": false,
           "allowedOperations": [
             {
               "resourceType": "Organization",
@@ -152,27 +166,26 @@ Resource.
       "name": "EnvironmentAdmin",
       "policies": [
         {
-          "scopeType": "Organization",
+          "bindingScope": "organization",
+          "bindWithResource": false,
           "allowedOperations": [
             {
               "resourceType": "User",
-              "scopeLevel": "Organization",
               "operations": [ "Invite", "Describe" ]
             },
             {
               "resourceType": "ServiceAccount",
-              "scopeLevel": "Organization",
               "operations": [ "Describe" ]
             },
             {
               "resourceType": "SupportPlan",
-              "scopeLevel": "Organization",
               "operations": [ "Describe" ]
             }
           ]
         },
         {
-          "scopeType": "Environment",
+          "bindingScope": "environment",
+          "bindWithResource": false,
           "allowedOperations": [
             {
               "resourceType": "Environment",
@@ -238,7 +251,8 @@ Resource.
       "name": "CloudClusterAdmin",
       "policies": [
         {
-          "scopeType": "Organization",
+          "bindingScope": "organization",
+          "bindWithResource": false,
           "allowedOperations": [
             {
               "resourceType": "User",
@@ -255,7 +269,8 @@ Resource.
           ]
         },
         {
-          "scopeType": "Cluster",
+          "bindingScope": "cluster",
+          "bindWithResource": false,
           "allowedOperations": [
             {
               "resourceType": "Cluster",

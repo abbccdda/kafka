@@ -64,7 +64,7 @@ import org.junit.Test;
 public class KafkaAuthStoreTest {
 
   private final Time time = new MockTime();
-  private final Scope clusterA = new Scope.Builder("testOrg").withKafkaCluster("clusterA").build();
+  private final Scope clusterA = new Scope.Builder("org=testOrg").withKafkaCluster("clusterA").build();
   private final int storeNodeId = 1;
 
   private RbacRoles rbacRoles;
@@ -257,7 +257,7 @@ public class KafkaAuthStoreTest {
 
     authStore.configureDelays(1, 2);
     for (int i = 0;  i < 10; i++) {
-      Scope clusterX = new Scope.Builder("testOrg").withKafkaCluster("cluster" + i).build();
+      Scope clusterX = new Scope.Builder("org=testOrg").withKafkaCluster("cluster" + i).build();
       for (int j = 0; j < 10; j++) {
         authWriter.addClusterRoleBinding(principal("user" + j), "Operator", clusterX);
       }
@@ -271,7 +271,7 @@ public class KafkaAuthStoreTest {
     assertEquals(10.0, TestUtils.getMetricValue(authStore.metrics(), AuthStoreMetrics.RBAC_ACCESS_RULES_COUNT), 0.0);
 
     for (int i = 0;  i < 5; i++) {
-      Scope clusterX = new Scope.Builder("testOrg").withKafkaCluster("cluster" + i).build();
+      Scope clusterX = new Scope.Builder("org=testOrg").withKafkaCluster("cluster" + i).build();
       for (int j = 0; j < 10; j++) {
         authWriter.removeRoleBinding(principal("user" + j), "Operator", clusterX);
       }
@@ -289,7 +289,7 @@ public class KafkaAuthStoreTest {
     assertTrue(authStore.isMasterWriter());
 
     for (int i = 0; i < 10; i++) {
-      Scope clusterX = new Scope.Builder("testOrg").withKafkaCluster("cluster" + i).build();
+      Scope clusterX = new Scope.Builder("org=testOrg").withKafkaCluster("cluster" + i).build();
       AclBinding userTopicABinding = topicBinding("User", "TopicA", new Operation("Read"), PermissionType.ALLOW);
       authWriter.createAcls(clusterX, userTopicABinding).toCompletableFuture().join();
       assertEquals(Collections.singleton(userTopicABinding), aclRules(clusterX, userTopicABinding.toFilter()));
@@ -303,13 +303,13 @@ public class KafkaAuthStoreTest {
   }
 
   private void createAuthStore() throws Exception {
-    authStore = MockAuthStore.create(rbacRoles, time, Scope.intermediateScope("testOrg"), 1, storeNodeId);
+    authStore = MockAuthStore.create(rbacRoles, time, Scope.intermediateScope("org=testOrg"), 1, storeNodeId);
   }
 
   private void createAuthStoreWithLdap() throws Exception {
     miniKdcWithLdapService = LdapTestUtils.createMiniKdcWithLdapService(null, null);
 
-    authStore = new MockAuthStore(rbacRoles, time, Scope.intermediateScope("testOrg"), 1, storeNodeId);
+    authStore = new MockAuthStore(rbacRoles, time, Scope.intermediateScope("org=testOrg"), 1, storeNodeId);
     Map<String, Object> configs = new HashMap<>();
     configs.putAll(LdapTestUtils.ldapAuthorizerConfigs(miniKdcWithLdapService, 10));
     configs.put(LdapConfig.RETRY_BACKOFF_MS_PROP, "1");

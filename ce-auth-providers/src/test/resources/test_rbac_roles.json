@@ -4,11 +4,13 @@
 // changes to default role definitions don't break unit tests which rely on specific
 // role definitions.
 {
+  "bindingScopes": ["cluster", "region", "division", "business-unit", "root"],
   "roles" : [
     {
       "name" : "SystemAdmin",
       "policy" : {
-        "scopeType" : "Cluster",
+        "bindingScope" : "cluster",
+        "bindWithResource": false,
         "allowedOperations" : [
           {
             "resourceType" : "All",
@@ -20,7 +22,8 @@
     {
       "name" : "ClusterAdmin",
       "policy" : {
-        "scopeType" : "Cluster",
+        "bindingScope" : "cluster",
+        "bindWithResource": false,
         "allowedOperations" : [
           {
             "resourceType" : "Cluster",
@@ -32,7 +35,8 @@
     {
       "name" : "Operator",
       "policy" : {
-        "scopeType" : "Cluster",
+        "bindingScope" : "cluster",
+        "bindWithResource": false,
         "allowedOperations" : [
           {
             "resourceType" : "Topic",
@@ -44,7 +48,8 @@
     {
       "name" : "Reader",
       "policy" : {
-        "scopeType" : "Resource",
+        "bindingScope" : "cluster",
+        "bindWithResource": true,
         "allowedOperations" : [
           {
             "resourceType" : "Topic",
@@ -56,7 +61,8 @@
     {
       "name" : "Writer",
       "policy" : {
-        "scopeType" : "Resource",
+        "bindingScope" : "cluster",
+        "bindWithResource": true,
         "allowedOperations" : [
           {
             "resourceType" : "Topic",
@@ -66,9 +72,10 @@
       }
     },
     {
-      "name" : "EnvClusterAdmin",
+      "name" : "RegionManager",
       "policies" : [{
-        "scopeType" : "Environment",
+        "bindingScope" : "division",
+        "bindWithResource": false,
         "allowedOperations" : [
           {
             "resourceType" : "Cluster",
@@ -76,7 +83,8 @@
           }
         ]
       },{
-        "scopeType" : "Cluster",
+        "bindingScope" : "region",
+        "bindWithResource": false,
         "allowedOperations" : [
           {
             "resourceType" : "Cluster",
