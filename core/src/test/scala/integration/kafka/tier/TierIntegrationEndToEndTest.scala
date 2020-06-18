@@ -4,32 +4,49 @@
 
 package kafka.tier
 
+import java.io.File
+import java.io.PrintWriter
 import java.lang.management.ManagementFactory
 import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.Paths
 import java.time.Duration
 import java.util
 import java.util.concurrent.TimeUnit
 import java.util.function.Consumer
 import java.util.{Collections, Properties}
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.HashMap
 
 import javax.management.ObjectName
 import kafka.api.IntegrationTestHarness
 import kafka.server.KafkaConfig
+import kafka.server.KafkaServer
+import kafka.tier.state.FileTierPartitionState
+import kafka.tier.state.TierPartitionStatus
+import kafka.tier.tools.RecoveryUtils
+import kafka.tier.tools.TierMetadataComparator
+import kafka.tier.tools.TierPartitionStateFencingTrigger
+import kafka.tier.tools.TierPartitionStateRestoreTrigger
+import kafka.tier.tools.TierRecoveryConfig
+import kafka.tier.tools.RecoveryTestUtils
 import kafka.utils.TestUtils
 import org.apache.kafka.clients.consumer.{ConsumerRecord, KafkaConsumer}
+import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.{ConfluentTopicConfig, TopicConfig}
+import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.serialization.StringDeserializer
 import org.apache.kafka.common.utils.Exit
+import org.apache.kafka.common.utils.Utils
 import org.junit.Assert.{assertEquals, assertFalse, assertTrue}
 import org.junit.{Before, Test}
 import org.junit.After
 
 import scala.jdk.CollectionConverters._
 
-class TierIntegrationSmokeTest extends IntegrationTestHarness {
+class TierIntegrationEndToEndTest extends IntegrationTestHarness {
   override protected def brokerCount: Int = 1
 
   private def configureMock(): Unit = {
@@ -104,6 +121,91 @@ class TierIntegrationSmokeTest extends IntegrationTestHarness {
 
     consumeAndValidateTierFetch(partitionToLeaderMap, nBatches, recordsPerBatch)
   }
+
+  @Test
+  def testArchiveAndTierFetchFenceAndRecovery(): Unit = {
+    val props = new Properties
+    props.put(ConfluentTopicConfig.TIER_ENABLE_CONFIG, "true")
+    props.put(TopicConfig.SEGMENT_BYTES_CONFIG, "10000")
+    // Set retention bytes adequately low, to allow us to delete some segments after they have been tiered
+    props.put(ConfluentTopicConfig.TIER_LOCAL_HOTSET_BYTES_CONFIG, "5000")
+    props.put(TopicConfig.RETENTION_BYTES_CONFIG, "-1")
+    val partitionToLeaderMap = createTopic(topic, partitions, 1, props)
+
+    val nBatches = 100
+    val recordsPerBatch = 100
+    produceRecords(nBatches, recordsPerBatch)
+    waitUntilSegmentsTiered(5, partitionToLeaderMap)
+    simulateRetention(partitionToLeaderMap)
+
+    val fenceTopicPartition = topicPartitions.head
+    val leaderId = getLeaderForTopicPartition(fenceTopicPartition, partitionToLeaderMap)
+    val tierPartitionState = serverForId(leaderId).get.logManager.getLog(fenceTopicPartition).get.tierPartitionState.asInstanceOf[FileTierPartitionState]
+    val tpIdsToBeFenced = List(tierPartitionState.topicIdPartition())
+
+    val topicIdPartitionsFile = TestUtils.tempFile()
+    RecoveryTestUtils.writeFencingFile(topicIdPartitionsFile, tpIdsToBeFenced.map(_.get))
+
+    val workingDir = TestUtils.tempDir()
+    val brokerWorkdirList = TestUtils.tempDir()
+
+    val recoveryConfFile: File = writeRecoverConfig(servers.head, workingDir, brokerWorkdirList)
+    val outputDir = TestUtils.tempDir()
+    val fenceOutFile = outputDir.getAbsolutePath + "/fence-output.json"
+    TierPartitionStateFencingTrigger.main(Array(
+      kafka.tier.tools.RecoveryUtils.makeArgument(
+        kafka.tier.tools.RecoveryUtils.TIER_PROPERTIES_CONF_FILE_CONFIG),
+      recoveryConfFile.getAbsolutePath,
+      kafka.tier.tools.RecoveryUtils.makeArgument(
+        TierPartitionStateFencingTrigger.FILE_FENCE_TARGET_PARTITIONS_CONFIG),
+      topicIdPartitionsFile.getAbsolutePath,
+      kafka.tier.tools.RecoveryUtils.makeArgument(
+        TierPartitionStateFencingTrigger.OUTPUT_CONFIG),
+        fenceOutFile))
+
+    TestUtils.waitUntilTrue(() => tierPartitionState.status() == TierPartitionStatus.ERROR,
+      s"timeout waiting for partition to be transitioned to ERROR status")
+
+    val tpDir = Paths.get(brokerWorkdirList.getAbsolutePath, tierPartitionState.topicPartition().toString).toFile
+    tpDir.mkdir()
+    val flushedPath = Paths.get(tierPartitionState.flushedPath())
+    Files.copy(flushedPath, Paths.get(tpDir.getAbsolutePath, flushedPath.getFileName.toString))
+
+    val comparatorOutputJson = outputDir.getAbsolutePath + "/comparator-output.json"
+    TierMetadataComparator.main(Array(
+      kafka.tier.tools.RecoveryUtils.makeArgument(
+        kafka.tier.tools.RecoveryUtils.TIER_PROPERTIES_CONF_FILE_CONFIG),
+      recoveryConfFile.getAbsolutePath,
+      kafka.tier.tools.RecoveryUtils.makeArgument(RecoveryUtils.COMPARISON_TOOL_INPUT),
+      fenceOutFile,
+      kafka.tier.tools.RecoveryUtils.makeArgument(RecoveryUtils.COMPARISON_TOOL_OUTPUT),
+      comparatorOutputJson))
+
+    val restoreOutputJson = outputDir.getAbsolutePath + "/restore-output.json"
+    TierPartitionStateRestoreTrigger.main(Array(
+      kafka.tier.tools.RecoveryUtils.makeArgument(
+        kafka.tier.tools.RecoveryUtils.TIER_PROPERTIES_CONF_FILE_CONFIG),
+      recoveryConfFile.getAbsolutePath,
+      kafka.tier.tools.RecoveryUtils.makeArgument(
+        TierPartitionStateRestoreTrigger.RESTORE_INPUT_CONFIG),
+      comparatorOutputJson,
+      kafka.tier.tools.RecoveryUtils.makeArgument(
+        TierPartitionStateRestoreTrigger.RESTORE_OUTPUT_CONFIG),
+      restoreOutputJson))
+
+    TestUtils.waitUntilTrue(() => tierPartitionState.status() == TierPartitionStatus.ONLINE,
+      s"timeout waiting for partition to be restored to ONLINE status")
+
+    consumeAndValidateTierFetch(partitionToLeaderMap, nBatches, recordsPerBatch)
+    val endOffset = tierPartitionState.endOffset()
+
+    // produce some more records and check whether end offset advances
+    produceRecords(nBatches, recordsPerBatch)
+
+    TestUtils.waitUntilTrue(() => endOffset < tierPartitionState.endOffset(),
+      s"timeout waiting for partition to be restored to ONLINE status")
+  }
+
 
   private def produceRecords(nBatches: Int, recordsPerBatch: Int): Unit = {
     val producer = createProducer()
@@ -288,6 +390,27 @@ class TierIntegrationSmokeTest extends IntegrationTestHarness {
       val memoryTracker = tierFetcher.memoryTracker()
       assertEquals(s"expected leased TierFetcher memory for broker ${server.config.brokerId} to be 0", 0, memoryTracker.leased())
     }
+  }
+
+  private def writeRecoverConfig(server: KafkaServer, workingDir: File, brokerWorkdirList: File) = {
+    val recoveryConfFile = TestUtils.tempFile()
+    // KSTORAGE-797: materialization tooling does not currently support SSL or SASL enabled endpoints
+    // therefore we will disable the additional materialization check on any test not using PLAINTEXT
+    val materialize = securityProtocol == SecurityProtocol.PLAINTEXT
+    val props = Utils.mkProperties(
+      new HashMap[String, String] {
+        put(KafkaConfig.TierBackendProp, "Mock")
+        put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList)
+        put(TierRecoveryConfig.WORKING_DIR, workingDir.getAbsolutePath)
+        put(TierRecoveryConfig.VALIDATE, "false")
+        put(TierRecoveryConfig.MATERIALIZE, materialize.toString)
+        put(TierRecoveryConfig.DUMP_EVENTS, "false")
+        put(TierRecoveryConfig.BROKER_WORKDIR_LIST, brokerWorkdirList.getAbsolutePath)
+      }
+    )
+    props.putAll(server.tieredStorageInterBrokerClientConfigsSupplier.get())
+    props.store(new PrintWriter(recoveryConfFile), "")
+    recoveryConfFile
   }
 
   private def assertTimestampForOffsetLookupCorrect(topicPartition: TopicPartition, consumer: KafkaConsumer[String, String], timestamp: Long, expectedOffset: Long) = {
