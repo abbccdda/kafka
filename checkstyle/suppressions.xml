@@ -378,6 +378,10 @@
     <!-- flatbuffer generated classes -->
     <suppress checks=".+" files="core[\\/]build[\\/]generated[\\/]src[\\/]main[\\/]java[\\/]kafka[\\/]tier[\\/]serdes.+.java$"/>
 
+    <!-- Durability, flat buffer generated classes exclusions -->
+    <suppress checks=".+" files="core[\\/]build[\\/]generated[\\/]src[\\/]main[\\/]java[\\/]kafka[\\/]durability[\\/]db[\\/]serdes.+.java$"/>
+    <suppress checks=".+" files="core[\\/]build[\\/]generated[\\/]src[\\/]main[\\/]java[\\/]kafka[\\/]durability[\\/]events[\\/]serdes.+.java$"/>
+
     <!-- ce-metrics exclusions -->
     <suppress checks="NPathComplexity"
               files="ConfluentMetricsReporter.java$"/>

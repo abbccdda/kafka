@@ -1,0 +1,12 @@
+/*
+ * Copyright 2020 Confluent Inc.
+ */
+
+include "baseinfo.fbs";
+namespace kafka.durability.events.serdes;
+
+table OffsetChange {
+    info: BaseInfo (id: 0);
+}
+
+root_type OffsetChange;

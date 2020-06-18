@@ -1,0 +1,14 @@
+/*
+ * Copyright 2020 Confluent Inc.
+ */
+
+include "baseinfo.fbs";
+namespace kafka.durability.events.serdes;
+
+table RetentionChange {
+    timeMs: long (id: 0);
+    size: long (id: 1);
+    info: BaseInfo (id: 2);
+}
+
+root_type RetentionChange;

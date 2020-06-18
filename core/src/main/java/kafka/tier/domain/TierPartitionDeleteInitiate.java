@@ -68,7 +68,6 @@ public class TierPartitionDeleteInitiate extends AbstractTierMetadata {
         return metadata.controllerEpoch();
     }
 
-
     @Override
     public OffsetAndEpoch stateOffsetAndEpoch() {
         return OffsetAndEpoch.EMPTY;

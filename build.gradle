@@ -908,10 +908,32 @@ project(':core') {
       }
     }
   }
+
+  task generateDurabilitySerdes(dependsOn: extractFlatbuffersCompiler) {
+    doLast {
+      def dbSerdesDir = "src/main/resources/serde/durability/db"
+      file("$dbSerdesDir").eachFile { file ->
+        exec {
+          commandLine "${buildDir}/flatbuffers/bin/flatc", "--java", "-o", "${buildDir}/generated/src/main/java", "$file"
+        }
+      }
+
+      def eventsSerdesDir = "src/main/resources/serde/durability/events"
+      file("$eventsSerdesDir").eachFile { file ->
+        exec {
+          commandLine "${buildDir}/flatbuffers/bin/flatc", "--java", "-o", "${buildDir}/generated/src/main/java", "$file"
+        }
+      }
+    }
+  }
+
   /* end flatbuffers generation steps */
 
   compileScala.dependsOn generateTierTopicSerdes
   compileJava.dependsOn generateTierTopicSerdes
+
+  compileScala.dependsOn generateDurabilitySerdes
+  compileJava.dependsOn generateDurabilitySerdes
 
   task genProtocolErrorDocs(type: JavaExec) {
     classpath = sourceSets.main.runtimeClasspath
