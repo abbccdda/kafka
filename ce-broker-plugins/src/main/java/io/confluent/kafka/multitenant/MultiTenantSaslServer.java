@@ -6,4 +6,6 @@ import javax.security.sasl.SaslServer;
 
 public interface MultiTenantSaslServer extends SaslServer {
   TenantMetadata tenantMetadata();
+
+  String userIdentifier();
 }

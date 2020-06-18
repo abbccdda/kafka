@@ -145,7 +145,7 @@ public class KafkaAuthStore implements AuthStore, ConsumerListener<AuthKey, Auth
   }
 
   @Override
-  public void startService(Collection<URL> nodeUrls) {
+  public CompletionStage<Void> startService(Collection<URL> nodeUrls) {
     if (nodeUrls == null || nodeUrls.isEmpty())
       throw new IllegalArgumentException("Server node URL not provided");
 
@@ -173,10 +173,9 @@ public class KafkaAuthStore implements AuthStore, ConsumerListener<AuthKey, Auth
     this.writer = createWriter(numAuthTopicPartitions, clientConfig, authCache, statusListener, time);
     nodeManager = createNodeManager(nodeUrls, clientConfig, writer, time);
     writer.rebalanceListener(nodeManager);
-    nodeManager.start();
 
-    // Register auth store meters
     authStoreMetrics.registerAuthStoreMeters();
+    return nodeManager.start();
   }
 
   @Override

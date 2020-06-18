@@ -162,6 +162,7 @@
     <allow pkg="io.confluent.security.minikdc" />
     <allow pkg="io.confluent.security.rbac" />
     <allow pkg="io.confluent.security.test" />
+    <allow pkg="io.confluent.kafka.server" />
     <allow pkg="kafka" />
     <allow pkg="org.apache.kafka.clients" />
     <allow pkg="org.apache.kafka.common" />

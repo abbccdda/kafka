@@ -11,8 +11,13 @@
   "fields": [
     { "name": "Ops", "type": "[]OpData", "versions": "0+",
       "about": "The mirror control operations.", "fields": [
-      { "name": "StopTopicMirror", "type": "[]StopTopicMirrorData", "versions": "0+", "nullableVersions": "0+",
-        "about": "Promotes a topic mirror to be a mutable topic in an unclean manner.", "fields": [
+      { "name": "StopTopicMirror", "type": "[]StopTopicMirrorData", "versions": "0+", "nullableVersions": "0+", "default": "null",
+        "about": "Stops a topic's mirroring to become a writable topic.", "fields": [
+        { "name": "Topic", "type": "string", "versions": "0+", "entityType": "topicName",
+          "about": "The mirror topic's name." }
+      ]},
+      { "name": "ClearTopicMirror", "type": "[]ClearTopicMirrorData", "versions": "0+", "nullableVersions": "0+", "default": "null",
+        "about": "Clears a topic's mirror information.", "fields": [
         { "name": "Topic", "type": "string", "versions": "0+", "entityType": "topicName",
           "about": "The mirror topic's name." }
       ]}

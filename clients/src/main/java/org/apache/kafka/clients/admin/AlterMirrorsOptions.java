@@ -7,7 +7,7 @@ import org.apache.kafka.common.Confluent;
 import org.apache.kafka.common.annotation.InterfaceStability;
 
 /**
- * Options for {@link ConfluentAdmin#alterMirrors(Collection, AlterMirrorsOptions)}.
+ * Options for {@link ConfluentAdmin#alterMirrors(List, AlterMirrorsOptions)}.
  *
  * The API of this class is evolving, see {@link Admin} for details.
  */

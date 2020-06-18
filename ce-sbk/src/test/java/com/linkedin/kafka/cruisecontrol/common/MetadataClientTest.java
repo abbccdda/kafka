@@ -6,7 +6,12 @@ package com.linkedin.kafka.cruisecontrol.common;
 
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUnitTestUtils;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
+import kafka.common.TopicPlacement;
 import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.Config;
+import org.apache.kafka.clients.admin.ConfigEntry;
+import org.apache.kafka.clients.admin.DescribeConfigsOptions;
+import org.apache.kafka.clients.admin.DescribeConfigsResult;
 import org.apache.kafka.clients.admin.DescribeTopicsOptions;
 import org.apache.kafka.clients.admin.DescribeTopicsResult;
 import org.apache.kafka.clients.admin.ListTopicsResult;
@@ -17,6 +22,8 @@ import org.apache.kafka.common.Node;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.TopicPartitionInfo;
+import org.apache.kafka.common.config.ConfigResource;
+import org.apache.kafka.common.config.ConfluentTopicConfig;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
@@ -73,7 +80,8 @@ public class MetadataClientTest {
   private final PartitionInfo _t0P0PartitionInfo = partitionInfo(_t0P0, _t0P0TopicPartitionInfo);
   private final PartitionInfo _t0P1PartitionInfo = partitionInfo(_t0P1, _t0P1TopicPartitionInfo);
   private final PartitionInfo _t0P2PartitionInfo = partitionInfo(_t0P2, _t0P2TopicPartitionInfo);
-
+  private final ConfigResource topic0ConfigResource = new ConfigResource(ConfigResource.Type.TOPIC, TOPIC0);
+  private final List<ConfigResource> topicConfigResources = Arrays.asList(topic0ConfigResource);
   private final KafkaCruiseControlConfig _cruiseControlConfig = new KafkaCruiseControlConfig(
       KafkaCruiseControlUnitTestUtils.getKafkaCruiseControlProperties()
     );
@@ -115,7 +123,7 @@ public class MetadataClientTest {
     Collection<String> topics = Collections.singletonList(TOPIC0);
     Map<String, TopicDescription> topicDescriptions = new HashMap<>();
     topicDescriptions.put(TOPIC0, _topic0TopicDescription);
-    replayMockAdminClient(_mockAdminClient, topics, topicDescriptions, metadataTimeoutMs);
+    replayMockAdminClient(_mockAdminClient, topics, topicDescriptions, topicConfigResources, Collections.emptyMap(), metadataTimeoutMs);
 
     _mockTime.sleep(_metadataTTL - 1);
     _metadataClient.refreshMetadata(metadataTimeoutMs);
@@ -131,6 +139,7 @@ public class MetadataClientTest {
     assertEquals(1, _metadataClient.clusterAndGeneration().generation());
     Cluster receivedCluster = _metadataClient.clusterAndGeneration().cluster();
     assertReceivedCluster(receivedCluster, Arrays.asList(_t0P0PartitionInfo, _t0P1PartitionInfo, _t0P2PartitionInfo));
+    assertEquals(Collections.emptyMap(), _metadataClient.clusterAndGeneration().topicPlacements());
   }
 
   @Test
@@ -146,7 +155,8 @@ public class MetadataClientTest {
         ));
     Map<String, TopicDescription> topicDescriptions = new HashMap<>();
     topicDescriptions.put(TOPIC0, partialTopic0TopicDescription);
-    replayMockAdminClient(_mockAdminClient, topics, topicDescriptions, metadataTimeoutMs);
+    Map<ConfigResource, Config> topicConfig = new HashMap<>();
+    replayMockAdminClient(_mockAdminClient, topics, topicDescriptions, topicConfigResources, topicConfig, metadataTimeoutMs);
 
     _mockTime.sleep(_metadataTTL);
     _metadataClient.refreshMetadata(metadataTimeoutMs);
@@ -155,8 +165,9 @@ public class MetadataClientTest {
     assertEquals(1, _metadataClient.clusterAndGeneration().generation());
     Cluster receivedCluster = _metadataClient.clusterAndGeneration().cluster();
     assertReceivedCluster(receivedCluster, Collections.singletonList(_t0P0PartitionInfo));
+    assertEquals(Collections.emptyMap(), _metadataClient.clusterAndGeneration().topicPlacements());
 
-    replayMockAdminClient(_mockAdminClient, topics, topicDescriptions, metadataTimeoutMs);
+    replayMockAdminClient(_mockAdminClient, topics, topicDescriptions, topicConfigResources, topicConfig, metadataTimeoutMs);
     _mockTime.sleep(_metadataTTL);
     _metadataClient.refreshMetadata(metadataTimeoutMs);
     // Should have updated as metadataTTL has passed but should not have bumped generation
@@ -165,10 +176,11 @@ public class MetadataClientTest {
     assertEquals(1, _metadataClient.clusterAndGeneration().generation());
     receivedCluster = _metadataClient.clusterAndGeneration().cluster();
     assertReceivedCluster(receivedCluster, Collections.singletonList(_t0P0PartitionInfo));
+    assertEquals(Collections.emptyMap(), _metadataClient.clusterAndGeneration().topicPlacements());
 
     // put full topic 0 description
     topicDescriptions.put(TOPIC0, _topic0TopicDescription);
-    replayMockAdminClient(_mockAdminClient, topics, topicDescriptions, metadataTimeoutMs);
+    replayMockAdminClient(_mockAdminClient, topics, topicDescriptions, topicConfigResources, topicConfig, metadataTimeoutMs);
     _mockTime.sleep(_metadataTTL);
     _metadataClient.refreshMetadata(metadataTimeoutMs);
     assertEquals(3, _metadataClient._version);
@@ -176,6 +188,37 @@ public class MetadataClientTest {
     assertEquals(2, _metadataClient.clusterAndGeneration().generation());
     receivedCluster = _metadataClient.clusterAndGeneration().cluster();
     assertReceivedCluster(receivedCluster, Arrays.asList(_t0P0PartitionInfo, _t0P1PartitionInfo, _t0P2PartitionInfo));
+    assertEquals(Collections.emptyMap(), _metadataClient.clusterAndGeneration().topicPlacements());
+
+    // put unparseable topic 0 config, expect cluster not to update
+    String invalidTopicPlacementJson = "{this is not a valid topic placement}";
+    Config topic0PlacementConfig = new Config(Arrays.asList(new ConfigEntry(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG,
+            invalidTopicPlacementJson)));
+    topicConfig.put(topic0ConfigResource, topic0PlacementConfig);
+    replayMockAdminClient(_mockAdminClient, topics, topicDescriptions, topicConfigResources, topicConfig, metadataTimeoutMs);
+    _mockTime.sleep(_metadataTTL);
+    _metadataClient.refreshMetadata(metadataTimeoutMs);
+    assertEquals(4, _metadataClient._version);
+    assertEquals(2, _metadataClient.clusterAndGeneration().generation());
+    receivedCluster = _metadataClient.clusterAndGeneration().cluster();
+    assertReceivedCluster(receivedCluster, Arrays.asList(_t0P0PartitionInfo, _t0P1PartitionInfo, _t0P2PartitionInfo));
+    assertEquals(Collections.emptyMap(), _metadataClient.clusterAndGeneration().topicPlacements());
+
+    // put topic 0 config, expect an update
+    String topicPlacementJson = "{\"version\":1,\"replicas\":[{\"count\": 1, \"constraints\":{\"rack\":\"r1\"}}]}";
+    topic0PlacementConfig = new Config(Arrays.asList(new ConfigEntry(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG,
+            topicPlacementJson)));
+    TopicPlacement expectedTopicPlacement = TopicPlacement.parse(topicPlacementJson).get();
+    topicConfig.put(topic0ConfigResource, topic0PlacementConfig);
+    replayMockAdminClient(_mockAdminClient, topics, topicDescriptions, topicConfigResources, topicConfig, metadataTimeoutMs);
+    _mockTime.sleep(_metadataTTL);
+    _metadataClient.refreshMetadata(metadataTimeoutMs);
+    assertEquals(5, _metadataClient._version);
+    // should have bumped generation as cluster is different
+    assertEquals(3, _metadataClient.clusterAndGeneration().generation());
+    receivedCluster = _metadataClient.clusterAndGeneration().cluster();
+    assertReceivedCluster(receivedCluster, Arrays.asList(_t0P0PartitionInfo, _t0P1PartitionInfo, _t0P2PartitionInfo));
+    assertEquals(Collections.singletonMap(TOPIC0, expectedTopicPlacement), _metadataClient.clusterAndGeneration().topicPlacements());
   }
 
   private void assertReceivedCluster(Cluster receivedCluster, List<PartitionInfo> expectedPartitionInfo) {
@@ -190,11 +233,12 @@ public class MetadataClientTest {
   }
 
   @Test
-  public void testDoesNotUpdateMetadataOnTimeout() {
+  public void testDoesNotUpdateMetadataOnTimeout() throws InterruptedException, java.util.concurrent.TimeoutException, ExecutionException {
     // Arrange mocks
     EasyMock.expect(_mockAdminClient.listTopics(EasyMock.anyObject())).andThrow(new TimeoutException("timeout!"));
     EasyMock.expect(_mockAdminClient.describeCluster(EasyMock.anyObject())).andThrow(new TimeoutException("timeout!"));
     EasyMock.expect(_mockAdminClient.describeTopics(EasyMock.anyObject())).andThrow(new TimeoutException("timeout!"));
+    EasyMock.expect(_mockAdminClient.describeConfigs(EasyMock.anyObject())).andThrow(new TimeoutException("timeout!"));
     EasyMock.replay(_mockAdminClient);
 
     // Act
@@ -204,18 +248,36 @@ public class MetadataClientTest {
     assertEquals(0, _metadataClient._version);
     assertEquals(0, _metadataClient.clusterAndGeneration().generation());
     assertEquals(Cluster.empty(), _metadataClient.clusterAndGeneration().cluster());
+    assertEquals(Collections.emptyMap(), _metadataClient.clusterAndGeneration().topicPlacements());
+
+    int metadataTimeoutMs = 150;
+    EasyMock.reset(_mockAdminClient);
+    mockListTopics(_mockAdminClient, Collections.singletonList(TOPIC0), metadataTimeoutMs);
+    mockDescribeCluster(_mockAdminClient, metadataTimeoutMs);
+    mockDescribeTopics(_mockAdminClient, Collections.singletonList(TOPIC0), Collections.singletonMap(TOPIC0, _topic0TopicDescription), metadataTimeoutMs);
+    EasyMock.expect(_mockAdminClient.describeConfigs(EasyMock.eq(Collections.singletonList(topic0ConfigResource)),
+            EasyMock.anyObject(DescribeConfigsOptions.class))).andThrow(new TimeoutException("timeout!"));
+    EasyMock.replay(_mockAdminClient);
+    _metadataClient.refreshMetadata();
+    // Assert -- nothing should have been updated
+    assertEquals(0, _metadataClient._version);
+    assertEquals(0, _metadataClient.clusterAndGeneration().generation());
+    assertEquals(Cluster.empty(), _metadataClient.clusterAndGeneration().cluster());
+    assertEquals(Collections.emptyMap(), _metadataClient.clusterAndGeneration().topicPlacements());
   }
 
   /**
    * Sets up the AdminClient mock for the MetadataClient#doRefreshMetadata method
    */
   private void replayMockAdminClient(AdminClient adminClient, Collection<String> topics,
-                                     Map<String, TopicDescription> topicDescriptions, int metadataTimeoutMs)
+                                     Map<String, TopicDescription> topicDescriptions, Collection<ConfigResource> configResources,
+                                     Map<ConfigResource, Config> configs, int metadataTimeoutMs)
       throws InterruptedException, ExecutionException, java.util.concurrent.TimeoutException {
     EasyMock.reset(adminClient);
     mockListTopics(adminClient, topics, metadataTimeoutMs);
     mockDescribeCluster(adminClient, metadataTimeoutMs);
     mockDescribeTopics(adminClient, topics, topicDescriptions, metadataTimeoutMs);
+    mockDescribeConfigResources(adminClient, configResources, configs, metadataTimeoutMs);
     EasyMock.replay(adminClient);
   }
 
@@ -236,6 +298,21 @@ public class MetadataClientTest {
             EasyMock.anyObject(DescribeTopicsOptions.class)))
         .andReturn(mockDescribeTopicsResult);
     EasyMock.replay(mockDescribeTopicsResult, mockKafkaFuture);
+  }
+
+  private void mockDescribeConfigResources(AdminClient mockAdminClient, Collection<ConfigResource> expectedConfigResourcesToDescribe,
+                                        Map<ConfigResource, Config> expectedConfigs, int expectedTimeoutMs)
+      throws InterruptedException, ExecutionException, java.util.concurrent.TimeoutException {
+    DescribeConfigsResult mockDescribeConfigsResult = EasyMock.mock(DescribeConfigsResult.class);
+    KafkaFuture<Map<ConfigResource, Config>> mockKafkaFuture = EasyMock.mock(KafkaFuture.class);
+    EasyMock.expect(mockKafkaFuture.get(expectedTimeoutMs, TimeUnit.MILLISECONDS)).andReturn(expectedConfigs);
+    EasyMock.expect(mockDescribeConfigsResult.all()).andReturn(mockKafkaFuture);
+
+    EasyMock.expect(mockAdminClient
+            .describeConfigs(EasyMock.eq(expectedConfigResourcesToDescribe),
+                EasyMock.anyObject(DescribeConfigsOptions.class)))
+            .andReturn(mockDescribeConfigsResult);
+    EasyMock.replay(mockDescribeConfigsResult, mockKafkaFuture);
   }
 
   private void mockDescribeCluster(AdminClient mockAdminClient, int expectedTimeoutMs)

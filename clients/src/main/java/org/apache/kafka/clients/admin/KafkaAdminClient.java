@@ -60,6 +60,7 @@ import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.errors.ApiException;
 import org.apache.kafka.common.errors.AuthenticationException;
 import org.apache.kafka.common.errors.DisconnectException;
+import org.apache.kafka.common.errors.InvalidBrokerRemovalException;
 import org.apache.kafka.common.errors.InvalidGroupIdException;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.errors.InvalidTopicException;
@@ -127,9 +128,6 @@ import org.apache.kafka.common.message.OffsetDeleteRequestData.OffsetDeleteReque
 import org.apache.kafka.common.message.OffsetDeleteRequestData.OffsetDeleteRequestTopicCollection;
 import org.apache.kafka.common.message.RemoveBrokersRequestData.BrokerId;
 import org.apache.kafka.common.message.RenewDelegationTokenRequestData;
-import org.apache.kafka.common.message.ReplicaStatusResponseData.ReplicaStatusPartitionResponse;
-import org.apache.kafka.common.message.ReplicaStatusResponseData.ReplicaStatusReplicaResponse;
-import org.apache.kafka.common.message.ReplicaStatusResponseData.ReplicaStatusTopicResponse;
 import org.apache.kafka.common.message.RemoveBrokersResponseData.RemoveBrokerResponse;
 import org.apache.kafka.common.metrics.JmxReporter;
 import org.apache.kafka.common.metrics.KafkaMetricsContext;
@@ -3740,97 +3738,71 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
       final long nowMetadata = time.milliseconds();
       final long deadline = calcDeadlineMs(nowMetadata, options.timeoutMs());
       runnable.call(new Call("topicsMetadata", deadline, new LeastLoadedNodeProvider()) {
-        @Override
-        AbstractRequest.Builder createRequest(int timeoutMs) {
-          return new MetadataRequest.Builder(new MetadataRequestData()
-              .setTopics(convertToMetadataRequestTopic(topics))
-              .setAllowAutoTopicCreation(false));
-        }
-
-        @Override
-        void handleResponse(AbstractResponse abstractResponse) {
-          MetadataResponse response = (MetadataResponse) abstractResponse;
-
-          Map<String, Errors> errors = response.errors();
-          Cluster cluster = response.cluster();
-
-          final Map<Node, Set<TopicPartition>> leaderPartitions = new HashMap<>();
-          for (Map.Entry<TopicPartition, KafkaFutureImpl<List<ReplicaStatus>>> entry : result.entrySet()) {
-            // Ignore requests for topics that failed with an error.
-            Errors error = errors.get(entry.getKey().topic());
-            if (error != null) {
-              entry.getValue().completeExceptionally(error.exception());
-              continue;
-            }
-
-            PartitionInfo partitionInfo = cluster.partition(entry.getKey());
-            if (partitionInfo == null) {
-              entry.getValue().completeExceptionally(
-                  new UnknownTopicOrPartitionException("Partition " + entry.getKey() + " not found."));
-              continue;
-            }
-
-            if (partitionInfo.leader() == null) {
-              entry.getValue().completeExceptionally(
-                  new LeaderNotAvailableException("Leader for partition " + entry.getKey() + " not found."));
-              continue;
-            }
-
-            leaderPartitions.computeIfAbsent(partitionInfo.leader(), k -> new HashSet<>()).add(entry.getKey());
+          @Override
+          AbstractRequest.Builder createRequest(int timeoutMs) {
+              return new MetadataRequest.Builder(new MetadataRequestData()
+                      .setTopics(convertToMetadataRequestTopic(topics))
+                      .setAllowAutoTopicCreation(false));
           }
 
-          for (final Map.Entry<Node, Set<TopicPartition>> entry : leaderPartitions.entrySet()) {
-            final long nowStatus = time.milliseconds();
-            runnable.call(new Call("replicaStatus", deadline, new ConstantNodeIdProvider(entry.getKey().id())) {
-              @Override
-              AbstractRequest.Builder createRequest(int timeoutMs) {
-                return new ReplicaStatusRequest.Builder(entry.getValue());
-              }
+          @Override
+          void handleResponse(AbstractResponse abstractResponse) {
+              MetadataResponse response = (MetadataResponse) abstractResponse;
 
-              @Override
-              void handleResponse(AbstractResponse abstractResponse) {
-                ReplicaStatusResponse response = (ReplicaStatusResponse) abstractResponse;
+              Map<String, Errors> errors = response.errors();
+              Cluster cluster = response.cluster();
 
-                for (ReplicaStatusTopicResponse topicResponse : response.data().topics()) {
-                  for (ReplicaStatusPartitionResponse partitionResponse : topicResponse.partitions()) {
-                    TopicPartition topicPartition =
-                        new TopicPartition(topicResponse.name(), partitionResponse.partitionIndex());
-                    KafkaFutureImpl<List<ReplicaStatus>> future = result.get(topicPartition);
-                    Objects.requireNonNull(future, "Replica status future must not be null for " + topicPartition);
-
-                    Errors error = Errors.forCode(partitionResponse.errorCode());
-                    if (error != Errors.NONE) {
-                      future.completeExceptionally(error.exception());
+              final Map<Node, Set<TopicPartition>> leaderPartitions = new HashMap<>();
+              for (Map.Entry<TopicPartition, KafkaFutureImpl<List<ReplicaStatus>>> entry : result.entrySet()) {
+                  // Ignore requests for topics that failed with an error.
+                  Errors error = errors.get(entry.getKey().topic());
+                  if (error != null) {
+                      entry.getValue().completeExceptionally(error.exception());
                       continue;
-                    }
-                    List<ReplicaStatus> replicas = new ArrayList<ReplicaStatus>();
-                    for (ReplicaStatusReplicaResponse replicaResponse : partitionResponse.replicas()) {
-                      replicas.add(new ReplicaStatus(
-                          replicaResponse.id(),
-                          replicaResponse.isLeader(),
-                          replicaResponse.isObserver(),
-                          replicaResponse.isIsrEligible(),
-                          replicaResponse.isInIsr(),
-                          replicaResponse.isCaughtUp(),
-                          replicaResponse.logStartOffset(),
-                          replicaResponse.logEndOffset(),
-                          replicaResponse.lastCaughtUpTimeMs(),
-                          replicaResponse.lastFetchTimeMs()));
-                    }
-                    future.complete(replicas);
                   }
-                }
+
+                  PartitionInfo partitionInfo = cluster.partition(entry.getKey());
+                  if (partitionInfo == null) {
+                      entry.getValue().completeExceptionally(
+                          new UnknownTopicOrPartitionException("Partition " + entry.getKey() + " not found."));
+                      continue;
+                  }
+
+                  if (partitionInfo.leader() == null) {
+                      entry.getValue().completeExceptionally(
+                          new LeaderNotAvailableException("Leader for partition " + entry.getKey() + " not found."));
+                      continue;
+                  }
+
+                  leaderPartitions.computeIfAbsent(partitionInfo.leader(), k -> new HashSet<>()).add(entry.getKey());
               }
 
-              @Override
-              void handleFailure(Throwable throwable) {
-                for (TopicPartition partition : entry.getValue()) {
-                  result.get(partition).completeExceptionally(throwable);
-                }
+              for (final Map.Entry<Node, Set<TopicPartition>> entry : leaderPartitions.entrySet()) {
+                  final Map<TopicPartition, KafkaFutureImpl<List<ReplicaStatus>>> resultSubset = new HashMap<>();
+                  for (TopicPartition partition : entry.getValue()) {
+                      resultSubset.put(partition, result.get(partition));
+                  }
+
+                  final long nowStatus = time.milliseconds();
+                  runnable.call(new Call("replicaStatus", deadline, new ConstantNodeIdProvider(entry.getKey().id())) {
+                      @Override
+                      AbstractRequest.Builder createRequest(int timeoutMs) {
+                          return new ReplicaStatusRequest.Builder(entry.getValue(), options.includeLinkedReplicas());
+                      }
+
+                      @Override
+                      void handleResponse(AbstractResponse abstractResponse) {
+                          ReplicaStatusResponse response = (ReplicaStatusResponse) abstractResponse;
+                          response.complete(resultSubset);
+                      }
+
+                      @Override
+                      void handleFailure(Throwable throwable) {
+                          completeAllExceptionally(resultSubset.values(), throwable);
+                      }
+                  }, nowStatus);
               }
-            }, nowStatus);
           }
-        }
 
         @Override
         void handleFailure(Throwable throwable) {
@@ -4221,18 +4193,26 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
     public RemoveBrokersResult removeBrokers(List<Integer> brokersToRemove, RemoveBrokersOptions options) {
         final Map<Integer, KafkaFutureImpl<Void>> removeBrokerFutures = new HashMap<>(brokersToRemove.size());
         final Map<Integer, KafkaFutureImpl<Void>> invalidRemoveBrokerFutures = new HashMap<>();
+
+        if (brokersToRemove.isEmpty()) {
+            KafkaFutureImpl<Void> future = new KafkaFutureImpl<>();
+            future.completeExceptionally(new InvalidBrokerRemovalException("Broker to remove list is empty."));
+            invalidRemoveBrokerFutures.put(null, future);
+            return new RemoveBrokersResult(new HashMap<>(invalidRemoveBrokerFutures));
+        }
+
         for (Integer brokerToRemove: brokersToRemove) {
             if (brokerToRemove == null) {
                 continue;
             }
             if (brokerIdIsUnrepresentable(brokerToRemove)) {
                 KafkaFutureImpl<Void> future = new KafkaFutureImpl<>();
-                future.completeExceptionally(new InvalidRequestException("The given broker id '" +
+                future.completeExceptionally(new InvalidBrokerRemovalException("The given broker id '" +
                         brokerToRemove + "' is invalid and cannot be represented in a request"));
                 invalidRemoveBrokerFutures.put(brokerToRemove, future);
             } else if (removeBrokerFutures.containsKey(brokerToRemove)) {
                 KafkaFutureImpl<Void> future = new KafkaFutureImpl<>();
-                future.completeExceptionally(new InvalidRequestException("The given broker id '" +
+                future.completeExceptionally(new InvalidBrokerRemovalException("The given broker id '" +
                         brokerToRemove + "' is duplicate and cannot be represented in a request"));
                 invalidRemoveBrokerFutures.put(brokerToRemove, future);
             } else {
@@ -4243,7 +4223,7 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
         if (!invalidRemoveBrokerFutures.isEmpty()) {
             for (Map.Entry<Integer, KafkaFutureImpl<Void>> removeBrokerFuture : removeBrokerFutures.entrySet()) {
                 KafkaFutureImpl<Void> future = removeBrokerFuture.getValue();
-                future.completeExceptionally(new InvalidRequestException("The request contains " +
+                future.completeExceptionally(new InvalidBrokerRemovalException("The request contains " +
                         "some invalid or duplicate broker ids"));
                 invalidRemoveBrokerFutures.putIfAbsent(removeBrokerFuture.getKey(), future);
             }
@@ -4414,7 +4394,7 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
 
                 @Override
                 ListClusterLinksRequest.Builder createRequest(int timeoutMs) {
-                    return new ListClusterLinksRequest.Builder();
+                    return new ListClusterLinksRequest.Builder(options.linkNames(), options.includeTopics(), timeoutMs);
                 }
 
                 @Override

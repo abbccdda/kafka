@@ -840,6 +840,7 @@ class Log(@volatile private var _dir: File,
           truncated = true
         }
       }
+      leaderEpochCache.foreach(_.maybeFlush())
     }
 
     if (logSegments.nonEmpty) {
@@ -849,6 +850,7 @@ class Log(@volatile private var _dir: File,
           s"{$mergedLogStartOffset} or firstUntieredOffset ($initialUntieredOffset). This could happen if segment " +
           s"files were deleted from the file system.")
         removeAndDeleteSegments(logSegments, asyncDelete = true)
+        leaderEpochCache.foreach(_.clearAndFlush())
       }
     }
 
@@ -2172,9 +2174,10 @@ class Log(@volatile private var _dir: File,
         // 'timeWaitedForRoll' call is not in append context hence called with current time as both params.
         val timeElapsed = activeSegment.timeWaitedForRoll(currentMs, currentMs)
         val reachedForcedRollMs = timeElapsed > config.tierLocalHotsetMs
+        val activeSegmentSize = activeSegment.size
 
-        if (config.tierLocalHotsetMs > 0 && reachedForcedRollMs && size >= config.tierSegmentHotsetRollMinBytes) {
-          info(s"Forcing roll of new log segment at size $size after $timeElapsed ms.")
+        if (config.tierLocalHotsetMs > 0 && reachedForcedRollMs && activeSegmentSize >= config.tierSegmentHotsetRollMinBytes) {
+          info(s"Forcing roll of new log segment at size $activeSegmentSize after $timeElapsed ms.")
           roll()
         }
       }
@@ -2192,12 +2195,14 @@ class Log(@volatile private var _dir: File,
   def flush(): Unit = flush(this.logEndOffset)
 
   /**
-   * Flush log segments for all offsets up to offset-1
+   * Flush log segments for all offsets up to offset-1 and leader epoch cache file
    *
    * @param offset The offset to flush up to (non-inclusive); the new recovery point
    */
   def flush(offset: Long): Unit = {
-    maybeHandleIOException(s"Error while flushing log for $topicPartition in dir ${dir.getParent} with offset $offset") {
+    maybeHandleIOException(s"Error while flushing leader epoch cache file and log for $topicPartition in dir ${dir.getParent} with offset $offset") {
+      leaderEpochCache.foreach(_.maybeFlush())
+
       if (offset <= this.recoveryPoint)
         return
       debug(s"Flushing log up to offset $offset, last flushed: $lastFlushTime,  current time: ${time.milliseconds()}, " +

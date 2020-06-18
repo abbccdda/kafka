@@ -3,6 +3,8 @@
  */
 package kafka.admin
 
+import java.util.{Collection, Collections, Optional, UUID}
+
 import joptsimple.OptionException
 import kafka.server.link.ClusterLinkConfig
 import kafka.utils.TestUtils
@@ -69,7 +71,7 @@ final class ClusterLinkCommandTest {
 
     val node = new Node(1, "localhost", 9092)
     val mockAdminClient = new TestAdminClient(node) {
-      override def createClusterLinks(clusterLinks: java.util.Collection[NewClusterLink], options: CreateClusterLinksOptions): CreateClusterLinksResult = {
+      override def createClusterLinks(clusterLinks: Collection[NewClusterLink], options: CreateClusterLinksOptions): CreateClusterLinksResult = {
         issuedCommand = true
         assertEquals(1, clusterLinks.size)
         val newClusterLink = clusterLinks.iterator.next
@@ -154,28 +156,45 @@ final class ClusterLinkCommandTest {
     createClusterLinks(Array("--exclude-validate-link"), expectValidateLink = false)
   }
 
-  @Test
-  def testListClusterLinks(): Unit = {
+  private def listClusterLinks(args: Array[String], hasLinkName: Boolean, includeTopics: Boolean): Unit = {
     var issuedCommand = false
 
-    val listing = Set(new ClusterLinkListing("link-1", java.util.UUID.randomUUID(), "cluster-id-1"),
-      new ClusterLinkListing("link-2", java.util.UUID.randomUUID(), null))
-    val future = new KafkaFutureImpl[java.util.Collection[ClusterLinkListing]]
+    def toTopics(topics: Option[Set[String]]) = topics match {
+      case Some(t) => Optional.of(t.asJavaCollection)
+      case None => Optional.empty[Collection[String]]
+    }
+    val (topics1, topics2) = if (includeTopics)
+      (toTopics(Some(Set("topic-1", "topic-2", "topic-3"))), toTopics(Some(Set("topic-7", "topic-8", "topic-9"))))
+    else
+      (toTopics(None), toTopics(None))
+
+    val link1 = new ClusterLinkListing("link-1", UUID.randomUUID(), "cluster-id-1", topics1)
+    val link2 = new ClusterLinkListing("link-2", UUID.randomUUID(), null, topics2)
+    val listing = if (hasLinkName) Set(link1) else Set(link1, link2)
+
+    val future = new KafkaFutureImpl[Collection[ClusterLinkListing]]
     future.complete(listing.asJava)
 
     val result: ListClusterLinksResult = EasyMock.createNiceMock(classOf[ListClusterLinksResult])
-    EasyMock.expect(result.result()).andReturn(future.asInstanceOf[KafkaFuture[java.util.Collection[ClusterLinkListing]]]).once()
+    EasyMock.expect(result.result()).andReturn(future.asInstanceOf[KafkaFuture[Collection[ClusterLinkListing]]]).once()
 
     val node = new Node(1, "localhost", 9092)
     val mockAdminClient = new TestAdminClient(node) {
       override def listClusterLinks(options: ListClusterLinksOptions): ListClusterLinksResult = {
         issuedCommand = true
+        if (hasLinkName) {
+          assertTrue(options.linkNames.isPresent)
+          assertEquals(Set(link1.linkName), options.linkNames.get.asScala.toSet)
+        } else {
+          assertFalse(options.linkNames.isPresent)
+        }
+        assertEquals(includeTopics, options.includeTopics)
         result
       }
     }
 
     EasyMock.replay(result)
-    val output = runCommand(Array("--list"), mockAdminClient)
+    val output = runCommand(Array("--list") ++ args, mockAdminClient)
     assertTrue(issuedCommand)
     EasyMock.reset(result)
 
@@ -184,7 +203,17 @@ final class ClusterLinkCommandTest {
       assertTrue(output.contains(entry.linkId.toString))
       if (entry.clusterId != null)
         assertTrue(output.contains(entry.clusterId))
+      if (includeTopics)
+        entry.topics.get.asScala.foreach(t => assertTrue(output.contains(t)))
     }
+  }
+
+  @Test
+  def testListClusterLinks(): Unit = {
+    listClusterLinks(Array.empty, hasLinkName = false, includeTopics = false)
+    listClusterLinks(Array("--include-topics"), hasLinkName = false, includeTopics = true)
+    listClusterLinks(Array("--link-name", "link-1"), hasLinkName = true, includeTopics = false)
+    listClusterLinks(Array("--link-name", "link-1", "--include-topics"), hasLinkName = true, includeTopics = true)
   }
 
   private def deleteClusterLinks(args: Array[String], expectValidateOnly: Boolean = false, expectForce: Boolean = false): Unit = {
@@ -199,7 +228,7 @@ final class ClusterLinkCommandTest {
 
     val node = new Node(1, "localhost", 9092)
     val mockAdminClient = new TestAdminClient(node) {
-      override def deleteClusterLinks(linkNames: java.util.Collection[String], options: DeleteClusterLinksOptions): DeleteClusterLinksResult = {
+      override def deleteClusterLinks(linkNames: Collection[String], options: DeleteClusterLinksOptions): DeleteClusterLinksResult = {
         issuedCommand = true
         assertEquals(1, linkNames.size)
         assertEquals(linkName, linkNames.iterator.next)
@@ -302,14 +331,22 @@ final class ClusterLinkCommandTest {
       new ClusterLinkCommandOptions(Array("--bootstrap-server", "localhost:9092",
         "--delete", "--link-name", "test-link", "--exclude-validate-link")).verifyArgs()
     }
+    intercept[IllegalArgumentException] {
+      new ClusterLinkCommandOptions(Array("--bootstrap-server", "localhost:9092",
+        "--create", "--link-name", "test-link", "--config", "bootstrap.servers=10.20.30.40:9092", "--include-topics")).verifyArgs()
+    }
+    intercept[IllegalArgumentException] {
+      new ClusterLinkCommandOptions(Array("--bootstrap-server", "localhost:9092",
+        "--delete", "--link-name", "test-link", "--include-topics")).verifyArgs()
+    }
   }
 
-  class TestAdminClient(node: Node) extends MockAdminClient(java.util.Collections.singletonList(node), node) {
-    override def createClusterLinks(clusterLinks: java.util.Collection[NewClusterLink], options: CreateClusterLinksOptions): CreateClusterLinksResult =
+  class TestAdminClient(node: Node) extends MockAdminClient(Collections.singletonList(node), node) {
+    override def createClusterLinks(clusterLinks: Collection[NewClusterLink], options: CreateClusterLinksOptions): CreateClusterLinksResult =
       EasyMock.createNiceMock(classOf[CreateClusterLinksResult])
     override def listClusterLinks(options: ListClusterLinksOptions): ListClusterLinksResult =
       EasyMock.createNiceMock(classOf[ListClusterLinksResult])
-    override def deleteClusterLinks(linkNames: java.util.Collection[String], options: DeleteClusterLinksOptions): DeleteClusterLinksResult =
+    override def deleteClusterLinks(linkNames: Collection[String], options: DeleteClusterLinksOptions): DeleteClusterLinksResult =
       EasyMock.createNiceMock(classOf[DeleteClusterLinksResult])
   }
 }

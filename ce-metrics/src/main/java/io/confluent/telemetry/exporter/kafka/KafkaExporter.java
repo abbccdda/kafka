@@ -16,9 +16,12 @@ import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.errors.InterruptException;
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
+import org.apache.kafka.common.header.Header;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Collections;
@@ -37,6 +40,26 @@ public class KafkaExporter implements Exporter, MetricsCollectorProvider {
     // minimum interval at which to log kafka producer errors to avoid unnecessary log spam
     private static final int ERROR_LOG_INTERVAL_MS = 5000;
 
+    public static final String VERSION_HEADER_KEY = "v";
+    public static final byte[] V0_HEADER_BYTES = ByteBuffer.allocate(Integer.BYTES)
+        .order(ByteOrder.LITTLE_ENDIAN)
+        .putInt(0)
+        .array();
+
+    // version header to support future transition from opencensus to opentelemetry protobuf
+    private static final Header V0_HEADER = new Header() {
+        @Override
+        public String key() {
+            return VERSION_HEADER_KEY;
+        }
+
+        @Override
+        public byte[] value() {
+            return V0_HEADER_BYTES;
+        }
+    };
+    private static final Iterable<Header> V0_HEADERS = Collections.singleton(V0_HEADER);
+
     private boolean isTopicCreated = false;
     private final Properties adminClientProperties;
     private final String topicName;
@@ -50,7 +73,7 @@ public class KafkaExporter implements Exporter, MetricsCollectorProvider {
     private final AtomicReference<Exception> droppedEventException = new AtomicReference<>();
     private long lastLoggedTimestamp = 0;
     private long lastLoggedCount = 0;
-
+    private volatile boolean isClosed = false;
 
     public KafkaExporter(Builder builder) {
         this.adminClientProperties = Objects.requireNonNull(builder.adminClientProperties);
@@ -105,14 +128,15 @@ public class KafkaExporter implements Exporter, MetricsCollectorProvider {
 
             synchronized (this.producer) {
                 // producer may already be closed if we are shutting down
-                if (!Thread.currentThread().isInterrupted()) {
+                if (!Thread.currentThread().isInterrupted() && !isClosed) {
                     log.trace("Generated metric message : {}", metric);
                     this.producer.send(
-                        new ProducerRecord<>(
+                        new ProducerRecord<byte[], Metric>(
                             this.topicName,
                             null,
                             null,
-                            metric
+                            metric,
+                            V0_HEADERS
                         ),
                         (metadata, exception) -> {
                             if (exception != null) {
@@ -156,6 +180,7 @@ public class KafkaExporter implements Exporter, MetricsCollectorProvider {
     public void close() throws Exception {
         if (this.producer != null) {
             synchronized (this.producer) {
+                this.isClosed = true;
                 this.producer.close(Duration.ofMillis(0));
             }
         }

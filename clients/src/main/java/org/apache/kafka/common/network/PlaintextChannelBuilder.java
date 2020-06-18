@@ -19,6 +19,7 @@ package org.apache.kafka.common.network;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.memory.MemoryPool;
+import org.apache.kafka.common.security.auth.AuthenticationContext;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.KafkaPrincipalBuilder;
 import org.apache.kafka.common.security.auth.PlaintextAuthenticationContext;
@@ -91,16 +92,21 @@ public class PlaintextChannelBuilder implements ChannelBuilder {
 
         @Override
         public KafkaPrincipal principal() {
-            InetAddress clientAddress = transportLayer.socketChannel().socket().getInetAddress();
-            // listenerName should only be null in Client mode where principal() should not be called
-            if (listenerName == null)
-                throw new IllegalStateException("Unexpected call to principal() when listenerName is null");
-            return principalBuilder.build(new PlaintextAuthenticationContext(clientAddress, listenerName.value()));
+            return principalBuilder.build(authenticationContext());
         }
 
         @Override
         public boolean complete() {
             return true;
+        }
+
+        @Override
+        public AuthenticationContext authenticationContext() {
+            InetAddress clientAddress = transportLayer.socketChannel().socket().getInetAddress();
+            // listenerName should only be null in Client mode where principal()/authenticationContext() should not be called
+            if (listenerName == null)
+                throw new IllegalStateException("Unexpected call to principal()/authenticationContext() when listenerName is null");
+            return new PlaintextAuthenticationContext(clientAddress, listenerName.value());
         }
 
         @Override

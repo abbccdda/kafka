@@ -67,16 +67,19 @@ public class ConfluentTelemetryReporterSamplerIntegrationTest extends MetricRepo
                 partitions.add(new TopicPartition(partitionInfo.topic(), partitionInfo.partition()));
             }
         }
-        MetricSampler.Samples samples = sampler.getSamples(cluster, partitions, 0L, System.currentTimeMillis(), MetricSampler.SamplingMode.ALL,
-                KafkaMetricDef.commonMetricDef(), 300000L);
 
-        // MetricReporterClusterTestHarness reports metrics from only broker 1
-        // Check that there is at least one partition sample and a broker sample for broker 1
-        // The presence of a broker sample tests that all required metrics have been sampled, because Cruise Control will
-        // skip it otherwise
-        assertFalse(samples.partitionMetricSamples().isEmpty());
-        assertTrue(samples.brokerMetricSamples().size() >= 1 &&
-                samples.brokerMetricSamples().stream().anyMatch(sample -> sample.entity().brokerId() == 1));
+        TestUtils.retryOnExceptionWithTimeout(5000, 30000, () -> {
+            MetricSampler.Samples samples = sampler.getSamples(cluster, partitions, 0L, System.currentTimeMillis(), MetricSampler.SamplingMode.ALL,
+                    KafkaMetricDef.commonMetricDef(), 300000L);
+
+            // MetricReporterClusterTestHarness reports metrics from only broker 1
+            // Check that there is at least one partition sample and a broker sample for broker 1
+            // The presence of a broker sample tests that all required metrics have been sampled, because Cruise Control will
+            // skip it otherwise
+            assertFalse(samples.partitionMetricSamples().isEmpty());
+            assertTrue(samples.brokerMetricSamples().size() >= 1 &&
+                    samples.brokerMetricSamples().stream().anyMatch(sample -> sample.entity().brokerId() == 1));
+        });
     }
 
     @Override

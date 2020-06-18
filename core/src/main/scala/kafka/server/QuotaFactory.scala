@@ -87,7 +87,7 @@ object QuotaFactory extends Logging {
       new ReplicationQuotaManager(replicationConfig(cfg, LeaderReplication), metrics, LeaderReplication, time),
       followerQuotaManager,
       new ReplicationQuotaManager(alterLogDirsReplicationConfig(cfg), metrics, AlterLogDirsReplication, time),
-      new ReplicationQuotaManager(alterLogDirsReplicationConfig(cfg), metrics, ClusterLinkReplication, time),
+      new ReplicationQuotaManager(clusterLinkReplicationConfig(cfg), metrics, ClusterLinkReplication, time),
       clientQuotaCallback
     )
   }

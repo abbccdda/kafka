@@ -382,7 +382,7 @@ public class PreferredLeaderElectionGoalTest {
                                        TopicPartition tp,
                                        int index,
                                        boolean isLeader) {
-    clusterModel.createReplica(rack, brokerId, tp, index, isLeader, false, logdir, false);
+    clusterModel.createReplica(rack, brokerId, tp, index, isLeader, false, logdir, false, false);
     MetricValues metricValues = new MetricValues(1);
     Map<Short, MetricValues> metricValuesByResource = new HashMap<>();
     Resource.cachedValues().forEach(r -> {

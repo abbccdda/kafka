@@ -247,6 +247,13 @@ public class Broker implements Serializable, Comparable<Broker> {
   }
 
   /**
+   * Get the attributes of the broker. Currently rack is the only supported attribute.
+   */
+  public Map<String, String> attributes() {
+    return Collections.singletonMap("rack", rack().id());
+  }
+
+  /**
    * Get the tracked sorted replicas using the given sort name.
    *
    * @param sortName the sort name.

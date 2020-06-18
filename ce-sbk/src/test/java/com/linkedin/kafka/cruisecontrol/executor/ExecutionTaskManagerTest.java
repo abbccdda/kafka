@@ -80,7 +80,7 @@ public class ExecutionTaskManagerTest {
       taskManager.clear();
       // Make sure the proposal does not involve leader movement.
       ExecutionProposal proposal =
-          new ExecutionProposal(tp, 10, r2, Arrays.asList(r0, r2), Arrays.asList(r2, r1));
+          new ExecutionProposal(tp, 10, r2, Arrays.asList(r0, r2), Arrays.asList(r2, r1), Collections.emptyList(), Collections.emptyList());
 
       taskManager.setExecutionModeForTaskTracker(false);
       taskManager.addExecutionProposals(Collections.singletonList(proposal),

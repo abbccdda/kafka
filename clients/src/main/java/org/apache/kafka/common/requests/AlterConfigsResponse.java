@@ -48,6 +48,10 @@ public class AlterConfigsResponse extends AbstractResponse {
         ));
     }
 
+    public AlterConfigsResponseData data() {
+        return data;
+    }
+
     @Override
     public Map<Errors, Integer> errorCounts() {
         return apiErrorCounts(errors());

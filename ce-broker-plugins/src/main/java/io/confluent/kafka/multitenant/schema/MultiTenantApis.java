@@ -101,6 +101,7 @@ public class MultiTenantApis {
       case CREATE_CLUSTER_LINKS:
       case LIST_CLUSTER_LINKS:
       case DELETE_CLUSTER_LINKS:
+      case ALTER_MIRRORS:
         return true;
 
       case CONTROLLED_SHUTDOWN:
@@ -121,7 +122,6 @@ public class MultiTenantApis {
       case ALTER_CLIENT_QUOTAS:
       case REMOVE_BROKERS:
       case INITIATE_SHUTDOWN:
-      case ALTER_MIRRORS:
       case DESCRIBE_BROKER_REMOVALS:
         return false;
 
@@ -382,6 +382,13 @@ public class MultiTenantApis {
         case PRODUCE:
           if (field != null && (field.name.equals("error_message") || field.name.equals("batch_index_error_message"))) {
             return Optional.some(new ErrorMessageSanitizer(type));
+          }
+          break;
+
+        case LIST_CLUSTER_LINKS:
+          if (field != null && field.name.equals("topics")) {
+            return Optional.some(
+                new ArrayTenantTransformer(type, TenantTransform.REMOVE_PREFIX));
           }
           break;
 

@@ -7,8 +7,8 @@ import com.linkedin.cruisecontrol.exception.CruiseControlException;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils;
 import com.linkedin.kafka.cruisecontrol.SbkTopicUtils;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
+import io.confluent.databalancer.operation.BrokerRemovalStateMachine;
 import io.confluent.kafka.test.cluster.EmbeddedKafkaCluster;
-import kafka.common.BrokerRemovalStatus;
 import kafka.server.KafkaConfig;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.BrokerRemovalDescription;
@@ -25,6 +25,7 @@ import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.junit.rules.Timeout;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
@@ -72,150 +73,139 @@ public class ApiStatePersistenceStoreTest {
     @Test
     public void testProduceConsumeOneRecord() throws Exception {
         KafkaConfig config = getKafkaConfig();
-        try (ApiStatePersistenceStore store = new ApiStatePersistenceStore(config, time)) {
+        try (ApiStatePersistenceStore store = new ApiStatePersistenceStore(config, time, Collections.emptyMap())) {
             int brokerId = 1;
-            BrokerRemovalDescription.BrokerShutdownStatus bssStatus = BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE;
-            BrokerRemovalDescription.PartitionReassignmentsStatus parStatus = BrokerRemovalDescription.PartitionReassignmentsStatus.IN_PROGRESS;
+            BrokerRemovalStateMachine.BrokerRemovalState state = BrokerRemovalStateMachine.BrokerRemovalState.BROKER_SHUTDOWN_FAILED;
             String errorMessage = "test message";
             CruiseControlException error = new CruiseControlException(errorMessage);
-            BrokerRemovalStatus status = new BrokerRemovalStatus(brokerId, bssStatus, parStatus, error);
+            BrokerRemovalStateRecord status = new BrokerRemovalStateRecord(brokerId, state, error);
             store.save(status, true);
 
-            BrokerRemovalStatus brokerRemovalStatus = store.getBrokerRemovalStatus(brokerId);
-            Assert.assertEquals(status, brokerRemovalStatus);
+            BrokerRemovalStateRecord brokerRemovalStateRecord = store.getBrokerRemovalStateRecord(brokerId);
+            Assert.assertEquals(status, brokerRemovalStateRecord);
 
-            CruiseControlException ex = (CruiseControlException) brokerRemovalStatus.exception();
+            CruiseControlException ex = (CruiseControlException) brokerRemovalStateRecord.exception();
             Assert.assertEquals(errorMessage, ex.getMessage());
 
-            Assert.assertEquals(BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE, brokerRemovalStatus.brokerShutdownStatus());
-            Assert.assertEquals(BrokerRemovalDescription.PartitionReassignmentsStatus.IN_PROGRESS, brokerRemovalStatus.partitionReassignmentsStatus());
+            Assert.assertEquals(BrokerRemovalStateMachine.BrokerRemovalState.BROKER_SHUTDOWN_FAILED.brokerShutdownStatus(), brokerRemovalStateRecord.brokerShutdownStatus());
+            Assert.assertEquals(BrokerRemovalStateMachine.BrokerRemovalState.BROKER_SHUTDOWN_FAILED.partitionReassignmentsStatus(), brokerRemovalStateRecord.partitionReassignmentsStatus());
 
-            Assert.assertTrue("Start time should be set.", brokerRemovalStatus.getStartTime() > 0);
-            Assert.assertTrue("Last update time should be set", brokerRemovalStatus.getLastUpdateTime() > 0);
-            Assert.assertEquals(brokerRemovalStatus.getStartTime(), brokerRemovalStatus.getLastUpdateTime());
+            Assert.assertTrue("Start time should be set.", brokerRemovalStateRecord.startTime() > 0);
+            Assert.assertTrue("Last update time should be set", brokerRemovalStateRecord.lastUpdateTime() > 0);
+            Assert.assertEquals(brokerRemovalStateRecord.startTime(), brokerRemovalStateRecord.lastUpdateTime());
         }
     }
 
     @Test
     public void testProduceConsumeMultipleRecords() throws Exception {
         KafkaConfig config = getKafkaConfig();
-        try (ApiStatePersistenceStore store = new ApiStatePersistenceStore(config, time)) {
+        try (ApiStatePersistenceStore store = new ApiStatePersistenceStore(config, time, Collections.emptyMap())) {
 
             int firstBrokerId = 1;
-            BrokerRemovalDescription.BrokerShutdownStatus bssStatus = BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE;
-            BrokerRemovalDescription.PartitionReassignmentsStatus parStatus = BrokerRemovalDescription.PartitionReassignmentsStatus.IN_PROGRESS;
             String errorMessage = "test message";
             CruiseControlException error = new CruiseControlException(errorMessage);
-            BrokerRemovalStatus firstBrokerStatus = new BrokerRemovalStatus(firstBrokerId, bssStatus, parStatus, error);
-            store.save(firstBrokerStatus, true);
+            BrokerRemovalStateRecord firstBrokerStateRecord = new BrokerRemovalStateRecord(firstBrokerId, BrokerRemovalStateMachine.BrokerRemovalState.INITIAL_PLAN_COMPUTATION_INITIATED, error);
+            store.save(firstBrokerStateRecord, true);
 
             int secondBrokerId = 2;
-            BrokerRemovalStatus secondBrokerStatus = new BrokerRemovalStatus(secondBrokerId,
-                    BrokerRemovalDescription.BrokerShutdownStatus.PENDING,
-                    BrokerRemovalDescription.PartitionReassignmentsStatus.IN_PROGRESS,
-                    error);
+            BrokerRemovalStateRecord secondBrokerStatus = new BrokerRemovalStateRecord(secondBrokerId,
+                BrokerRemovalStateMachine.BrokerRemovalState.PLAN_EXECUTION_FAILED,
+                error);
             store.save(secondBrokerStatus, true);
 
-            Assert.assertEquals(firstBrokerStatus, store.getBrokerRemovalStatus(firstBrokerId));
-            Assert.assertEquals(secondBrokerStatus, store.getBrokerRemovalStatus(secondBrokerId));
-            Assert.assertEquals(2, store.getAllBrokerRemovalStatus().size());
+            Assert.assertEquals(firstBrokerStateRecord, store.getBrokerRemovalStateRecord(firstBrokerId));
+            Assert.assertEquals(secondBrokerStatus, store.getBrokerRemovalStateRecord(secondBrokerId));
+            Assert.assertEquals(2, store.getAllBrokerRemovalStateRecords().size());
         }
     }
 
     @Test
-    public void testProduceConsumeBrokerStatusMultipleTime() throws Exception {
+    public void testProduceConsumeBrokerStateRecordMultipleTime() throws Exception {
         KafkaConfig config = getKafkaConfig();
-        try (ApiStatePersistenceStore store = new ApiStatePersistenceStore(config, time)) {
+        try (ApiStatePersistenceStore store = new ApiStatePersistenceStore(config, time, Collections.emptyMap())) {
             int brokerId = 1;
-            BrokerRemovalDescription.BrokerShutdownStatus bssStatus = BrokerRemovalDescription.BrokerShutdownStatus.PENDING;
-            BrokerRemovalDescription.PartitionReassignmentsStatus parStatus = BrokerRemovalDescription.PartitionReassignmentsStatus.IN_PROGRESS;
             CruiseControlException error = new CruiseControlException("test message");
 
-            BrokerRemovalStatus brokerStatus = new BrokerRemovalStatus(brokerId, bssStatus, parStatus, error);
-            store.save(brokerStatus, true);
-            BrokerRemovalStatus brokerRemovalStatus = store.getBrokerRemovalStatus(brokerId);
-            Assert.assertEquals(brokerStatus, brokerRemovalStatus);
-            long startTime = brokerRemovalStatus.getStartTime();
+            BrokerRemovalStateRecord brokerStateRecord = new BrokerRemovalStateRecord(brokerId, BrokerRemovalStateMachine.BrokerRemovalState.BROKER_SHUTDOWN_INITIATED, error);
+            store.save(brokerStateRecord, true);
+            BrokerRemovalStateRecord receivedBrokerRemovalStateRecord = store.getBrokerRemovalStateRecord(brokerId);
+            Assert.assertEquals(brokerStateRecord, receivedBrokerRemovalStateRecord);
+            long startTime = receivedBrokerRemovalStateRecord.startTime();
 
-            bssStatus = BrokerRemovalDescription.BrokerShutdownStatus.FAILED;
-            parStatus = BrokerRemovalDescription.PartitionReassignmentsStatus.CANCELED;
             String updatedMessage = "updated message";
             CruiseControlException newError = new CruiseControlException(updatedMessage);
 
-            BrokerRemovalStatus newBrokerStatus = new BrokerRemovalStatus(brokerId, bssStatus, parStatus, newError);
-            newBrokerStatus.setStartTime(brokerRemovalStatus.getStartTime());
+            BrokerRemovalStateRecord newBrokerStatus = new BrokerRemovalStateRecord(brokerId, BrokerRemovalStateMachine.BrokerRemovalState.BROKER_SHUTDOWN_FAILED, newError);
+            newBrokerStatus.setStartTime(receivedBrokerRemovalStateRecord.startTime());
             store.save(newBrokerStatus, false);
 
-            brokerRemovalStatus = store.getBrokerRemovalStatus(brokerId);
-            Assert.assertEquals(newBrokerStatus, brokerRemovalStatus);
-            Assert.assertTrue("Start time should be set.", brokerRemovalStatus.getStartTime() > 0);
-            Assert.assertEquals(newBrokerStatus.getStartTime(), brokerRemovalStatus.getStartTime());
+            receivedBrokerRemovalStateRecord = store.getBrokerRemovalStateRecord(brokerId);
+            Assert.assertEquals(newBrokerStatus, receivedBrokerRemovalStateRecord);
+            Assert.assertTrue("Start time should be set.", receivedBrokerRemovalStateRecord.startTime() > 0);
+            Assert.assertEquals(newBrokerStatus.startTime(), receivedBrokerRemovalStateRecord.startTime());
 
-            Assert.assertTrue("Last update time should be set", brokerRemovalStatus.getLastUpdateTime() > 0);
-            Assert.assertNotEquals(brokerRemovalStatus.getStartTime(), brokerRemovalStatus.getLastUpdateTime());
-            Assert.assertEquals(brokerRemovalStatus.getStartTime(), startTime);
+            Assert.assertTrue("Last update time should be set", receivedBrokerRemovalStateRecord.lastUpdateTime() > 0);
+            Assert.assertNotEquals(receivedBrokerRemovalStateRecord.startTime(), receivedBrokerRemovalStateRecord.lastUpdateTime());
+            Assert.assertEquals(receivedBrokerRemovalStateRecord.startTime(), startTime);
         }
     }
 
     @Test
     public void testApiStatusExistAfterRestart() throws Exception {
         KafkaConfig config = getKafkaConfig();
-        ApiStatePersistenceStore store = new ApiStatePersistenceStore(config, time);
+        ApiStatePersistenceStore store = new ApiStatePersistenceStore(config, time, Collections.emptyMap());
 
         int firstBrokerId = 1;
-        BrokerRemovalStatus firstBrokerStatus = new BrokerRemovalStatus(firstBrokerId,
-                BrokerRemovalDescription.BrokerShutdownStatus.PENDING,
-                BrokerRemovalDescription.PartitionReassignmentsStatus.IN_PROGRESS,
+        BrokerRemovalStateRecord firstBrokerStateRecord = new BrokerRemovalStateRecord(firstBrokerId,
+                BrokerRemovalStateMachine.BrokerRemovalState.PLAN_COMPUTATION_INITIATED,
                 null);
-        store.save(firstBrokerStatus, true);
-        long startTime = firstBrokerStatus.getStartTime();
-        long lastUpdateTime = firstBrokerStatus.getLastUpdateTime();
+        store.save(firstBrokerStateRecord, true);
+        long startTime = firstBrokerStateRecord.startTime();
+        long lastUpdateTime = firstBrokerStateRecord.lastUpdateTime();
 
         int secondBrokerId = 2;
-        BrokerRemovalStatus secondBrokerStatus = new BrokerRemovalStatus(secondBrokerId,
-                BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE,
-                BrokerRemovalDescription.PartitionReassignmentsStatus.CANCELED,
+        BrokerRemovalStateRecord secondBrokerStatus = new BrokerRemovalStateRecord(secondBrokerId,
+            BrokerRemovalStateMachine.BrokerRemovalState.PLAN_EXECUTION_INITIATED,
                 null);
         store.save(secondBrokerStatus, true);
 
         // Update first broker state again, so we have two insertion, one update
-        firstBrokerStatus = new BrokerRemovalStatus(firstBrokerId,
-                BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE,
-                BrokerRemovalDescription.PartitionReassignmentsStatus.IN_PROGRESS,
+        firstBrokerStateRecord = new BrokerRemovalStateRecord(firstBrokerId,
+            BrokerRemovalStateMachine.BrokerRemovalState.PLAN_EXECUTION_SUCCEEDED,
                 null);
-        firstBrokerStatus.setStartTime(startTime);
-        store.save(firstBrokerStatus, false);
+        firstBrokerStateRecord.setStartTime(startTime);
+        store.save(firstBrokerStateRecord, false);
 
-        firstBrokerStatus = store.getBrokerRemovalStatus(firstBrokerId);
-        Assert.assertEquals(startTime, firstBrokerStatus.getStartTime());
-        Assert.assertNotEquals(lastUpdateTime, firstBrokerStatus.getLastUpdateTime());
-        lastUpdateTime = firstBrokerStatus.getLastUpdateTime();
+        firstBrokerStateRecord = store.getBrokerRemovalStateRecord(firstBrokerId);
+        Assert.assertEquals(startTime, firstBrokerStateRecord.startTime());
+        Assert.assertNotEquals(lastUpdateTime, firstBrokerStateRecord.lastUpdateTime());
+        lastUpdateTime = firstBrokerStateRecord.lastUpdateTime();
 
 
         // Close the Api Persistence store and create a new one to read record. This simulates restart
         store.close();
 
-        store = new ApiStatePersistenceStore(config, time);
+        store = new ApiStatePersistenceStore(config, time, Collections.emptyMap());
 
         Assert.assertEquals("There should only be two api states.",
-                2, store.getAllBrokerRemovalStatus().size());
+                2, store.getAllBrokerRemovalStateRecords().size());
 
         // Validate first broker status persistence
-        BrokerRemovalStatus brokerRemovalStatus = store.getBrokerRemovalStatus(firstBrokerId);
-        Assert.assertEquals(firstBrokerStatus, brokerRemovalStatus);
+        BrokerRemovalStateRecord brokerRemovalStateRecord = store.getBrokerRemovalStateRecord(firstBrokerId);
+        Assert.assertEquals(firstBrokerStateRecord, brokerRemovalStateRecord);
 
-        Assert.assertTrue("Start time should be set.", brokerRemovalStatus.getStartTime() > 0);
-        Assert.assertEquals(brokerRemovalStatus.getStartTime(), startTime);
-        Assert.assertTrue("Last update time should be set", brokerRemovalStatus.getLastUpdateTime() > 0);
-        Assert.assertNotEquals(brokerRemovalStatus.getStartTime(), brokerRemovalStatus.getLastUpdateTime());
-        Assert.assertEquals(lastUpdateTime, brokerRemovalStatus.getLastUpdateTime());
+        Assert.assertTrue("Start time should be set.", brokerRemovalStateRecord.startTime() > 0);
+        Assert.assertEquals(brokerRemovalStateRecord.startTime(), startTime);
+        Assert.assertTrue("Last update time should be set", brokerRemovalStateRecord.lastUpdateTime() > 0);
+        Assert.assertNotEquals(brokerRemovalStateRecord.startTime(), brokerRemovalStateRecord.lastUpdateTime());
+        Assert.assertEquals(lastUpdateTime, brokerRemovalStateRecord.lastUpdateTime());
 
         // Validate second broker status persistence
-        brokerRemovalStatus = store.getBrokerRemovalStatus(secondBrokerId);
-        Assert.assertNull("Exception is not null: " + brokerRemovalStatus.exception(), brokerRemovalStatus.exception());
-        Assert.assertEquals(BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE, brokerRemovalStatus.brokerShutdownStatus());
-        Assert.assertEquals(BrokerRemovalDescription.PartitionReassignmentsStatus.CANCELED, brokerRemovalStatus.partitionReassignmentsStatus());
-        Assert.assertEquals(brokerRemovalStatus.getStartTime(), brokerRemovalStatus.getLastUpdateTime());
+        brokerRemovalStateRecord = store.getBrokerRemovalStateRecord(secondBrokerId);
+        Assert.assertNull("Exception is not null: " + brokerRemovalStateRecord.exception(), brokerRemovalStateRecord.exception());
+        Assert.assertEquals(BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE, brokerRemovalStateRecord.brokerShutdownStatus());
+        Assert.assertEquals(BrokerRemovalDescription.PartitionReassignmentsStatus.IN_PROGRESS, brokerRemovalStateRecord.partitionReassignmentsStatus());
+        Assert.assertEquals(brokerRemovalStateRecord.startTime(), brokerRemovalStateRecord.lastUpdateTime());
 
         store.close();
     }

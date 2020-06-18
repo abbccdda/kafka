@@ -14,11 +14,15 @@ import org.apache.kafka.server.audit.AuthorizationEvent;
 import org.apache.kafka.server.authorizer.AuthorizationResult;
 
 import java.time.Instant;
-import java.util.HashMap;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
+/**
+ * The {@code ConfluentAuthorizationEvent} class is used to post confluent specific
+ * authorization audit events.
+ */
 public class ConfluentAuthorizationEvent implements AuthorizationEvent {
 
     private final Instant timestamp;
@@ -29,7 +33,7 @@ public class ConfluentAuthorizationEvent implements AuthorizationEvent {
     private final AuthorizePolicy authorizePolicy;
     private final Lazy<UUID> lazyUUID;
 
-    private Map<String, Object> data = new HashMap<>();
+    private Map<String, Object> data = Collections.emptyMap();
 
     public ConfluentAuthorizationEvent(Scope sourceScope,
                                        RequestContext requestContext,

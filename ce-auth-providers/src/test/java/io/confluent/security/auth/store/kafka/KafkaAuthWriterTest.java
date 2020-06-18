@@ -88,6 +88,7 @@ public class KafkaAuthWriterTest {
   private final Scope clusterB = new Scope.Builder("testOrg").withKafkaCluster("clusterB").build();
   private final Scope anotherClusterA = new Scope.Builder("anotherOrg").withKafkaCluster("clusterA").build();
   private final Scope invalidScope = new Scope(Collections.emptyList(), Collections.singletonMap("", "invalid"));
+  private final Scope clusterInEnv = new Scope.Builder("testOrg", "environment=testOrg").withKafkaCluster("clusterC").build();
   private final int storeNodeId = 1;
 
   private RbacRoles rbacRoles;
@@ -204,6 +205,13 @@ public class KafkaAuthWriterTest {
     authWriter.removeResourceRoleBinding(alice, "Reader", clusterA,
         aliceResources.stream().map(ResourcePattern::toFilter).collect(Collectors.toSet())).toCompletableFuture().join();
     assertNull(rbacResources(alice, "Reader", clusterA));
+  }
+
+
+  @Test
+  public void testMultiScopeAssignment() throws Exception {
+    authWriter.addClusterRoleBinding(alice, "EnvClusterAdmin", clusterInEnv).toCompletableFuture().join();
+    assertEquals(Collections.emptySet(), rbacResources(alice, "EnvClusterAdmin", clusterInEnv));
   }
 
   @Test
@@ -334,6 +342,15 @@ public class KafkaAuthWriterTest {
     authWriter.replaceResourceRoleBinding(alice, "Reader", clusterA, Collections.emptySet());
   }
 
+  @Test(expected = InvalidRequestException.class)
+  public void testClusterScopeAtIntermediate() throws Exception {
+    authWriter.addClusterRoleBinding(alice, "Operator", rootScope);
+  }
+
+  @Test(expected = InvalidRequestException.class)
+  public void testResourceScopeAtIntermediate() throws Exception {
+    authWriter.addClusterRoleBinding(alice, "Reader", rootScope);
+  }
 
   @Test(expected = InvalidRoleBindingException.class)
   public void testUnknownRoleAddBinding() throws Exception {
@@ -418,6 +435,11 @@ public class KafkaAuthWriterTest {
   @Test(expected = InvalidScopeException.class)
   public void testInvalidScopeDeleteAclBinding() throws Exception {
     authWriter.deleteAcls(invalidScope, Collections.emptyList(), null);
+  }
+
+  @Test(expected = InvalidRequestException.class)
+  public void testNoEnclosingScope() throws Exception {
+    authWriter.addClusterRoleBinding(alice, "EnvClusterAdmin", clusterA);
   }
 
   @Test(expected = NotMasterWriterException.class)

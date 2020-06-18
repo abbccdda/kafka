@@ -4,15 +4,17 @@
 package kafka.server.link
 
 import java.time.Duration
+import java.util.Optional
 import java.util.concurrent.{CompletableFuture, ExecutionException}
 
 import kafka.controller.KafkaController
 import kafka.utils.{CoreUtils, Logging}
 import kafka.zk.{AdminZkClient, ClusterLinkData, KafkaZkClient}
 import org.apache.kafka.clients.admin._
-import org.apache.kafka.common.KafkaFuture
+import org.apache.kafka.common.{KafkaFuture, TopicPartition}
 import org.apache.kafka.common.config.ConfigResource
 import org.apache.kafka.common.metrics.Metrics
+import org.apache.kafka.common.replica.ReplicaStatus
 import org.apache.kafka.common.requests.ApiError
 import org.apache.kafka.server.authorizer.Authorizer
 
@@ -33,7 +35,7 @@ object ClusterLinkClientManager {
 class ClusterLinkClientManager(val linkData: ClusterLinkData,
                                val scheduler: ClusterLinkScheduler,
                                val zkClient: KafkaZkClient,
-                               private var config: ClusterLinkConfig,
+                               @volatile private var config: ClusterLinkConfig,
                                authorizer: Option[Authorizer],
                                controller: KafkaController,
                                metrics: Metrics,
@@ -61,7 +63,7 @@ class ClusterLinkClientManager(val linkData: ClusterLinkData,
       "link-id" -> linkData.linkId.toString)
     setAdmin(Some(linkAdminFactory(config)))
 
-    clusterLinkSyncOffsets = Some(new ClusterLinkSyncOffsets(this, linkData, config,
+    clusterLinkSyncOffsets = Some(new ClusterLinkSyncOffsets(this, linkData,
       controller, destAdminFactory, metrics, tags.asJava))
     clusterLinkSyncOffsets.get.startup()
 
@@ -75,7 +77,7 @@ class ClusterLinkClientManager(val linkData: ClusterLinkData,
         + "migration."))
       config.aclFilters.getOrElse(throw new IllegalArgumentException("ACL migration is enabled "
         + "but acl.filters is not set. Please set acl.filters to proceed with ACL migration."))
-      clusterLinkSyncAcls = Some(new ClusterLinkSyncAcls(this, config, controller,
+      clusterLinkSyncAcls = Some(new ClusterLinkSyncAcls(this, controller,
         metrics, tags.asJava))
       clusterLinkSyncAcls.get.startup()
     }
@@ -195,7 +197,7 @@ class ClusterLinkClientManager(val linkData: ClusterLinkData,
       try {
         future.get
       } catch {
-        case e: ExecutionException => throw fetchTopicInfoWrapException(topic, e, action)
+        case e: ExecutionException => throw fetchTopicInfoWrapException(topic, e.getCause, action)
         case e: Throwable => throw fetchTopicInfoWrapException(topic, e, action)
       }
     }
@@ -214,4 +216,27 @@ class ClusterLinkClientManager(val linkData: ClusterLinkData,
     error.error.exception(s"While $action for topic '$topic' over cluster link '${linkData.linkName}': ${error.messageWithFallback}")
   }
 
+  /**
+    * Retrieves the replica status of the replicas for the provided partitions over the cluster link.
+    *
+    * @param partitions the partitions to fetch replica status for
+    * @return a map of partition to the replica status
+    */
+  def replicaStatus(partitions: Set[TopicPartition]): Map[TopicPartition, CompletableFuture[Seq[ReplicaStatus]]] = {
+    val options = new ReplicaStatusOptions().includeLinkedReplicas(false)
+    getAdmin.replicaStatus(partitions.asJava, options).result.asScala.map { case (tp, future) =>
+      val completableFuture = new CompletableFuture[Seq[ReplicaStatus]]
+      future.whenComplete((res, ex) => Option(ex) match {
+        case Some(e) => completableFuture.completeExceptionally(e)
+        case None => completableFuture.complete(res.asScala.map { rs =>
+          new ReplicaStatus(rs.brokerId(), rs.isLeader(), rs.isObserver(), rs.isIsrEligible(),
+            rs.isInIsr(), rs.isCaughtUp(), rs.logStartOffset(), rs.logEndOffset(),
+            rs.lastCaughtUpTimeMs(), rs.lastFetchTimeMs(), Optional.of(linkData.linkName))
+        }.toSeq)
+      })
+      tp -> completableFuture
+    }.toMap
+  }
+
+  def currentConfig: ClusterLinkConfig = config
 }

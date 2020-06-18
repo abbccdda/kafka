@@ -2,6 +2,12 @@
 
 package org.apache.kafka.server.audit;
 
+import org.apache.kafka.common.annotation.InterfaceStability;
+
+/**
+ *  The {@code AuditEventStatus} enum provides audit operation results.
+ */
+@InterfaceStability.Evolving
 public enum AuditEventStatus {
     SUCCESS,
     FAILURE,

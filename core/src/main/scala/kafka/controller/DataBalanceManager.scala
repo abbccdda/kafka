@@ -1,10 +1,10 @@
-/**
+/*
  * Copyright (C) 2020 Confluent Inc.
  */
 
 package kafka.controller
 
-import kafka.common.BrokerRemovalStatus
+import kafka.common.BrokerRemovalDescriptionInternal
 import kafka.server.KafkaConfig
 import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.slf4j.{Logger, LoggerFactory}
@@ -20,7 +20,7 @@ import org.slf4j.{Logger, LoggerFactory}
  * (and co-located with) the controller.
  */
 trait DataBalanceManager {
-  def onElection(): Unit
+  def onElection(brokerEpochs: java.util.Map[java.lang.Integer, java.lang.Long]): Unit
 
   def onResignation(): Unit
 
@@ -30,12 +30,18 @@ trait DataBalanceManager {
 
   def scheduleBrokerRemoval(brokerToRemove: Int, brokerToRemoveEpoch: Option[java.lang.Long]): Unit
 
-  def scheduleBrokerAdd(brokersToAdd: java.util.Set[Integer]): Unit
+  /**
+   * Notify the balance manager of newly-started brokers for it to take action on the event
+   * (e.g schedule a broker add operation or cancel an ongoing broker removal)
+   * @param emptyBrokers - the set of broker IDs that have just started up and contain no replcas on them
+   * @param newBrokers - a superset of `emptyBrokers`, this contains all the brokers that have just started up
+   */
+  def onBrokersStartup(emptyBrokers: java.util.Set[Integer], newBrokers: java.util.Set[Integer]): Unit
 
   /**
    * @return a list of the cluster's broker removals
    */
-  def brokerRemovals(): java.util.List[BrokerRemovalStatus]
+  def brokerRemovals(): java.util.List[BrokerRemovalDescriptionInternal]
 }
 
 object DataBalanceManager {

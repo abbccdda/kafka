@@ -415,7 +415,7 @@ class LogManager(logDirs: Seq[File],
     if (scheduler != null) {
       info("Starting log cleanup with a period of %d ms.".format(retentionCheckMs))
       scheduler.schedule("kafka-log-retention",
-                         cleanupLogs _,
+                         cleanupLogsAndMaybeForceRoll _,
                          delay = InitialTaskDelayMs,
                          period = retentionCheckMs,
                          TimeUnit.MILLISECONDS)
@@ -990,7 +990,7 @@ class LogManager(logDirs: Seq[File],
    * Delete any eligible logs. Return the number of segments deleted.
    * Only consider logs that are not compacted.
    */
-  def cleanupLogs(): Unit = {
+  def cleanupLogsAndMaybeForceRoll(): Unit = {
     debug("Beginning log cleanup...")
     var total = 0
     val startMs = time.milliseconds
@@ -1034,6 +1034,9 @@ class LogManager(logDirs: Seq[File],
 
     try {
       maybeDeleteOldSegments(deletableLogs)
+      deletableLogs.foreach {
+        case (_, log) => log.maybeForceRoll()
+      }
     } finally {
       if (cleaner != null) {
         cleaner.resumeCleaning(deletableLogs.map(_._1))

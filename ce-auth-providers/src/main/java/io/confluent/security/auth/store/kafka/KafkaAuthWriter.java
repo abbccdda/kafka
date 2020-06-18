@@ -16,6 +16,7 @@ import io.confluent.security.auth.store.data.RoleBindingValue;
 import io.confluent.security.auth.store.data.StatusKey;
 import io.confluent.security.auth.store.data.StatusValue;
 import io.confluent.security.auth.store.external.ExternalStore;
+import io.confluent.security.authorizer.ScopeType;
 import io.confluent.security.authorizer.acl.AclRule;
 import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.authorizer.ResourcePattern;
@@ -24,7 +25,6 @@ import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.InvalidScopeException;
 import io.confluent.security.authorizer.provider.ProviderFailedException;
 import io.confluent.security.authorizer.utils.ThreadUtils;
-import io.confluent.security.rbac.AccessPolicy;
 import io.confluent.security.rbac.InvalidRoleBindingException;
 import io.confluent.security.rbac.Role;
 import io.confluent.security.store.MetadataStoreStatus;
@@ -761,23 +761,34 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
     }
   }
 
-  private AccessPolicy accessPolicy(String role) {
-    Role roleDefinition = authCache.rbacRoles().role(role);
-    if (roleDefinition == null)
-      throw new InvalidRoleBindingException("Role not found " + role);
-    else
-      return roleDefinition.accessPolicy();
-  }
-
   private void validateRoleBindingUpdate(String role, Scope scope, Collection<?> resources, boolean expectResourcesForResourceLevel) {
     ensureMasterWriter();
     validateScope(scope);
-    AccessPolicy accessPolicy = accessPolicy(role);
-    if (!resources.isEmpty() && !accessPolicy.hasResourceScope())
-      throw new InvalidRequestException("Resources cannot be specified for role " + role +
-          " with scope type " + accessPolicy.scopeType());
-    else if (expectResourcesForResourceLevel && resources.isEmpty() && accessPolicy.hasResourceScope())
-      throw new InvalidRequestException("Role binding update of resource-scope role without any resources");
+    Role roleDefinition = authCache.rbacRoles().role(role);
+    if (roleDefinition == null)
+      throw new InvalidRoleBindingException("Role not found " + role);
+    ScopeType mostSpecific = roleDefinition.mostSpecificScopeType();
+    if (mostSpecific == ScopeType.RESOURCE) {
+      // If we're deleting a resource level role binding, resources are allowed to be empty
+      if (expectResourcesForResourceLevel && resources.isEmpty()) {
+        throw new InvalidRequestException("Role binding update of resource-scope role without any resources");
+      }
+    } else {
+      if (!resources.isEmpty()) {
+        throw new InvalidRequestException("Resources cannot be specified for role " + role +
+                " with scope type " + mostSpecific);
+      }
+      if (mostSpecific != scope.scopeType()) {
+        throw new InvalidRequestException("Role " + role + " should be bound at scope " +
+                mostSpecific + ", but was bound at " + scope.scopeType());
+      }
+      for (ScopeType scopeType : roleDefinition.scopeTypes()) {
+        if (scope.enclosingScope(scopeType) == null) {
+          throw new InvalidRequestException("Role " + role +
+                  " should be bound in a scope with an enclosing scope of " + scopeType);
+        }
+      }
+    }
   }
 
   private void validateRoleResources(Collection<ResourcePattern> resources) {

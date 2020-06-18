@@ -24,7 +24,8 @@ import java.nio.channels.{SelectionKey, SocketChannel}
 import java.nio.charset.StandardCharsets
 import java.util
 import java.util.concurrent.{CompletableFuture, ConcurrentLinkedQueue, Executors, TimeUnit}
-import java.util.{HashMap, Properties, Random}
+import java.util.function.UnaryOperator
+import java.util.{HashMap, Optional, Properties, Random}
 
 import com.yammer.metrics.core.{Gauge, Meter}
 import javax.net.ssl._
@@ -49,6 +50,7 @@ import org.apache.kafka.common.security.auth.{KafkaPrincipal, SecurityProtocol}
 import org.apache.kafka.common.security.scram.internals.ScramMechanism
 import org.apache.kafka.common.utils.AppInfoParser
 import org.apache.kafka.common.utils.{LogContext, MockTime, Time}
+import org.apache.kafka.server.audit.{AuditEvent, AuditLogProvider, NoOpAuditLogProvider}
 import org.apache.kafka.test.{TestSslUtils, TestUtils => JTestUtils}
 import org.apache.log4j.Level
 import org.junit.Assert._
@@ -57,7 +59,7 @@ import org.scalatest.Assertions.fail
 
 import scala.jdk.CollectionConverters._
 import scala.collection.mutable
-import scala.collection.mutable.ArrayBuffer
+import scala.collection.mutable.{ArrayBuffer, ListBuffer}
 import scala.collection.Seq
 import scala.util.control.ControlThrowable
 
@@ -165,8 +167,9 @@ class SocketServerTest {
     socket
   }
 
-  def sslConnect(s: SocketServer = server): Socket = {
-    val socket = sslClientSocket(s.boundPort(ListenerName.forSecurityProtocol(SecurityProtocol.SSL)))
+  def sslConnect(s: SocketServer = server,
+                 listenerName: ListenerName = ListenerName.forSecurityProtocol(SecurityProtocol.SSL)): Socket = {
+    val socket = sslClientSocket(s.boundPort(listenerName))
     sockets += socket
     socket
   }
@@ -1728,6 +1731,80 @@ class SocketServerTest {
     }
   }
 
+  @Test
+  def testAuditLogWithConfigEnabled(): Unit = {
+    verifyAuditLogConfig(true)
+  }
+
+  @Test
+  def testAuditLogWithConfigDisabled(): Unit = {
+    verifyAuditLogConfig(false)
+  }
+
+  def verifyAuditLogConfig(enableAuthenticationAuditLogs: Boolean): Unit = {
+    val serverMetrics = new Metrics
+    val testProps = new Properties
+    testProps ++= props
+    testProps ++= sslServerProps
+    testProps.put("listeners", "EXTERNAL://localhost:0,INTERNAL://localhost:0,PLAINTEXT://localhost:0")
+    testProps.put("listener.security.protocol.map", "EXTERNAL:SSL,INTERNAL:SSL,PLAINTEXT:PLAINTEXT")
+    testProps.put("inter.broker.listener.name", "INTERNAL")
+    testProps.remove("security.inter.broker.protocol")
+
+    if (enableAuthenticationAuditLogs)
+      testProps.put(KafkaConfig.AuthenticationAuditLogEnableProp, "true")
+    else
+      testProps.put(KafkaConfig.AuthenticationAuditLogEnableProp, "false")
+
+    val auditLogProvider = new TestAuditLogProvider();
+    val overrideServer = new SocketServer(KafkaConfig.fromProps(testProps), serverMetrics, Time.SYSTEM, credentialProvider, auditLogProvider)
+
+    def connectAndProcessRequest(securityProtocol: SecurityProtocol, listenerName: ListenerName): Socket = {
+      val socket = securityProtocol match {
+        case SecurityProtocol.PLAINTEXT =>
+          connect(overrideServer, listenerName)
+        case SecurityProtocol.SSL =>
+          sslConnect(overrideServer, listenerName)
+        case _ =>
+          throw new IllegalStateException(s"Unexpected security protocol $securityProtocol")
+      }
+      val request = sendAndReceiveRequest(socket, overrideServer)
+      processRequest(overrideServer.dataPlaneRequestChannel, request)
+      socket
+    }
+
+    def sendRequests(securityProtocol: SecurityProtocol, listenerName: ListenerName): Unit = {
+      for (_ <- 0 until 10) {
+        val socket = connectAndProcessRequest(securityProtocol, listenerName)
+        socket.close()
+      }
+    }
+
+    try {
+      overrideServer.startup()
+      assertTrue(auditLogProvider.events.isEmpty)
+
+      //make few external connections
+      sendRequests(SecurityProtocol.SSL, new ListenerName("EXTERNAL"))
+      if (enableAuthenticationAuditLogs)
+        assertEquals(10, auditLogProvider.events.size)
+      else
+        assertTrue(auditLogProvider.events.isEmpty)
+
+      //make few Internal/inter broker connections
+      auditLogProvider.events.clear()
+      sendRequests(SecurityProtocol.SSL, new ListenerName("INTERNAL"))
+      assertTrue(auditLogProvider.events.isEmpty)
+
+      //make few plain text broker connections
+      sendRequests(SecurityProtocol.PLAINTEXT, new ListenerName("PLAINTEXT"))
+      assertTrue(auditLogProvider.events.isEmpty)
+
+    } finally {
+      shutdownServerAndMetrics(overrideServer)
+    }
+  }
+
   private def sslServerProps: Properties = {
     val trustStoreFile = File.createTempFile("truststore", ".jks")
     val sslProps = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, interBrokerSecurityProtocol = Some(SecurityProtocol.SSL),
@@ -1806,7 +1883,7 @@ class SocketServerTest {
                                 protocol: SecurityProtocol, memoryPool: MemoryPool): Processor = {
       new Processor(id, time, config.socketRequestMaxBytes, requestChannel, connectionQuotas, config.connectionsMaxIdleMs,
         config.failedAuthenticationDelayMs, listenerName, protocol, config, metrics, credentialProvider,
-        memoryPool, new LogContext(), connectionQueueSize) {
+        memoryPool, new LogContext(), NoOpAuditLogProvider.INSTANCE, connectionQueueSize) {
 
         override protected[network] def createSelector(channelBuilder: ChannelBuilder): Selector = {
            val testableSelector = new TestableSelector(config, channelBuilder, time, metrics, metricTags.asScala)
@@ -1859,7 +1936,7 @@ class SocketServerTest {
 
   class TestableSelector(config: KafkaConfig, channelBuilder: ChannelBuilder, time: Time, metrics: Metrics, metricTags: mutable.Map[String, String] = mutable.Map.empty)
         extends Selector(config.socketRequestMaxBytes, config.connectionsMaxIdleMs, config.failedAuthenticationDelayMs,
-            metrics, time, "socket-server", metricTags.asJava, false, true, channelBuilder, MemoryPool.NONE, new LogContext()) {
+            metrics, time, "socket-server", metricTags.asJava, false, true, channelBuilder, MemoryPool.NONE, new LogContext(), Optional.of(NoOpAuditLogProvider.INSTANCE)) {
 
     val failures = mutable.Map[SelectorOperation, Throwable]()
     val operationCounts = mutable.Map[SelectorOperation, Int]().withDefaultValue(0)
@@ -2122,5 +2199,40 @@ class SocketServerTest {
       assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS))
     }
 
+  }
+
+  private class TestAuditLogProvider extends AuditLogProvider {
+    var events = new ListBuffer[AuditEvent]()
+
+    override def providerConfigured(configs: util.Map[String, _]): Boolean = {
+      true
+    }
+
+    override def logEvent(auditEvent: AuditEvent): Unit = {
+      events += auditEvent
+    }
+
+    override def setSanitizer(sanitizer: UnaryOperator[AuditEvent]): Unit = {
+    }
+
+    override def usesMetadataFromThisKafkaCluster(): Boolean = {
+      true
+    }
+
+    override def reconfigurableConfigs(): util.Set[String] = {
+      Set.empty.asJava
+    }
+
+    override def validateReconfiguration(configs: util.Map[String, _]): Unit = {
+    }
+
+    override def reconfigure(configs: util.Map[String, _]): Unit = {
+    }
+
+    override def configure(configs: util.Map[String, _]): Unit = {
+    }
+
+    override def close(): Unit = {
+    }
   }
 }

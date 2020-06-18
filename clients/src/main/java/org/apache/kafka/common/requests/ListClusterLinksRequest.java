@@ -7,16 +7,24 @@ import org.apache.kafka.common.message.ListClusterLinksRequestData;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.types.Struct;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Optional;
+
 public class ListClusterLinksRequest extends AbstractRequest {
 
     public static class Builder extends AbstractRequest.Builder<ListClusterLinksRequest> {
 
         private final ListClusterLinksRequestData data;
 
-        public Builder() {
+        public Builder(Optional<Collection<String>> linkNames, boolean includeTopics, int timeoutMs) {
             super(ApiKeys.LIST_CLUSTER_LINKS);
 
-            this.data = new ListClusterLinksRequestData();
+            this.data = new ListClusterLinksRequestData()
+                    .setLinkNames(linkNames.map(names -> new ArrayList<>(names)).orElse(null))
+                    .setIncludeTopics(includeTopics)
+                    .setTimeoutMs(timeoutMs);
         }
 
         @Override
@@ -40,6 +48,18 @@ public class ListClusterLinksRequest extends AbstractRequest {
     public ListClusterLinksRequest(Struct struct, short version) {
         super(ApiKeys.LIST_CLUSTER_LINKS, version);
         this.data = new ListClusterLinksRequestData(struct, version);
+    }
+
+    public Optional<List<String>> linkNames() {
+        return Optional.ofNullable(data.linkNames());
+    }
+
+    public boolean includeTopics() {
+        return data.includeTopics();
+    }
+
+    public int timeoutMs() {
+        return data.timeoutMs();
     }
 
     @Override

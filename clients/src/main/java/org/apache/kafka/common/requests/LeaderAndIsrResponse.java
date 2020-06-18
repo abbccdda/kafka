@@ -16,6 +16,8 @@
  */
 package org.apache.kafka.common.requests;
 
+import java.util.HashMap;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.message.LeaderAndIsrResponseData;
 import org.apache.kafka.common.message.LeaderAndIsrResponseData.LeaderAndIsrPartitionError;
 import org.apache.kafka.common.protocol.ApiKeys;
@@ -27,7 +29,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
-public class LeaderAndIsrResponse extends AbstractResponse {
+public class LeaderAndIsrResponse extends AbstractControlResponse {
 
     private final LeaderAndIsrResponseData data;
 
@@ -45,6 +47,17 @@ public class LeaderAndIsrResponse extends AbstractResponse {
 
     public Errors error() {
         return Errors.forCode(data.errorCode());
+    }
+
+    @Override
+    public Map<TopicPartition, Errors> partitionErrors() {
+        Map<TopicPartition, Errors> partitionsErrors = new HashMap<>();
+        data.partitionErrors().forEach(partitionError ->
+            partitionsErrors.put(
+                new TopicPartition(partitionError.topicName(), partitionError.partitionIndex()),
+                Errors.forCode(partitionError.errorCode()))
+        );
+        return partitionsErrors;
     }
 
     @Override

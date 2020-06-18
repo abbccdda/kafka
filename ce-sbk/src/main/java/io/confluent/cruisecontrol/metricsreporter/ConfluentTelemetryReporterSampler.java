@@ -1,22 +1,30 @@
 package io.confluent.cruisecontrol.metricsreporter;
 
 import com.google.protobuf.InvalidProtocolBufferException;
+
 import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.BrokerMetric;
 import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.CruiseControlMetric;
 import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.PartitionMetric;
 import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType;
 import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.TopicMetric;
-import io.opencensus.proto.metrics.v1.Metric;
-import io.opencensus.proto.metrics.v1.Point;
-import io.opencensus.proto.metrics.v1.SummaryValue;
-import io.opencensus.proto.metrics.v1.TimeSeries;
 
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.common.header.Header;
+
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import io.confluent.telemetry.exporter.kafka.KafkaExporter;
+import io.opencensus.proto.metrics.v1.Metric;
+import io.opencensus.proto.metrics.v1.Point;
+import io.opencensus.proto.metrics.v1.SummaryValue;
+import io.opencensus.proto.metrics.v1.TimeSeries;
 
 /**
  * This class reads Confluent telemetry metrics as byte arrays from the metrics topic, converts them to Cruise Control
@@ -57,11 +65,25 @@ public class ConfluentTelemetryReporterSampler extends ConfluentMetricsSamplerBa
     private static final TimerMetricTypes LOG_FLUSH_TIMER_METRIC_TYPES = new TimerMetricTypes(RawMetricType.BROKER_LOG_FLUSH_TIME_MS_50TH,
             RawMetricType.BROKER_LOG_FLUSH_TIME_MS_999TH, RawMetricType.BROKER_LOG_FLUSH_TIME_MS_MAX, RawMetricType.BROKER_LOG_FLUSH_TIME_MS_MEAN);
 
+
+    private static int telemetryMessageVersion(ConsumerRecord<byte[], byte[]> record) {
+        Header versionHeader = record.headers().lastHeader(KafkaExporter.VERSION_HEADER_KEY);
+        if (versionHeader != null) {
+            return ByteBuffer.wrap(versionHeader.value()).order(ByteOrder.LITTLE_ENDIAN).getInt();
+        }
+        // assume version 0 if version header not present
+        return 0;
+    }
+
     @Override
-    protected List<CruiseControlMetric> convertMetricRecord(byte[] metricBytes) {
+    protected List<CruiseControlMetric> convertMetricRecord(ConsumerRecord<byte[], byte[]> record) {
+        if (telemetryMessageVersion(record) != 0) {
+            return Collections.emptyList();
+        }
+
         Metric metric;
         try {
-            metric = Metric.parseFrom(metricBytes);
+            metric = Metric.parseFrom(record.value());
         } catch (InvalidProtocolBufferException e) {
             LOG.error("Received exception when parsing metric data", e);
             return Collections.emptyList();

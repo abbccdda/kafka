@@ -5,6 +5,7 @@ package org.apache.kafka.common.requests;
 
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.message.AlterMirrorsRequestData;
+import org.apache.kafka.common.message.AlterMirrorsRequestData.ClearTopicMirrorData;
 import org.apache.kafka.common.message.AlterMirrorsRequestData.OpData;
 import org.apache.kafka.common.message.AlterMirrorsRequestData.StopTopicMirrorData;
 import org.apache.kafka.common.protocol.ApiKeys;
@@ -24,6 +25,9 @@ public class AlterMirrorsRequest extends AbstractRequest {
       // Empty.
     }
 
+    /**
+     * Stops a topic mirror, making the topic writable.
+     */
     public static class StopTopicMirrorOp implements Op {
 
         private final String topic;
@@ -55,6 +59,41 @@ public class AlterMirrorsRequest extends AbstractRequest {
         }
     }
 
+    /**
+     * Internal operation for clearing mirroring information from a topic because its
+     * cluster link was deleted.
+     */
+    public static class ClearTopicMirrorOp implements Op {
+
+        private final String topic;
+
+        public ClearTopicMirrorOp(String topic) {
+            this.topic = Objects.requireNonNull(topic, "Topic not specified");
+        }
+
+        public String topic() {
+            return topic;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            ClearTopicMirrorOp that = (ClearTopicMirrorOp) o;
+            return Objects.equals(topic, that.topic);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(topic);
+        }
+
+        @Override
+        public String toString() {
+            return "ClearTopicMirrorOp(topic=" + topic + ")";
+        }
+    }
+
     public static class Builder extends AbstractRequest.Builder<AlterMirrorsRequest> {
 
         private final AlterMirrorsRequestData data;
@@ -68,6 +107,9 @@ public class AlterMirrorsRequest extends AbstractRequest {
                 if (op instanceof StopTopicMirrorOp) {
                     StopTopicMirrorOp subOp = (StopTopicMirrorOp) op;
                     opData.setStopTopicMirror(Collections.singletonList(new StopTopicMirrorData().setTopic(subOp.topic())));
+                } else if (op instanceof ClearTopicMirrorOp) {
+                    ClearTopicMirrorOp subOp = (ClearTopicMirrorOp) op;
+                    opData.setClearTopicMirror(Collections.singletonList(new ClearTopicMirrorData().setTopic(subOp.topic())));
                 } else {
                     throw new InvalidRequestException("Unexpected mirror control op type");
                 }
@@ -106,12 +148,22 @@ public class AlterMirrorsRequest extends AbstractRequest {
     public List<Op> ops() {
         List<Op> ops = new ArrayList<>(data.ops().size());
         for (OpData opData : data.ops()) {
+            if ((opData.stopTopicMirror() != null ? 1 : 0) +
+                (opData.clearTopicMirror() != null ? 1 : 0) != 1) {
+                throw new InvalidRequestException("Unexpected request data");
+            }
             if (opData.stopTopicMirror() != null) {
                 if (opData.stopTopicMirror().size() != 1) {
                     throw new InvalidRequestException("Unexpected request size");
                 }
                 StopTopicMirrorData stopTopicMirrorData = opData.stopTopicMirror().get(0);
                 ops.add(new StopTopicMirrorOp(stopTopicMirrorData.topic()));
+            } else if (opData.clearTopicMirror() != null) {
+                if (opData.clearTopicMirror().size() != 1) {
+                    throw new InvalidRequestException("Unexpected request size");
+                }
+                ClearTopicMirrorData clearTopicMirrorData = opData.clearTopicMirror().get(0);
+                ops.add(new ClearTopicMirrorOp(clearTopicMirrorData.topic()));
             } else {
                 throw new InvalidRequestException("Unexpected mirror control op type");
             }

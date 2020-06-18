@@ -66,21 +66,21 @@ public class BrokerFailureDetectorTest extends CCKafkaIntegrationTestHarness {
         // wait for the anomalies to be drained.
       }
       assertEquals("One broker failure should have been detected before timeout.", 1, anomalies.size());
-      Anomaly anomaly = anomalies.remove();
+      Anomaly anomaly = anomalies.peek();
       assertTrue("The anomaly should be BrokerFailure", anomaly instanceof BrokerFailures);
       BrokerFailures brokerFailures = (BrokerFailures) anomaly;
       assertEquals("The failed broker should be 0 and time should be 100L", Collections.singletonMap(brokerId, 100L),
                    brokerFailures.failedBrokers());
 
-      // Ensure that broker failure is detected as long as the broker is down.
-      detector.detectBrokerFailures();
-      assertEquals("One broker failure should have been detected before timeout.", 1, anomalies.size());
       // Bring the broker back
       restartDeadBroker(brokerId);
-      detector.detectBrokerFailures();
+      start = System.currentTimeMillis();
+      while (detector.failedBrokers().isEmpty() && System.currentTimeMillis() < start + 30000) {
+        // wait for the anomalies to be drained.
+      }
       assertTrue(detector.failedBrokers().isEmpty());
     } finally {
-      detector.shutdown();
+      detector.shutdownNow();
     }
   }
 
@@ -94,9 +94,13 @@ public class BrokerFailureDetectorTest extends CCKafkaIntegrationTestHarness {
       int brokerId = 0;
       killBroker(brokerId);
       detector.startDetection();
+      long start = System.currentTimeMillis();
+      while (detector.failedBrokers().isEmpty() && System.currentTimeMillis() < start + 30000) {
+        // wait for the anomalies to be drained.
+      }
       assertEquals(Collections.singletonMap(brokerId, 100L), detector.failedBrokers());
     } finally {
-      detector.shutdown();
+      detector.shutdownNow();
     }
   }
 
@@ -116,14 +120,18 @@ public class BrokerFailureDetectorTest extends CCKafkaIntegrationTestHarness {
       }
       assertEquals(Collections.singletonMap(brokerId, 100L), detector.failedBrokers());
       // shutdown, advance the clock and create a new detector.
-      detector.shutdown();
+      detector.shutdownNow();
       mockTime.sleep(100L);
       detector = createBrokerFailureDetector(anomalies, mockTime);
       // start the newly created detector and the broker down time should remain previous time.
       detector.startDetection();
+      start = System.currentTimeMillis();
+      while (detector.failedBrokers().isEmpty() && System.currentTimeMillis() < start + 30000) {
+        // wait for the failed brokers to be detected.
+      }
       assertEquals(Collections.singletonMap(brokerId, 100L), detector.failedBrokers());
     } finally {
-      detector.shutdown();
+      detector.shutdownNow();
     }
   }
 

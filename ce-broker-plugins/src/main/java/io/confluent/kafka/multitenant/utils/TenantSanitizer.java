@@ -3,6 +3,7 @@
  */
 package io.confluent.kafka.multitenant.utils;
 
+import io.confluent.kafka.common.multitenant.oauth.OAuthBearerJwsToken;
 import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 import io.confluent.kafka.multitenant.TenantMetadata;
 import io.confluent.kafka.security.audit.event.ConfluentAuthenticationEvent;
@@ -15,12 +16,13 @@ import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.provider.ConfluentAuthorizationEvent;
 import org.apache.kafka.common.acl.AccessControlEntry;
 import org.apache.kafka.common.acl.AclBinding;
+import org.apache.kafka.common.errors.AuthenticationException;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.SecurityUtils;
 import org.apache.kafka.server.audit.AuditEvent;
 import org.apache.kafka.server.audit.AuditEventType;
-import org.apache.kafka.server.audit.AuthenticationEventImpl;
+import org.apache.kafka.server.audit.DefaultAuthenticationEvent;
 
 import java.net.InetAddress;
 
@@ -199,10 +201,31 @@ public class TenantSanitizer {
       Scope tenantScope = tenantScope(auditEvent.getScope(), metadata.clusterId);
       KafkaPrincipal principal =  tenantPrincipal((MultiTenantPrincipal) auditEvent.principal().get());
       return new ConfluentAuthenticationEvent(
-          new AuthenticationEventImpl(principal, auditEvent.authenticationContext(), auditEvent.status(), auditEvent.timestamp()),
+          new DefaultAuthenticationEvent(principal, auditEvent.authenticationContext(), auditEvent.status(),
+              auditEvent.authenticationException().orElse(null), auditEvent.timestamp()),
           tenantScope);
+    } else if (auditEvent.authenticationException().isPresent()) {
+      AuthenticationException exception =  auditEvent.authenticationException().get();
+      String lkcId = getLKCIdFromException(exception);
+      if (!lkcId.isEmpty()) {
+        Scope tenantScope = tenantScope(auditEvent.getScope(), lkcId);
+        return new ConfluentAuthenticationEvent(
+            new DefaultAuthenticationEvent(auditEvent.principal().orElse(null), auditEvent.authenticationContext(), auditEvent.status(),
+                auditEvent.authenticationException().orElse(null), auditEvent.timestamp()),
+            tenantScope);
+      }
+    }
+
+    return auditEvent;
+}
+
+  private static String getLKCIdFromException(final AuthenticationException exception) {
+    String clusterId = exception.errorInfo().clusterId();
+    if (!clusterId.isEmpty()) {
+      return clusterId;
     } else {
-      return auditEvent;
+      // For OAuth failures, try extracting logical cluster from SASL extension names
+      return exception.errorInfo().saslExtensions().getOrDefault(OAuthBearerJwsToken.OAUTH_NEGOTIATED_LOGICAL_CLUSTER_PROPERTY_KEY, "");
     }
   }
 

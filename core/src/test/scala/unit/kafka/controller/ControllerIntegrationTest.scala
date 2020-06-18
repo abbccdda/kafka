@@ -655,7 +655,7 @@ class ControllerIntegrationTest extends ZooKeeperTestHarness {
     testBroker.startup()
 
     val expectedBrokers = Set[java.lang.Integer](testBroker.config.brokerId).asJava
-    Mockito.verify(mockDataBalanceManager).scheduleBrokerAdd(expectedBrokers)
+    Mockito.verify(mockDataBalanceManager).onBrokersStartup(expectedBrokers, expectedBrokers)
   }
 
   @Test
@@ -687,7 +687,9 @@ class ControllerIntegrationTest extends ZooKeeperTestHarness {
     testBroker.startup()
 
     // We should NOT be adding this broker
-    Mockito.verify(mockDataBalanceManager).scheduleBrokerAdd(Collections.emptySet())
+    val brokersToAdd: java.util.Set[java.lang.Integer] = Collections.emptySet()
+    val allNewBrokers = Set[java.lang.Integer](testBroker.config.brokerId).asJava
+    Mockito.verify(mockDataBalanceManager).onBrokersStartup(brokersToAdd, allNewBrokers)
   }
 
   private def testControllerMove(fun: () => Unit): Unit = {

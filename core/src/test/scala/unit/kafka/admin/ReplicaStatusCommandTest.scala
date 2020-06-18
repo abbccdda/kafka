@@ -39,10 +39,6 @@ import scala.collection.Seq
 final class ReplicaStatusCommandTest extends KafkaServerTestHarness {
   import ReplicaStatusCommandTest._
 
-  private val headers =
-    Array("Topic", "Partition", "Replica", "IsLeader", "IsObserver", "IsIsrEligible", "IsInIsr", "IsCaughtUp",
-      "LastCaughtUpLagMs", "LastFetchLagMs", "LogStartOffset", "LogEndOffset")
-
   override def generateConfigs: Seq[KafkaConfig] =
     TestUtils.createBrokerConfigs(
       numConfigs = 3,
@@ -103,6 +99,7 @@ final class ReplicaStatusCommandTest extends KafkaServerTestHarness {
     scanner.findInLine("""(\w+)\s+(\w+)\s+(\w+)\s+(\w+)\s+(\w+)\s+(\w+)\s+(\w+)\s+(\w+)\s+(\w+)\s+(\w+)\s+(\w+)\s+(\w+)""")
     val topMatch = scanner.`match`
 
+    val headers = ReplicaStatusCommand.headers(includeClusterLink = false)
     assertTrue(topMatch.groupCount == headers.size)
     for (idx <- 0 until headers.size) {
       assertTrue(topMatch.group(idx + 1) == headers(idx))
@@ -284,7 +281,8 @@ final class ReplicaStatusCommandTest extends KafkaServerTestHarness {
   @Test
   def testJson(): Unit = {
     val topics = Array("test-topic-1", "test-topic-2")
-    val jsonTopics = Json.parseFull(runCommand(topics, 2, Array("--json"))).get.asJsonArray.iterator
+    val jsonTopics = Json.parseFull(runCommand(topics, 2, Array("--json", "--include-linked"))).get.asJsonArray.iterator
+    val headers = ReplicaStatusCommand.headers(includeClusterLink = true)
 
     var topicsCount = 0
     while (jsonTopics.hasNext) {

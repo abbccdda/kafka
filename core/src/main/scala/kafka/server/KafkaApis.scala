@@ -21,7 +21,7 @@ import java.lang.{Byte => JByte}
 import java.lang.{Long => JLong}
 import java.nio.ByteBuffer
 import java.util
-import java.util.{Collections, Optional}
+import java.util.{Collections, Optional, UUID}
 import java.util.concurrent.{CompletableFuture, ConcurrentHashMap, ExecutionException}
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -29,8 +29,7 @@ import kafka.admin.{AdminUtils, RackAwareMode}
 import kafka.api.ElectLeadersRequestOps
 import kafka.api.{ApiVersion, KAFKA_0_11_0_IV0, KAFKA_2_3_IV0}
 import kafka.cluster.Partition
-import kafka.common.BrokerRemovalStatus
-import kafka.common.OffsetAndMetadata
+import kafka.common.{BrokerRemovalDescriptionInternal, OffsetAndMetadata}
 import kafka.controller.{KafkaController, ReplicaAssignment}
 import kafka.coordinator.group.{GroupCoordinator, JoinGroupResult, LeaveGroupResult, SyncGroupResult}
 import kafka.coordinator.transaction.{InitProducerIdResult, TransactionCoordinator}
@@ -73,6 +72,7 @@ import org.apache.kafka.common.protocol.{ApiKeys, Errors}
 import org.apache.kafka.common.record._
 import org.apache.kafka.common.replica.ClientMetadata
 import org.apache.kafka.common.replica.ClientMetadata.DefaultClientMetadata
+import org.apache.kafka.common.replica.ReplicaStatus
 import org.apache.kafka.common.requests.FindCoordinatorRequest.CoordinatorType
 import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
 import org.apache.kafka.common.requests._
@@ -222,51 +222,98 @@ class KafkaApis(val requestChannel: RequestChannel,
   }
 
   def handleReplicaStatusRequest(request: RequestChannel.Request): Unit = {
-    def toPartitionResponse(partition: TopicPartition, authorized: Boolean): ReplicaStatusPartitionResponse = {
-      val response = new ReplicaStatusPartitionResponse()
-        .setPartitionIndex(partition.partition())
-      if (!authorized) {
-        response
-          .setErrorCode(Errors.TOPIC_AUTHORIZATION_FAILED.code)
-          .setReplicas(null)
-      } else try {
-        val replicas = replicaManager.getPartitionOrException(partition, expectLeader = true).replicaStatus()
-        response
-          .setErrorCode(Errors.NONE.code)
-          .setReplicas(replicas.map { status =>
-            new ReplicaStatusReplicaResponse()
-              .setId(status.brokerId)
-              .setIsLeader(status.isLeader())
-              .setIsObserver(status.isObserver())
-              .setIsIsrEligible(status.isIsrEligible())
-              .setIsInIsr(status.isInIsr())
-              .setIsCaughtUp(status.isCaughtUp())
-              .setLogStartOffset(status.logStartOffset())
-              .setLogEndOffset(status.logEndOffset())
-              .setLastCaughtUpTimeMs(status.lastCaughtUpTimeMs())
-              .setLastFetchTimeMs(status.lastFetchTimeMs())
-          }.asJava)
-      } catch {
-        case e: Throwable =>
-          response
-            .setErrorCode(Errors.forException(e).code)
-            .setReplicas(null)
+    val requestData = request.body[ReplicaStatusRequest].data
+    val includeLinkedReplicas = requestData.includeLinkedReplicas
+
+    def toPartitionResponseError(partition: Int, e: Throwable): ReplicaStatusPartitionResponse =
+      new ReplicaStatusPartitionResponse()
+        .setPartitionIndex(partition)
+        .setErrorCode(Errors.forException(e).code)
+        .setReplicas(null)
+
+    def toPartitionResponse(partition: Int, future: CompletableFuture[Seq[ReplicaStatus]]): ReplicaStatusPartitionResponse = try {
+      val replicas = future.get
+      new ReplicaStatusPartitionResponse()
+        .setPartitionIndex(partition)
+        .setErrorCode(Errors.NONE.code)
+        .setReplicas(replicas.map { status =>
+          new ReplicaStatusReplicaResponse()
+            .setId(status.brokerId)
+            .setIsLeader(status.isLeader())
+            .setIsObserver(status.isObserver())
+            .setIsIsrEligible(status.isIsrEligible())
+            .setIsInIsr(status.isInIsr())
+            .setIsCaughtUp(status.isCaughtUp())
+            .setLogStartOffset(status.logStartOffset())
+            .setLogEndOffset(status.logEndOffset())
+            .setLastCaughtUpTimeMs(status.lastCaughtUpTimeMs())
+            .setLastFetchTimeMs(status.lastFetchTimeMs())
+            .setLinkName(status.linkName().orElse(null))
+        }.asJava)
+    } catch {
+      case e: ExecutionException => toPartitionResponseError(partition, e.getCause)
+      case e: Throwable => toPartitionResponseError(partition, e)
+    }
+
+    val futuresMap = mutable.Map.empty[TopicPartition, CompletableFuture[Seq[ReplicaStatus]]]
+    val linkMap = mutable.Map.empty[UUID, mutable.Set[TopicPartition]]
+
+    requestData.topics.asScala.foreach { topicRequest =>
+      val topic = topicRequest.name
+      val authorized = authorize(request.context, DESCRIBE, TOPIC, topic)
+      topicRequest.partitions.asScala.foreach { partition =>
+        val tp = new TopicPartition(topic, partition)
+        val future = try {
+          if (!authorized)
+            throw new TopicAuthorizationException(s"Failed to authorize topic '$topic'")
+          val part = replicaManager.getPartitionOrException(tp, expectLeader = true)
+          val linkId = part.getClusterLinkId
+          if (includeLinkedReplicas)
+            linkId.foreach(lid => linkMap.getOrElseUpdate(lid, mutable.Set()) += tp)
+          CompletableFuture.completedFuture[Seq[ReplicaStatus]](part.replicaStatus())
+        } catch {
+          case e: Throwable =>
+            val future = new CompletableFuture[Seq[ReplicaStatus]]
+            future.completeExceptionally(e)
+            future
+        }
+        futuresMap += tp -> future
       }
     }
 
-    val requestData = request.body[ReplicaStatusRequest].data
-    val responseData = new ReplicaStatusResponseData()
-      .setErrorCode(0)
-      .setTopics(requestData.topics.asScala.map { topicRequest =>
-        val authorized = authorize(request.context, DESCRIBE, TOPIC, topicRequest.name)
-        new ReplicaStatusTopicResponse()
-          .setName(topicRequest.name)
-          .setPartitions(topicRequest.partitions.asScala.map { partition =>
-            toPartitionResponse(new TopicPartition(topicRequest.name, partition), authorized)
-          }.asJava)
-      }.asJava)
+    def sendResponseCallback(): Unit = {
+      val responseData = new ReplicaStatusResponseData()
+        .setErrorCode(0)
+        .setTopics(requestData.topics.asScala.map { topicRequest =>
+          val topic = topicRequest.name
+          new ReplicaStatusTopicResponse()
+            .setName(topic)
+            .setPartitions(topicRequest.partitions.asScala.map { partition =>
+              toPartitionResponse(partition, futuresMap(new TopicPartition(topic, partition)))
+            }.toList.asJava)
+        }.toList.asJava)
 
-    sendResponseMaybeThrottle(request, throttleTimeMs => new ReplicaStatusResponse(responseData.setThrottleTimeMs(throttleTimeMs)))
+      sendResponseMaybeThrottle(request, throttleTimeMs => new ReplicaStatusResponse(responseData.setThrottleTimeMs(throttleTimeMs)))
+    }
+
+    if (!config.clusterLinkEnable || linkMap.isEmpty) {
+      sendResponseCallback()
+    } else {
+      linkMap.map { case (linkId, partitions) =>
+        val linkClient = clusterLinkAdminManager.clusterLinkManager.clientManager(linkId)
+        linkClient.foreach { client =>
+          client.replicaStatus(partitions).foreach { case (tp, linkFuture) =>
+            val future = futuresMap(tp)
+            if (!future.isCompletedExceptionally) {
+              val combinedFuture = CompletableFuture.allOf(future, linkFuture)
+                .thenApply[Seq[ReplicaStatus]](_ => future.get ++ linkFuture.get)
+              futuresMap.update(tp, combinedFuture)
+            }
+          }
+        }
+      }
+      clusterLinkAdminManager.purgatory.tryCompleteElseWatch(config.connectionsMaxIdleMs, futuresMap.values.toSeq, sendResponseCallback)
+    }
   }
 
   def handleLeaderAndIsrRequest(request: RequestChannel.Request): Unit = {
@@ -1248,7 +1295,17 @@ class KafkaApis(val requestChannel: RequestChannel,
           else
             topicMetadata
         } else if (allowAutoTopicCreation && config.autoCreateTopicsEnable) {
-          createTopic(topic, config.numPartitions, config.defaultReplicationFactor)
+          val topicToCreate = new CreatableTopic().setName(topic)
+          try {
+            adminManager.validateTopicCreatePolicy(topicToCreate, config.numPartitions,
+              config.defaultReplicationFactor.toShort, Map.empty)
+            createTopic(topic, config.numPartitions, config.defaultReplicationFactor)
+          } catch {
+            // MetadataResponse is not specified to return `POLICY_VIOLATION`, so we fallback
+            // to TOPIC_AUTHORIZATON_FAILED which is the closest non retriable alternative
+            case _: PolicyViolationException => metadataResponseTopic(Errors.TOPIC_AUTHORIZATION_FAILED,
+              topic, false, util.Collections.emptyList[MetadataResponsePartition]())
+          }
         } else {
           metadataResponseTopic(Errors.UNKNOWN_TOPIC_OR_PARTITION, topic, false, util.Collections.emptyList())
         }
@@ -2655,7 +2712,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         s"This broker ($brokerId) isn't the controller currently.");
     }
 
-    def sendResponseCallback(result: Either[List[BrokerRemovalStatus], ApiError]): Unit = {
+    def sendResponseCallback(result: Either[List[BrokerRemovalDescriptionInternal], ApiError]): Unit = {
       val responseData = result match {
         case Left(removalStatuses) => {
           val removalsResponses = removalStatuses.map { removalStatus =>
@@ -2700,18 +2757,18 @@ class KafkaApis(val requestChannel: RequestChannel,
     val removeBrokersRequest = request.body[RemoveBrokersRequest]
     val brokersToRemove = removeBrokersRequest.data.brokersToRemove.asScala.toList.map(_.brokerId())
     if (brokersToRemove.isEmpty) {
-      throw new InvalidRequestException("At least one broker id need to be specified.")
+      throw new InvalidBrokerRemovalException("At least one broker id need to be specified.")
     }
 
     // Check if broker ids are valid
     val invalidBrokers = brokersToRemove.filter(_ < 0)
     if (invalidBrokers.nonEmpty) {
-      throw new InvalidRequestException(s"Invalid broker ids specified: $invalidBrokers")
+      throw new InvalidBrokerRemovalException(s"Invalid broker ids specified: $invalidBrokers")
     }
 
     if (brokersToRemove.size != 1) {
       val errMsg = s"Only one broker can be removed at a time. Multiple broker ids specified: $brokersToRemove"
-      throw new InvalidRequestException(errMsg)
+      throw new InvalidBrokerRemovalException(errMsg)
     }
 
     val brokerToRemove = brokersToRemove.head
@@ -2751,18 +2808,25 @@ class KafkaApis(val requestChannel: RequestChannel,
 
     if (partitionsWithReplicationFactorOne.nonEmpty) {
       // Can't get rid of only replica. This may result in partition unavailability/data loss
-      throw new InvalidRequestException(s"Can't remove broker $brokersToRemove as this will result in " +
+      throw new InvalidBrokerRemovalException(s"Can't remove broker $brokersToRemove as this will result in " +
         s"partitions becoming unavailable: ${partitionsWithReplicationFactorOne.head}")
     }
 
     if (metadataCache.getAliveBroker(brokerToRemove).isEmpty) {
-      val partitionWithRemovedBroker = topicPartitionsList.filter { partitions: Seq[PartitionInfo] =>
-        partitions.exists { partitionInfo =>
-          (partitionInfo.replicas ++ partitionInfo.observers).exists(broker => broker != null && broker.id == brokerToRemove)
-        }
+      // Go over all topics and their partitions to check if broker to be removed hosts at least one replica
+      val brokerToRemoveHostsReplica = topicPartitionsList.exists {
+        // For partitions of a topic, convert PartitionInfo to UpdateMetadataPartitionState which contains broker id
+        // even if they are not alive
+        partitions => partitions.flatMap {
+          partitionInfo => metadataCache.getPartitionInfo(partitionInfo.topic(), partitionInfo.partition())
+        }.flatMap {
+          // Get all broker ids from partition state
+          state => state.replicas().asScala ++ state.observers().asScala
+        }.contains(brokerToRemove)
       }
-      if (partitionWithRemovedBroker.isEmpty)
-        throw new InvalidRequestException(s"Unknown broker id specified: $brokersToRemove")
+
+      if (!brokerToRemoveHostsReplica)
+        throw new InvalidBrokerRemovalException(s"Unknown broker id specified: $brokersToRemove")
     }
 
     def sendResponseCallback(result: Option[ApiError]): Unit = {
@@ -3279,7 +3343,10 @@ class KafkaApis(val requestChannel: RequestChannel,
         listClusterLinksRequest.getErrorResponse(requestThrottleMs, Errors.CLUSTER_AUTHORIZATION_FAILED.exception))
 
     } else try {
-      val result = clusterLinkAdminManager.listClusterLinks().asJava
+      val linkNames = listClusterLinksRequest.linkNames.asScala.map(_.asScala.toSet)
+      val includeTopics = listClusterLinksRequest.includeTopics
+
+      val result = clusterLinkAdminManager.listClusterLinks(linkNames, includeTopics).asJava
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         new ListClusterLinksResponse(result, requestThrottleMs))
 
@@ -3340,6 +3407,11 @@ class KafkaApis(val requestChannel: RequestChannel,
   def handleAlterMirrorsRequest(request: RequestChannel.Request): Unit = {
     val alterMirrorsRequest = request.body[AlterMirrorsRequest]
 
+    def authorizeAlterTopicOperation(request: RequestChannel.Request, topic: String): Unit = {
+      if (!authorize(request.context, ALTER, TOPIC, topic))
+        throw new TopicAuthorizationException(s"Failed to authorize topic '$topic'")
+    }
+
     if (!controller.isActive) {
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         alterMirrorsRequest.getErrorResponse(requestThrottleMs, Errors.NOT_CONTROLLER.exception))
@@ -3348,12 +3420,15 @@ class KafkaApis(val requestChannel: RequestChannel,
       val timeoutMs = alterMirrorsRequest.timeoutMs
       val futures = alterMirrorsRequest.ops.asScala.map { op =>
         try {
-          val topic = op match {
-            case subOp: AlterMirrorsRequest.StopTopicMirrorOp => Some(subOp.topic())
-            case _ => None
+          op match {
+            case subOp: AlterMirrorsRequest.StopTopicMirrorOp =>
+              authorizeAlterTopicOperation(request, subOp.topic)
+            case subOp: AlterMirrorsRequest.ClearTopicMirrorOp =>
+              authorizeClusterOperation(request, CLUSTER_ACTION)
+              authorizeAlterTopicOperation(request, subOp.topic)
+            case _ =>
+              throw new UnsupportedVersionException(s"Unknown alter mirrors op type")
           }
-          if (!topic.forall(t => authorize(request.context, ALTER, TOPIC, t)))
-            throw new TopicAuthorizationException(s"Failed to authorize topic '$topic'")
           clusterLinkAdminManager.alterMirror(op, alterMirrorsRequest.validateOnly)
         } catch {
           case e: Throwable =>

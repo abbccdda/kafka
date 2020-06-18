@@ -65,12 +65,14 @@ public class DiskUsageBasedThrottlerBench {
             add(logDir.toString());
         }};
 
+        final boolean produceBackpressureEnabled = false;
+
         // the quotaManagerConfig object with disk throttling turned on
         final ClientQuotaManagerConfig activeQuotaManagerConfig = new ClientQuotaManagerConfig(
                 Defaults.QuotaBytesPerSecond(),
                 Defaults.DefaultNumQuotaSamples(),
                 Defaults.DefaultQuotaWindowSizeSeconds(),
-                new BrokerBackpressureConfig(true,
+                new BrokerBackpressureConfig(produceBackpressureEnabled,
                         pollFrequency,
                         JavaConverters.asScalaIteratorConverter(new ArrayList<String>().iterator()).asScala().toSeq(),
                         Double.MAX_VALUE,
@@ -88,7 +90,7 @@ public class DiskUsageBasedThrottlerBench {
                 Defaults.QuotaBytesPerSecond(),
                 Defaults.DefaultNumQuotaSamples(),
                 Defaults.DefaultQuotaWindowSizeSeconds(),
-                new BrokerBackpressureConfig(true,
+                new BrokerBackpressureConfig(produceBackpressureEnabled,
                         pollFrequency,
                         JavaConverters.asScalaIteratorConverter(new ArrayList<String>().iterator()).asScala().toSeq(),
                         Double.MAX_VALUE,

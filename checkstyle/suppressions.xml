@@ -162,14 +162,14 @@
     <suppress checks="MemberName"
 	      files="com[/\\]linkedin[/\\]kafka[/\\]cruisecontrol"/>
     <suppress checks="MemberName"
-	      files="com[/\\]linkedin[/\\]cruisecontrol"/> 
+	      files="com[/\\]linkedin[/\\]cruisecontrol"/>
     <suppress checks="MemberName"
-	      files="io[/\\]confluent[/\\]cruisecontrol"/> 
-    
+	      files="io[/\\]confluent[/\\]cruisecontrol"/>
+
     <!-- CruiseControl static variables are named in a direct
 	 contradiction of Kafka naming conventions> -->
     <suppress checks="StaticVariableName"
-	      files="com[/\\]linkedin[/\\]kafka[/\\]cruisecontrol"/> 
+	      files="com[/\\]linkedin[/\\]kafka[/\\]cruisecontrol"/>
     <suppress checks="StaticVariableName"
 	      files="com[/\\]linkedin[/\\]cruisecontrol"/>
 
@@ -178,7 +178,7 @@
     <suppress checks="ParameterNumber"
 	      files="com[/\\]linkedin[/\\]kafka[/\\]cruisecontrol"/>
     <suppress checks="ParameterNumber"
-	      files="com[/\\]linkedin[/\\]cruisecontrol"/>	      
+	      files="com[/\\]linkedin[/\\]cruisecontrol"/>
 
     <suppress checks="MethodLength"
              files="com[/\\]linkedin[/\\]kafka[/\\]cruisecontrol"/>
@@ -195,18 +195,21 @@
     <suppress checks="CyclomaticComplexity"
 	      files="com[/\\]linkedin[/\\]kafka[/\\]cruisecontrol"/>
     <suppress checks="CyclomaticComplexity"
-	      files="com[/\\]linkedin[/\\]cruisecontrol"/>	      
+	      files="com[/\\]linkedin[/\\]cruisecontrol"/>
+
+    <suppress checks="ClassFanOutComplexity"
+          files="(ExecutorTest).java"/>
 
     <suppress checks="BooleanExpressionComplexity"
 	      files="com[/\\]linkedin[/\\]kafka[/\\]cruisecontrol"/>
     <suppress checks="BooleanExpressionComplexity"
-	      files="com[/\\]linkedin[/\\]cruisecontrol"/>	      
+	      files="com[/\\]linkedin[/\\]cruisecontrol"/>
 
     <suppress checks="JavaNCSS"
 	      files="com[/\\]linkedin[/\\]kafka[/\\]cruisecontrol"/>
     <suppress checks="JavaNCSS"
-	      files="com[/\\]linkedin[/\\]cruisecontrol"/>	      
-    
+	      files="com[/\\]linkedin[/\\]cruisecontrol"/>
+
     <!-- Streams -->
     <suppress checks="ClassFanOutComplexity"
               files="(TopologyBuilder|KafkaStreams|KStreamImpl|KTableImpl|StreamThread|StreamTask).java"/>
@@ -368,6 +371,10 @@
     <!-- Tiered Storage exclusions -->
     <!-- flatbuffer generated classes -->
     <suppress checks=".+" files="core[\\/]build[\\/]generated[\\/]src[\\/]main[\\/]java[\\/]kafka[\\/]tier[\\/]serdes.+.java$"/>
+
+    <!-- Durability, flat buffer generated classes exclusions -->
+    <suppress checks=".+" files="core[\\/]build[\\/]generated[\\/]src[\\/]main[\\/]java[\\/]kafka[\\/]durability[\\/]db[\\/]serdes.+.java$"/>
+    <suppress checks=".+" files="core[\\/]build[\\/]generated[\\/]src[\\/]main[\\/]java[\\/]kafka[\\/]durability[\\/]events[\\/]serdes.+.java$"/>
 
     <!-- ce-metrics exclusions -->
     <suppress checks="NPathComplexity"

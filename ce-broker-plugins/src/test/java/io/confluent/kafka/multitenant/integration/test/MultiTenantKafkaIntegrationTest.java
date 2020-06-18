@@ -41,6 +41,7 @@ import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.errors.PolicyViolationException;
+import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.resource.ResourcePattern;
 import org.apache.kafka.common.resource.ResourcePatternFilter;
@@ -49,7 +50,6 @@ import org.apache.kafka.test.IntegrationTest;
 import org.apache.kafka.test.TestUtils;
 import org.junit.After;
 import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.Rule;
 import org.junit.experimental.categories.Category;
@@ -64,6 +64,9 @@ import static org.junit.Assert.assertThrows;
 public class MultiTenantKafkaIntegrationTest {
 
   private static final int BROKER_COUNT = 2;
+
+  private final ListenerName externalListenerName = new ListenerName("external");
+  private final String externalListenerPrefix = externalListenerName.configPrefix();
 
   private IntegrationTestHarness testHarness;
   private LogicalCluster logicalCluster1;
@@ -158,12 +161,8 @@ public class MultiTenantKafkaIntegrationTest {
   /**
    * Alter cluster (resourceName == "") configs should be rejected via the external listener when
    * confluent.alter.cluster.configs=false (the default).
-   *
-   * We need to make it possible for ssl.cipher.suites to be updatable cluster wide for this test
-   * to pass.
    */
   @Test
-  @Ignore
   public void testAlterClusterConfigsWhenConfigDisabled() throws Exception {
     createPhysicalAndLogicalClusters();
     AdminClient tenantAdminClient = testHarness.createAdminClient(logicalCluster1.adminUser());
@@ -187,6 +186,8 @@ public class MultiTenantKafkaIntegrationTest {
     );
 
     // Verify that tenants cannot update dynamic broker configs using AlterConfigs
+    // Note: the `ssl.cipher.suites` property is _not_ prefixed, since the multi-tenant
+    // interceptor will _add_ the "external" listener prefix.
     Throwable exceptionCause = assertThrows(ExecutionException.class, () ->
         tenantAdminClient.alterConfigs(newConfigs).all().get()).getCause();
     assertEquals(PolicyViolationException.class, exceptionCause.getClass());
@@ -214,23 +215,42 @@ public class MultiTenantKafkaIntegrationTest {
     assertEquals(defaultCipherSuites, broker0.config().get(SslConfigs.SSL_CIPHER_SUITES_CONFIG));
 
     // Verify that users with access to internal listener can update dynamic broker configs
-    internalAdminClient.alterConfigs(newConfigs).all().get();
+    // Note: we need to specify a listener prefix explicitly here, for the `ssl.cipher.suites` property,
+    // since the interceptor is not configured for the internal listener.
+    Map<ConfigResource, Config> newConfigsInternal = Collections.singletonMap(
+        configResource,
+            new Config(asList(
+                new ConfigEntry(KafkaConfig.MessageMaxBytesProp(), "10000"),
+                new ConfigEntry(KafkaConfig.AutoCreateTopicsEnableProp(), "true"),
+                new ConfigEntry(externalListenerPrefix + SslConfigs.SSL_CIPHER_SUITES_CONFIG,
+                    "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256")))
+    );
+    internalAdminClient.alterConfigs(newConfigsInternal).all().get();
     TestUtils.waitForCondition(() -> broker0.config().messageMaxBytes() == 10000,
         "Dynamic config not updated");
     TestUtils.waitForCondition(() -> broker0.config().autoCreateTopicsEnable(),
         "Dynamic config not updated");
-    TestUtils.waitForCondition(() ->
-            asList("TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256").equals(broker0.config().getList(SslConfigs.SSL_CIPHER_SUITES_CONFIG)),
+    TestUtils.waitForCondition(() -> "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256".equals(
+        sslCipherSuitesFromConfig(broker0.config(), externalListenerName)),
         "Dynamic config not updated");
 
     // Verify that users with access to internal listener can update dynamic broker configs
-    internalAdminClient.incrementalAlterConfigs(newConfigs2).all().get();
+    Map<ConfigResource, Collection<AlterConfigOp>> newConfigs2Internal = Collections.singletonMap(
+        configResource, asList(
+            new AlterConfigOp(new ConfigEntry(KafkaConfig.MessageMaxBytesProp(), "15000"),
+                AlterConfigOp.OpType.SET),
+            new AlterConfigOp(new ConfigEntry(KafkaConfig.AutoCreateTopicsEnableProp(), "true"),
+                AlterConfigOp.OpType.SET),
+            new AlterConfigOp(new ConfigEntry(externalListenerPrefix + SslConfigs.SSL_CIPHER_SUITES_CONFIG,
+                "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"), AlterConfigOp.OpType.SET)));
+
+    internalAdminClient.incrementalAlterConfigs(newConfigs2Internal).all().get();
     TestUtils.waitForCondition(() -> broker0.config().messageMaxBytes() == 15000,
         "Dynamic config not updated");
     TestUtils.waitForCondition(() -> broker0.config().autoCreateTopicsEnable(),
         "Dynamic config not updated");
-    TestUtils.waitForCondition(() ->
-            asList("TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384").equals(broker0.config().getList(SslConfigs.SSL_CIPHER_SUITES_CONFIG)),
+    TestUtils.waitForCondition(() -> "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384".equals(
+        sslCipherSuitesFromConfig(broker0.config(), externalListenerName)),
         "Dynamic config not updated");
 
     // Verify that users with access to internal listener cannot update immutable broker configs
@@ -275,15 +295,19 @@ public class MultiTenantKafkaIntegrationTest {
     AdminClient tenantAdminClient = testHarness.createAdminClient(logicalCluster1.adminUser());
     AdminClient internalAdminClient = physicalCluster.superAdminClient();
     ConfigResource configResource = new ConfigResource(Type.BROKER, "");
+    String sslCipherSuitesConfig = "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256";
 
-    // Verify that dynamic broker configs can be updated via the external listener
+    // Verify that dynamic broker configs can be updated via the external listener.
+    // Note: the `ssl.cipher.suites` property is _not_ prefixed, since the multi-tenant
+    // interceptor will _add_ the "external" listener prefix.
     KafkaServer broker0 = physicalCluster.kafkaCluster().kafkas().get(0).kafkaServer();
     long retentionMs0 = 3_600_000;
     Map<ConfigResource, Config> newConfigs = Collections.singletonMap(
         configResource,
         new Config(asList(
             new ConfigEntry(KafkaConfig.LogRetentionTimeMillisProp(), String.valueOf(retentionMs0)),
-            new ConfigEntry(KafkaConfig.AutoCreateTopicsEnableProp(), "true")))
+            new ConfigEntry(KafkaConfig.AutoCreateTopicsEnableProp(), "true"),
+            new ConfigEntry(KafkaConfig.SslCipherSuitesProp(), sslCipherSuitesConfig)))
     );
 
     tenantAdminClient.alterConfigs(newConfigs).all().get();
@@ -291,6 +315,10 @@ public class MultiTenantKafkaIntegrationTest {
         "Dynamic config not updated");
     TestUtils.waitForCondition(() -> broker0.config().autoCreateTopicsEnable(),
         "Dynamic config not updated");
+    TestUtils.waitForCondition(() -> sslCipherSuitesConfig.equals(sslCipherSuitesFromConfig(broker0.config(), externalListenerName)),
+        "Dynamic config for ssl-cipher-suites not updated.");
+
+    String sslCipherSuitesConfig2 = "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384";
 
     long retentionMs1 = 3_600_001;
     Map<ConfigResource, Collection<AlterConfigOp>> newConfigs2 = Collections.singletonMap(
@@ -298,6 +326,9 @@ public class MultiTenantKafkaIntegrationTest {
             new AlterConfigOp(new ConfigEntry(KafkaConfig.LogRetentionTimeMillisProp(), String.valueOf(retentionMs1)),
                 AlterConfigOp.OpType.SET),
             new AlterConfigOp(new ConfigEntry(KafkaConfig.AutoCreateTopicsEnableProp(), "false"),
+                AlterConfigOp.OpType.SET),
+            new AlterConfigOp(new ConfigEntry(KafkaConfig.SslCipherSuitesProp(),
+                sslCipherSuitesConfig2),
                 AlterConfigOp.OpType.SET)));
 
     tenantAdminClient.incrementalAlterConfigs(newConfigs2).all().get();
@@ -305,21 +336,50 @@ public class MultiTenantKafkaIntegrationTest {
         "Dynamic config not updated");
     TestUtils.waitForCondition(() -> !broker0.config().autoCreateTopicsEnable(),
         "Dynamic config not updated");
+    TestUtils.waitForCondition(() -> sslCipherSuitesConfig2.equals(sslCipherSuitesFromConfig(broker0.config(), externalListenerName)),
+        "Dynamic config for ssl-cipher-suites not updated.");
 
     // Verify that users with access to internal listener can update dynamic broker configs
-    internalAdminClient.alterConfigs(newConfigs).all().get();
+    // Note: we need to specify a listener prefix explicitly here, for the `ssl.cipher.suites` property,
+    // since the interceptor is not configured for the internal listener.
+    Map<ConfigResource, Config> newConfigsInternal = Collections.singletonMap(
+        configResource,
+        new Config(asList(
+            new ConfigEntry(KafkaConfig.LogRetentionTimeMillisProp(), String.valueOf(retentionMs0)),
+            new ConfigEntry(KafkaConfig.AutoCreateTopicsEnableProp(), "true"),
+            new ConfigEntry(externalListenerPrefix + KafkaConfig.SslCipherSuitesProp(),
+                "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256")))
+    );
+
+    internalAdminClient.alterConfigs(newConfigsInternal).all().get();
     TestUtils.waitForCondition(() -> broker0.config().logRetentionTimeMillis() == retentionMs0,
         "Dynamic config not updated");
     TestUtils.waitForCondition(() -> broker0.config().autoCreateTopicsEnable(),
         "Dynamic config not updated");
+    TestUtils.waitForCondition(() -> sslCipherSuitesConfig.equals(
+        sslCipherSuitesFromConfig(broker0.config(), externalListenerName)),
+        "Dynamic config for ssl-cipher-suites not updated.");
 
-    internalAdminClient.incrementalAlterConfigs(newConfigs2).all().get();
+    Map<ConfigResource, Collection<AlterConfigOp>> newConfigs2Internal = Collections.singletonMap(
+        configResource, asList(
+            new AlterConfigOp(new ConfigEntry(KafkaConfig.LogRetentionTimeMillisProp(), String.valueOf(retentionMs1)),
+                AlterConfigOp.OpType.SET),
+            new AlterConfigOp(new ConfigEntry(KafkaConfig.AutoCreateTopicsEnableProp(), "false"),
+                AlterConfigOp.OpType.SET),
+            new AlterConfigOp(new ConfigEntry(externalListenerPrefix + KafkaConfig.SslCipherSuitesProp(),
+                "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"),
+                AlterConfigOp.OpType.SET)));
+
+    internalAdminClient.incrementalAlterConfigs(newConfigs2Internal).all().get();
     TestUtils.waitForCondition(() -> broker0.config().logRetentionTimeMillis() == retentionMs1,
         "Dynamic config not updated");
     TestUtils.waitForCondition(() -> !broker0.config().autoCreateTopicsEnable(),
         "Dynamic config not updated");
+    TestUtils.waitForCondition(() -> sslCipherSuitesConfig2.equals(
+        sslCipherSuitesFromConfig(broker0.config(), externalListenerName)),
+        "Dynamic config for ssl-cipher-suites not updated.");
 
-    // Verify that stricter value validation is performed for the external listener
+    // Verify that stricter value validation is performed for the external listener.
     long retentionMs2 = 2_599_999;
     Map<ConfigResource, Collection<AlterConfigOp>> newConfigs3 = Collections.singletonMap(
         configResource, asList(
@@ -343,6 +403,10 @@ public class MultiTenantKafkaIntegrationTest {
         tenantAdminClient.incrementalAlterConfigs(newConfigs4).all().get()).getCause();
     assertEquals(PolicyViolationException.class, exceptionCause.getClass());
     assertEquals(defaultMaxMessageBytes, broker0.config().messageMaxBytes().intValue());
+  }
+
+  private String sslCipherSuitesFromConfig(KafkaConfig kafkaConfig, ListenerName listenerName) {
+    return (String) kafkaConfig.originals().get(listenerName.configPrefix() + KafkaConfig.SslCipherSuitesProp());
   }
 
   @Test

@@ -45,6 +45,7 @@ import org.apache.kafka.common.requests.SaslAuthenticateResponse;
 import org.apache.kafka.common.requests.SaslHandshakeRequest;
 import org.apache.kafka.common.requests.SaslHandshakeResponse;
 import org.apache.kafka.common.security.auth.AuthenticateCallbackHandler;
+import org.apache.kafka.common.security.auth.AuthenticationContext;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.kerberos.KerberosError;
 import org.apache.kafka.common.utils.LogContext;
@@ -344,6 +345,11 @@ public class SaslClientAuthenticator implements Authenticator {
     @Override
     public Optional<NetworkReceive> pollResponseReceivedDuringReauthentication() {
         return reauthInfo.pollResponseReceivedDuringReauthentication();
+    }
+
+    @Override
+    public AuthenticationContext authenticationContext() {
+        throw new UnsupportedOperationException();
     }
 
     @Override

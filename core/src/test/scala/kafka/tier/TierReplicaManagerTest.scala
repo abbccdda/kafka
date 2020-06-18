@@ -19,10 +19,10 @@ class TierReplicaManagerTest {
 
   @Before
   def setup(): Unit = {
-    when(tierEnabledPartitionState.isTieringEnabled).thenReturn(true)
+    when(tierEnabledPartitionState.mayContainTieredData).thenReturn(true)
     when(tierEnabledPartitionState.topicIdPartition).thenReturn(Optional.of(new TopicIdPartition("foo", UUID.randomUUID, 0)))
 
-    when(tierDisabledPartitionState.isTieringEnabled).thenReturn(false)
+    when(tierDisabledPartitionState.mayContainTieredData).thenReturn(false)
     when(tierDisabledPartitionState.topicIdPartition).thenReturn(Optional.of(new TopicIdPartition("bar", UUID.randomUUID, 0)))
 
     tierReplicaManager.addListener(listener)

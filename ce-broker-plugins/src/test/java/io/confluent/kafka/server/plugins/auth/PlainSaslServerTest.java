@@ -6,6 +6,7 @@ import io.confluent.kafka.multitenant.TenantMetadata;
 import io.confluent.kafka.server.plugins.auth.stats.AuthenticationStats;
 import java.nio.charset.StandardCharsets;
 import org.apache.kafka.common.errors.SaslAuthenticationException;
+import org.apache.kafka.server.audit.AuditEventStatus;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -25,6 +26,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 
@@ -32,7 +34,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 public class PlainSaslServerTest {
   private List<AppConfigurationEntry> jaasEntries;
@@ -44,6 +48,7 @@ public class PlainSaslServerTest {
   public void setUp() throws Exception {
     jaasEntries = Collections.emptyList();
     mockSaslAuth = mock(SaslAuthenticator.class);
+    when(mockSaslAuth.clusterId(any())).thenReturn(Optional.of("test-cluster"));
     saslServer = new PlainSaslServer(jaasEntries, mockSaslAuth);
     stats.reset();
   }
@@ -58,6 +63,7 @@ public class PlainSaslServerTest {
       fail();
     } catch (SaslAuthenticationException e) {
       assertTrue(e.getMessage().contains("Client requested an authorization id that is different from username"));
+      verifyErrorInfo(e, AuditEventStatus.UNAUTHENTICATED, "foo");
     }
   }
 
@@ -146,29 +152,36 @@ public class PlainSaslServerTest {
 
   @Test
   public void emptyTokens() {
-    Exception e = assertThrows(SaslAuthenticationException.class, () ->
+    SaslAuthenticationException e = assertThrows(SaslAuthenticationException.class, () ->
         saslServer.evaluateResponse(saslMessage("", "", "")));
     assertEquals("Authentication failed: username not specified", e.getMessage());
+    verifyErrorInfo(e, AuditEventStatus.UNKNOWN_USER_DENIED, "");
 
     e = assertThrows(SaslAuthenticationException.class, () ->
         saslServer.evaluateResponse(saslMessage("", "", "p")));
     assertEquals("Authentication failed: username not specified", e.getMessage());
+    verifyErrorInfo(e, AuditEventStatus.UNKNOWN_USER_DENIED, "");
 
     e = assertThrows(SaslAuthenticationException.class, () ->
         saslServer.evaluateResponse(saslMessage("", "u", "")));
     assertEquals("Authentication failed: password not specified", e.getMessage());
+    verifyErrorInfo(e, AuditEventStatus.UNAUTHENTICATED, "u");
+
 
     e = assertThrows(SaslAuthenticationException.class, () ->
         saslServer.evaluateResponse(saslMessage("a", "", "")));
     assertEquals("Authentication failed: username not specified", e.getMessage());
+    verifyErrorInfo(e, AuditEventStatus.UNKNOWN_USER_DENIED, "");
 
     e = assertThrows(SaslAuthenticationException.class, () ->
         saslServer.evaluateResponse(saslMessage("a", "", "p")));
     assertEquals("Authentication failed: username not specified", e.getMessage());
+    verifyErrorInfo(e, AuditEventStatus.UNKNOWN_USER_DENIED, "");
 
     e = assertThrows(SaslAuthenticationException.class, () ->
         saslServer.evaluateResponse(saslMessage("a", "u", "")));
     assertEquals("Authentication failed: password not specified", e.getMessage());
+    verifyErrorInfo(e, AuditEventStatus.UNAUTHENTICATED, "u");
 
     String nul = "\u0000";
 
@@ -177,11 +190,23 @@ public class PlainSaslServerTest {
             String.format("%s%s%s%s%s%s", "a", nul, "u", nul, "p", nul).getBytes(
                 StandardCharsets.UTF_8)));
     assertEquals("Invalid SASL/PLAIN response: expected 3 tokens, got 4", e.getMessage());
+    verifyErrorInfo(e, AuditEventStatus.UNKNOWN_USER_DENIED, "");
 
     e = assertThrows(SaslAuthenticationException.class, () ->
         saslServer.evaluateResponse(
             String.format("%s%s%s", "", nul, "u").getBytes(StandardCharsets.UTF_8)));
     assertEquals("Invalid SASL/PLAIN response: expected 3 tokens, got 2", e.getMessage());
+    verifyErrorInfo(e, AuditEventStatus.UNKNOWN_USER_DENIED, "");
+  }
+
+  private void verifyErrorInfo(final SaslAuthenticationException e,
+                               final AuditEventStatus auditEventStatus,
+                               final String identifier) {
+    assertEquals(auditEventStatus, e.errorInfo().auditEventStatus());
+    assertEquals(identifier, e.errorInfo().identifier());
+    if (AuditEventStatus.UNAUTHENTICATED == auditEventStatus) {
+      assertEquals("test-cluster", e.errorInfo().clusterId());
+    }
   }
 
   private void configureUser(final String username,

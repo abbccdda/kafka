@@ -101,6 +101,7 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
         Map<String, ExporterConfig> toInit
   ) {
     for (Map.Entry<String, ExporterConfig> entry : toInit.entrySet()) {
+      log.info("Creating {} exporter named '{}'", entry.getValue().getType().name(), entry.getKey());
       ExporterConfig exporterConfig = entry.getValue();
       Exporter newExporter = null;
 
@@ -139,6 +140,7 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
   ) {
     // shutdown exporters
     for (Map.Entry<String, ExporterConfig> entry : toClose.entrySet()) {
+      log.info("Closing {} exporter named '{}'", entry.getValue().getType().name(), entry.getKey());
       Exporter exporter = this.exporters.remove(entry.getKey());
 
       // TODO: we should find a better way to expose metrics from exporters

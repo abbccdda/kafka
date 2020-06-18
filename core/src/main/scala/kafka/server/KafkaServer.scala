@@ -437,13 +437,13 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         multitenantMetadata = ConfluentConfigs.buildMultitenantMetadata(config.values)
 
         //auditLogProvider.start() will called as part of authorizer.start()
-        auditLogProvider = AuditLogProviderFactory.create(config.originals)
+        auditLogProvider = AuditLogProviderFactory.create(config.originals, clusterId)
         auditLogProvider.setMetrics(metrics)
 
         // Create and start the socket server acceptor threads so that the bound port is known.
         // Delay starting processors until the end of the initialization sequence to ensure
         // that credentials have been loaded before processing authentications.
-        socketServer = new SocketServer(config, metrics, time, credentialProvider)
+        socketServer = new SocketServer(config, metrics, time, credentialProvider, auditLogProvider)
         socketServer.startup(startProcessingRequests = false)
 
         clusterLinkManager = ClusterLinkFactory.createLinkManager(config, clusterId, quotaManagers.clusterLink,

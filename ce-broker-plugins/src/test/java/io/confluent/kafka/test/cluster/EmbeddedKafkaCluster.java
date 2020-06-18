@@ -17,7 +17,9 @@
 
 package io.confluent.kafka.test.cluster;
 
+import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.license.validator.LicenseConfig;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -25,14 +27,20 @@ import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+
 import kafka.api.Request;
 import kafka.server.KafkaConfig;
 import kafka.server.KafkaServer;
 import kafka.utils.MockTime;
 import kafka.zk.EmbeddedZookeeper;
+import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.message.UpdateMetadataRequestData.UpdateMetadataPartitionState;
+import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.server.http.MetadataServerConfig;
 import org.apache.kafka.test.TestUtils;
@@ -110,7 +118,7 @@ public class EmbeddedKafkaCluster {
    * initialized using the topic. Brokers need to be started concurrently since the topic
    * can be created only when sufficient number of brokers are registered.
    */
-  public void concurrentStartBrokers(List<Properties> brokerConfigs) throws Exception {
+  public void concurrentStartBrokers(List<Properties> brokerConfigs, Duration timeout) throws Exception {
     int numBrokers = brokerConfigs.size();
     List<Future<EmbeddedKafka>> brokerFutures = new ArrayList<>(numBrokers);
     ExecutorService executorService = Executors.newFixedThreadPool(numBrokers);
@@ -124,7 +132,7 @@ public class EmbeddedKafkaCluster {
       }
 
       for (Future<EmbeddedKafka> future : brokerFutures) {
-        EmbeddedKafka broker = future.get();
+        EmbeddedKafka broker = future.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
         brokers.add(broker);
         log.debug("Kafka instance started: {}", broker);
       }
@@ -249,5 +257,20 @@ public class EmbeddedKafkaCluster {
 
   public List<KafkaServer> brokers() {
     return brokers.stream().map(EmbeddedKafka::kafkaServer).collect(Collectors.toList());
+  }
+
+  public void produceData(String topic, int numMessages) {
+    KafkaProducer<String, String> producer = KafkaTestUtils.createProducer(
+        bootstrapServers(),
+        SecurityProtocol.PLAINTEXT,
+        "PLAIN",
+        "");
+    List<String> messages = IntStream.range(1, numMessages).asLongStream().mapToObj(num -> String.format("test-%d", num)).collect(Collectors.toList());
+
+    for (String message: messages) {
+      producer.send(new ProducerRecord<>(topic, topic, message));
+    }
+    producer.flush();
+    producer.close();
   }
 }

@@ -39,6 +39,21 @@ class ClusterLinkSyncAclsTest {
   private val controller: KafkaController = createNiceMock(classOf[KafkaController])
   private val metrics: Metrics = new Metrics()
   private val aclList: util.List[AclBinding] = new util.ArrayList[AclBinding]()
+  val migrateOnePrincipalAclsJson: String =
+    """{
+      | "aclFilters": [{
+      |  "resourceFilter": {
+      |      "resourceType": "any",
+      |      "patternType": "any"
+      |    },
+      |  "accessFilter": {
+      |     "principal": "User:Bob",
+      |     "host":"*",
+      |     "operation": "any",
+      |     "permissionType": "any"
+      |    }
+      |  }]
+      | }""".stripMargin
   val migrateAllAclsJson: String =
     """{
       | "aclFilters": [{
@@ -119,6 +134,60 @@ class ClusterLinkSyncAclsTest {
   }
 
   @Test
+  def testAclFilterUpdate(): Unit = {
+    setupMock()
+
+    expect(controller.isActive).andReturn(true).times(2)
+    replay(controller)
+
+    val bobAcl = aclBinding(TOPIC, "foo", LITERAL, "User:Bob",
+      AclEntry.WildcardHost, READ, ALLOW)
+    addAclBinding(bobAcl)
+    addAclBinding(aclBinding(TOPIC, "foo", PREFIXED, "User:Alice",
+      AclEntry.WildcardHost, ALTER, ALLOW))
+    val acls = addAclBinding(aclBinding(CLUSTER, ResourcePattern.WILDCARD_RESOURCE, LITERAL,
+      "User:Mallory", "badhost", CLUSTER_ACTION, DENY))
+    val fullDescribeAclsResult = new DescribeAclsResult (KafkaFuture.completedFuture(acls))
+    val bobDescribeAclsResult = new DescribeAclsResult (KafkaFuture.completedFuture(List(bobAcl).asJava))
+    expect(admin.describeAcls(
+      AclJson.toAclBindingFilters(AclJson.parse(migrateOnePrincipalAclsJson).get).last)).andReturn(bobDescribeAclsResult).times(1)
+    expect(admin.describeAcls(
+      AclJson.toAclBindingFilters(AclJson.parse(migrateAllAclsJson).get).last)).andReturn(fullDescribeAclsResult).times(1)
+    replay(admin)
+
+    expect(clientManager.getAuthorizer).andReturn(Some(authorizer)).times(2)
+
+    expect(authorizer.createAcls(EM.eq(null), notNull(), EM.eq(Optional.empty()))
+      .asInstanceOf[util.List[CompletableFuture[AclCreateResult]]])
+      .andReturn(aclCreationSuccessResults(3)).times(2)
+    replay(authorizer)
+
+    val bobConfig = newConfig(Map(ClusterLinkConfig.AclSyncEnableProp -> "true",
+      ClusterLinkConfig.AclFiltersProp -> migrateOnePrincipalAclsJson))
+    val allConfig = newConfig(Map(ClusterLinkConfig.AclSyncEnableProp -> "true",
+      ClusterLinkConfig.AclFiltersProp -> migrateAllAclsJson))
+    expect(clientManager.currentConfig).andReturn(bobConfig).times(2)
+    expect(clientManager.currentConfig).andReturn(allConfig).times(1)
+    replay(clientManager)
+
+    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, controller, metrics,
+      Collections.emptyMap())
+    syncAclsTask.startup()
+
+    // bob config
+    syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
+    val bobAclSet = bobDescribeAclsResult.values().get().asScala.toSet
+    assert(bobAclSet == syncAclsTask.getCurrentAclSet)
+
+    // all config
+    syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
+    val allAclSet = fullDescribeAclsResult.values().get().asScala.toSet
+    assert(allAclSet == syncAclsTask.getCurrentAclSet)
+
+    verifyMock()
+  }
+
+  @Test
   def testAclAddition(): Unit = {
     setupMock()
 
@@ -136,7 +205,7 @@ class ClusterLinkSyncAclsTest {
     replay(admin)
 
     expect(clientManager.getAuthorizer).andReturn(Some(authorizer)).times(1)
-    replay(clientManager)
+
 
     expect(authorizer.createAcls(EM.eq(null), notNull(), EM.eq(Optional.empty()))
       .asInstanceOf[util.List[CompletableFuture[AclCreateResult]]])
@@ -145,8 +214,10 @@ class ClusterLinkSyncAclsTest {
 
     val config = newConfig(Map(ClusterLinkConfig.AclSyncEnableProp -> "true",
       ClusterLinkConfig.AclFiltersProp -> migrateAllAclsJson))
+    expect(clientManager.currentConfig).andReturn(config).anyTimes()
+    replay(clientManager)
 
-    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller, metrics,
+    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, controller, metrics,
       Collections.emptyMap())
     syncAclsTask.startup()
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
@@ -184,7 +255,6 @@ class ClusterLinkSyncAclsTest {
     replay(admin)
 
     expect(clientManager.getAuthorizer).andReturn(Some(authorizer)).times(1)
-    replay(clientManager)
 
     expect(authorizer.createAcls(EM.eq(null), notNull(), EM.eq(Optional.empty()))
       .asInstanceOf[util.List[CompletableFuture[AclCreateResult]]])
@@ -193,8 +263,10 @@ class ClusterLinkSyncAclsTest {
 
     val config = newConfig(Map(ClusterLinkConfig.AclSyncEnableProp -> "true",
       ClusterLinkConfig.AclFiltersProp -> multipleAclFiltersJson))
+    expect(clientManager.currentConfig).andReturn(config).anyTimes()
+    replay(clientManager)
 
-    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller, metrics,
+    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, controller, metrics,
       Collections.emptyMap())
     syncAclsTask.startup()
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
@@ -223,7 +295,6 @@ class ClusterLinkSyncAclsTest {
     replay(admin)
 
     expect(clientManager.getAuthorizer).andReturn(Some(authorizer)).times(2)
-    replay(clientManager)
 
     expect(authorizer.createAcls(EM.eq(null), notNull(), EM.eq(Optional.empty()))
       .asInstanceOf[util.List[CompletableFuture[AclCreateResult]]])
@@ -232,8 +303,10 @@ class ClusterLinkSyncAclsTest {
 
     val config = newConfig(Map(ClusterLinkConfig.AclSyncEnableProp -> "true",
       ClusterLinkConfig.AclFiltersProp -> migrateAllAclsJson))
+    expect(clientManager.currentConfig).andReturn(config).anyTimes()
+    replay(clientManager)
 
-    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller, metrics,
+    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, controller, metrics,
       Collections.emptyMap())
     syncAclsTask.startup()
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
@@ -272,7 +345,6 @@ class ClusterLinkSyncAclsTest {
     replay(admin)
 
     expect(clientManager.getAuthorizer).andReturn(Some(authorizer)).times(2)
-    replay(clientManager)
 
     expect(authorizer.createAcls(EM.eq(null), notNull(), EM.eq(Optional.empty()))
       .asInstanceOf[util.List[CompletableFuture[AclCreateResult]]])
@@ -281,8 +353,10 @@ class ClusterLinkSyncAclsTest {
 
     val config = newConfig(Map(ClusterLinkConfig.AclSyncEnableProp -> "true",
       ClusterLinkConfig.AclFiltersProp -> multipleAclFiltersJson))
+    expect(clientManager.currentConfig).andReturn(config).anyTimes()
+    replay(clientManager)
 
-    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller, metrics,
+    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, controller, metrics,
       Collections.emptyMap())
     syncAclsTask.startup()
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
@@ -319,7 +393,6 @@ class ClusterLinkSyncAclsTest {
     replay(admin)
 
     expect(clientManager.getAuthorizer).andReturn(Some(authorizer)).times(2)
-    replay(clientManager)
 
     expect(authorizer.createAcls(EM.eq(null), notNull(), EM.eq(Optional.empty()))
       .asInstanceOf[util.List[CompletableFuture[AclCreateResult]]])
@@ -335,8 +408,10 @@ class ClusterLinkSyncAclsTest {
 
     val config = newConfig(Map(ClusterLinkConfig.AclSyncEnableProp -> "true",
       ClusterLinkConfig.AclFiltersProp -> migrateAllAclsJson))
+    expect(clientManager.currentConfig).andReturn(config).anyTimes()
+    replay(clientManager)
 
-    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller, metrics,
+    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, controller, metrics,
       Collections.emptyMap())
     syncAclsTask.startup()
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
@@ -377,7 +452,6 @@ class ClusterLinkSyncAclsTest {
     replay(admin)
 
     expect(clientManager.getAuthorizer).andReturn(Some(authorizer)).times(2)
-    replay(clientManager)
 
     expect(authorizer.createAcls(EM.eq(null), notNull(), EM.eq(Optional.empty()))
       .asInstanceOf[util.List[CompletableFuture[AclCreateResult]]])
@@ -389,8 +463,10 @@ class ClusterLinkSyncAclsTest {
 
     val config = newConfig(Map(ClusterLinkConfig.AclSyncEnableProp -> "true",
       ClusterLinkConfig.AclFiltersProp -> multipleAclFiltersJson))
+    expect(clientManager.currentConfig).andReturn(config).anyTimes()
+    replay(clientManager)
 
-    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller, metrics,
+    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, controller, metrics,
       Collections.emptyMap())
     syncAclsTask.startup()
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
@@ -428,8 +504,6 @@ class ClusterLinkSyncAclsTest {
     replay(admin)
 
     expect(clientManager.getAuthorizer).andReturn(Some(authorizer)).times(2)
-    replay(clientManager)
-
 
     // first add User:Alice's and User:Bob's ACLs
     expect(authorizer.createAcls(EM.eq(null), notNull(), EM.eq(Optional.empty()))
@@ -453,8 +527,10 @@ class ClusterLinkSyncAclsTest {
 
     val config = newConfig(Map(ClusterLinkConfig.AclSyncEnableProp -> "true",
       ClusterLinkConfig.AclFiltersProp -> migrateAllAclsJson))
+    expect(clientManager.currentConfig).andReturn(config).anyTimes()
+    replay(clientManager)
 
-    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller, metrics,
+    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, controller, metrics,
       Collections.emptyMap())
     syncAclsTask.startup()
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
@@ -497,7 +573,6 @@ class ClusterLinkSyncAclsTest {
     replay(admin)
 
     expect(clientManager.getAuthorizer).andReturn(Some(authorizer)).times(2)
-    replay(clientManager)
 
     val aclList3 = Collections.singletonList(aclBinding3)
     // first add User:Alice's and User:Bob's ACLs
@@ -516,8 +591,10 @@ class ClusterLinkSyncAclsTest {
 
     val config = newConfig(Map(ClusterLinkConfig.AclSyncEnableProp -> "true",
       ClusterLinkConfig.AclFiltersProp -> multipleAclFiltersJson))
+    expect(clientManager.currentConfig).andReturn(config).anyTimes()
+    replay(clientManager)
 
-    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller, metrics,
+    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, controller, metrics,
       Collections.emptyMap())
     syncAclsTask.startup()
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
@@ -540,13 +617,15 @@ class ClusterLinkSyncAclsTest {
     expect(admin.describeAcls(AclBindingFilter.ANY)).andThrow(new AuthorizationException("Unauthorized for DESCRIBE on Cluster"))
     replay(admin)
 
-    replay(clientManager)
 
     replay(authorizer)
 
     val config = newConfig(Map(ClusterLinkConfig.AclSyncEnableProp -> "true",
       ClusterLinkConfig.AclFiltersProp -> migrateAllAclsJson))
-    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller, metrics,
+    expect(clientManager.currentConfig).andReturn(config).anyTimes()
+    replay(clientManager)
+
+    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, controller, metrics,
       Collections.emptyMap())
     syncAclsTask.startup()
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
@@ -583,7 +662,6 @@ class ClusterLinkSyncAclsTest {
     replay(admin)
 
     expect(clientManager.getAuthorizer).andReturn(Some(authorizer)).times(1)
-    replay(clientManager)
 
     expect(authorizer.createAcls(EM.eq(null), notNull(), EM.eq(Optional.empty()))
       .asInstanceOf[util.List[CompletableFuture[AclCreateResult]]])
@@ -592,8 +670,10 @@ class ClusterLinkSyncAclsTest {
 
     val config = newConfig(Map(ClusterLinkConfig.AclSyncEnableProp -> "true",
       ClusterLinkConfig.AclFiltersProp -> multipleAclFiltersJson))
+    expect(clientManager.currentConfig).andReturn(config).anyTimes()
+    replay(clientManager)
 
-    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller, metrics,
+    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, controller, metrics,
       Collections.emptyMap())
     syncAclsTask.startup()
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
@@ -632,7 +712,6 @@ class ClusterLinkSyncAclsTest {
     replay(admin)
 
     expect(clientManager.getAuthorizer).andReturn(Some(authorizer)).times(2)
-    replay(clientManager)
 
     expect(authorizer.createAcls(EM.eq(null), notNull(), EM.eq(Optional.empty()))
       .asInstanceOf[util.List[CompletableFuture[AclCreateResult]]])
@@ -644,8 +723,10 @@ class ClusterLinkSyncAclsTest {
 
     val config = newConfig(Map(ClusterLinkConfig.AclSyncEnableProp -> "true",
       ClusterLinkConfig.AclFiltersProp -> multipleAclFiltersJson))
+    expect(clientManager.currentConfig).andReturn(config).anyTimes()
+    replay(clientManager)
 
-    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller, metrics,
+    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, controller, metrics,
       Collections.emptyMap())
     syncAclsTask.startup()
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
@@ -684,7 +765,6 @@ class ClusterLinkSyncAclsTest {
     replay(admin)
 
     expect(clientManager.getAuthorizer).andReturn(Some(authorizer)).times(1)
-    replay(clientManager)
 
     expect(authorizer.createAcls(EM.eq(null), notNull(), EM.eq(Optional.empty()))
       .asInstanceOf[util.List[CompletableFuture[AclCreateResult]]])
@@ -693,8 +773,10 @@ class ClusterLinkSyncAclsTest {
 
     val config = newConfig(Map(ClusterLinkConfig.AclSyncEnableProp -> "true",
       ClusterLinkConfig.AclFiltersProp -> multipleAclFiltersJson))
+    expect(clientManager.currentConfig).andReturn(config).anyTimes()
+    replay(clientManager)
 
-    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller, metrics,
+    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, controller, metrics,
       Collections.emptyMap())
     syncAclsTask.startup()
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)
@@ -733,7 +815,6 @@ class ClusterLinkSyncAclsTest {
     replay(admin)
 
     expect(clientManager.getAuthorizer).andReturn(Some(authorizer)).times(2)
-    replay(clientManager)
 
     expect(authorizer.createAcls(EM.eq(null), notNull(), EM.eq(Optional.empty()))
       .asInstanceOf[util.List[CompletableFuture[AclCreateResult]]])
@@ -746,8 +827,10 @@ class ClusterLinkSyncAclsTest {
 
     val config = newConfig(Map(ClusterLinkConfig.AclSyncEnableProp -> "true",
       ClusterLinkConfig.AclFiltersProp -> multipleAclFiltersJson))
+    expect(clientManager.currentConfig).andReturn(config).anyTimes()
+    replay(clientManager)
 
-    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, config, controller, metrics,
+    val syncAclsTask = new ClusterLinkSyncAcls(clientManager, controller, metrics,
       Collections.emptyMap())
     syncAclsTask.startup()
     syncAclsTask.runOnce().get(5, TimeUnit.SECONDS)

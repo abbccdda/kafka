@@ -16,7 +16,7 @@ package kafka.server
 
 import java.util
 import java.util.concurrent.{Executors, Future, TimeUnit}
-import java.util.{Collections, Optional, Properties}
+import java.util.{Collection, Collections, Optional, Properties}
 
 import kafka.api.LeaderAndIsr
 import kafka.log.LogConfig
@@ -568,7 +568,7 @@ class RequestQuotaTest extends BaseRequestTest {
           new CreateClusterLinksRequest.Builder(List.empty.asJava, false, false, 1000);
 
         case ApiKeys.LIST_CLUSTER_LINKS =>
-          new ListClusterLinksRequest.Builder();
+          new ListClusterLinksRequest.Builder(Optional.empty[Collection[String]], false, 1000);
 
         case ApiKeys.DELETE_CLUSTER_LINKS =>
           new DeleteClusterLinksRequest.Builder(List.empty.asJava, false, false, 1000);
@@ -580,7 +580,7 @@ class RequestQuotaTest extends BaseRequestTest {
           new AlterMirrorsRequest.Builder(List.empty.asJava, false, 1000);
 
         case ApiKeys.REPLICA_STATUS =>
-          new ReplicaStatusRequest.Builder(Collections.singleton(new TopicPartition("test", 0)))
+          new ReplicaStatusRequest.Builder(Collections.singleton(new TopicPartition("test", 0)), false)
     }
   }
 

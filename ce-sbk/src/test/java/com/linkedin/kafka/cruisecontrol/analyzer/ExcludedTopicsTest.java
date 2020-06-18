@@ -26,22 +26,21 @@ import com.linkedin.kafka.cruisecontrol.exception.OptimizationFailureException;
 import com.linkedin.kafka.cruisecontrol.executor.ExecutionProposal;
 import com.linkedin.kafka.cruisecontrol.model.Broker;
 import com.linkedin.kafka.cruisecontrol.model.ClusterModel;
-
 import com.linkedin.kafka.cruisecontrol.model.ReplicaPlacementInfo;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
-
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import org.apache.kafka.common.TopicPartition;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import static com.linkedin.kafka.cruisecontrol.analyzer.AnalyzerUnitTestUtils.goal;
 import static com.linkedin.kafka.cruisecontrol.common.DeterministicCluster.T1;
@@ -49,8 +48,8 @@ import static com.linkedin.kafka.cruisecontrol.common.DeterministicCluster.T2;
 import static com.linkedin.kafka.cruisecontrol.common.DeterministicCluster.unbalanced;
 import static com.linkedin.kafka.cruisecontrol.common.DeterministicCluster.unbalanced2;
 import static com.linkedin.kafka.cruisecontrol.common.DeterministicCluster.unbalanced3;
-import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 
@@ -80,13 +79,13 @@ public class ExcludedTopicsTest {
     // Without excluded topics, rack aware satisfiable cluster, one dead broker (No exception, Proposal expected, Expected to look optimized)
     p.add(params(3, RackAwareGoal.class, noExclusion, null, DeterministicCluster.rackAwareSatisfiable(), deadBroker0, true));
     // With excluded topics, rack aware unsatisfiable cluster, no dead broker (No exception, No proposal, Expected to look optimized)
-    p.add(params(4, RackAwareGoal.class, excludeT1, null, DeterministicCluster.rackAwareUnsatisfiable(), noDeadBroker, true));
+    p.add(params(4, RackAwareGoal.class, excludeT1, null, DeterministicCluster.rackAwareUnevenDistribution(), noDeadBroker, true));
     // With excluded topics, rack aware unsatisfiable cluster, one dead broker (Exception)
-    p.add(params(5, RackAwareGoal.class, excludeT1, OptimizationFailureException.class, DeterministicCluster.rackAwareUnsatisfiable(), deadBroker0, null));
-    // Test: Without excluded topics, rack aware unsatisfiable cluster, no dead brokers (Exception expected)
-    p.add(params(6, RackAwareGoal.class, noExclusion, OptimizationFailureException.class, DeterministicCluster.rackAwareUnsatisfiable(), noDeadBroker, null));
+    p.add(params(5, RackAwareGoal.class, excludeT1, OptimizationFailureException.class, DeterministicCluster.rackAwareUnevenDistribution(), deadBroker0, null));
+    // Test: Without excluded topics, rack aware unsatisfiable cluster, no dead brokers (No exception, rack distribution will be acceptably uneven)
+    p.add(params(6, RackAwareGoal.class, noExclusion, null, DeterministicCluster.rackAwareUnevenDistribution(), noDeadBroker, true));
     // Test: Without excluded topics, rack aware unsatisfiable cluster, one dead broker (Exception expected)
-    p.add(params(7, RackAwareGoal.class, noExclusion, OptimizationFailureException.class, DeterministicCluster.rackAwareUnsatisfiable(), deadBroker0, null));
+    p.add(params(7, RackAwareGoal.class, noExclusion, OptimizationFailureException.class, DeterministicCluster.rackAwareUnevenDistribution(), deadBroker0, null));
 
     // ============ReplicaCapacityGoal============
     // Test: With single excluded topic, satisfiable cluster, no dead brokers (No exception, No proposal
@@ -220,16 +219,16 @@ public class ExcludedTopicsTest {
                  DeterministicCluster.rackAwareSatisfiable(), deadBroker0, true));
     // With excluded topics, rack aware unsatisfiable cluster, no dead broker (No exception, No proposal, Expected to look optimized)
     p.add(params(4, KafkaAssignerEvenRackAwareGoal.class, excludeT1, null,
-                 DeterministicCluster.rackAwareUnsatisfiable(), noDeadBroker, true));
+                 DeterministicCluster.rackAwareUnevenDistribution(), noDeadBroker, true));
     // With excluded topics, rack aware unsatisfiable cluster, one dead broker (Exception)
     p.add(params(5, KafkaAssignerEvenRackAwareGoal.class, excludeT1, OptimizationFailureException.class,
-                 DeterministicCluster.rackAwareUnsatisfiable(), deadBroker0, null));
+                 DeterministicCluster.rackAwareUnevenDistribution(), deadBroker0, null));
     // Test: Without excluded topics, rack aware unsatisfiable cluster, no dead brokers (Exception expected)
     p.add(params(6, KafkaAssignerEvenRackAwareGoal.class, noExclusion, OptimizationFailureException.class,
-                 DeterministicCluster.rackAwareUnsatisfiable(), noDeadBroker, null));
+                 DeterministicCluster.rackAwareUnevenDistribution(), noDeadBroker, null));
     // Test: Without excluded topics, rack aware unsatisfiable cluster, one dead broker (Exception expected)
     p.add(params(7, KafkaAssignerEvenRackAwareGoal.class, noExclusion, OptimizationFailureException.class,
-                 DeterministicCluster.rackAwareUnsatisfiable(), deadBroker0, null));
+                 DeterministicCluster.rackAwareUnevenDistribution(), deadBroker0, null));
 
     return p;
   }
@@ -270,6 +269,7 @@ public class ExcludedTopicsTest {
     if (_exceptionClass == null) {
       Map<TopicPartition, List<ReplicaPlacementInfo>> initReplicaDistribution = _clusterModel.getReplicaDistribution();
       Map<TopicPartition, ReplicaPlacementInfo> initLeaderDistribution = _clusterModel.getLeaderDistribution();
+      Map<TopicPartition, List<ReplicaPlacementInfo>> initObserverDistribution = _clusterModel.getObserverDistribution();
 
       Set<String> excludedTopics = _optimizationOptions.excludedTopics();
       if (_expectedToOptimize) {
@@ -282,7 +282,7 @@ public class ExcludedTopicsTest {
       // Generated proposals cannot have the excluded topic.
       if (!excludedTopics.isEmpty()) {
         Set<ExecutionProposal> goalProposals =
-            AnalyzerUtils.getDiff(initReplicaDistribution, initLeaderDistribution, _clusterModel);
+            AnalyzerUtils.getDiff(initReplicaDistribution, initLeaderDistribution, initObserverDistribution, _clusterModel);
 
         for (ExecutionProposal proposal : goalProposals) {
           if (excludedTopics.contains(proposal.topic())) {

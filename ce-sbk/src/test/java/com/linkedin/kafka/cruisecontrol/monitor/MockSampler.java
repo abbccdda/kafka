@@ -9,11 +9,14 @@ import com.linkedin.kafka.cruisecontrol.exception.MetricSamplingException;
 import com.linkedin.kafka.cruisecontrol.monitor.metricdefinition.KafkaMetricDef;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.MetricSampler;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.PartitionMetricSample;
+
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+
 import org.apache.kafka.common.Cluster;
+import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.utils.Time;
 
@@ -56,7 +59,11 @@ public class MockSampler implements MetricSampler {
     }
     Set<PartitionMetricSample> partitionMetricSamples = new HashSet<>(assignedPartitions.size());
     for (TopicPartition tp : assignedPartitions) {
-      PartitionMetricSample sample = new PartitionMetricSample(cluster.partition(tp).leader().id(), tp);
+      Node leader = cluster.partition(tp).leader();
+      if (leader == null) {
+        continue;
+      }
+      PartitionMetricSample sample = new PartitionMetricSample(leader.id(), tp);
       long now = time.milliseconds();
 
       for (MetricInfo metricInfo : KafkaMetricDef.commonMetricDef().all()) {

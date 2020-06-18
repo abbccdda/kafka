@@ -18,7 +18,7 @@
 package kafka.zk
 
 import java.util.{Properties, UUID}
-
+import scala.jdk.CollectionConverters._
 import com.yammer.metrics.core.MetricName
 import kafka.api.LeaderAndIsr
 import kafka.cluster.Broker
@@ -450,6 +450,59 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
         case _ => throw getDataResponse.resultException.get
       }
     }.toMap
+  }
+
+  def setOrCreateFailedBrokers(failedBrokers: java.util.List[FailedBroker]): Unit = {
+
+    def set(brokerListData: Array[Byte]): SetDataResponse = {
+      val setDataRequest = SetDataRequest(FailedBrokersZNode.path, brokerListData, ZkVersion.MatchAnyVersion)
+      retryRequestUntilConnected(setDataRequest)
+    }
+
+    def create(brokerListData: Array[Byte]): CreateResponse = {
+      val path = FailedBrokersZNode.path
+      val createRequest = CreateRequest(path, brokerListData, defaultAcls(path), CreateMode.PERSISTENT)
+      retryRequestUntilConnected(createRequest)
+    }
+
+    val failedBrokersAsBytes = FailedBrokersZNode.encode(failedBrokers.asScala)
+    val setDataResponse = set(failedBrokersAsBytes)
+    setDataResponse.resultCode match {
+      case Code.NONODE =>
+        val createDataResponse = create(failedBrokersAsBytes)
+        createDataResponse.maybeThrow
+      case _ => setDataResponse.maybeThrow
+    }
+  }
+
+  /**
+    * Get failed brokers from ZK
+    * @return Failed brokers
+    */
+  def getFailedBrokers(): Seq[FailedBroker] = {
+    val getDataRequest = GetDataRequest(FailedBrokersZNode.path)
+    val getDataResponse = retryRequestUntilConnected(getDataRequest)
+    getDataResponse.resultCode match {
+      case Code.OK => FailedBrokersZNode.decode(getDataResponse.data)
+      case Code.NONODE => Seq.empty[FailedBroker]
+      case _ => throw getDataResponse.resultException.get
+    }
+  }
+
+  private class BrokerChangeHandler(handler:BrokerChangeListener) extends ZNodeChildChangeHandler {
+    override val path: String = BrokerIdsZNode.path
+
+    override def handleChildChange(): Unit = {
+      handler.handleChildChange()
+    }
+  }
+
+  /**
+   * Register to be notified of any broker changes on ZK.
+   */
+  def registerBrokerChangeHandler(handler:BrokerChangeListener): Unit = {
+    val brokerChangeHandler = new BrokerChangeHandler(handler)
+    zooKeeperClient.registerZNodeChildChangeHandler(brokerChangeHandler)
   }
 
   /**
@@ -1506,7 +1559,23 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
    */
   def createClusterLink(clusterLinkData: ClusterLinkData): Unit =
     createRecursive(ClusterLinkZNode.path(clusterLinkData.linkId),
-      ClusterLinkZNode.encode(clusterLinkData.linkName, clusterLinkData.clusterId, clusterLinkData.tenantPrefix))
+      ClusterLinkZNode.encode(clusterLinkData))
+
+  /**
+   * Sets an existing cluster link with the provided data.
+   *
+   * @param clusterLinkData the cluster link's data
+   */
+  def setClusterLink(clusterLinkData: ClusterLinkData): Unit = {
+    val linkId = clusterLinkData.linkId
+    val setDataRequest = SetDataRequest(ClusterLinkZNode.path(linkId),
+      ClusterLinkZNode.encode(clusterLinkData), ZkVersion.MatchAnyVersion)
+    val setDataResponse = retryRequestUntilConnected(setDataRequest)
+    setDataResponse.resultCode match {
+      case Code.NONODE => throw new IllegalStateException(s"Cluster link with ID '$linkId' not found")
+      case _ => setDataResponse.maybeThrow
+    }
+  }
 
   /**
    * Gets cluster link data for a set of link IDs.
@@ -2094,5 +2163,9 @@ object KafkaZkClient {
         }
       case _ => throw new IllegalStateException(s"Cannot unwrap $response because it is not a MultiResponse")
     }
+  }
+
+  trait BrokerChangeListener {
+    def handleChildChange(): Unit = {}
   }
 }

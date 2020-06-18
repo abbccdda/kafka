@@ -1626,6 +1626,10 @@ object KafkaConfig {
       .defineInternal(ConfluentConfigs.BACKPRESSURE_DISK_RECOVERY_FACTOR_CONFIG, DOUBLE,
         ConfluentConfigs.BACKPRESSURE_DISK_RECOVERY_FACTOR_DEFAULT, LOW, ConfluentConfigs.BACKPRESSURE_DISK_RECOVERY_FACTOR_DOC)
 
+      .define(ConfluentConfigs.AUTO_ENABLE_TELEMETRY_REPORTER_CONFIG, BOOLEAN,
+              ConfluentConfigs.AUTO_ENABLE_TELEMETRY_REPORTER_DEFAULT, LOW,
+              ConfluentConfigs.AUTO_ENABLE_TELEMETRY_REPORTER_DOC)
+
       /** *********** Confluent balancer configuration *****************/
       .defineInternal(ConfluentConfigs.BALANCER_CLASS_CONFIG, STRING,
                       ConfluentConfigs.BALANCER_CLASS_DEFAULT, LOW,
@@ -2188,6 +2192,9 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   /********** Kafka HTTP server **********/
   val httpServerStartTimeout: Duration = Duration.ofMillis(getLong(ConfluentConfigs.HTTP_SERVER_START_TIMEOUT_MS_CONFIG))
   val httpServerStopTimeout: Duration = Duration.ofMillis(getLong(ConfluentConfigs.HTTP_SERVER_STOP_TIMEOUT_MS_CONFIG))
+
+  /************* AuditLog Configuration ***********/
+  val authenticationAuditLogEnabled = getBoolean(KafkaConfig.AuthenticationAuditLogEnableProp) && getBoolean(KafkaConfig.AuditLogEnableProp)
 
   /** ********* Fetch Configuration **************/
   val maxIncrementalFetchSessionCacheSlots = getInt(KafkaConfig.MaxIncrementalFetchSessionCacheSlots)

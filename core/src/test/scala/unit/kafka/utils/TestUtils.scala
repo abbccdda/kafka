@@ -1183,9 +1183,13 @@ object TestUtils extends Logging {
     copy
   }
 
+  /**
+   * @param cipherSuites If empty, the default cipher suite is used.
+   */
   def sslConfigs(mode: Mode, clientCert: Boolean, trustStoreFile: Option[File], certAlias: String,
                  certCn: String = SslCertificateCn,
-                 tlsProtocol: String = TestSslUtils.DEFAULT_TLS_PROTOCOL_FOR_TESTS): Properties = {
+                 tlsProtocol: String = TestSslUtils.DEFAULT_TLS_PROTOCOL_FOR_TESTS,
+                 cipherSuites: Seq[String] = Seq.empty): Properties = {
     val trustStore = trustStoreFile.getOrElse {
       throw new Exception("SSL enabled but no trustStoreFile provided")
     }
@@ -1195,6 +1199,7 @@ object TestUtils extends Logging {
       .createNewTrustStore(trustStore)
       .certAlias(certAlias)
       .cn(certCn)
+      .cipherSuites(cipherSuites.asJava)
       .tlsProtocol(tlsProtocol)
       .build()
 

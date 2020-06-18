@@ -21,6 +21,7 @@ import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.config.internals.BrokerSecurityConfigs;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.memory.MemoryPool;
+import org.apache.kafka.common.security.auth.AuthenticationContext;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.KafkaPrincipalBuilder;
 import org.apache.kafka.common.security.auth.SslAuthenticationContext;
@@ -153,15 +154,7 @@ public class SslChannelBuilder implements ChannelBuilder, ListenerReconfigurable
          */
         @Override
         public KafkaPrincipal principal() {
-            InetAddress clientAddress = transportLayer.socketChannel().socket().getInetAddress();
-            // listenerName should only be null in Client mode where principal() should not be called
-            if (listenerName == null)
-                throw new IllegalStateException("Unexpected call to principal() when listenerName is null");
-            SslAuthenticationContext context = new SslAuthenticationContext(
-                    transportLayer.sslSession(),
-                    clientAddress,
-                    listenerName.value());
-            return principalBuilder.build(context);
+            return principalBuilder.build(authenticationContext());
         }
 
         @Override
@@ -177,6 +170,15 @@ public class SslChannelBuilder implements ChannelBuilder, ListenerReconfigurable
         @Override
         public boolean complete() {
             return true;
+        }
+
+        @Override
+        public AuthenticationContext authenticationContext() {
+            InetAddress clientAddress = transportLayer.socketChannel().socket().getInetAddress();
+            // listenerName should only be null in Client mode where principal()/authenticationContext() should not be called
+            if (listenerName == null)
+                throw new IllegalStateException("Unexpected call to principal()/authenticationContext() when listenerName is null");
+            return new SslAuthenticationContext(transportLayer.sslSession(), clientAddress, listenerName.value());
         }
     }
 }

@@ -1,3 +1,5 @@
+// (Copyright) [2020 - 2020] Confluent, Inc.
+
 package io.confluent.security.audit.router;
 
 import static io.confluent.security.audit.router.AuditLogCategoryResultRouter.DEFAULT_ENABLED_CATEGORIES;
@@ -5,7 +7,6 @@ import static io.confluent.security.audit.router.AuditLogCategoryResultRouter.DE
 import io.confluent.crn.CachedCrnStringPatternMatcher;
 import io.confluent.crn.CrnSyntaxException;
 import io.confluent.security.audit.AuditLogEntry;
-import io.confluent.security.authorizer.AuthorizeResult;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -31,12 +32,12 @@ public class AuditLogRouter implements Router {
     for (String category : AuditLogCategoryResultRouter.CATEGORIES) {
       if (DEFAULT_ENABLED_CATEGORIES.contains(category)) {
         defaultTopicRouter
-            .setRoute(category, AuthorizeResult.ALLOWED, config.defaultTopics.allowed)
-            .setRoute(category, AuthorizeResult.DENIED, config.defaultTopics.denied);
+            .setRoute(category, AuditLogRouterResult.ALLOWED, config.defaultTopics.allowed)
+            .setRoute(category, AuditLogRouterResult.DENIED, config.defaultTopics.denied);
       } else {
         defaultTopicRouter
-            .setRoute(category, AuthorizeResult.ALLOWED, "")
-            .setRoute(category, AuthorizeResult.DENIED, "");
+            .setRoute(category, AuditLogRouterResult.ALLOWED, "")
+            .setRoute(category, AuditLogRouterResult.DENIED, "");
       }
     }
   }
@@ -54,10 +55,10 @@ public class AuditLogRouter implements Router {
             config.routes.get(crnString).entrySet()) {
           for (Entry<String, String> resultTopic : categoryResultTopic.getValue().entrySet()) {
             String category = categoryResultTopic.getKey();
-            AuthorizeResult authorizeResult = AuditLogRouterJsonConfig.result(resultTopic.getKey());
+            AuditLogRouterResult routerResult = AuditLogRouterJsonConfig.result(resultTopic.getKey());
             String topic = resultTopic.getValue();
 
-            router.setRoute(category, authorizeResult, topic);
+            router.setRoute(category, routerResult, topic);
           }
         }
         crnRouters.setPattern(crnString, router);

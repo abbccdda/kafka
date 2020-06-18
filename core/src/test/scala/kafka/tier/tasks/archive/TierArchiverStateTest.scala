@@ -255,6 +255,7 @@ class TierArchiverStateTest {
     when(tierPartitionState.endOffset).thenReturn(0)
     when(tierPartitionState.segments(any(), any())).thenReturn(CloseableIterator.wrap(new util.ArrayList[TierObjectMetadata]().iterator()))
     when(tierPartitionState.lastLocalMaterializedSrcOffsetAndEpoch).thenReturn(new OffsetAndEpoch(Long.MaxValue, Optional.empty()))
+    when(tierPartitionState.isTieringEnabled).thenReturn(true)
     when(tierTopicManager.addMetadata(any())).thenReturn(CompletableFuture.completedFuture(AppendResult.RESTORE_FENCED))
 
     val logConfig = LogTest.createLogConfig(segmentBytes = 150, indexIntervalBytes = 1, maxMessageBytes = 64 * 1024, tierEnable = true)
@@ -298,6 +299,7 @@ class TierArchiverStateTest {
     val tierPartitionState = mock(classOf[TierPartitionState])
     when(tierPartitionState.committedEndOffset()).thenReturn(-1L: java.lang.Long)
     when(tierPartitionState.tierEpoch).thenReturn(1)
+    when(tierPartitionState.isTieringEnabled).thenReturn(true)
     when(log.tierPartitionState).thenReturn(tierPartitionState)
 
     Await.result(ArchiveTask.maybeInitiateUpload(BeforeUpload(0), topicIdPartition, time, tierTopicManager, tierObjectStore, replicaManager), maxWaitTime)
@@ -324,6 +326,7 @@ class TierArchiverStateTest {
     when(tierPartitionState.committedEndOffset()).thenReturn(-1L: java.lang.Long)
     when(tierPartitionState.tierEpoch).thenReturn(0)
     when(tierPartitionState.lastLocalMaterializedSrcOffsetAndEpoch).thenReturn(new OffsetAndEpoch(Long.MaxValue, Optional.empty()))
+    when(tierPartitionState.isTieringEnabled).thenReturn(true)
     when(log.tierPartitionState).thenReturn(tierPartitionState)
 
     val result = Await.result(ArchiveTask.maybeInitiateUpload(BeforeUpload(0), topicIdPartition, time, tierTopicManager, tierObjectStore, replicaManager), maxWaitTime)
@@ -344,6 +347,7 @@ class TierArchiverStateTest {
     when(tierPartitionState.endOffset).thenReturn(0)
     when(tierPartitionState.segments(any(), any())).thenReturn(CloseableIterator.wrap(new util.ArrayList[TierObjectMetadata]().iterator()))
     when(tierPartitionState.lastLocalMaterializedSrcOffsetAndEpoch).thenReturn(new OffsetAndEpoch(Long.MaxValue, Optional.empty()))
+    when(tierPartitionState.isTieringEnabled).thenReturn(true)
     when(tierTopicManager.addMetadata(any())).thenReturn(CompletableFuture.completedFuture(AppendResult.ACCEPTED))
 
     val logConfig = LogTest.createLogConfig(segmentBytes = 150, indexIntervalBytes = 1, maxMessageBytes = 64 * 1024, tierEnable = true)

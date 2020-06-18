@@ -3,27 +3,26 @@ package databalancer;
 
 option java_package = "io.confluent.databalancer.record";
 
-enum BrokerShutdownStatus {
-  bss_failed = 0;
-  bss_canceled = 1;
-  bss_pending = 2;
-  bss_complete = 3;
+enum RemovalState {
+  initial_plan_computation_initiated = 0;
+  initial_plan_computation_failed = 1;
+  broker_shutdown_initiated = 2;
+  broker_shutdown_failed = 3;
+  broker_shutdown_canceled = 11;
+  plan_computation_initiated = 4;
+  plan_computation_failed = 5;
+  plan_computation_canceled = 6;
+  plan_execution_initiated = 7;
+  plan_execution_failed = 8;
+  plan_execution_canceled = 9;
+  plan_execution_succeeded = 10;
 }
 
-enum PartitionReassignmentsStatus {
-  par_canceled = 0;
-  par_failed = 1;
-  par_pending = 2;
-  par_in_progress = 3;
-  par_complete = 4;
-}
-
-message RemoveBrokerStatus {
-  int32 version = 1;  // Version to allow change in exception serialization if needed.
+message BrokerRemovalStateRecordProto {
+  int32 version = 1;  // Version to allow change in exception/state serialization if needed.
   int32 brokerId = 2;
   string error = 3;  // exception serialized as Base64 string
-  BrokerShutdownStatus bss_status = 4;
-  PartitionReassignmentsStatus par_status = 5;
-  int64 startTime = 6;
-  int64 lastUpdateTime = 7;
+  RemovalState removal_state = 4; // the state of the broker removal operation
+  int64 startTime = 5;
+  int64 lastUpdateTime = 6;
 }

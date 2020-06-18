@@ -1,17 +1,14 @@
-/**
+/*
  * Copyright 2020 Confluent Inc.
  */
 package io.confluent.databalancer;
 
-import io.confluent.databalancer.operation.BrokerRemovalProgressListener;
 import io.confluent.databalancer.operation.BalanceOpExecutionCompletionCallback;
-import kafka.server.KafkaConfig;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.Set;
 
 /**
@@ -29,7 +26,7 @@ public class NoOpDataBalanceEngine implements DataBalanceEngine {
     }
 
     @Override
-    public void onActivation(KafkaConfig kafkaConfig) { }
+    public void onActivation(EngineInitializationContext initializationContext) { }
 
     @Override
     public void onDeactivation() { }
@@ -54,8 +51,6 @@ public class NoOpDataBalanceEngine implements DataBalanceEngine {
     @Override
     public void removeBroker(int brokerToRemove,
                              Optional<Long> brokerToRemoveEpoch,
-                             AtomicReference<String> registerBrokerRemovalMetric,
-                             BrokerRemovalProgressListener listener,
                              String uid) {
         String msg = String.format("Received request to remove broker %d (uid %s) while SBK is not started.",
             brokerToRemove, uid);
@@ -65,7 +60,14 @@ public class NoOpDataBalanceEngine implements DataBalanceEngine {
 
     @Override
     public void addBrokers(Set<Integer> brokersToAdd, BalanceOpExecutionCompletionCallback onExecutionCompletion, String uid) {
-        String msg = String.format("Received request to add brokers {} while SBK is not started.", brokersToAdd);
-        LOG.debug(msg);
+        String msg = String.format("Ignoring request to add brokers %s while SBK is not started.", brokersToAdd);
+        LOG.warn(msg);
+    }
+
+    @Override
+    public boolean cancelBrokerRemoval(int brokerId) {
+        String msg = String.format("Ignoring request to cancel brokers removals for brokers %d while SBK is not started.", brokerId);
+        LOG.warn(msg);
+        return false;
     }
 }

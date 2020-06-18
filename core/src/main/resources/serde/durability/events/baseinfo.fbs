@@ -1,0 +1,12 @@
+/*
+ * Copyright 2020 Confluent Inc.
+ */
+
+namespace kafka.durability.events.serdes;
+
+struct BaseInfo {
+    version: int;
+    epoch: int;
+    highWaterMark: long;
+    logStartOffset: long;
+}

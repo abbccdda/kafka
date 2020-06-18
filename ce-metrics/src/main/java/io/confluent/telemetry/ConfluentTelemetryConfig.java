@@ -6,6 +6,8 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
+import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.producer.ProducerConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,7 +24,6 @@ import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
-import org.apache.kafka.common.config.internals.ConfluentConfigs.ClientType;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -100,7 +101,26 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
                 "under_replicated",
                 "under_replicated_partitions",
                 "zookeeper_disconnects_per_sec",
-                "zookeeper_expires_per_sec"
+                "zookeeper_expires_per_sec",
+                // Control Center metrics
+                "io.confluent.controlcenter/.*("
+                    + "metrics_input_topic_progress"
+                    + "|monitoring_input_topic_progress"
+                    + "|misconfigured_topics"
+                    + "|missing_topic_configurations"
+                    + "|broker_log_persistent_dir"
+                    + "|cluster_offline"
+                    + "|streams_status"
+                    + "|system_cpu_load"
+                    + "|system_load_average"
+                    + "|free_physical_memory_size"
+                    + "|total_physical_memory_size"
+                    + "|committed"
+                    + "|used"
+                    + "|total_lag"
+                    + "|request_latency"
+                    + "|response_size"
+                    + "|response_rate)"
             )
     );
 
@@ -121,6 +141,7 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
     public static final Map<String, Object> EXPORTER_LOCAL_DEFAULTS =
         ImmutableMap.of(
             ExporterConfig.TYPE_CONFIG, ExporterConfig.ExporterType.kafka.name(),
+            ExporterConfig.ENABLED_CONFIG, true,
 
             // This will get overriden by getDynamicDefaults() however not defaulting
             // this makes us have to provide this config even when this reporter is explicitly disabled. 
@@ -136,6 +157,7 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
     public static final Map<String, Object> EXPORTER_CONFLUENT_DEFAULTS =
         ImmutableMap.of(
             ExporterConfig.TYPE_CONFIG, ExporterConfig.ExporterType.http.name(),
+            ExporterConfig.ENABLED_CONFIG, false,
             HttpExporterConfig.CLIENT_BASE_URL, "https://collector.telemetry.confluent.cloud"
         );
 
@@ -149,6 +171,9 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
         return PREFIX_EXPORTER + name + ".";
     }
 
+    /**
+     * High level configs tied only to the default Confluent Cloud Http Exporter for simplified usage.
+     */
     public static final String TELEMETRY_API_KEY = PREFIX + "api.key";
     public static final String TELEMETRY_API_KEY_DOC = "The API key used to authenticate HTTP requests with the Confluent telemetry server";
 
@@ -157,7 +182,7 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
 
     public static final String TELEMETRY_ENABLED_CONFIG = PREFIX + "enabled";
     public static final String TELEMETRY_ENABLED_DOC = "True if telemetry data can to be reported to Confluent Cloud";
-    public static final boolean TELEMETRY_ENABLED_DEFAULT = true;
+    public static final boolean TELEMETRY_ENABLED_DEFAULT = false;
 
     public static final String TELEMETRY_PROXY_URL = PREFIX + HttpExporterConfig.PREFIX_PROXY + "url";
     public static final String TELEMETRY_PROXY_URL_DOC = "The URL for an explicit (i.e. not transparent) forward HTTP proxy to send Telemetry data to Confluent Cloud";
@@ -167,6 +192,7 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
 
     public static final String TELEMETRY_PROXY_PASSWORD = PREFIX + HttpExporterConfig.PREFIX_PROXY + "password";
     public static final String TELEMETRY_PROXY_PASSWORD_DOC = "The password credential for the forward HTTP proxy to send Telemetry data to Confluent Cloud";
+
 
     public static final Set<String> RECONFIGURABLES =
         ImmutableSet.of(
@@ -286,8 +312,8 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
 
     public ConfluentTelemetryConfig(Map<String, ?> originals, boolean doLog) {
         super(CONFIG, reconcileConfigs(originals), doLog);
-        this.volumeMetricsCollectorConfig = new VolumeMetricsCollectorConfig(originals);
-        this.exporterConfigMap = createExporterMap();
+        this.volumeMetricsCollectorConfig = new VolumeMetricsCollectorConfig(originals, doLog);
+        this.exporterConfigMap = createExporterMap(doLog);
         if (this.enabledExporters().isEmpty()) {
             log.warn("no telemetry exporters are enabled");
         }
@@ -377,40 +403,48 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
         return tempConfig;
     }
 
-    private Map<String, Map<String, Object>> parseLocalClientConfigs() {
+    private Map<String, Object> parseInterBrokerClientConfigs() {
         // TODO remove dependency on ConfluentConfigs for non-broker components
-        return ImmutableMap.of(
-            EXPORTER_LOCAL_NAME,
-            ConfluentConfigs.clientConfigs(this, ConfluentConfigs.INTERBROKER_REPORTER_CLIENT_CONFIG_PREFIX,
-                ClientType.PRODUCER, "", "confluent-telemetry-reporter").entrySet().stream()
-                // don't start a metrics reporter inside the local producer
-                .filter(e -> !e.getKey().equals(CommonClientConfigs.METRIC_REPORTER_CLASSES_CONFIG))
-                // don't use ConfluentConfigs.clientConfigs client-id
-                .filter(e -> !e.getKey().equals(CommonClientConfigs.CLIENT_ID_CONFIG))
-                // we don't need to pass through null values
-                .filter(e -> e.getValue() != null)
-                .collect(
-                    Collectors.toMap(
-                        e -> KafkaExporterConfig.PREFIX_PRODUCER + e.getKey(),
-                        e -> e.getValue()
-                    )
-                )
-        );
+        Set<String> producerConfigs = ProducerConfig.configNames();
+        Set<String> adminConfigs = AdminClientConfig.configNames();
+        if (BrokerConfigUtils.isBrokerConfig(this)) {
+            return ConfluentConfigs.interBrokerClientConfigs(this, BrokerConfigUtils.getInterBrokerEndpoint(this))
+                    .entrySet().stream()
+                    // filter non-producer configs
+                    .filter(e -> producerConfigs.contains(e.getKey()) || adminConfigs.contains(e.getKey()))
+                    // don't start a metrics reporter inside the local producer
+                    .filter(e -> !e.getKey().equals(CommonClientConfigs.METRIC_REPORTER_CLASSES_CONFIG))
+                    // don't use default client-id
+                    .filter(e -> !e.getKey().equals(CommonClientConfigs.CLIENT_ID_CONFIG))
+                    // remove broker compression type (since it does not translate)
+                    .filter(e -> !e.getKey().equals(KafkaConfig.CompressionTypeProp()))
+                    // we don't need to pass through null values
+                    .filter(e -> e.getValue() != null)
+                    .collect(
+                            Collectors.toMap(
+                                    e -> KafkaExporterConfig.PREFIX_PRODUCER + e.getKey(),
+                                    Map.Entry::getValue
+                            )
+                    );
+        }
+        return ImmutableMap.of();
     }
 
-    private Map<String, ExporterConfig> createExporterMap() {
+    private Map<String, ExporterConfig> createExporterMap(boolean doLog) {
         String configPrefix = PREFIX_EXPORTER;
         Map<String, Map<String, Object>> exporters = Maps.newHashMap();
 
         // put our default exporter configs
-        Map<String, Map<String, Object>> dynamicDefaults = parseLocalClientConfigs();
         for (Map.Entry<String, Map<String, Object>> entry : EXPORTER_DEFAULT_CONFIGS.entrySet()) {
-            // apply dynamic defaults as well
             Map<String, Object> defaults =  Maps.newHashMap(entry.getValue());
-            if (dynamicDefaults.containsKey(entry.getKey())) {
-                defaults.putAll(dynamicDefaults.get(entry.getKey()));
-            }
             exporters.put(entry.getKey(), defaults);
+        }
+
+        // put our local client configs computed from originals
+        Map<String, Object> localClientConfigs = parseInterBrokerClientConfigs();
+        if (!localClientConfigs.isEmpty()) {
+            exporters.computeIfAbsent(EXPORTER_LOCAL_NAME, k -> Maps.newHashMap())
+                .putAll(parseInterBrokerClientConfigs());
         }
 
         // parse/add user-specified configs
@@ -438,9 +472,9 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
 
             ExporterConfig config = null;
             if (exporterType.equals(ExporterConfig.ExporterType.kafka)) {
-                config = new KafkaExporterConfig(entry.getValue());
+                config = new KafkaExporterConfig(entry.getValue(), doLog);
             } else if (exporterType.equals(ExporterConfig.ExporterType.http)) {
-                config = new HttpExporterConfig(entry.getValue());
+                config = new HttpExporterConfig(entry.getValue(), doLog);
             } else {
                 // we should never hit this since we've already validated the type above
                 throw new RuntimeException("unexpected ExporterType value");

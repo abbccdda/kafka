@@ -47,7 +47,6 @@ class TopicDeletionManagerTest {
 
   @Before
   def setup(): Unit = {
-    when(deletionClient.topicConfig(any(), any())).thenReturn(LogConfig.fromProps(config.originals, new Properties()))
   }
 
   @Test
@@ -141,7 +140,6 @@ class TopicDeletionManagerTest {
 
     val topicProperties = new Properties()
     topicProperties.setProperty(LogConfig.TierEnableProp, "true")
-    when(deletionClient.topicConfig(any(), any())).thenReturn(LogConfig.fromProps(config.originals, topicProperties))
 
     val controllerContext = initContext(
       brokers = Seq(1, 2, 3),
@@ -210,7 +208,6 @@ class TopicDeletionManagerTest {
 
     val topicProperties = new Properties()
     topicProperties.setProperty(LogConfig.TierEnableProp, "true")
-    when(deletionClient.topicConfig(any(), any())).thenReturn(LogConfig.fromProps(config.originals, topicProperties))
 
     val controllerContext = initContext(
       brokers = Seq(1, 2, 3),
@@ -288,7 +285,6 @@ class TopicDeletionManagerTest {
 
     val topicProperties = new Properties()
     topicProperties.setProperty(LogConfig.TierEnableProp, "true")
-    when(deletionClient.topicConfig(any(), any())).thenReturn(LogConfig.fromProps(config.originals, topicProperties))
 
     val controllerContext = initContext(
       brokers = Seq(1, 2, 3),
@@ -473,7 +469,6 @@ class TopicDeletionManagerTest {
 
     val topicProperties = new Properties()
     topicProperties.setProperty(LogConfig.TierEnableProp, "true")
-    when(deletionClient.topicConfig(any(), any())).thenReturn(LogConfig.fromProps(config.originals, topicProperties))
 
     val tierTopicManager = mock(classOf[TierTopicManager])
     when(tierTopicManager.addMetadata(any())).thenReturn(CompletableFuture.completedFuture(AppendResult.ACCEPTED))

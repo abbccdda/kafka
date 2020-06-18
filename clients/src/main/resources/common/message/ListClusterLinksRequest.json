@@ -9,6 +9,11 @@
   "validVersions": "0",
   "flexibleVersions": "0+",
   "fields": [
-    // Empty.
+    { "name": "LinkNames", "type": "[]string", "versions": "0+", "nullableVersions": "0+", "default": "null",
+      "about": "Names of the cluster links to include in the response, otherwise if null, then all cluster links are listed." },
+    { "name": "IncludeTopics", "type": "bool", "versions": "0+",
+      "about": "Whether to include the topics that are linked for the cluster link." },
+    { "name": "TimeoutMs", "type": "int32", "versions": "0+",
+      "about": "The time, in milliseconds, to allow for request completion." }
   ]
 }

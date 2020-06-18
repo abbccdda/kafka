@@ -6,13 +6,15 @@ package io.confluent.databalancer.operation;
 import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback;
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicReference;
-import kafka.common.BrokerRemovalStatus;
+import kafka.common.BrokerRemovalDescriptionInternal;
 import org.apache.kafka.clients.admin.BrokerRemovalDescription;
+import org.apache.kafka.common.errors.BrokerRemovalCanceledException;
 import org.apache.kafka.common.errors.ReassignmentInProgressException;
 import org.junit.Before;
 import org.junit.Test;
 
 
+import static io.confluent.databalancer.operation.BrokerRemovalStateMachine.BrokerRemovalState.BROKER_SHUTDOWN_CANCELED;
 import static io.confluent.databalancer.operation.BrokerRemovalStateMachine.BrokerRemovalState.BROKER_SHUTDOWN_FAILED;
 import static io.confluent.databalancer.operation.BrokerRemovalStateMachine.BrokerRemovalState.BROKER_SHUTDOWN_INITIATED;
 import static io.confluent.databalancer.operation.BrokerRemovalStateMachine.BrokerRemovalState.INITIAL_PLAN_COMPUTATION_FAILED;
@@ -25,7 +27,10 @@ import static io.confluent.databalancer.operation.BrokerRemovalStateMachine.Brok
 import static io.confluent.databalancer.operation.BrokerRemovalStateMachine.BrokerRemovalState.PLAN_EXECUTION_INITIATED;
 import static io.confluent.databalancer.operation.BrokerRemovalStateMachine.BrokerRemovalState.PLAN_EXECUTION_SUCCEEDED;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 
 
 /**
@@ -43,25 +48,25 @@ import static org.junit.Assert.assertNull;
  *                      |                                    |            |                           |       |                            |     |                          |              |                          |
  *                      | PAR=PENDING                        |            | PAR=IN_PROGRESS           |       | PAR=IN_PROGRESS            |     | PAR=IN_PROGRESS          |              | PAR=COMPLETE             |
  *                      | BSS=PENDING                        |            | BSS=PENDING               |       | BSS=COMPLETE               |     | BSS=COMPLETE             |              | BSS=COMPLETE             |
- *                      +-------------------+----------------+            +-----------+---------------+       +-------------+-----+--------+     +--------------------+---+-+              +--------------------------+
- *                                          |                                         |                                     |     |                                   |   |
- *                                   ERROR  |                                  ERROR  |                              ERROR  |     | BROKER                     ERROR  |   | BROKER
- *                                          |                                         |                                     |     | RESTART                           |   | RESTART
- *                                          |                                         |                                     |     |                                   |   |
- * +---------------------------------+      |    +------------------------+           |     +-------------------------+     |     |      +-----------------------+    |   |
- * | INITIAL_PLAN_COMPUTATION_FAILED |      |    | BROKER_SHUTDOWN_FAILED |           |     | PLAN_COMPUTATION_FAILED |     |     |      | PLAN_EXECUTION_FAILED |    |   |
- * |                                 |      |    |                        |           |     |                         |     |     |      |                       |    |   |
- * |  PAR=FAILED                     +<-----+    |   PAR=CANCELED         +<----------+     |   PAR=FAILED            <-----+     |      |   PAR=FAILED          +<---+   |
- * |  BSS=CANCELED                   |           |   BSS=FAILED           |                 |   BSS=COMPLETE          |           |      |   BSS=COMPLETE        |        |
- * +---------------------------------+           +------------------------+                 +-------------------------+           |      +-----------------------+        |
- *                                                                                                                                |                                       |
- *                                                                                                                                |                                       |
- *                                                                                          +-------------------------+           |      +------------------------+       |
- *                                                                                          |PLAN_COMPUTATION_CANCELED|           |      | PLAN_EXECUTION_CANCELED|       |
- *                                                                                          |                         |           |      |                        |       |
- *                                                                                          |   PAR=CANCELED          +<----------+      |    PAR=CANCELED        +<------+
- *                                                                                          |   BSS=COMPLETE          |                  |    BSS=COMPLETE        |
- *                                                                                          +-------------------------+                  +------------------------+
+ *                      +-------------------+-+--------------+            +-----------+-+-------------+       +-------------+-----+--------+     +--------------------+---+-+              +--------------------------+
+ *                                          |                                         | |                                   |     |                                   |   |
+ *                                   ERROR  |                                  ERROR  | |                            ERROR  |     | BROKER                     ERROR  |   | BROKER
+ *                                          |                                         | |                                   |     | RESTART                           |   | RESTART
+ *                                          |                                         | |                                   |     |                                   |   |
+ * +---------------------------------+      |    +------------------------+           | |   +-------------------------+     |     |      +-----------------------+    |   |
+ * | INITIAL_PLAN_COMPUTATION_FAILED |      |    | BROKER_SHUTDOWN_FAILED |           | |   | PLAN_COMPUTATION_FAILED |     |     |      | PLAN_EXECUTION_FAILED |    |   |
+ * |                                 |      |    |                        |           | |   |                         |     |     |      |                       |    |   |
+ * |  PAR=FAILED                     +<-----+    |   PAR=CANCELED         +<----------+ |   |   PAR=FAILED            <-----+     |      |   PAR=FAILED          +<---+   |
+ * |  BSS=CANCELED                   |           |   BSS=FAILED           |             |   |   BSS=COMPLETE          |           |      |   BSS=COMPLETE        |        |
+ * +---------------------------------+           +------------------------+             |   +-------------------------+           |      +-----------------------+        |
+ *                                                                                      |                                         |                                       |
+ *                                                                                      |                                         |                                       |
+ *                                               +------------------------+             |   +-------------------------+           |      +------------------------+       |
+ *                                               |BROKER_SHUTDOWN_CANCELED|             |   |PLAN_COMPUTATION_CANCELED|           |      | PLAN_EXECUTION_CANCELED|       |
+ *                                               |                        |             |   |                         |           |      |                        |       |
+ *                                               |   PAR=CANCELED         +<------------+   |   PAR=CANCELED          +<----------+      |    PAR=CANCELED        +<------+
+ *                                               |   BSS=CANCELED         |                 |   BSS=COMPLETE          |                  |    BSS=COMPLETE        |
+ *                                               +------------------------+                 +-------------------------+                  +------------------------+
  * Created via https://asciiflow.com/
  *
  * Tests that the #{@link BrokerRemovalStateTracker} and by extension #{@link BrokerRemovalStateMachine}
@@ -75,26 +80,74 @@ public class BrokerRemovalStateTrackerTest {
   private Exception brokerShutdownException = new IOException("Error while shutting down broker!");
   private Exception planExecutionException = new ReassignmentInProgressException("Error while reassigning partitions!");
   private Exception planComputationFailure = new Exception("Plan computation failed!");
+  private Exception canceledException = new BrokerRemovalCanceledException("Broker removal was canceled");
   private AtomicReference<String> stateRef = new AtomicReference<>("TEST");
-  class TestListener implements BrokerRemovalProgressListener {
-    private BrokerRemovalStatus status;
+  private boolean terminalStateNotified = false;
+
+  class TestTerminalListener implements BrokerRemovalTerminationListener {
+    private BrokerRemovalStateMachine.BrokerRemovalState state;
+    private Exception exception;
 
     @Override
-    public void onProgressChanged(BrokerRemovalDescription.BrokerShutdownStatus shutdownStatus, BrokerRemovalDescription.PartitionReassignmentsStatus partitionReassignmentsStatus, Exception e) {
-      status = new BrokerRemovalStatus(brokerId, shutdownStatus, partitionReassignmentsStatus, e);
+    public void onTerminalState(int brokerId, BrokerRemovalStateMachine.BrokerRemovalState state, Exception e) {
+      if (!state.isTerminal()) {
+        throw new IllegalStateException("Registered a non-terminal state in onTerminalState()!");
+      }
+      terminalStateNotified = true;
+
+      if (this.state != null) {
+        throw new IllegalStateException("Registered a terminal state twice!");
+      }
+      this.state = state;
+      this.exception = e;
+    }
+  }
+
+  class TestListener implements BrokerRemovalProgressListener {
+    private BrokerRemovalDescriptionInternal status;
+    private BrokerRemovalStateMachine.BrokerRemovalState state;
+
+    public BrokerRemovalDescriptionInternal status() {
+      return status;
     }
 
-    public BrokerRemovalStatus status() {
-      return status;
+    /**
+     * Called whenever the state of the removal operation changes.
+     *
+     * @param state the new broker removal state the operation is in
+     * @param e     - nullable, an exception that occurred during the broker removal op
+     */
+    @Override
+    public void onProgressChanged(int brokerId, BrokerRemovalStateMachine.BrokerRemovalState state, Exception e) {
+      this.status = new BrokerRemovalDescriptionInternal(brokerId, state.brokerShutdownStatus(), state.partitionReassignmentsStatus(), e);
+      this.state = state;
     }
   }
 
   private TestListener listener = new TestListener();
+  private TestTerminalListener terminalListener = new TestTerminalListener();
 
   @Before
   public void setUp() {
     stateMachine = new BrokerRemovalStateMachine(brokerId);
-    stateTracker = new BrokerRemovalStateTracker(brokerId, stateMachine, listener, stateRef);
+    stateTracker = new BrokerRemovalStateTracker(brokerId, stateMachine, listener, terminalListener, stateRef);
+    stateTracker.initialize();
+  }
+
+  @Test(expected = IllegalStateException.class)
+  public void testAdvanceState_NotInitializedTracker_ThrowsException() {
+    BrokerRemovalStateTracker stateTracker = new BrokerRemovalStateTracker(brokerId, stateMachine, listener, terminalListener, stateRef);
+    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS);
+  }
+
+  /**
+   * Should not be able to initialize the tracker twice
+   */
+  @Test(expected = IllegalStateException.class)
+  public void testInitialize_InitializedTracker_ThrowsException() {
+    BrokerRemovalStateTracker stateTracker = new BrokerRemovalStateTracker(brokerId, stateMachine, listener, terminalListener, stateRef);
+    stateTracker.initialize();
+    stateTracker.initialize();
   }
 
   /**
@@ -107,18 +160,29 @@ public class BrokerRemovalStateTrackerTest {
     stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS);
 
     assertState(BROKER_SHUTDOWN_INITIATED);
+    assertTrue("Should be able to cancel state tracker as it has reached the shutdown state", stateTracker.canBeCanceled());
 
     stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_SUCCESS);
 
     assertState(PLAN_COMPUTATION_INITIATED);
+    assertTrue("Should be able to cancel state tracker as it has reached the shutdown state", stateTracker.canBeCanceled());
 
     stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_COMPUTATION_SUCCESS);
 
     assertState(PLAN_EXECUTION_INITIATED);
+    assertTrue("Should be able to cancel state tracker as it has reached the shutdown state", stateTracker.canBeCanceled());
 
     stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_EXECUTION_SUCCESS);
 
     assertState(PLAN_EXECUTION_SUCCEEDED);
+    assertFalse("Should not be able to cancel state tracker as it has reached a terminal", stateTracker.canBeCanceled());
+
+    assertStatesSeen(INITIAL_PLAN_COMPUTATION_INITIATED,
+        BROKER_SHUTDOWN_INITIATED,
+        PLAN_COMPUTATION_INITIATED,
+        PLAN_EXECUTION_INITIATED,
+        PLAN_EXECUTION_SUCCEEDED
+    );
   }
 
   /**
@@ -132,6 +196,8 @@ public class BrokerRemovalStateTrackerTest {
   @Test(expected = IllegalStateException.class)
   public void testInvalidStateTransitionThrowsIllegalStateException() {
     assertState(INITIAL_PLAN_COMPUTATION_INITIATED);
+    assertFalse("Should not be able to cancel state tracker as it has reached the shutdown state", stateTracker.canBeCanceled());
+
     // we cannot move from INITIAL_PLAN to PLAN_SUCCESS, it must be INITIAL_PLAN_SUCCESS/FAILURE
     stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_COMPUTATION_SUCCESS);
   }
@@ -154,8 +220,44 @@ public class BrokerRemovalStateTrackerTest {
     stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_SUCCESS);
     stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_COMPUTATION_SUCCESS);
     assertState(PLAN_EXECUTION_INITIATED);
-    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_RESTARTED);
-    assertState(PLAN_EXECUTION_CANCELED);
+    stateTracker.cancel(canceledException, true);
+    assertState(PLAN_EXECUTION_CANCELED, canceledException);
+    assertStatesNotSeen(BROKER_SHUTDOWN_CANCELED, BROKER_SHUTDOWN_FAILED, PLAN_COMPUTATION_FAILED, INITIAL_PLAN_COMPUTATION_FAILED);
+    assertFalse("Should not be able to cancel state tracker as its in a terminal state", stateTracker.canBeCanceled());
+  }
+
+  /**
+   * Test state transition to when the plan execution is canceled (e.g restart of the broker being removed)
+   */
+  @Test
+  public void testCancel_FurtherEventRegistrationsAreNotProcessed() {
+    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS);
+
+    // act
+    stateTracker.cancel(canceledException, true);
+    assertState(BROKER_SHUTDOWN_CANCELED, canceledException);
+    assertThrows(IllegalStateException.class, () -> stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_FAILURE));
+
+    // assert - nothing should have changed
+    assertState(BROKER_SHUTDOWN_CANCELED, canceledException);
+    assertStatesNotSeen(BROKER_SHUTDOWN_FAILED);
+  }
+
+
+  /**
+   * Cancellation with a false registerEvent flag means we should not advance the state machine to a cancelled state
+   */
+  @Test
+  public void testCancel_NoEventRegistration() {
+    boolean toRegisterEvent = false;
+    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS);
+
+    // act
+    assertState(BROKER_SHUTDOWN_INITIATED);
+    stateTracker.cancel(canceledException, toRegisterEvent);
+    assertState(BROKER_SHUTDOWN_INITIATED); // state should not have moved
+    // further registrations fail
+    assertThrows(IllegalStateException.class, () -> stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_FAILURE));
   }
 
   /**
@@ -169,6 +271,10 @@ public class BrokerRemovalStateTrackerTest {
     assertState(PLAN_EXECUTION_INITIATED);
     stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_EXECUTION_FAILURE, planExecutionException);
     assertState(PLAN_EXECUTION_FAILED, planExecutionException);
+
+    assertStatesSeen(INITIAL_PLAN_COMPUTATION_INITIATED, BROKER_SHUTDOWN_INITIATED, PLAN_COMPUTATION_INITIATED, PLAN_EXECUTION_FAILED);
+    assertStatesNotSeen(BROKER_SHUTDOWN_CANCELED, BROKER_SHUTDOWN_FAILED, PLAN_COMPUTATION_FAILED,
+        INITIAL_PLAN_COMPUTATION_FAILED, PLAN_EXECUTION_SUCCEEDED, PLAN_EXECUTION_CANCELED);
   }
 
   /**
@@ -179,8 +285,8 @@ public class BrokerRemovalStateTrackerTest {
     stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS);
     stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_SUCCESS);
     assertState(PLAN_COMPUTATION_INITIATED);
-    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_RESTARTED);
-    assertState(PLAN_COMPUTATION_CANCELED);
+    stateTracker.cancel(canceledException, true);
+    assertState(PLAN_COMPUTATION_CANCELED, canceledException);
   }
 
   /**
@@ -207,7 +313,18 @@ public class BrokerRemovalStateTrackerTest {
   }
 
   /**
-   * Test state transition to when the broker shutdown fails
+   * Test state transition to when the broker shutdown is canceled
+   */
+  @Test
+  public void testAdvanceStateTo_ShutdownCancellation() {
+    stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS);
+    assertState(BROKER_SHUTDOWN_INITIATED);
+    stateTracker.cancel(canceledException, true);
+    assertState(BROKER_SHUTDOWN_CANCELED, canceledException);
+  }
+
+  /**
+   * Test state transition to when the initial plan computation fails
    */
   @Test
   public void testAdvanceStateTo_InitialPlanFailure() {
@@ -275,6 +392,12 @@ public class BrokerRemovalStateTrackerTest {
         assertEquals(BrokerRemovalDescription.PartitionReassignmentsStatus.CANCELED,
             listener.status().partitionReassignmentsStatus());
         break;
+      case BROKER_SHUTDOWN_CANCELED:
+        assertEquals(BrokerRemovalDescription.BrokerShutdownStatus.CANCELED,
+            listener.status().brokerShutdownStatus());
+        assertEquals(BrokerRemovalDescription.PartitionReassignmentsStatus.CANCELED,
+            listener.status().partitionReassignmentsStatus());
+        break;
       case PLAN_EXECUTION_SUCCEEDED:
         assertEquals(BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE,
             listener.status().brokerShutdownStatus());
@@ -286,12 +409,36 @@ public class BrokerRemovalStateTrackerTest {
     }
 
     assertEquals(state, stateMachine.currentState);
+    assertStatesSeen(state);
+    assertEquals(state, listener.state);
+
     assertEquals(state.name(), stateRef.get());
+    assertEquals(state, stateTracker.currentState());
     if (exception == null) {
       assertNull("Expected no exception to be populated",
           listener.status().exception());
     } else {
       assertEquals(exception, listener.status().exception());
+    }
+    if (state.isTerminal()) {
+      assertTrue("Expected listener to be notified of the terminal state",
+          terminalStateNotified);
+      assertEquals(state, terminalListener.state);
+      assertEquals(exception, terminalListener.exception);
+    }
+  }
+
+  private void assertStatesSeen(BrokerRemovalStateMachine.BrokerRemovalState... states) {
+    for (BrokerRemovalStateMachine.BrokerRemovalState state : states) {
+      assertTrue("Expected state tracker to have gone through the given state",
+          stateTracker.hasSeenState(state));
+    }
+  }
+
+  private void assertStatesNotSeen(BrokerRemovalStateMachine.BrokerRemovalState... states) {
+    for (BrokerRemovalStateMachine.BrokerRemovalState state : states) {
+      assertFalse("Expected state tracker to NOT have gone through the given state",
+          stateTracker.hasSeenState(state));
     }
   }
 }

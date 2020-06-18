@@ -66,6 +66,7 @@ import org.bouncycastle.operator.DefaultSignatureAlgorithmIdentifierFinder;
 import org.bouncycastle.operator.bc.BcRSAContentSignerBuilder;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -286,6 +287,7 @@ public class TestSslUtils {
         Password keyPassword;
         String certAlias;
         String cn;
+        List<String> cipherSuites;
         CertificateBuilder certBuilder;
 
         public SslConfigsBuilder(Mode mode) {
@@ -297,6 +299,7 @@ public class TestSslUtils {
             this.certBuilder = new CertificateBuilder();
             this.cn = "localhost";
             this.certAlias = mode.name().toLowerCase(Locale.ROOT);
+            this.cipherSuites = Collections.emptyList();
         }
 
         public SslConfigsBuilder tlsProtocol(String tlsProtocol) {
@@ -333,6 +336,11 @@ public class TestSslUtils {
 
         public SslConfigsBuilder cn(String cn) {
             this.cn = cn;
+            return this;
+        }
+
+        public SslConfigsBuilder cipherSuites(List<String> cipherSuites) {
+            this.cipherSuites = cipherSuites;
             return this;
         }
 
@@ -386,6 +394,7 @@ public class TestSslUtils {
             List<String> enabledProtocols  = new ArrayList<>();
             enabledProtocols.add(tlsProtocol);
             sslConfigs.put(SslConfigs.SSL_ENABLED_PROTOCOLS_CONFIG, enabledProtocols);
+            sslConfigs.put(SslConfigs.SSL_CIPHER_SUITES_CONFIG, cipherSuites);
 
             return sslConfigs;
         }

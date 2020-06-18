@@ -17,6 +17,7 @@
 package org.apache.kafka.common.network;
 
 import org.apache.kafka.common.KafkaException;
+import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.config.internals.BrokerSecurityConfigs;
 import org.apache.kafka.common.config.types.Password;
@@ -30,6 +31,10 @@ import org.apache.kafka.common.utils.Java;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.server.audit.AuditEvent;
+import org.apache.kafka.server.audit.AuditEventStatus;
+import org.apache.kafka.server.audit.AuditLogProvider;
+import org.apache.kafka.server.audit.AuthenticationEvent;
 import org.apache.kafka.test.TestCondition;
 import org.apache.kafka.test.TestSslUtils;
 import org.apache.kafka.test.TestUtils;
@@ -58,11 +63,15 @@ import java.util.Collections;
 import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.UnaryOperator;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -83,6 +92,7 @@ public class SslTransportLayerTest {
     private Map<String, Object> sslClientConfigs;
     private Map<String, Object> sslServerConfigs;
     private Map<String, Object> sslConfigOverrides;
+    private TestAuditLogProvider auditLogProvider;
 
     @Parameterized.Parameters(name = "tlsProtocol={0}")
     public static Collection<Object[]> data() {
@@ -119,6 +129,7 @@ public class SslTransportLayerTest {
         ChannelBuilder channelBuilder = new SslChannelBuilder(Mode.CLIENT, null, false, logContext);
         channelBuilder.configure(sslClientConfigs);
         this.selector = new Selector(5000, new Metrics(), time, "MetricGroup", channelBuilder, logContext);
+        auditLogProvider = new TestAuditLogProvider();
     }
 
     @After
@@ -144,6 +155,7 @@ public class SslTransportLayerTest {
 
         NetworkTestUtils.checkClientConnection(selector, node, 100, 10);
         server.verifyAuthenticationMetrics(1, 0);
+        verifyAuditLogEvent(true);
     }
 
     /**
@@ -164,6 +176,7 @@ public class SslTransportLayerTest {
         selector.connect(node, addr, BUFFER_SIZE, BUFFER_SIZE);
 
         NetworkTestUtils.checkClientConnection(selector, node, 100, 10);
+        verifyAuditLogEvent(true);
     }
 
     /**
@@ -184,6 +197,7 @@ public class SslTransportLayerTest {
         selector.connect(node, addr, BUFFER_SIZE, BUFFER_SIZE);
 
         NetworkTestUtils.checkClientConnection(selector, node, 100, 10);
+        verifyAuditLogEvent(true);
     }
 
     /**
@@ -202,6 +216,7 @@ public class SslTransportLayerTest {
         selector.connect(node, addr, BUFFER_SIZE, BUFFER_SIZE);
 
         NetworkTestUtils.waitForChannelClose(selector, node, ChannelState.State.AUTHENTICATION_FAILED);
+        verifyAuditLogEvent(false);
     }
 
     /**
@@ -270,6 +285,7 @@ public class SslTransportLayerTest {
 
         NetworkTestUtils.waitForChannelClose(selector, node, ChannelState.State.AUTHENTICATION_FAILED);
         server.verifyAuthenticationMetrics(0, 1);
+        verifyAuditLogEvent(false);
     }
 
     /**
@@ -1152,6 +1168,57 @@ public class SslTransportLayerTest {
         NetworkTestUtils.checkClientConnection(newClientSelector, "3", 100, 10);
     }
 
+    @Test
+    public void testServerCipherDynamicUpdate() throws Exception {
+        // Start server for test.
+        final String serverCipher = tlsProtocol.equals("TLSv1.3") ?
+            "TLS_AES_256_GCM_SHA384" : "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384";
+
+        SecurityProtocol securityProtocol = SecurityProtocol.SSL;
+        sslServerConfigs.put(BrokerSecurityConfigs.SSL_CLIENT_AUTH_CONFIG, "required");
+        sslServerConfigs.put(SslConfigs.SSL_CIPHER_SUITES_CONFIG, Collections.singletonList(serverCipher));
+        TestSecurityConfig config = new TestSecurityConfig(sslServerConfigs);
+        ListenerName listenerName = ListenerName.forSecurityProtocol(securityProtocol);
+        ChannelBuilder serverChannelBuilder = ChannelBuilders.serverChannelBuilder(listenerName,
+                false, securityProtocol, config, null, null, time, new LogContext());
+        server = new NioEchoServer(listenerName, securityProtocol, config,
+                "localhost", serverChannelBuilder, null, time);
+        server.start();
+        InetSocketAddress addr = new InetSocketAddress("localhost", server.port());
+
+        // Verify client connecting to server with the same settings.
+        String idForOldServer = "0";
+        Selector initialClient = createSelector(sslClientConfigs);
+        initialClient.connect(idForOldServer, addr, BUFFER_SIZE, BUFFER_SIZE);
+        NetworkTestUtils.checkClientConnection(initialClient, idForOldServer, 100, 10);
+
+        // Create new client configs.
+        String newCipherName = tlsProtocol.equals("TLSv1.3") ?
+            "TLS_AES_128_GCM_SHA256" : "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256";
+        Map<String, Object> clientConfigsWithNewCipher = sslClientConfigs;
+        clientConfigsWithNewCipher.put(SslConfigs.SSL_CIPHER_SUITES_CONFIG, Collections.singletonList(newCipherName));
+
+        // Verify client using these configs fails to connect.
+        Selector newClient = createSelector(clientConfigsWithNewCipher);
+        newClient.connect(idForOldServer, addr, BUFFER_SIZE, BUFFER_SIZE);
+        NetworkTestUtils.waitForChannelClose(newClient, idForOldServer, ChannelState.State.AUTHENTICATION_FAILED);
+
+        // Create new server configs.
+        Map<String, Object> serverConfigsWithNewCipher = sslServerConfigs;
+        serverConfigsWithNewCipher.put(SslConfigs.SSL_CIPHER_SUITES_CONFIG, Collections.singletonList(newCipherName));
+
+        // Switch to new configs at server.
+        ListenerReconfigurable reconfigurableBuilder = (ListenerReconfigurable) serverChannelBuilder;
+        assertEquals(listenerName, reconfigurableBuilder.listenerName());
+        reconfigurableBuilder.validateReconfiguration(serverConfigsWithNewCipher);
+        reconfigurableBuilder.reconfigure(serverConfigsWithNewCipher);
+
+        // Verify client now successfully connects to server.
+        String idForNewServer = "1";
+        newClient.connect(idForNewServer, addr, BUFFER_SIZE, BUFFER_SIZE);
+        NetworkTestUtils.checkClientConnection(newClient, idForNewServer, 100, 10);
+    }
+
     /**
      * Tests if client can plugin customize ssl.engine.factory
      */
@@ -1240,7 +1307,7 @@ public class SslTransportLayerTest {
     }
 
     private NioEchoServer createEchoServer(ListenerName listenerName, SecurityProtocol securityProtocol) throws Exception {
-        return NetworkTestUtils.createEchoServer(listenerName, securityProtocol, new TestSecurityConfig(sslServerConfigs), null, time);
+        return NetworkTestUtils.createEchoServer(listenerName, securityProtocol, new TestSecurityConfig(sslServerConfigs), null, time, Optional.of(auditLogProvider));
     }
 
     private NioEchoServer createEchoServer(SecurityProtocol securityProtocol) throws Exception {
@@ -1387,6 +1454,63 @@ public class SslTransportLayerTest {
                 }
                 return size;
             }
+        }
+    }
+
+    private void verifyAuditLogEvent(final boolean authenticationSuccess) throws InterruptedException {
+        TestUtils.waitForCondition(() -> auditLogProvider.authenticationEvents.size() == 1, "audit event not generated");
+        AuthenticationEvent authenticationEvent = auditLogProvider.authenticationEvents.get(0);
+        assertNotNull(authenticationEvent.authenticationContext());
+
+        if (authenticationSuccess) {
+            assertEquals(AuditEventStatus.SUCCESS, authenticationEvent.status());
+        } else {
+            assertEquals(AuditEventStatus.UNKNOWN_USER_DENIED, authenticationEvent.status());
+            assertTrue(authenticationEvent.authenticationException().isPresent());
+        }
+    }
+
+    private static class TestAuditLogProvider implements AuditLogProvider {
+        public final List<AuthenticationEvent> authenticationEvents = new ArrayList<>();
+
+        @Override
+        public boolean providerConfigured(final Map<String, ?> configs) {
+            return false;
+        }
+
+        @Override
+        public void logEvent(final AuditEvent auditEvent) {
+            authenticationEvents.add((AuthenticationEvent) auditEvent);
+        }
+
+        @Override
+        public void setSanitizer(final UnaryOperator<AuditEvent> sanitizer) {
+        }
+
+        @Override
+        public boolean usesMetadataFromThisKafkaCluster() {
+            return false;
+        }
+
+        @Override
+        public void close() throws Exception {
+        }
+
+        @Override
+        public Set<String> reconfigurableConfigs() {
+            return null;
+        }
+
+        @Override
+        public void validateReconfiguration(final Map<String, ?> configs) throws ConfigException {
+        }
+
+        @Override
+        public void reconfigure(final Map<String, ?> configs) {
+        }
+
+        @Override
+        public void configure(final Map<String, ?> configs) {
         }
     }
 }

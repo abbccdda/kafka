@@ -3,6 +3,9 @@ package io.confluent.telemetry.integration;
 import io.opencensus.proto.metrics.v1.LabelKey;
 import io.opencensus.proto.metrics.v1.Metric;
 import java.util.Properties;
+
+import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
@@ -30,4 +33,9 @@ public class TestUtils {
         new ByteArrayDeserializer());
   }
 
+  public static AdminClient createAdminClient(String brokerList) {
+    Properties properties = new Properties();
+    properties.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList);
+    return AdminClient.create(properties);
+  }
 }

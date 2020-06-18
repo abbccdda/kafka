@@ -7,15 +7,20 @@ import static io.confluent.telemetry.collector.YammerMetricsCollector.YAMMER_MET
 import static io.confluent.telemetry.integration.TestUtils.getLabelValueFromFirstTimeSeries;
 import static io.confluent.telemetry.integration.TestUtils.labelExists;
 import static junit.framework.TestCase.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.confluent.telemetry.exporter.ExporterConfig;
+import io.confluent.telemetry.exporter.kafka.KafkaExporter;
 import io.confluent.telemetry.exporter.kafka.KafkaExporterConfig;
 import io.confluent.telemetry.provider.KafkaServerProvider;
 import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.resource.v1.Resource;
+
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
@@ -29,6 +34,7 @@ import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.common.errors.SerializationException;
+import org.apache.kafka.common.header.Header;
 import org.junit.Test;
 
 public class KafkaServerTest extends TelemetryClusterTestHarness {
@@ -76,6 +82,11 @@ public class KafkaServerTest extends TelemetryClusterTestHarness {
     while (System.currentTimeMillis() - startMs < 20000) {
       ConsumerRecords<byte[], byte[]> records = consumer.poll(Duration.ofMillis(200));
       for (ConsumerRecord<byte[], byte[]> record : records) {
+
+        // ensure version header is present
+        Header versionHeader = record.headers().lastHeader(KafkaExporter.VERSION_HEADER_KEY);
+        assertNotNull(versionHeader);
+        assertEquals(0, ByteBuffer.wrap(versionHeader.value()).order(ByteOrder.LITTLE_ENDIAN).getInt());
 
         // Verify that the message de-serializes successfully
         Metric m = null;

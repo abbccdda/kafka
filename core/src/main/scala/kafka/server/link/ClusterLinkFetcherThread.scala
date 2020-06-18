@@ -166,6 +166,14 @@ class ClusterLinkFetcherThread(name: String,
     super.processPartitionData(tp, fetchOffset, partitionData)
   }
 
+  override def shouldFollowerThrottle(quota: ReplicaQuota, fetchState: PartitionFetchState, topicPartition: TopicPartition): Boolean = {
+    quota.isQuotaExceeded
+  }
+
+  override def markFollowerReplicaThrottle(): Unit = {
+    replicaMgr.markClusterLinkReplicaThrottle()
+  }
+
   // Visibility for jmh benchmark
   protected def clearPartitionLinkFailure(tp: TopicPartition, fetchOffset: Long): Unit = {
     fetcherManager.clearPartitionLinkFailure(tp, s"New data fetched from $tp offset $fetchOffset")

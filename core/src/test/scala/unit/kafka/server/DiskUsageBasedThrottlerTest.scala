@@ -8,10 +8,16 @@ import java.nio.file.attribute.{FileAttributeView, FileStoreAttributeView}
 import java.nio.file.FileStore
 import java.util.concurrent.atomic.AtomicLong
 
+import com.yammer.metrics.core.Gauge
+import kafka.metrics.KafkaYammerMetrics
+import kafka.server.DiskUsageBasedThrottler.{ProducerDiskThrottleMetricName, ReplicationFollowerThrottleMetricName}
 import org.apache.kafka.common.config.internals.ConfluentConfigs
+import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.utils.{MockTime, Time}
 import org.junit.Assert.{assertEquals, assertFalse, assertTrue}
 import org.junit.{After, Before, Test}
+
+import scala.jdk.CollectionConverters._
 
 class DiskUsageBasedThrottlerTest {
 
@@ -32,15 +38,18 @@ class DiskUsageBasedThrottlerTest {
   )
   private val mockTime = new MockTime
   private val listener = new TestableDiskUsageBasedThrottleListener
+  private var throttlerOpt: Option[DiskUsageBasedThrottler] = _
 
   @Before
   def setup(): Unit = {
     DiskUsageBasedThrottler.registerListener(listener)
+    throttlerOpt = None
   }
 
   @After
   def teardown(): Unit = {
     DiskUsageBasedThrottler.deRegisterListener(listener)
+    throttlerOpt.foreach(_.removeDiskThrottlerMetrics())
   }
 
   @Test
@@ -97,10 +106,15 @@ class DiskUsageBasedThrottlerTest {
     DiskUsageBasedThrottler.registerListener(produceListener)
     DiskUsageBasedThrottler.registerListener(followerListener)
     val throttler = getThrottler(config, mockTime, fileStores)
+    throttler.createDiskThrottlerMetrics()
+    throttlerOpt = Some(throttler)
+
     withLargeFileWritten { _ =>
       throttler.checkAndUpdateQuotaOnDiskUsage(mockTime.milliseconds())
       assertEquals(throughput, produceListener.counter.get())
+      assertEquals(throughput, metricValue[Long](ProducerDiskThrottleMetricName))
       assertEquals(2 * throughput, followerListener.counter.get())
+      assertEquals(2 * throughput, metricValue[Long](ReplicationFollowerThrottleMetricName))
     }
     DiskUsageBasedThrottler.deRegisterListener(produceListener)
     DiskUsageBasedThrottler.deRegisterListener(followerListener)
@@ -142,11 +156,14 @@ class DiskUsageBasedThrottlerTest {
   def testBasicThrottling(): Unit = {
     val threshold = fileStores.map(_.getUsableSpace).min - largeFileSize + 1L
     val throttler = getThrottler(config.copy(freeDiskThresholdBytes = threshold), mockTime, fileStores)
+    throttler.createDiskThrottlerMetrics()
+    throttlerOpt = Some(throttler)
 
     // initially, since we haven't written the large file, the listener shouldn't be throttled
     throttler.checkAndUpdateQuotaOnDiskUsage(mockTime.milliseconds())
     assertEquals(Long.MaxValue, listener.counter.get)
     assertFalse(DiskUsageBasedThrottler.diskThrottlingActive(listener))
+    assertEquals(0, metricValue[Long](ProducerDiskThrottleMetricName))
 
     // Next we will write the large file and then throttling should have kicked in
     withLargeFileWritten { _ =>
@@ -154,6 +171,7 @@ class DiskUsageBasedThrottlerTest {
       assertEquals(throughput, listener.counter.get)
       assertEquals(throughput, listener.lastSignalledQuotaOptRef.get.get)
       assertTrue(DiskUsageBasedThrottler.diskThrottlingActive(listener))
+      assertEquals(throughput, metricValue[Long](ProducerDiskThrottleMetricName))
     }
 
     // Once we are out of the block, the large file should be deleted
@@ -161,16 +179,20 @@ class DiskUsageBasedThrottlerTest {
     throttler.checkAndUpdateQuotaOnDiskUsage(mockTime.milliseconds())
     assertEquals(Long.MaxValue, listener.counter.get)
     assertFalse(DiskUsageBasedThrottler.diskThrottlingActive(listener))
+    assertEquals(0, metricValue[Long](ProducerDiskThrottleMetricName))
   }
 
   @Test
   def testThroughputIsUpdatedDuringThrottling(): Unit = {
     val threshold = fileStores.map(_.getUsableSpace).min - largeFileSize + 1L
     val throttler = getThrottler(config.copy(freeDiskThresholdBytes = threshold), mockTime, fileStores)
+    throttler.createDiskThrottlerMetrics()
+    throttlerOpt = Some(throttler)
 
     // initially, since we haven't written the large file, the listener shouldn't be throttled
     throttler.checkAndUpdateQuotaOnDiskUsage(mockTime.milliseconds())
     assertFalse(DiskUsageBasedThrottler.diskThrottlingActive(listener))
+    assertEquals(0, metricValue[Long](ProducerDiskThrottleMetricName))
 
     // Next we will write the large file and then throttling should have kicked in
     withLargeFileWritten { _ =>
@@ -179,16 +201,18 @@ class DiskUsageBasedThrottlerTest {
       assertEquals(throughput, listener.counter.get)
       assertEquals(throughput, listener.lastSignalledQuotaOptRef.get.get)
       assertTrue(DiskUsageBasedThrottler.diskThrottlingActive(listener))
+      assertEquals(throughput, metricValue[Long](ProducerDiskThrottleMetricName))
 
       // next we update the throughput while throttling is active
       val updatedThroughput = 10 * throughput
-      val updatedConfig = throttler.getCurrentConfig.copy(throttledProduceThroughput = updatedThroughput)
+      val updatedConfig = throttler.getCurrentDiskThrottlingConfig.copy(throttledProduceThroughput = updatedThroughput)
       mockTime.sleep(501)
       throttler.updateDiskThrottlingConfig(updatedConfig)
       throttler.checkAndUpdateQuotaOnDiskUsage(mockTime.milliseconds())
       assertEquals(updatedThroughput, listener.counter.get)
       assertEquals(updatedThroughput, listener.lastSignalledQuotaOptRef.get.get)
       assertTrue(DiskUsageBasedThrottler.diskThrottlingActive(listener))
+      assertEquals(updatedThroughput, metricValue[Long](ProducerDiskThrottleMetricName))
     }
   }
 
@@ -196,16 +220,20 @@ class DiskUsageBasedThrottlerTest {
   def testEnableFlagIsRespected(): Unit = {
     val threshold = fileStores.map(_.getUsableSpace).min - largeFileSize + 1L
     val throttler = getThrottler(config.copy(freeDiskThresholdBytes = threshold, enableDiskBasedThrottling = false), mockTime, fileStores)
+    throttler.createDiskThrottlerMetrics()
+    throttlerOpt = Some(throttler)
 
     // initially, since we haven't written the large file, the listener shouldn't be throttled
     throttler.checkAndUpdateQuotaOnDiskUsage(mockTime.milliseconds())
     assertFalse(DiskUsageBasedThrottler.diskThrottlingActive(listener))
+    assertEquals(0, metricValue[Long](ProducerDiskThrottleMetricName))
 
     // Next we will write the large file, however, throttling still shouldn't kick in
     withLargeFileWritten { _ =>
       throttler.checkAndUpdateQuotaOnDiskUsage(mockTime.milliseconds())
       assertEquals(Long.MaxValue, listener.counter.get)
       assertFalse(DiskUsageBasedThrottler.diskThrottlingActive(listener))
+      assertEquals(0, metricValue[Long](ProducerDiskThrottleMetricName))
     }
   }
 
@@ -213,23 +241,79 @@ class DiskUsageBasedThrottlerTest {
   def testTimeIsRespected(): Unit = {
     val threshold = fileStores.map(_.getUsableSpace).min - largeFileSize + 1L
     val throttler = getThrottler(config.copy(freeDiskThresholdBytes = threshold, diskCheckFrequencyMs = 1000), mockTime, fileStores)
+    throttler.createDiskThrottlerMetrics()
+    throttlerOpt = Some(throttler)
 
     // initially, since we haven't written the large file, the listener shouldn't be throttled
     throttler.checkAndUpdateQuotaOnDiskUsage(mockTime.milliseconds())
     assertFalse(DiskUsageBasedThrottler.diskThrottlingActive(listener))
+    assertEquals(0, metricValue[Long](ProducerDiskThrottleMetricName))
 
     // Next we will write the large file, however, throttling still shouldn't kick in
     withLargeFileWritten { _ =>
       throttler.checkAndUpdateQuotaOnDiskUsage(mockTime.milliseconds())
       assertEquals(Long.MaxValue, listener.counter.get)
       assertFalse(DiskUsageBasedThrottler.diskThrottlingActive(listener))
+      assertEquals(0, metricValue[Long](ProducerDiskThrottleMetricName))
 
       // now we will sleep for more time so that the time period is elapsed
       mockTime.sleep(500)
       throttler.checkAndUpdateQuotaOnDiskUsage(mockTime.milliseconds())
       assertEquals(throughput, listener.counter.get)
       assertEquals(throughput, listener.lastSignalledQuotaOptRef.get.get)
+      assertEquals(throughput, metricValue[Long](ProducerDiskThrottleMetricName))
     }
+  }
+
+  @Test
+  def testDiskThrottlingIsIndependentFromProduceBackpressure(): Unit = {
+    val quotaManagerConfig = ClientQuotaManagerConfig(backpressureConfig = BrokerBackpressureConfig(), diskThrottlingConfig = config)
+    val clientQuotaManager = new ClientQuotaManager(quotaManagerConfig, new Metrics(), QuotaType.Produce, mockTime, "someThread") {
+      override protected def getFileStores: collection.Seq[FileStore] = fileStores
+    }
+    clientQuotaManager.createDiskThrottlerMetrics()
+    throttlerOpt = Some(clientQuotaManager)
+    DiskUsageBasedThrottler.registerListener(clientQuotaManager)
+    // initially, since we haven't written the large file, the listener shouldn't be throttled
+    clientQuotaManager.updateBrokerQuotaLimit(mockTime.milliseconds())
+    assertFalse(DiskUsageBasedThrottler.diskThrottlingActive(listener))
+    assertEquals(Long.MaxValue, listener.counter.get)
+    assertEquals(0, metricValue[Long](ProducerDiskThrottleMetricName))
+
+    // With the large file written, throttling should kick in
+    withLargeFileWritten { _ =>
+      clientQuotaManager.updateBrokerQuotaLimit(mockTime.milliseconds())
+      assertEquals(throughput, listener.counter.get)
+      assertEquals(throughput, listener.lastSignalledQuotaOptRef.get.get)
+      assertEquals(throughput, metricValue[Long](ProducerDiskThrottleMetricName))
+    }
+
+    // once the large file has been deleted, throttling should be disabled
+    clientQuotaManager.updateBrokerQuotaLimit(mockTime.milliseconds())
+    assertFalse(DiskUsageBasedThrottler.diskThrottlingActive(listener))
+    assertEquals(Long.MaxValue, listener.counter.get)
+    DiskUsageBasedThrottler.deRegisterListener(clientQuotaManager)
+    assertEquals(0, metricValue[Long](ProducerDiskThrottleMetricName))
+  }
+
+  @Test
+  def testAnyListenerIsThrottled(): Unit = {
+    val threshold = fileStores.map(_.getUsableSpace).min - largeFileSize + 1L
+    val throttler = getThrottler(config.copy(freeDiskThresholdBytes = threshold), mockTime, fileStores)
+
+    // initially the listener shouldn't be throttled
+    throttler.checkAndUpdateQuotaOnDiskUsage(mockTime.milliseconds())
+    assertFalse(DiskUsageBasedThrottler.anyListenerIsThrottled)
+
+    // with the large file written, we should expect the listener to be throttled
+    withLargeFileWritten { _ =>
+      throttler.checkAndUpdateQuotaOnDiskUsage(mockTime.milliseconds())
+      assertTrue(DiskUsageBasedThrottler.anyListenerIsThrottled)
+    }
+
+    // finally the listener should be removed from throttling
+    throttler.checkAndUpdateQuotaOnDiskUsage(mockTime.milliseconds())
+    assertFalse(DiskUsageBasedThrottler.anyListenerIsThrottled)
   }
 
   // partial function which writes a large file of 12GB and ensure its cleanup
@@ -241,6 +325,10 @@ class DiskUsageBasedThrottlerTest {
     inner(fileSize)
     mockTime.sleep(501)
     fileStore.deleteLargeFile(fileSize)
+  }
+
+  private def metricValue[T](name: String): T = {
+    KafkaYammerMetrics.defaultRegistry.allMetrics.asScala.filter(_._1.getName == name).values.headOption.get.asInstanceOf[Gauge[T]].value()
   }
 
 }

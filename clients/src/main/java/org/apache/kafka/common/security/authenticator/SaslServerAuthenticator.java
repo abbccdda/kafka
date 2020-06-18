@@ -50,6 +50,7 @@ import org.apache.kafka.common.requests.SaslAuthenticateResponse;
 import org.apache.kafka.common.requests.SaslHandshakeRequest;
 import org.apache.kafka.common.requests.SaslHandshakeResponse;
 import org.apache.kafka.common.security.auth.AuthenticateCallbackHandler;
+import org.apache.kafka.common.security.auth.AuthenticationContext;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.KafkaPrincipalBuilder;
 import org.apache.kafka.common.security.auth.SaslAuthenticationContext;
@@ -348,7 +349,12 @@ public class SaslServerAuthenticator implements Authenticator {
     public boolean connectedClientSupportsReauthentication() {
         return reauthInfo.connectedClientSupportsReauthentication;
     }
-    
+
+    @Override
+    public AuthenticationContext authenticationContext() {
+        return new SaslAuthenticationContext(saslServer, securityProtocol, clientAddress(), listenerName.value());
+    }
+
     private void setSaslState(SaslState saslState) {
         setSaslState(saslState, null);
     }

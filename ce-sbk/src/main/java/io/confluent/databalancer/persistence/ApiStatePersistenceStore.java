@@ -6,17 +6,14 @@ package io.confluent.databalancer.persistence;
 import com.linkedin.kafka.cruisecontrol.SbkTopicUtils;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import io.confluent.databalancer.StartupCheckInterruptedException;
-import kafka.common.BrokerAddStatus;
-import kafka.common.BrokerRemovalStatus;
 import io.confluent.databalancer.record.ApiStatus;
 import io.confluent.databalancer.record.ApiStatus.ApiStatusKey;
 import io.confluent.databalancer.record.ApiStatus.ApiStatusMessage;
-import io.confluent.databalancer.record.RemoveBroker;
-import io.confluent.databalancer.record.RemoveBroker.RemoveBrokerStatus;
+import io.confluent.databalancer.record.RemoveBroker.BrokerRemovalStateRecordProto;
 import io.confluent.serializers.ProtoSerde;
+import kafka.common.BrokerAddStatus;
 import kafka.log.LogConfig;
 import kafka.server.KafkaConfig;
-import org.apache.kafka.clients.admin.BrokerRemovalDescription;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.producer.ProducerConfig;
@@ -60,54 +57,18 @@ public class ApiStatePersistenceStore implements AutoCloseable {
     // -1 as retention time means log will not be deleted. Its ignored anyway for a compact topic
     private static final int MIN_RETENTION_TIME_MS = -1;
 
-    private static Map<BrokerRemovalDescription.BrokerShutdownStatus, RemoveBroker.BrokerShutdownStatus> bssSerializationMap
-            = new HashMap<>(BrokerRemovalDescription.BrokerShutdownStatus.values().length);
-    private static Map<RemoveBroker.BrokerShutdownStatus, BrokerRemovalDescription.BrokerShutdownStatus> bssRemovalDeSerializationMap
-            = new HashMap<>(RemoveBroker.BrokerShutdownStatus.values().length);
-    static {
-        bssSerializationMap.put(BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE, RemoveBroker.BrokerShutdownStatus.bss_complete);
-        bssSerializationMap.put(BrokerRemovalDescription.BrokerShutdownStatus.PENDING, RemoveBroker.BrokerShutdownStatus.bss_pending);
-        bssSerializationMap.put(BrokerRemovalDescription.BrokerShutdownStatus.FAILED, RemoveBroker.BrokerShutdownStatus.bss_failed);
-        bssSerializationMap.put(BrokerRemovalDescription.BrokerShutdownStatus.CANCELED, RemoveBroker.BrokerShutdownStatus.bss_canceled);
-        bssSerializationMap = Collections.unmodifiableMap(bssSerializationMap);
-
-        bssRemovalDeSerializationMap.put(RemoveBroker.BrokerShutdownStatus.bss_complete, BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE);
-        bssRemovalDeSerializationMap.put(RemoveBroker.BrokerShutdownStatus.bss_pending, BrokerRemovalDescription.BrokerShutdownStatus.PENDING);
-        bssRemovalDeSerializationMap.put(RemoveBroker.BrokerShutdownStatus.bss_failed, BrokerRemovalDescription.BrokerShutdownStatus.FAILED);
-        bssRemovalDeSerializationMap.put(RemoveBroker.BrokerShutdownStatus.bss_canceled, BrokerRemovalDescription.BrokerShutdownStatus.CANCELED);
-        bssRemovalDeSerializationMap = Collections.unmodifiableMap(bssRemovalDeSerializationMap);
-    }
-
-    private static Map<BrokerRemovalDescription.PartitionReassignmentsStatus, RemoveBroker.PartitionReassignmentsStatus> parSerializationMap
-            = new HashMap<>(BrokerRemovalDescription.PartitionReassignmentsStatus.values().length);
-    private static Map<RemoveBroker.PartitionReassignmentsStatus, BrokerRemovalDescription.PartitionReassignmentsStatus> parDeSerializationMap
-            = new HashMap<>(BrokerRemovalDescription.PartitionReassignmentsStatus.values().length);
-    static {
-        parSerializationMap.put(BrokerRemovalDescription.PartitionReassignmentsStatus.IN_PROGRESS, RemoveBroker.PartitionReassignmentsStatus.par_in_progress);
-        parSerializationMap.put(BrokerRemovalDescription.PartitionReassignmentsStatus.FAILED, RemoveBroker.PartitionReassignmentsStatus.par_failed);
-        parSerializationMap.put(BrokerRemovalDescription.PartitionReassignmentsStatus.CANCELED, RemoveBroker.PartitionReassignmentsStatus.par_canceled);
-        parSerializationMap.put(BrokerRemovalDescription.PartitionReassignmentsStatus.COMPLETE, RemoveBroker.PartitionReassignmentsStatus.par_complete);
-        parSerializationMap.put(BrokerRemovalDescription.PartitionReassignmentsStatus.PENDING, RemoveBroker.PartitionReassignmentsStatus.par_pending);
-        parSerializationMap = Collections.unmodifiableMap(parSerializationMap);
-
-        parDeSerializationMap.put(RemoveBroker.PartitionReassignmentsStatus.par_in_progress, BrokerRemovalDescription.PartitionReassignmentsStatus.IN_PROGRESS);
-        parDeSerializationMap.put(RemoveBroker.PartitionReassignmentsStatus.par_failed, BrokerRemovalDescription.PartitionReassignmentsStatus.FAILED);
-        parDeSerializationMap.put(RemoveBroker.PartitionReassignmentsStatus.par_canceled, BrokerRemovalDescription.PartitionReassignmentsStatus.CANCELED);
-        parDeSerializationMap.put(RemoveBroker.PartitionReassignmentsStatus.par_complete, BrokerRemovalDescription.PartitionReassignmentsStatus.COMPLETE);
-        parDeSerializationMap.put(RemoveBroker.PartitionReassignmentsStatus.par_pending, BrokerRemovalDescription.PartitionReassignmentsStatus.PENDING);
-        parDeSerializationMap = Collections.unmodifiableMap(parDeSerializationMap);
-    }
-
     private KafkaBasedLog<ApiStatusKey, ApiStatusMessage> apiStatePersistenceLog;
     private String topic;
-    private Map<Integer, BrokerRemovalStatus> brokerRemovalStatusMap = new ConcurrentHashMap<>();
+    private Map<Integer, BrokerRemovalStateRecord> brokerRemovalStateRecordMap = new ConcurrentHashMap<>();
     private Map<Integer, BrokerAddStatus> brokerAddStatusMap = new ConcurrentHashMap<>();
+    private Map<String, Object> baseClientProperties;
 
-    public ApiStatePersistenceStore(KafkaConfig config, Time time) {
-        init(config, time);
+    public ApiStatePersistenceStore(KafkaConfig config, Time time, Map<String, Object> clientProperties) {
+        init(config, time, clientProperties);
     }
 
-    public void init(KafkaConfig config, Time time) {
+    public void init(KafkaConfig config, Time time, Map<String, Object> clientProperties) {
+        this.baseClientProperties = clientProperties;
         this.topic = getApiStatePersistenceStoreTopicName(config);
         this.apiStatePersistenceLog = setupAndCreateKafkaBasedLog(config, time);
 
@@ -157,41 +118,40 @@ public class ApiStatePersistenceStore implements AutoCloseable {
      * After adding the {@code removalStatus} to topic, the method flushes the producer and then reads it back,
      * which may block upto {@link #READ_TO_END_TIMEOUT_MS}.
      */
-    public void save(BrokerRemovalStatus removalStatus, boolean isNew) throws InterruptedException {
+    public void save(BrokerRemovalStateRecord removalStateRecord, boolean isNew) throws InterruptedException {
         ApiStatusKey key = ApiStatusKey.newBuilder()
-                .setBrokerId(removalStatus.brokerId())
+                .setBrokerId(removalStateRecord.brokerId())
                 .setConfigType(ApiStatus.ApiType.REMOVE_BROKER)
                 .build();
 
         String error = "";
-        if (removalStatus.exception() != null) {
-            error = serializeException(removalStatus.exception());
+        if (removalStateRecord.exception() != null) {
+            error = serializeException(removalStateRecord.exception());
         }
 
         long now = System.currentTimeMillis();
-        RemoveBrokerStatus.Builder removeBrokerStatus = RemoveBrokerStatus.newBuilder()
+        BrokerRemovalStateRecordProto.Builder removeBrokerStatus = BrokerRemovalStateRecordProto.newBuilder()
                 .setVersion(1)
-                .setBrokerId(removalStatus.brokerId())
+                .setBrokerId(removalStateRecord.brokerId())
                 .setError(error)
-                .setBssStatus(bssSerializationMap.get(removalStatus.brokerShutdownStatus()))
-                .setParStatus(parSerializationMap.get(removalStatus.partitionReassignmentsStatus()))
+                .setRemovalState(BrokerRemovalStateSerializer.serialize(removalStateRecord.state()))
                 .setLastUpdateTime(now);
         if (isNew) {
-            if (removalStatus.getStartTime() > 0) {
+            if (removalStateRecord.startTime() > 0) {
                 LOG.error("Start time already set for a new Broker removal status: {}",
-                        removalStatus.getStartTime(),
+                        removalStateRecord.startTime(),
                         new RuntimeException() // This is to print the stack that caused this bug
                 );
             }
             removeBrokerStatus.setStartTime(now);
         } else {
-            if (removalStatus.getStartTime() == 0) {
+            if (removalStateRecord.startTime() == 0) {
                 LOG.error("Start time should be set for an existing Broker removal status. Broker id: {}",
-                        removalStatus.brokerId(),
+                        removalStateRecord.brokerId(),
                         new RuntimeException() // This is to print the stack that caused this bug
                 );
             }
-            removeBrokerStatus.setStartTime(removalStatus.getStartTime());
+            removeBrokerStatus.setStartTime(removalStateRecord.startTime());
         }
 
         ApiStatusMessage message = ApiStatusMessage.newBuilder()
@@ -204,8 +164,8 @@ public class ApiStatePersistenceStore implements AutoCloseable {
             apiStatePersistenceLog.readToEnd().get(READ_TO_END_TIMEOUT_MS, TimeUnit.MILLISECONDS);
 
             // Reflect timestamp in passed in parameter broker status object
-            removalStatus.setStartTime(removeBrokerStatus.getStartTime());
-            removalStatus.setLastUpdateTime(now);
+            removalStateRecord.setStartTime(removeBrokerStatus.getStartTime());
+            removalStateRecord.setLastUpdateTime(now);
         } catch (ExecutionException | TimeoutException e) {
             LOG.error("Error when writing api status to Kafka.", e);
             throw new RuntimeException("Error when writing api status to Kafka.", e);
@@ -240,16 +200,16 @@ public class ApiStatePersistenceStore implements AutoCloseable {
         return null;
     }
 
-    public BrokerRemovalStatus getBrokerRemovalStatus(int brokerId) {
-        return brokerRemovalStatusMap.get(brokerId);
+    public BrokerRemovalStateRecord getBrokerRemovalStateRecord(int brokerId) {
+        return brokerRemovalStateRecordMap.get(brokerId);
     }
 
-    public Map<Integer, BrokerRemovalStatus> getAllBrokerRemovalStatus() {
-        return Collections.unmodifiableMap(brokerRemovalStatusMap);
+    public Map<Integer, BrokerRemovalStateRecord> getAllBrokerRemovalStateRecords() {
+        return Collections.unmodifiableMap(brokerRemovalStateRecordMap);
     }
 
-    public void addBrokerRemovalStatus(BrokerRemovalStatus status) {
-        brokerRemovalStatusMap.put(status.brokerId(), status);
+    public void addBrokerRemovalStateRecord(BrokerRemovalStateRecord stateRecord) {
+        brokerRemovalStateRecordMap.put(stateRecord.brokerId(), stateRecord);
     }
 
     public BrokerAddStatus getBrokerAddStatus(int brokerId) {
@@ -289,10 +249,8 @@ public class ApiStatePersistenceStore implements AutoCloseable {
                         record.key().getBrokerId(),
                         record.key().getConfigType());
                 if (record.key().getConfigType() == ApiStatus.ApiType.REMOVE_BROKER) {
-                    LOG.error("shutdown status: {}, Partition reassignment status: {}, " +
-                                    "start time: {}, last update time: {}",
-                            record.value().getRemoveBrokerStatus().getBssStatus(),
-                            record.value().getRemoveBrokerStatus().getParStatus(),
+                    LOG.error("state: {}, start time: {}, last update time: {}",
+                            record.value().getRemoveBrokerStatus().getRemovalState(),
                             record.value().getRemoveBrokerStatus().getStartTime(),
                             record.value().getRemoveBrokerStatus().getLastUpdateTime());
                 } else if (record.key().getConfigType() == ApiStatus.ApiType.ADD_BROKER) {
@@ -305,21 +263,20 @@ public class ApiStatePersistenceStore implements AutoCloseable {
             }
 
             if (record.key().getConfigType() == ApiStatus.ApiType.REMOVE_BROKER) {
-                RemoveBrokerStatus removeBrokerStatus = record.value().getRemoveBrokerStatus();
+                BrokerRemovalStateRecordProto removeBrokerStatus = record.value().getRemoveBrokerStatus();
 
                 Exception ex = null;
                 String serializedException = removeBrokerStatus.getError();
                 if (!serializedException.isEmpty()) {
                     ex = deserializeException(serializedException);
                 }
-                BrokerRemovalStatus status = new BrokerRemovalStatus(removeBrokerStatus.getBrokerId(),
-                        bssRemovalDeSerializationMap.get(removeBrokerStatus.getBssStatus()),
-                        parDeSerializationMap.get(removeBrokerStatus.getParStatus()),
+                BrokerRemovalStateRecord status = new BrokerRemovalStateRecord(removeBrokerStatus.getBrokerId(),
+                        BrokerRemovalStateSerializer.deserialize(removeBrokerStatus.getRemovalState()),
                         ex);
                 status.setStartTime(removeBrokerStatus.getStartTime());
                 status.setLastUpdateTime(removeBrokerStatus.getLastUpdateTime());
 
-                addBrokerRemovalStatus(status);
+                addBrokerRemovalStateRecord(status);
             } else {
                 LOG.error("Invalid ApiType: {}", record.key().getConfigType());
             }
@@ -381,19 +338,25 @@ public class ApiStatePersistenceStore implements AutoCloseable {
     }
 
     private Map<String, Object> getProducerConfig(KafkaConfig config) {
-        return ConfluentConfigs.clientConfigs(config,
-                ConfluentConfigs.CONFLUENT_BALANCER_PREFIX,
-                ConfluentConfigs.ClientType.PRODUCER,
-                topic,
-                String.valueOf(config.brokerId()));
+        return getClientConfig(config, ConfluentConfigs.ClientType.PRODUCER);
     }
 
     private Map<String, Object> getConsumerConfig(KafkaConfig config) {
-        return ConfluentConfigs.clientConfigs(config,
-                ConfluentConfigs.CONFLUENT_BALANCER_PREFIX,
-                ConfluentConfigs.ClientType.CONSUMER,
-                topic,
-                String.valueOf(config.brokerId()));
+        return getClientConfig(config, ConfluentConfigs.ClientType.CONSUMER);
+    }
+
+    private Map<String, Object> getClientConfig(KafkaConfig config, ConfluentConfigs.ClientType clientType) {
+        Map<String, Object> configs = new HashMap<>(baseClientProperties);
+
+        Map<String, Object> clientConfigs = ConfluentConfigs.clientConfigs(config,
+            ConfluentConfigs.CONFLUENT_BALANCER_PREFIX,
+            clientType,
+            topic,
+            String.valueOf(config.brokerId()));
+
+        configs.putAll(clientConfigs);
+
+        return configs;
     }
 
     // VisibleForTesting

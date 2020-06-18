@@ -3,40 +3,19 @@
  */
 package io.confluent.security.audit.provider;
 
-import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_LOGGER_ENABLE_CONFIG;
-import static org.apache.kafka.common.config.internals.ConfluentConfigs.CRN_AUTHORITY_NAME_CONFIG;
-import static org.apache.kafka.common.config.internals.ConfluentConfigs.ENABLE_AUTHENTICATION_AUDIT_LOGS;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
-import static org.mockito.Mockito.mock;
-
 import com.google.protobuf.MessageLite;
 import io.cloudevents.CloudEvent;
 import io.cloudevents.v1.AttributesImpl;
+import io.confluent.kafka.server.plugins.auth.PlainSaslServer;
 import io.confluent.security.audit.AuditLogConfig;
 import io.confluent.security.audit.AuditLogEntry;
 import io.confluent.security.audit.telemetry.exporter.NonBlockingKafkaExporter;
-import io.confluent.telemetry.events.serde.Protobuf;
 import io.confluent.security.authorizer.provider.ConfluentBuiltInProviders;
 import io.confluent.security.authorizer.provider.DefaultAuditLogProvider;
 import io.confluent.telemetry.events.EventLogger;
-import io.confluent.telemetry.events.serde.Serializer;
 import io.confluent.telemetry.events.exporter.Exporter;
-import java.net.InetAddress;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
-import javax.security.sasl.SaslServer;
+import io.confluent.telemetry.events.serde.Protobuf;
+import io.confluent.telemetry.events.serde.Serializer;
 import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.metrics.KafkaMetric;
@@ -48,12 +27,37 @@ import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.server.audit.AuditEventStatus;
 import org.apache.kafka.server.audit.AuditLogProvider;
-import org.apache.kafka.server.audit.AuthenticationEventImpl;
+import org.apache.kafka.server.audit.DefaultAuthenticationEvent;
 import org.apache.kafka.test.TestUtils;
 import org.junit.Before;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import javax.security.sasl.SaslServer;
+import java.net.InetAddress;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
+
+import static io.confluent.security.audit.AuditLogUtils.AUTHENTICATION_EVENT_NAME;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_LOGGER_ENABLE_CONFIG;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.CRN_AUTHORITY_NAME_CONFIG;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.ENABLE_AUTHENTICATION_AUDIT_LOGS;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 @SuppressWarnings("unchecked")
 public class ConfluentAuditLogProviderTest {
@@ -209,7 +213,7 @@ public class ConfluentAuditLogProviderTest {
     AuthenticationContext authenticationContext = new SaslAuthenticationContext(server,
         SecurityProtocol.SASL_PLAINTEXT, InetAddress.getLoopbackAddress(), SecurityProtocol.SASL_PLAINTEXT.name());
 
-    provider.logEvent(new AuthenticationEventImpl(principal, authenticationContext, AuditEventStatus.SUCCESS));
+    provider.logEvent(new DefaultAuthenticationEvent(principal, authenticationContext, AuditEventStatus.SUCCESS));
 
     MockExporter ma = (MockExporter) provider.getEventLogger().eventExporter();
     assertEquals(0, ma.events.size());
@@ -226,16 +230,15 @@ public class ConfluentAuditLogProviderTest {
     );
 
     KafkaPrincipal principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "user1");
-    SaslServer server = mock(SaslServer.class);
+    PlainSaslServer server = mock(PlainSaslServer.class);
+    when(server.getMechanismName()).thenReturn(PlainSaslServer.PLAIN_MECHANISM);
+    when(server.userIdentifier()).thenReturn("APIKEY123");
+
     AuthenticationContext authenticationContext = new SaslAuthenticationContext(server,
         SecurityProtocol.SASL_PLAINTEXT, InetAddress.getLoopbackAddress(), SecurityProtocol.SASL_PLAINTEXT.name());
 
-    Map<String, Object> data = new HashMap<>();
-    data.put("identifier", "id1");
-    data.put("mechanism", "SASL");
-    AuthenticationEventImpl authenticationEvent = new AuthenticationEventImpl(principal,
+    DefaultAuthenticationEvent authenticationEvent = new DefaultAuthenticationEvent(principal,
         authenticationContext, AuditEventStatus.SUCCESS);
-    authenticationEvent.setData(data);
     provider.logEvent(authenticationEvent);
 
     MockExporter<AuditLogEntry> ma = (MockExporter) provider.getEventLogger().eventExporter();
@@ -259,10 +262,10 @@ public class ConfluentAuditLogProviderTest {
     AuditLogEntry ae = event.getData().get();
     assertEquals("crn://mds.example.com/kafka=63REM3VWREiYtMuVxZeplA", ae.getServiceName());
     assertEquals("crn://mds.example.com/kafka=63REM3VWREiYtMuVxZeplA", ae.getResourceName());
-    assertEquals("kafka.Authentication", ae.getMethodName());
+    assertEquals(AUTHENTICATION_EVENT_NAME, ae.getMethodName());
     assertEquals("User:user1", ae.getAuthenticationInfo().getPrincipal());
-    assertEquals("id1", ae.getAuthenticationInfo().getMetadata().getIdentifier());
-    assertEquals("SASL", ae.getAuthenticationInfo().getMetadata().getMechanism());
+    assertEquals("APIKEY123", ae.getAuthenticationInfo().getMetadata().getIdentifier());
+    assertEquals("SASL_PLAINTEXT/PLAIN", ae.getAuthenticationInfo().getMetadata().getMechanism());
     assertEquals("SUCCESS", ae.getResult().getStatus());
 
     provider.close();

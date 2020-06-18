@@ -8,6 +8,7 @@ import java.nio.file.{FileStore, Files, Paths}
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.{AtomicLong, AtomicReference}
 
+import kafka.metrics.KafkaMetricsGroup
 import kafka.utils.Logging
 import org.apache.kafka.common.config.internals.ConfluentConfigs
 import org.apache.kafka.common.utils.Time
@@ -20,9 +21,9 @@ import scala.jdk.CollectionConverters._
  * The current design is mixed in with the ClientQuotaManager as we would want to reuse the existing periodic throttling
  * check through ClientQuotaManager#updateBrokerQuotaLimit which then invokes the checkAndUpdateQuotaOnDiskUsage method
  */
-trait DiskUsageBasedThrottler extends Logging {
+trait DiskUsageBasedThrottler extends KafkaMetricsGroup with Logging {
 
-  import DiskUsageBasedThrottler.getListeners
+  import DiskUsageBasedThrottler.{getListeners, anyListenerIsThrottled, ProducerDiskThrottleMetricName, ReplicationFollowerThrottleMetricName}
 
   protected def diskThrottlingConfig: DiskUsageBasedThrottlingConfig
 
@@ -60,6 +61,22 @@ trait DiskUsageBasedThrottler extends Logging {
   }
 
   @volatile private var fileStores = getFileStores
+
+  // the current throttle rate (Bytes/s) of the producer, 0 to indicate no throttling
+  @volatile private var producerThrottleRate = 0L
+
+  // the current throttle rate (Bytes/s) of the replication follower, 0 to indicate no throttling
+  @volatile private var followerThrottleRate = 0L
+
+  def createDiskThrottlerMetrics(): Unit = {
+    newGauge(ProducerDiskThrottleMetricName, () => producerThrottleRate)
+    newGauge(ReplicationFollowerThrottleMetricName, () => followerThrottleRate)
+  }
+
+  def removeDiskThrottlerMetrics(): Unit = {
+    removeMetric(ProducerDiskThrottleMetricName)
+    removeMetric(ReplicationFollowerThrottleMetricName)
+  }
 
   def updateDiskThrottlingConfig(newConfig: DiskUsageBasedThrottlingConfig): Unit = {
     if (diskThrottlingEnabledInConfig(dynamicDiskThrottlingConfig) && !diskThrottlingEnabledInConfig(newConfig)) {
@@ -131,7 +148,7 @@ trait DiskUsageBasedThrottler extends Logging {
           minDiskUsableBytes,
           dynamicDiskThrottlingConfig.freeDiskThresholdBytes)
         updateListeners(Some(dynamicDiskThrottlingConfig.throttledProduceThroughput))
-      } else if (getListeners.exists(_.lastSignalledQuotaOptRef.get.isDefined) && minDiskUsableBytes >=
+      } else if (anyListenerIsThrottled && minDiskUsableBytes >=
         dynamicDiskThrottlingConfig.freeDiskThresholdBytesRecoveryFactor * dynamicDiskThrottlingConfig.freeDiskThresholdBytes) {
         logger.info("Disk with the lowest free space: {}B available >= {} x threshold: {}B, will remove low disk " +
           "space throttle",
@@ -147,7 +164,7 @@ trait DiskUsageBasedThrottler extends Logging {
    * This method updates the file stores wrapped on top of the underlying log directories.
    * The rationale behind this delayed instantiation of the file-stores have been explained in the docs of getFileStores
    *
-   * @return boolean signalling whether fileStores have been successfully set to the return value from getFileStores
+   * @return true if fileStores have been successfully created
    */
   private def maybeSetFileStores(): Boolean = {
     getFileStores match {
@@ -161,6 +178,7 @@ trait DiskUsageBasedThrottler extends Logging {
 
   // Here we are checking for throttles as part of initialization bypassing the lastCheckedTime check
   protected[server] def initThrottler(): Unit = {
+    createDiskThrottlerMetrics()
     if (diskThrottlingEnabledInConfig(dynamicDiskThrottlingConfig)) {
       logger.info(s"Initializing low disk space throttle with config: $dynamicDiskThrottlingConfig")
       lastCheckedTime.set(time.milliseconds())
@@ -172,29 +190,36 @@ trait DiskUsageBasedThrottler extends Logging {
    * This method will be called for updating the listeners while either setting a quota cap or to signal that the
    * disk space has increased and that the quota should be lifted
    *
-   * @param capOpt The optional quota value, if defined, signals the application of that quota cap
+   * @param quotaLimitOpt The optional quota value, if defined, signals the application of that quota cap
    */
-  private def updateListeners(capOpt: Option[Long]): Unit = {
+  private def updateListeners(quotaLimitOpt: Option[Long]): Unit = {
     getListeners.foreach(listener => {
-      if (listener.lastSignalledQuotaOptRef.getAndSet(capOpt) != capOpt) {
-        capOpt match {
-          case Some(cap) =>
+      if (listener.lastSignalledQuotaOptRef.getAndSet(quotaLimitOpt) != quotaLimitOpt) {
+        quotaLimitOpt match {
+          case Some(quotaLimit) =>
             listener.quotaType match {
               case QuotaType.Produce =>
-                listener.handleDiskSpaceLow(cap)
+                listener.handleDiskSpaceLow(quotaLimit)
+                producerThrottleRate = quotaLimit
               case QuotaType.FollowerReplication =>
                 // we are throttling the follower to 2x the produce quota to avoid URPs in case the leader is also throttled
-                listener.handleDiskSpaceLow(2 * cap)
+                listener.handleDiskSpaceLow(2 * quotaLimit)
+                followerThrottleRate = 2 * quotaLimit
               case _ => // other quota types don't need to handle the disk throttling
             }
           case None =>
             listener.handleDiskSpaceRecovered()
+            listener.quotaType match {
+              case QuotaType.Produce => producerThrottleRate = 0
+              case QuotaType.FollowerReplication => followerThrottleRate = 0
+              case _ => // other quota types are not required to reset any metrics
+            }
         }
       }
     })
   }
 
-  protected[server] def getCurrentConfig: DiskUsageBasedThrottlingConfig = dynamicDiskThrottlingConfig
+  protected[server] def getCurrentDiskThrottlingConfig: DiskUsageBasedThrottlingConfig = dynamicDiskThrottlingConfig
 }
 
 /**
@@ -244,7 +269,11 @@ object DiskUsageBasedThrottler {
   }
 
   // the following is non-private for tests
-  protected[server] def getListeners: Set[DiskUsageBasedThrottleListener] = listeners.keySet().asScala.toSet
+  protected[server] def getListeners: collection.Set[DiskUsageBasedThrottleListener] = listeners.keySet.asScala
+
+  protected[server] def anyListenerIsThrottled: Boolean = {
+    getListeners.exists(_.lastSignalledQuotaOptRef.get.isDefined)
+  }
 
   /**
    * Used to detect whether a quotaManager object is currently being throttled due to low disk
@@ -253,8 +282,11 @@ object DiskUsageBasedThrottler {
    * @return whether the listener is actively being throttled due to low disk
    */
   protected[server] def diskThrottlingActive(listener: DiskUsageBasedThrottleListener): Boolean = {
-    getListeners.contains(listener) && listener.lastSignalledQuotaOptRef.get.isDefined
+    listener.lastSignalledQuotaOptRef.get.isDefined && listeners.containsKey(listener)
   }
+
+  val ProducerDiskThrottleMetricName = "ProducerDiskThrottle"
+  val ReplicationFollowerThrottleMetricName = "ReplicationFollowerDiskThrottle"
 }
 
 /**

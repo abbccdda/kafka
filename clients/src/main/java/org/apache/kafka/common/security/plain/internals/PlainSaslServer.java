@@ -32,6 +32,10 @@ import javax.security.sasl.SaslServerFactory;
 
 import org.apache.kafka.common.errors.SaslAuthenticationException;
 import org.apache.kafka.common.security.plain.PlainAuthenticateCallback;
+import org.apache.kafka.server.audit.AuditEventStatus;
+import org.apache.kafka.server.audit.AuthenticationErrorInfo;
+
+import static org.apache.kafka.server.audit.AuthenticationErrorInfo.UNKNOWN_USER_ERROR;
 
 /**
  * Simple SaslServer implementation for SASL/PLAIN. In order to make this implementation
@@ -90,10 +94,13 @@ public class PlainSaslServer implements SaslServer {
         String password = tokens.get(2);
 
         if (username.isEmpty()) {
-            throw new SaslAuthenticationException("Authentication failed: username not specified");
+            throw new SaslAuthenticationException("Authentication failed: username not specified", UNKNOWN_USER_ERROR);
         }
+
+        AuthenticationErrorInfo errorInfo = new AuthenticationErrorInfo(AuditEventStatus.UNAUTHENTICATED, "", username, "");
+
         if (password.isEmpty()) {
-            throw new SaslAuthenticationException("Authentication failed: password not specified");
+            throw new SaslAuthenticationException("Authentication failed: password not specified", errorInfo);
         }
 
         NameCallback nameCallback = new NameCallback("username", username);
@@ -101,12 +108,12 @@ public class PlainSaslServer implements SaslServer {
         try {
             callbackHandler.handle(new Callback[]{nameCallback, authenticateCallback});
         } catch (Throwable e) {
-            throw new SaslAuthenticationException("Authentication failed: credentials for user could not be verified", e);
+            throw new SaslAuthenticationException("Authentication failed: credentials for user could not be verified", e, errorInfo);
         }
         if (!authenticateCallback.authenticated())
-            throw new SaslAuthenticationException("Authentication failed: Invalid username or password");
+            throw new SaslAuthenticationException("Authentication failed: Invalid username or password", errorInfo);
         if (!authorizationIdFromClient.isEmpty() && !authorizationIdFromClient.equals(username))
-            throw new SaslAuthenticationException("Authentication failed: Client requested an authorization id that is different from username");
+            throw new SaslAuthenticationException("Authentication failed: Client requested an authorization id that is different from username", errorInfo);
 
         this.authorizationId = username;
 
@@ -129,7 +136,7 @@ public class PlainSaslServer implements SaslServer {
 
         if (tokens.size() != 3)
             throw new SaslAuthenticationException("Invalid SASL/PLAIN response: expected 3 tokens, got " +
-                tokens.size());
+                tokens.size(), UNKNOWN_USER_ERROR);
 
         return tokens;
     }

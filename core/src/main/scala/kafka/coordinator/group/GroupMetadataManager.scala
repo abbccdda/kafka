@@ -567,6 +567,7 @@ class GroupMetadataManager(brokerId: Int,
   private def doLoadGroupsAndOffsets(topicPartition: TopicPartition, onGroupLoaded: GroupMetadata => Unit): Unit = {
     def logEndOffset: Long = replicaManager.getLogEndOffset(topicPartition).getOrElse(-1L)
 
+    val bufferSupplier = BufferSupplier.create()
     replicaManager.getLog(topicPartition) match {
       case None =>
         warn(s"Attempted to load offsets and group metadata from $topicPartition, but found no log")
@@ -622,62 +623,70 @@ class GroupMetadataManager(brokerId: Int,
           memRecords.batches.forEach { batch =>
             val isTxnOffsetCommit = batch.isTransactional
             if (batch.isControlBatch) {
-              val recordIterator = batch.iterator
-              if (recordIterator.hasNext) {
-                val record = recordIterator.next()
-                val controlRecord = ControlRecordType.parse(record.key)
-                if (controlRecord == ControlRecordType.COMMIT) {
-                  pendingOffsets.getOrElse(batch.producerId, mutable.Map[GroupTopicPartition, CommitRecordMetadataAndOffset]())
-                    .foreach {
-                      case (groupTopicPartition, commitRecordMetadataAndOffset) =>
-                        if (!loadedOffsets.contains(groupTopicPartition) || loadedOffsets(groupTopicPartition).olderThan(commitRecordMetadataAndOffset))
-                          loadedOffsets.put(groupTopicPartition, commitRecordMetadataAndOffset)
-                    }
+              val recordIterator = batch.streamingIterator(bufferSupplier)
+              try {
+                if (recordIterator.hasNext) {
+                  val record = recordIterator.next()
+                  val controlRecord = ControlRecordType.parse(record.key)
+                  if (controlRecord == ControlRecordType.COMMIT) {
+                    pendingOffsets.getOrElse(batch.producerId, mutable.Map())
+                      .foreach { case (groupTopicPartition, commitRecordMetadataAndOffset) =>
+                          if (!loadedOffsets.contains(groupTopicPartition) || loadedOffsets(groupTopicPartition).olderThan(commitRecordMetadataAndOffset))
+                            loadedOffsets.put(groupTopicPartition, commitRecordMetadataAndOffset)
+                      }
+                  }
+                  pendingOffsets.remove(batch.producerId)
                 }
-                pendingOffsets.remove(batch.producerId)
+              } finally {
+                recordIterator.close()
               }
             } else {
               var batchBaseOffset: Option[Long] = None
-              for (record <- batch.asScala) {
-                require(record.hasKey, "Group metadata/offset entry key should not be null")
-                if (batchBaseOffset.isEmpty)
-                  batchBaseOffset = Some(record.offset)
-                GroupMetadataManager.readMessageKey(record.key) match {
+              val iterator = batch.streamingIterator(bufferSupplier)
+              try {
+                for (record <- iterator.asScala) {
+                  require(record.hasKey, "Group metadata/offset entry key should not be null")
+                  if (batchBaseOffset.isEmpty)
+                    batchBaseOffset = Some(record.offset)
+                  GroupMetadataManager.readMessageKey(record.key) match {
 
-                  case offsetKey: OffsetKey =>
-                    if (isTxnOffsetCommit && !pendingOffsets.contains(batch.producerId))
-                      pendingOffsets.put(batch.producerId, mutable.Map[GroupTopicPartition, CommitRecordMetadataAndOffset]())
+                    case offsetKey: OffsetKey =>
+                      if (isTxnOffsetCommit && !pendingOffsets.contains(batch.producerId))
+                        pendingOffsets.put(batch.producerId, mutable.Map())
 
-                    // load offset
-                    val groupTopicPartition = offsetKey.key
-                    if (!record.hasValue) {
-                      if (isTxnOffsetCommit)
-                        pendingOffsets(batch.producerId).remove(groupTopicPartition)
-                      else
-                        loadedOffsets.remove(groupTopicPartition)
-                    } else {
-                      val offsetAndMetadata = GroupMetadataManager.readOffsetMessageValue(record.value)
-                      if (isTxnOffsetCommit)
-                        pendingOffsets(batch.producerId).put(groupTopicPartition, CommitRecordMetadataAndOffset(batchBaseOffset, offsetAndMetadata))
-                      else
-                        loadedOffsets.put(groupTopicPartition, CommitRecordMetadataAndOffset(batchBaseOffset, offsetAndMetadata))
-                    }
+                      // load offset
+                      val groupTopicPartition = offsetKey.key
+                      if (!record.hasValue) {
+                        if (isTxnOffsetCommit)
+                          pendingOffsets(batch.producerId).remove(groupTopicPartition)
+                        else
+                          loadedOffsets.remove(groupTopicPartition)
+                      } else {
+                        val offsetAndMetadata = GroupMetadataManager.readOffsetMessageValue(record.value)
+                        if (isTxnOffsetCommit)
+                          pendingOffsets(batch.producerId).put(groupTopicPartition, CommitRecordMetadataAndOffset(batchBaseOffset, offsetAndMetadata))
+                        else
+                          loadedOffsets.put(groupTopicPartition, CommitRecordMetadataAndOffset(batchBaseOffset, offsetAndMetadata))
+                      }
 
-                  case groupMetadataKey: GroupMetadataKey =>
-                    // load group metadata
-                    val groupId = groupMetadataKey.key
-                    val groupMetadata = GroupMetadataManager.readGroupMessageValue(groupId, record.value, time)
-                    if (groupMetadata != null) {
-                      removedGroups.remove(groupId)
-                      loadedGroups.put(groupId, groupMetadata)
-                    } else {
-                      loadedGroups.remove(groupId)
-                      removedGroups.add(groupId)
-                    }
+                    case groupMetadataKey: GroupMetadataKey =>
+                      // load group metadata
+                      val groupId = groupMetadataKey.key
+                      val groupMetadata = GroupMetadataManager.readGroupMessageValue(groupId, record.value, time)
+                      if (groupMetadata != null) {
+                        removedGroups.remove(groupId)
+                        loadedGroups.put(groupId, groupMetadata)
+                      } else {
+                        loadedGroups.remove(groupId)
+                        removedGroups.add(groupId)
+                      }
 
-                  case unknownKey =>
-                    throw new IllegalStateException(s"Unexpected message key $unknownKey while loading offsets and group metadata")
+                    case unknownKey =>
+                      throw new IllegalStateException(s"Unexpected message key $unknownKey while loading offsets and group metadata")
+                  }
                 }
+              } finally {
+                iterator.close()
               }
             }
             currOffset = batch.nextOffset

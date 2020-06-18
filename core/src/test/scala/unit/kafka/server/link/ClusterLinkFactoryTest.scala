@@ -62,7 +62,7 @@ class ClusterLinkFactoryTest {
 
     verifyClusterLinkDisabled(() => clusterLinkManager.configEncoder)
     verifyClusterLinkDisabled(() => clusterLinkManager.createClusterLink(
-      ClusterLinkData(linkName, linkId, None, None),
+      ClusterLinkData(linkName, linkId, None, None, false),
       new ClusterLinkConfig(Map.empty.asJava),
       new Properties()))
     verifyClusterLinkDisabled(() => clusterLinkManager.listClusterLinks())
@@ -111,7 +111,7 @@ class ClusterLinkFactoryTest {
     verifyClusterLinkDisabled(() => admin.createClusterLink(newClusterLink, tenantPrefix = None,
       validateOnly = true, validateLink = false, timeoutMs = 10000))
     verifyClusterLinkDisabled(() => admin.deleteClusterLink(linkName, validateOnly = true, force = true))
-    verifyClusterLinkDisabled(() => admin.listClusterLinks())
+    verifyClusterLinkDisabled(() => admin.listClusterLinks(None, false))
 
     val stopMirror: AlterMirrorsRequest.Op = new StopTopicMirrorOp("topic")
     verifyClusterLinkDisabled(() => admin.alterMirror(stopMirror, validateOnly = true))

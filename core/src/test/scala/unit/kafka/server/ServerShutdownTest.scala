@@ -24,16 +24,16 @@ import java.net.ServerSocket
 import java.util.concurrent.{Executors, TimeUnit}
 
 import kafka.cluster.Broker
-import kafka.controller.{ControllerChannelManager, ControllerContext, StateChangeLogger}
+import kafka.controller.{ControllerChannelManager, ControllerContext, LeaderAndIsrBatch, StateChangeLogger}
 import kafka.log.LogManager
 import kafka.zookeeper.ZooKeeperClientTimeoutException
 import org.apache.kafka.clients.consumer.KafkaConsumer
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
+import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.{KafkaStorageException, StaleBrokerEpochException}
+import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.network.ListenerName
-import org.apache.kafka.common.protocol.ApiKeys
-import org.apache.kafka.common.requests.LeaderAndIsrRequest
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.serialization.{IntegerDeserializer, IntegerSerializer, StringDeserializer, StringSerializer}
 import org.apache.kafka.common.utils.Time
@@ -258,10 +258,13 @@ class ServerShutdownTest extends ZooKeeperTestHarness {
       controllerChannelManager.startup()
 
       // Initiate a sendRequest and wait until connection is established and one byte is received by the peer
-      val requestBuilder = new LeaderAndIsrRequest.Builder(ApiKeys.LEADER_AND_ISR.latestVersion,
-        controllerId, 1, 0L, Seq.empty.asJava, brokerAndEpochs.keys.map(_.node(listenerName)).toSet.asJava,
-        false)
-      controllerChannelManager.sendRequest(1, requestBuilder)
+      val batch = new LeaderAndIsrBatch(1)
+        .setControllerId(controllerId)
+        .setControllerEpoch(1)
+        .setBrokerEpoch(0L)
+        .addPartitionState(new TopicPartition("topic", 0), new LeaderAndIsrPartitionState())
+        .addLiveLeaders(brokerAndEpochs.keys.map(_.node(listenerName)).toSet)
+      controllerChannelManager.sendControlMetadataBatch(1, batch)
       receiveFuture.get(10, TimeUnit.SECONDS)
 
       // Shutdown controller. Request timeout is 30s, verify that shutdown completed well before that

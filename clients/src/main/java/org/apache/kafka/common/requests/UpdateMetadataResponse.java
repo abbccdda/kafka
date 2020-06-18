@@ -16,6 +16,8 @@
  */
 package org.apache.kafka.common.requests;
 
+import java.util.Collections;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.message.UpdateMetadataResponseData;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
@@ -24,7 +26,7 @@ import org.apache.kafka.common.protocol.types.Struct;
 import java.nio.ByteBuffer;
 import java.util.Map;
 
-public class UpdateMetadataResponse extends AbstractResponse {
+public class UpdateMetadataResponse extends AbstractControlResponse {
 
     private final UpdateMetadataResponseData data;
 
@@ -38,6 +40,11 @@ public class UpdateMetadataResponse extends AbstractResponse {
 
     public Errors error() {
         return Errors.forCode(data.errorCode());
+    }
+
+    @Override
+    public Map<TopicPartition, Errors> partitionErrors() {
+        return Collections.emptyMap();
     }
 
     @Override

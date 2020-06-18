@@ -62,6 +62,25 @@ class LeaderEpochFileCacheTest {
   }
 
   @Test
+  def shouldSetResetFlagDirtyOnAssign() = {
+    //Given
+    assertEquals(false, cache.isDirtyFromAssign)
+
+    //When
+    cache.assign(epoch = 2, startOffset = 10)
+
+    //Then
+    assertEquals(true, cache.isDirtyFromAssign)
+
+    //When
+    cache.maybeFlush()
+
+    //Then
+    assertEquals(false, cache.isDirtyFromAssign)
+  }
+
+
+  @Test
   def shouldReturnLogEndOffsetIfLatestEpochRequested() = {
     //When just one epoch
     cache.assign(epoch = 2, startOffset = 11)
@@ -240,6 +259,7 @@ class LeaderEpochFileCacheTest {
     //Given
     val cache = new LeaderEpochFileCache(tp, () => logEndOffset, checkpoint)
     cache.assign(epoch = 2, startOffset = 6)
+    cache.maybeFlush()
 
     //When
     val checkpoint2 = new LeaderEpochCheckpointFile(new File(checkpointPath))

@@ -30,15 +30,6 @@ import com.linkedin.kafka.cruisecontrol.model.Partition;
 import com.linkedin.kafka.cruisecontrol.model.Rack;
 import com.linkedin.kafka.cruisecontrol.model.Replica;
 import com.linkedin.kafka.cruisecontrol.model.ReplicaPlacementInfo;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.PartitionInfo;
@@ -48,11 +39,21 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
 import static com.linkedin.kafka.cruisecontrol.analyzer.AnalyzerUnitTestUtils.goal;
-import static com.linkedin.kafka.cruisecontrol.common.DeterministicCluster.smallClusterModel;
 import static com.linkedin.kafka.cruisecontrol.common.DeterministicCluster.mediumClusterModel;
-import static org.junit.Assert.assertTrue;
+import static com.linkedin.kafka.cruisecontrol.common.DeterministicCluster.smallClusterModel;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 /**
@@ -100,8 +101,7 @@ public class ReplicationFactorChangeTest {
   private static Class<? extends Throwable> expectedExceptionClass(short replicationFactor,
                                                                    Class<? extends Goal> goalClass,
                                                                    boolean smallCluster) {
-    if ((replicationFactor == LARGE_REPLICATION_FACTOR && goalClass == RackAwareGoal.class) ||
-        (replicationFactor == LARGE_REPLICATION_FACTOR && goalClass == ReplicaCapacityGoal.class && !smallCluster)) {
+    if (replicationFactor == LARGE_REPLICATION_FACTOR && goalClass == ReplicaCapacityGoal.class && !smallCluster) {
       return OptimizationFailureException.class;
     }
     return null;
@@ -172,9 +172,9 @@ public class ReplicationFactorChangeTest {
     prepareContext();
     Map<TopicPartition, List<ReplicaPlacementInfo>> initReplicaDistribution = _clusterModel.getReplicaDistribution();
     Map<TopicPartition, ReplicaPlacementInfo> initLeaderDistribution = _clusterModel.getLeaderDistribution();
+    Map<TopicPartition, List<ReplicaPlacementInfo>> initObserverDistribution = _clusterModel.getObserverDistribution();
 
-    _clusterModel.createOrDeleteReplicas(Collections.singletonMap(_replicationFactor, _topics), _brokersByRack, _rackByBroker,
-                                         _cluster);
+    _clusterModel.createOrDeleteReplicas(Collections.singletonMap(_replicationFactor, _topics), _brokersByRack, _rackByBroker);
     if (_exceptionClass == null) {
       if (_expectedToOptimize) {
         assertTrue("Replication factor change test with goal " + _goal.name() + " failed.",
@@ -184,7 +184,7 @@ public class ReplicationFactorChangeTest {
                     _goal.optimize(_clusterModel, Collections.emptySet(), _optimizationOptions));
       }
       Set<ExecutionProposal> goalProposals =
-          AnalyzerUtils.getDiff(initReplicaDistribution, initLeaderDistribution, _clusterModel, true);
+          AnalyzerUtils.getDiff(initReplicaDistribution, initLeaderDistribution, initObserverDistribution, _clusterModel, true);
 
       for (ExecutionProposal proposal : goalProposals) {
         // Replication factor change should only be applied to specified topics.

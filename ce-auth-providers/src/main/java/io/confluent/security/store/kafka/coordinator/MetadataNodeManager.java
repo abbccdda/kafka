@@ -14,6 +14,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -30,6 +32,7 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.internals.ConsumerNetworkClient;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.config.ConfigException;
+import org.apache.kafka.common.errors.InvalidConfigurationException;
 import org.apache.kafka.common.errors.WakeupException;
 import org.apache.kafka.common.internals.ClusterResourceListeners;
 import org.apache.kafka.common.metrics.JmxReporter;
@@ -49,13 +52,15 @@ import org.slf4j.Logger;
  * Node manager for Metadata Service. A Kafka group coordinator is used to manage active nodes
  * and elect a single master writer.
  */
-public class MetadataNodeManager extends Thread implements MetadataServiceRebalanceListener {
+public class MetadataNodeManager implements MetadataServiceRebalanceListener {
 
   private static final String COORDINATOR_METRICS_PREFIX = "confluent.metadata.service";
   private static final String JMX_PREFIX = "confluent.metadata.service";
 
   private final Logger log;
   private final Time time;
+  private final int minInSyncReplicas;
+  private final CompletableFuture<Void> startFuture;
   private final NodeMetadata nodeMetadata;
   private final Writer writer;
   private final Metrics metrics;
@@ -77,6 +82,8 @@ public class MetadataNodeManager extends Thread implements MetadataServiceRebala
     this.writer = metadataWriter;
     this.time = time;
     this.pendingTasks = new ConcurrentLinkedQueue<>();
+    this.minInSyncReplicas = config.minInSyncReplicas();
+    this.startFuture = new CompletableFuture<>();
 
     ConsumerConfig coordinatorConfig = new ConsumerConfig(config.coordinatorConfigs());
     long rebalanceTimeoutMs = coordinatorConfig.getInt(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG);
@@ -127,33 +134,13 @@ public class MetadataNodeManager extends Thread implements MetadataServiceRebala
         this
     );
 
-    setName("metadata-service-coordinator");
     this.isAlive = new AtomicBoolean(true);
     this.activeNodes = Collections.emptySet();
   }
 
-  @Override
-  public void run() {
-    try {
-      log.debug("Starting metadata node coordinator");
-      while (isAlive.get()) {
-        while (true) {
-          Runnable runnable = pendingTasks.poll();
-          if (runnable != null)
-            runnable.run();
-          else
-            break;
-        }
-        try {
-          coordinator.poll(Duration.ofMillis(Long.MAX_VALUE));
-        } catch (WakeupException e) {
-          log.debug("Wake up exception from poll");
-        }
-      }
-    } catch (Throwable e) {
-      if (isAlive.get())
-        log.error("Metadata service node manager thread failed", e);
-    }
+  public CompletionStage<Void> start() {
+    new MetadataNodeManagerThread().start();
+    return startFuture;
   }
 
   public synchronized  boolean isMasterWriter() {
@@ -187,11 +174,31 @@ public class MetadataNodeManager extends Thread implements MetadataServiceRebala
 
       stopWriter(null);
       NodeMetadata newWriter = assignment.writerNodeMetadata();
-      if (assignment.error() == AssignmentError.NONE.errorCode && newWriter != null) {
+      if (assignment.error() != AssignmentError.NONE.errorCode) {
+        log.error("Metadata assignment failed with error code {}", assignment.error());
+
+        if (assignment.error() == AssignmentError.DUPLICATE_URLS.errorCode) {
+          for (URL url : nodeMetadata.urls()) {
+            if (assignment.nodes().values().stream().filter(m -> m.urls().contains(url)).count() > 1) {
+              String errorMessage = String.format("Metadata service url %s is used by multiple brokers: %s", url, assignment.nodes());
+              if (startFuture.completeExceptionally(new InvalidConfigurationException(errorMessage))) {
+                log.error("{} Broker start up will be terminated.", errorMessage);
+              } else {
+                log.error("{} Broker must be restarted with unique metadata service URLs.", errorMessage);
+              }
+              break;
+            }
+          }
+        }
+      } else if (assignment.error() == AssignmentError.NONE.errorCode && newWriter != null) {
         this.masterWriterNode = newWriter;
         this.masterWriterGenerationId = generationId;
         if (nodeMetadata.equals(newWriter))
           this.writer.startWriter(generationId);
+        // Complete the start future only when sufficient number of active nodes
+        // have joined so that writes can complete.
+        if (activeNodes.size() >= minInSyncReplicas)
+          startFuture.complete(null);
       }
     });
     coordinator.wakeup();
@@ -225,6 +232,7 @@ public class MetadataNodeManager extends Thread implements MetadataServiceRebala
 
   public void close(Duration closeTimeout) {
     log.debug("Closing Metadata Service node manager");
+    startFuture.complete(null);
     synchronized (this) {
       isAlive.set(false);
       this.masterWriterNode = null;
@@ -302,5 +310,36 @@ public class MetadataNodeManager extends Thread implements MetadataServiceRebala
       this.writer.stopWriter(stoppingGenerationId);
     this.masterWriterNode = null;
     this.masterWriterGenerationId = -1;
+  }
+
+  private class MetadataNodeManagerThread extends Thread {
+
+    MetadataNodeManagerThread() {
+      setName("metadata-service-coordinator");
+    }
+
+    @Override
+    public void run() {
+      try {
+        log.debug("Starting metadata node coordinator");
+        while (isAlive.get()) {
+          while (true) {
+            Runnable runnable = pendingTasks.poll();
+            if (runnable != null)
+              runnable.run();
+            else
+              break;
+          }
+          try {
+            coordinator.poll(Duration.ofMillis(Long.MAX_VALUE));
+          } catch (WakeupException e) {
+            log.debug("Wake up exception from poll");
+          }
+        }
+      } catch (Throwable e) {
+        if (isAlive.get())
+          log.error("Metadata service node manager thread failed", e);
+      }
+    }
   }
 }

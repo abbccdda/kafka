@@ -8,7 +8,7 @@ import java.util
 
 import kafka.controller.KafkaController
 import kafka.zk.ClusterLinkData
-import org.apache.kafka.clients.admin.Admin
+import org.apache.kafka.clients.admin.{Admin, AlterConsumerGroupOffsetsResult}
 import org.apache.kafka.clients.consumer.OffsetAndMetadata
 import org.apache.kafka.common.errors.{GroupAuthorizationException, TopicAuthorizationException}
 import org.apache.kafka.common.metrics.{Metrics, Sensor}
@@ -22,16 +22,15 @@ import scala.jdk.CollectionConverters._
 
 class ClusterLinkSyncOffsets(val clientManager: ClusterLinkClientManager,
                              linkData: ClusterLinkData,
-                             config: ClusterLinkConfig,
                              controller: KafkaController,
                              val destAdminFactory: () => Admin,
                              metrics: Metrics,
                              metricsTags: java.util.Map[String, String])
   extends ClusterLinkScheduler.PeriodicTask(clientManager.scheduler, name = "SyncOffsets",
-    config.consumerOffsetSyncMs) {
+    clientManager.currentConfig.consumerOffsetSyncMs) {
 
   private[link] val currentOffsets = mutable.Map.empty[(String, TopicPartition), Long]
-  private val groupFilters: Seq[Filter] = destinationFilters(config.consumerGroupFilters.map(_.groupFilters).getOrElse(Seq.empty))
+  private var config = clientManager.currentConfig
   private var consumerOffsetCommitSensor: Sensor = _
 
   override def startup(): Unit = {
@@ -58,6 +57,10 @@ class ClusterLinkSyncOffsets(val clientManager: ClusterLinkClientManager,
    * @return `true` if the task has completed, otherwise `false` if there's outstanding work to be done
    */
   override protected def run(): Boolean = {
+
+    // update dynamic config
+    config = clientManager.currentConfig
+
     if (controller.isActive && config.consumerOffsetSyncEnable) {
       if (config.consumerGroupFilters.isEmpty) {
         warn(s"${ClusterLinkConfig.ConsumerOffsetSyncEnableProp} is true but no consumer group filters are specified. No consumer offsets will be migrated.")
@@ -93,6 +96,7 @@ class ClusterLinkSyncOffsets(val clientManager: ClusterLinkClientManager,
    */
   private def filterConsumerGroups(groups: Set[String]) : Set[String] = {
 
+    val groupFilters: Seq[Filter] = destinationFilters(config.consumerGroupFilters.map(_.groupFilters).getOrElse(Seq.empty))
     val usedFilters = mutable.Buffer[Filter]()
     val filtered = groups.filter { group =>
       val matchedFilters = groupFilters.filter(_.matches(group))
@@ -128,22 +132,23 @@ class ClusterLinkSyncOffsets(val clientManager: ClusterLinkClientManager,
     val allGroupFutures = KafkaFuture.allOf(groupFutures.values.toSeq:_*)
     scheduleWhenComplete(allGroupFutures,
       () => {
-        val commitFutures = getCommitFutures(groupFutures)
-        val allCommitFutures = KafkaFuture.allOf(commitFutures.values.toSeq:_*)
-
-        commitOffsets(allCommitFutures, groupFutures)
+        val commitResults = asyncCommit(groupFutures)
+        handleCommittedOffsets(commitResults, groupFutures)
         false
       })
   }
 
-  private def commitOffsets(allCommitFutures: KafkaFuture[Void],
-                            commitFutures: Map[String, KafkaFuture[util.Map[TopicPartition, OffsetAndMetadata]]]) = {
+  private def handleCommittedOffsets(commitResults: Map[String, AlterConsumerGroupOffsetsResult],
+                                     listFutures: Map[String, KafkaFuture[util.Map[TopicPartition, OffsetAndMetadata]]]): Unit = {
+
+    val allCommitFutures = KafkaFuture.allOf(commitResults.values.map(_.all).toSeq:_*)
     scheduleWhenComplete(allCommitFutures, () => {
       // clear current offsets to be remove old groups
       currentOffsets.clear()
-      commitFutures.foreach { case (group, future)  =>
+      listFutures.foreach { case (group, future)  =>
         try {
-          future.get.asScala.foreach(t => currentOffsets += ((group, t._1) -> t._2.offset()))
+          commitResults(group).all.get
+          future.get.forEach((tp, offsetAndMetadata) => currentOffsets += (group, tp) -> offsetAndMetadata.offset)
           consumerOffsetCommitSensor.record()
         } catch {
           case ex: GroupAuthorizationException =>
@@ -171,13 +176,13 @@ class ClusterLinkSyncOffsets(val clientManager: ClusterLinkClientManager,
    *
    * @return map of group -> future to track async offsets commits that have been submitted to the destination cluster.
    */
-  private def getCommitFutures(groupFutures: Map[String, KafkaFuture[util.Map[TopicPartition, OffsetAndMetadata]]]) = {
+  private def asyncCommit(groupFutures: Map[String, KafkaFuture[util.Map[TopicPartition, OffsetAndMetadata]]]): Map[String, AlterConsumerGroupOffsetsResult] = {
     groupFutures.flatMap{ case (group, groupFuture) =>
       val offsets = groupFuture.get.asScala
         .filter(t => controller.controllerContext.linkedTopics.get(t._1.topic).exists(_.mirrorIsEstablished)
           && currentOffsets.getOrElse((group, t._1), -1) != t._2.offset())
       if (offsets.nonEmpty) {
-        Some(group -> destAdminFactory().alterConsumerGroupOffsets(group, offsets.asJava).all())
+        Some(group -> destAdminFactory().alterConsumerGroupOffsets(group, offsets.asJava))
       } else {
         None
       }

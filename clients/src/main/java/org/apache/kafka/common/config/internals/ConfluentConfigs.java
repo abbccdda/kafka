@@ -221,6 +221,14 @@ public class ConfluentConfigs {
             "The multiplier for the free disk threshold (specified via " + BACKPRESSURE_DISK_THRESHOLD_BYTES_CONFIG
                     + ") above which the throttling would be deactivated";
 
+    // Auto-enable Telemetry (broker only)
+    public static final String AUTO_ENABLE_TELEMETRY_REPORTER_CONFIG = "confluent.reporters.telemetry.auto.enable";
+    public static final String AUTO_ENABLE_TELEMETRY_REPORTER_DOC =
+        "Auto-enable telemetry on the broker. This will add the telemetry reporter to the broker's '"
+            + CommonClientConfigs.METRIC_REPORTER_CLASSES_CONFIG + "' property if it is not already "
+            + "present. Disabling this property will prevent the Confluent DataBalancer from working properly.";
+    public static final boolean AUTO_ENABLE_TELEMETRY_REPORTER_DEFAULT = true;
+
     // Confluent DataBalancer Configs
     public static final String CONFLUENT_BALANCER_PREFIX = CONFLUENT_PREFIX + "balancer.";
 
@@ -405,9 +413,6 @@ public class ConfluentConfigs {
         Duration.ofSeconds(30).toMillis();
     public static final String HTTP_SERVER_STOP_TIMEOUT_MS_DOC =
         "How long to wait for the Kafka HTTP server to shutdown, in milliseconds. Default is 30s.";
-
-    // used by the telemetry-reporter to handle default inter-broker client configs
-    public static final String INTERBROKER_REPORTER_CLIENT_CONFIG_PREFIX = "kafka.server.local.client.";
 
     //Confluent metrics context labels used by Telemetry Reporter
     public static final String RESOURCE_LABEL_PREFIX = "resource.";

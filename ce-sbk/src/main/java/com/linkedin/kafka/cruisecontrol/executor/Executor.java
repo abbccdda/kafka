@@ -20,6 +20,7 @@ import java.util.HashMap;
 import java.util.Optional;
 import kafka.admin.PreferredReplicaLeaderElectionCommand;
 import java.time.Duration;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.ReentrantLock;
 import kafka.zk.KafkaZkClient;
@@ -414,20 +415,21 @@ public class Executor {
    * @param uuid UUID of the execution.
    * @param completionCallback -- a Consumer of (success, failure exception) to be invoked when the execution completes. NOT
    *                           to be invoked if this fails with an exception.
+   * @return the future for the underlying proposal execution
    */
-  public synchronized void executeProposals(Collection<ExecutionProposal> proposals,
-                                            Set<Integer> unthrottledBrokers,
-                                            Set<Integer> removedBrokers,
-                                            LoadMonitor loadMonitor,
-                                            Integer requestedInterBrokerPartitionMovementConcurrency,
-                                            Integer requestedIntraBrokerPartitionMovementConcurrency,
-                                            Integer requestedLeadershipMovementConcurrency,
-                                            ReplicaMovementStrategy replicaMovementStrategy,
-                                            Long replicationThrottle,
-                                            String uuid,
-                                            BalanceOpExecutionCompletionCallback completionCallback) {
+  public synchronized Future<?> executeProposals(Collection<ExecutionProposal> proposals,
+                                                 Set<Integer> unthrottledBrokers,
+                                                 Set<Integer> removedBrokers,
+                                                 LoadMonitor loadMonitor,
+                                                 Integer requestedInterBrokerPartitionMovementConcurrency,
+                                                 Integer requestedIntraBrokerPartitionMovementConcurrency,
+                                                 Integer requestedLeadershipMovementConcurrency,
+                                                 ReplicaMovementStrategy replicaMovementStrategy,
+                                                 Long replicationThrottle,
+                                                 String uuid,
+                                                 BalanceOpExecutionCompletionCallback completionCallback) {
     LOG.info("executeProposals with completionCallback {}", completionCallback);
-    doExecuteProposals(proposals, unthrottledBrokers, loadMonitor, requestedInterBrokerPartitionMovementConcurrency,
+    return doExecuteProposals(proposals, unthrottledBrokers, loadMonitor, requestedInterBrokerPartitionMovementConcurrency,
         requestedIntraBrokerPartitionMovementConcurrency, requestedLeadershipMovementConcurrency,
         replicaMovementStrategy, uuid,
         new ProposalExecutionRunnable(loadMonitor, null, removedBrokers, replicationThrottle, completionCallback)
@@ -438,16 +440,17 @@ public class Executor {
    * see #{@link #executeProposals(Collection, Set, Set, LoadMonitor, Integer, Integer, Integer, ReplicaMovementStrategy, Long, String, BalanceOpExecutionCompletionCallback)}
    * for additional information
    * @param executionRunnable the proposal execution runnable to run
+   * @return the future for the #{@link ProposalExecutionRunnable} execution
    */
-  private synchronized void doExecuteProposals(Collection<ExecutionProposal> proposals,
-                                               Set<Integer> unthrottledBrokers,
-                                               LoadMonitor loadMonitor,
-                                               Integer requestedInterBrokerPartitionMovementConcurrency,
-                                               Integer requestedIntraBrokerPartitionMovementConcurrency,
-                                               Integer requestedLeadershipMovementConcurrency,
-                                               ReplicaMovementStrategy replicaMovementStrategy,
-                                               String uuid,
-                                               ProposalExecutionRunnable executionRunnable) {
+  private synchronized Future<?> doExecuteProposals(Collection<ExecutionProposal> proposals,
+                                                    Set<Integer> unthrottledBrokers,
+                                                    LoadMonitor loadMonitor,
+                                                    Integer requestedInterBrokerPartitionMovementConcurrency,
+                                                    Integer requestedIntraBrokerPartitionMovementConcurrency,
+                                                    Integer requestedLeadershipMovementConcurrency,
+                                                    ReplicaMovementStrategy replicaMovementStrategy,
+                                                    String uuid,
+                                                    ProposalExecutionRunnable executionRunnable) {
     if (_hasOngoingExecution) {
       throw new IllegalStateException("Cannot execute new proposals while there is an ongoing execution.");
     }
@@ -464,7 +467,7 @@ public class Executor {
     initProposalExecution(proposals, unthrottledBrokers, requestedInterBrokerPartitionMovementConcurrency,
         requestedIntraBrokerPartitionMovementConcurrency, requestedLeadershipMovementConcurrency,
         replicaMovementStrategy, uuid);
-    startExecution(executionRunnable);
+    return startExecution(executionRunnable);
   }
 
   // Package private for testing
@@ -522,9 +525,10 @@ public class Executor {
 
   /**
    * Pause the load monitor and kick off the execution.
+   * @return the future for the #{@link ProposalExecutionRunnable}
    */
   // Package private for testing
-  void startExecution(ProposalExecutionRunnable runnable) {
+  Future<?> startExecution(ProposalExecutionRunnable runnable) {
     _executionStoppedByUser.set(false);
     sanityCheckOngoingReplicaMovement();
     _hasOngoingExecution = true;
@@ -536,7 +540,7 @@ public class Executor {
     } else {
       _numExecutionStartedInNonKafkaAssignerMode.incrementAndGet();
     }
-    _proposalExecutor.submit(runnable);
+    return _proposalExecutor.submit(runnable);
   }
 
   /**
@@ -829,7 +833,7 @@ public class Executor {
 
         // If execution encountered exception and isn't stopped, it's considered successful.
         boolean executionSucceeded = _executorState.state() != ExecutorState.State.STOPPING_EXECUTION && _executionException == null;
-        LOG.info("ProposalExecutionRunnable finishes with success state {} and exception {}", executionSucceeded, _executionException);
+        LOG.info("ProposalExecutionRunnable finishes with success state {} and exception: ", executionSucceeded, _executionException);
         // If we are here, either we succeeded, or we are stopped or had exception. Send notification to user.
         ExecutorNotification notification = new ExecutorNotification(_executionStartMs, _time.milliseconds(),
                                                                      _uuid, _stopRequested.get(),
@@ -1192,11 +1196,12 @@ public class Executor {
      */
     private boolean isInterBrokerReplicaActionDone(Cluster cluster, TopicPartition tp, ExecutionTask task) {
       Node[] currentOrderedReplicas = cluster.partition(tp).replicas();
+      Node[] currentOrderedObservers = cluster.partition(tp).observers();
       switch (task.state()) {
         case IN_PROGRESS:
-          return task.proposal().isInterBrokerMovementCompleted(currentOrderedReplicas);
+          return task.proposal().isInterBrokerMovementCompleted(currentOrderedReplicas, currentOrderedObservers);
         case ABORTING:
-          return task.proposal().isInterBrokerMovementAborted(currentOrderedReplicas);
+          return task.proposal().isInterBrokerMovementAborted(currentOrderedReplicas, currentOrderedObservers);
         case DEAD:
           return true;
         default:
@@ -1382,6 +1387,7 @@ public class Executor {
    * attempts after a successful one will result in #{@link IllegalStateException}
    */
   public class ReservationHandle implements AutoCloseable {
+
     /**
      * Acquires the Executor's reservation
      */
@@ -1395,6 +1401,13 @@ public class Executor {
     @Override
     public void close() {
       _reservation.cancelReservation();
+    }
+
+    /**
+     * Asynchronously stop the execution of execution proposal tasks
+     */
+    public void stopExecution() {
+      userTriggeredStopExecution();
     }
   }
 
@@ -1454,18 +1467,19 @@ public class Executor {
     if (reassignmentTasks != null && !reassignmentTasks.isEmpty()) {
       Set<TopicPartition> partitionsToReassign = reassignmentTasks.stream()
           .map(t -> t.proposal().topicPartition()).collect(Collectors.toSet());
-      Map<TopicPartition, List<Integer>> inProgressTargetReplicaReassignment = fetchTargetReplicasBeingReassigned(
+      Map<TopicPartition, PartitionReplicas> inProgressTargetReplicaReassignment = fetchTargetReplicasBeingReassigned(
               Optional.of(partitionsToReassign));
 
       Map<TopicPartition, Optional<NewPartitionReassignment>> newReplicaAssignments = new HashMap<>();
 
       reassignmentTasks.forEach(task -> {
         TopicPartition tp = task.proposal().topicPartition();
-        List<Integer> targetReplicas = replicasToWrite(task,
+        PartitionReplicas targetReplicas = replicasToWrite(task,
             Optional.ofNullable(inProgressTargetReplicaReassignment.get(tp)));
 
-        if (!targetReplicas.isEmpty()) {
-          NewPartitionReassignment reassignment = new NewPartitionReassignment(targetReplicas);
+        if (!targetReplicas.replicas().isEmpty()) {
+          NewPartitionReassignment reassignment = NewPartitionReassignment.ofReplicasAndObservers(targetReplicas.replicas(),
+                  targetReplicas.observers());
           newReplicaAssignments.put(tp, Optional.of(reassignment));
         }
       });
@@ -1492,7 +1506,7 @@ public class Executor {
    * @return a tuple of a map of partitions being reassigned and their target replicas and
    *                    a boolean indicating if we fell back to using the ZK API
    */
-  private Map<TopicPartition, List<Integer>> fetchTargetReplicasBeingReassigned(
+  private Map<TopicPartition, PartitionReplicas> fetchTargetReplicasBeingReassigned(
       Optional<Set<TopicPartition>> partitionsOpt) {
 
     try {
@@ -1509,7 +1523,9 @@ public class Executor {
             PartitionReassignment partitionReassignment = entry.getValue();
             List<Integer> targetReplicas = new ArrayList<>(partitionReassignment.replicas());
             targetReplicas.removeAll(partitionReassignment.removingReplicas());
-            return targetReplicas;
+            List<Integer> targetObservers = new ArrayList<>(partitionReassignment.observers());
+            targetObservers.removeAll(partitionReassignment.removingReplicas());
+            return new PartitionReplicas(targetReplicas, targetObservers);
           }));
     } catch (Throwable t) {
         LOG.error("Fetching reassigning replicas through the listPartitionReassignments API failed with an exception", t);
@@ -1522,31 +1538,34 @@ public class Executor {
    * Given an ExecutionTask, return the targetReplicas we should write to the Kafka reassignments.
    * If we should not reassign a partition as part of this task, an empty replica set will be returned
    */
-  private List<Integer> replicasToWrite(ExecutionTask task,
-      Optional<List<Integer>> inProgressTargetReplicasOpt) {
+  private PartitionReplicas replicasToWrite(ExecutionTask task, Optional<PartitionReplicas> inProgressTargetReplicasOpt) {
     TopicPartition tp = task.proposal().topicPartition();
-    List<Integer> oldReplicas = task.proposal().oldReplicas().stream().map(r -> r.brokerId())
+    List<Integer> oldReplicas = task.proposal().oldReplicas().stream().map(ReplicaPlacementInfo::brokerId)
       .collect(Collectors.toList());
-    List<Integer> newReplicas = task.proposal().newReplicas().stream().map(r -> r.brokerId())
+    List<Integer> newReplicas = task.proposal().newReplicas().stream().map(ReplicaPlacementInfo::brokerId)
       .collect(Collectors.toList());
-
+    List<Integer> oldObservers = task.proposal().oldObservers().stream().map(ReplicaPlacementInfo::brokerId)
+      .collect(Collectors.toList());
+    List<Integer> newObservers = task.proposal().newObservers().stream().map(ReplicaPlacementInfo::brokerId)
+            .collect(Collectors.toList());
     // If aborting an existing task, trigger a reassignment to the oldReplicas
     // If no reassignment is in progress, trigger a reassignment to newReplicas
     // else, do not trigger a reassignment
     if (inProgressTargetReplicasOpt.isPresent()) {
-      List<Integer> inProgressTargetReplicas = inProgressTargetReplicasOpt.get();
+      List<Integer> inProgressTargetReplicas = inProgressTargetReplicasOpt.get().replicas();
+      List<Integer> inProgressTargetObservers = inProgressTargetReplicasOpt.get().observers();
       if (task.state() == ExecutionTask.State.ABORTING) {
-        return oldReplicas;
+        return new PartitionReplicas(oldReplicas, oldObservers);
       } else if (task.state() == ExecutionTask.State.DEAD
           || task.state() == ExecutionTask.State.ABORTED
           || task.state() == ExecutionTask.State.COMPLETED) {
-        return Collections.emptyList();
+        return new PartitionReplicas(Collections.emptyList(), Collections.emptyList());
       } else if (task.state() == ExecutionTask.State.IN_PROGRESS) {
-        if (!newReplicas.equals(inProgressTargetReplicas)) {
+        if (!newReplicas.equals(inProgressTargetReplicas) && !newObservers.equals(inProgressTargetObservers)) {
           throw new RuntimeException("The provided new replica list " + newReplicas +
               " is different from the in progress replica list " + inProgressTargetReplicas + " for " + tp);
         }
-        return Collections.emptyList();
+        return new PartitionReplicas(Collections.emptyList(), Collections.emptyList());
       } else {
         throw new IllegalStateException("Should never be here, the state " + task.state());
       }
@@ -1556,17 +1575,17 @@ public class Executor {
           || task.state() == ExecutionTask.State.ABORTING
           || task.state() == ExecutionTask.State.COMPLETED) {
         LOG.warn("No need to abort tasks {} because the partition is not in reassignment", task);
-        return Collections.emptyList();
+        return new PartitionReplicas(Collections.emptyList(), Collections.emptyList());
       } else {
         // verify with current assignment
         List<Integer> currentReplicaAssignment = adminUtils.getReplicasForPartition(tp);
         if (currentReplicaAssignment.isEmpty()) {
           LOG.warn("Could not fetch the replicas for partition {}. It is possible the topic or partition doesn't exist.", tp);
-          return Collections.emptyList();
+          return new PartitionReplicas(Collections.emptyList(), Collections.emptyList());
         } else {
           // we are not verifying the old replicas because we may be reexecuting a task,
           // in which case the replica list could be different from the old replicas.
-          return newReplicas;
+          return new PartitionReplicas(newReplicas, newObservers);
         }
       }
     }
@@ -1588,6 +1607,23 @@ public class Executor {
     return JavaConverters.setAsJavaSet(_kafkaZkClient.getPreferredReplicaElection());
   }
 
+  private static class PartitionReplicas {
+    private final List<Integer> replicas;
+    private final List<Integer> observers;
+
+    public PartitionReplicas(List<Integer> replicas, List<Integer> observers) {
+      this.replicas = replicas;
+      this.observers = observers;
+    }
+
+    public List<Integer> replicas() {
+      return Collections.unmodifiableList(replicas);
+    }
+
+    public List<Integer> observers() {
+      return Collections.unmodifiableList(observers);
+    }
+  }
   // Simulates the behavior of the Scala compiler that throws checked exceptions as unchecked
   // This makes the migration away from the Scala code in ExecutorUtils easier, but we should
   // remove it once that's complete

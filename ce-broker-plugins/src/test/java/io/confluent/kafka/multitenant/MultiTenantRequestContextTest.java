@@ -7,6 +7,8 @@ import io.confluent.kafka.multitenant.metrics.PartitionSensors;
 import io.confluent.kafka.multitenant.metrics.TenantMetrics;
 import io.confluent.kafka.multitenant.quota.TenantPartitionAssignor;
 import io.confluent.kafka.multitenant.quota.TestCluster;
+import io.confluent.kafka.server.plugins.policy.AlterConfigPolicy;
+import io.confluent.kafka.server.plugins.policy.AlterConfigPolicy.ClusterPolicyConfig;
 import kafka.server.KafkaConfig;
 import kafka.server.link.ClusterLinkManager$;
 import org.apache.kafka.clients.consumer.ConsumerPartitionAssignor.Subscription;
@@ -22,7 +24,9 @@ import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.acl.AclPermissionType;
 import org.apache.kafka.common.config.ConfigResource;
+import org.apache.kafka.common.config.ConfigResource.Type;
 import org.apache.kafka.common.config.ConfluentTopicConfig;
+import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.errors.NotLeaderForPartitionException;
 import org.apache.kafka.common.errors.UnsupportedVersionException;
@@ -67,6 +71,8 @@ import org.apache.kafka.common.message.EndTxnRequestData;
 import org.apache.kafka.common.message.FindCoordinatorRequestData;
 import org.apache.kafka.common.message.HeartbeatRequestData;
 import org.apache.kafka.common.message.IncrementalAlterConfigsRequestData;
+import org.apache.kafka.common.message.IncrementalAlterConfigsRequestData.AlterableConfig;
+import org.apache.kafka.common.message.IncrementalAlterConfigsRequestData.AlterableConfigCollection;
 import org.apache.kafka.common.message.IncrementalAlterConfigsResponseData;
 import org.apache.kafka.common.message.InitProducerIdRequestData;
 import org.apache.kafka.common.message.JoinGroupRequestData;
@@ -112,6 +118,7 @@ import org.apache.kafka.common.requests.AddOffsetsToTxnRequest;
 import org.apache.kafka.common.requests.AddPartitionsToTxnRequest;
 import org.apache.kafka.common.requests.AddPartitionsToTxnResponse;
 import org.apache.kafka.common.requests.AlterConfigsRequest;
+import org.apache.kafka.common.requests.AlterConfigsRequest.Config;
 import org.apache.kafka.common.requests.AlterConfigsResponse;
 import org.apache.kafka.common.requests.ApiError;
 import org.apache.kafka.common.requests.ByteBufferChannel;
@@ -219,6 +226,7 @@ import java.util.stream.StreamSupport;
 import static java.util.Arrays.asList;
 import static java.util.Collections.singletonList;
 import static java.util.stream.Collectors.toList;
+import static java.util.stream.Collectors.toSet;
 import static org.apache.kafka.clients.consumer.internals.ConsumerProtocol.PROTOCOL_TYPE;
 import static org.apache.kafka.common.requests.DescribeGroupsResponse.AUTHORIZED_OPERATIONS_OMITTED;
 import static org.apache.kafka.common.utils.Utils.mkEntry;
@@ -1629,7 +1637,7 @@ public class MultiTenantRequestContextTest {
       StopReplicaResponse response = (StopReplicaResponse) context.intercept(request, 0);
       Struct struct = parseResponse(ApiKeys.STOP_REPLICA, ver, context.buildResponse(response));
       StopReplicaResponse outbound = new StopReplicaResponse(struct, ver);
-      assertEquals(Optional.of(Errors.CLUSTER_AUTHORIZATION_FAILED.code()), outbound.partitionErrors()
+      assertEquals(Optional.of(Errors.CLUSTER_AUTHORIZATION_FAILED.code()), outbound.partitions()
           .stream()
           .filter(pe -> pe.topicName().equals(partition.topic()) && pe.partitionIndex() == partition.partition())
           .findFirst()
@@ -2506,15 +2514,21 @@ public class MultiTenantRequestContextTest {
   public void testDescribeConfigsRequest() {
     for (short ver = ApiKeys.DESCRIBE_CONFIGS.oldestVersion(); ver <= ApiKeys.DESCRIBE_CONFIGS.latestVersion(); ver++) {
       MultiTenantRequestContext context = newRequestContext(ApiKeys.DESCRIBE_CONFIGS, ver);
+      ConfigResource clusterResource = new ConfigResource(Type.BROKER, "");
       Map<ConfigResource, Collection<String>> requestedResources = new HashMap<>();
       requestedResources.put(new ConfigResource(ConfigResource.Type.TOPIC, "foo"), Collections.emptyList());
       requestedResources.put(new ConfigResource(ConfigResource.Type.BROKER, "blah"), Collections.emptyList());
+      requestedResources.put(clusterResource, asList(SslConfigs.SSL_CIPHER_SUITES_CONFIG));
       requestedResources.put(new ConfigResource(ConfigResource.Type.TOPIC, "bar"), Collections.emptyList());
       DescribeConfigsRequest inbound = new DescribeConfigsRequest.Builder(requestedResources).build(ver);
       DescribeConfigsRequest intercepted = (DescribeConfigsRequest) parseRequest(context, inbound);
       assertEquals(mkSet(new ConfigResource(ConfigResource.Type.TOPIC, "tenant_foo"),
           new ConfigResource(ConfigResource.Type.BROKER, "blah"),
-          new ConfigResource(ConfigResource.Type.TOPIC, "tenant_bar")), new HashSet<>(intercepted.resources()));
+          clusterResource,
+          new ConfigResource(ConfigResource.Type.TOPIC, "tenant_bar")),
+          new HashSet<>(intercepted.resources()));
+      assertEquals(mkSet(sslCipherSuitesConfigWithExternalListenerPrefix()),
+          new HashSet<>(intercepted.configNames(clusterResource)));
       verifyRequestMetrics(ApiKeys.DESCRIBE_CONFIGS);
 
       DescribeConfigsRequest clientIntercepted = clusterLinkClient.intercept(intercepted, context.header);
@@ -2523,17 +2537,7 @@ public class MultiTenantRequestContextTest {
   }
 
   @Test
-  public void testDescribeConfigsResponseWithFilteredBrokerConfigs() throws IOException {
-    testDescribeConfigsResponse(false);
-  }
-
-  @Test
-  public void testDescribeConfigsResponseWithAllBrokerConfigs() throws IOException {
-    principal = new MultiTenantPrincipal("user", new TenantMetadata("tenant", "tenant_cluster_id", true));
-    testDescribeConfigsResponse(true);
-  }
-
-  public void testDescribeConfigsResponse(boolean allowDescribeBrokerConfigs) throws IOException {
+  public void testDescribeConfigsResponse() throws IOException {
     DescribeConfigsResponse.ConfigSource brokerSource = DescribeConfigsResponse.ConfigSource.STATIC_BROKER_CONFIG;
     DescribeConfigsResponse.ConfigSource topicSource = DescribeConfigsResponse.ConfigSource.TOPIC_CONFIG;
     Set<DescribeConfigsResponse.ConfigSynonym> emptySynonyms = Collections.emptySet();
@@ -2542,7 +2546,9 @@ public class MultiTenantRequestContextTest {
       new DescribeConfigsResponse.ConfigEntry(KafkaConfig.NumNetworkThreadsProp(), "5", brokerSource, false, false, emptySynonyms),
       new DescribeConfigsResponse.ConfigEntry(KafkaConfig.BrokerInterceptorClassProp(), "bar", brokerSource, false, false, emptySynonyms),
       new DescribeConfigsResponse.ConfigEntry(KafkaConfig.AppendRecordInterceptorClassesProp(), "foo,bar", brokerSource, false, false, emptySynonyms),
-      new DescribeConfigsResponse.ConfigEntry(KafkaConfig.PreferTierFetchMsProp(), "true", brokerSource, false, false, emptySynonyms)
+      new DescribeConfigsResponse.ConfigEntry(KafkaConfig.PreferTierFetchMsProp(), "true", brokerSource, false, false, emptySynonyms),
+      new DescribeConfigsResponse.ConfigEntry(sslCipherSuitesConfigWithExternalListenerPrefix(),
+          "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256", brokerSource, false, false, emptySynonyms)
     );
     Collection<DescribeConfigsResponse.ConfigEntry> topicConfigEntries = asList(
       new DescribeConfigsResponse.ConfigEntry(TopicConfig.RETENTION_BYTES_CONFIG, "10000000", topicSource, false, false, emptySynonyms),
@@ -2579,24 +2585,12 @@ public class MultiTenantRequestContextTest {
       for (DescribeConfigsResponse.ConfigEntry configEntry : interceptedTopicConfigs) {
         topicReadOnlyMap.put(configEntry.name(), configEntry.isReadOnly());
       }
-      if (allowDescribeBrokerConfigs) {
-        assertEquals(
-            mkMap(
-                mkEntry(TopicConfig.RETENTION_BYTES_CONFIG, Boolean.FALSE),
-                mkEntry(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, Boolean.FALSE),
-                mkEntry(TopicConfig.MIN_CLEANABLE_DIRTY_RATIO_CONFIG, Boolean.FALSE),
-                mkEntry(ConfluentTopicConfig.TIER_ENABLE_CONFIG, Boolean.FALSE),
-                mkEntry(ConfluentTopicConfig.KEY_SCHEMA_VALIDATION_CONFIG, Boolean.FALSE),
-                mkEntry(ConfluentTopicConfig.PREFER_TIER_FETCH_MS_CONFIG, Boolean.FALSE)),
-            topicReadOnlyMap);
-      } else {
-        assertEquals(
-            mkMap(
-                mkEntry(TopicConfig.RETENTION_BYTES_CONFIG, Boolean.FALSE),
-                mkEntry(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, Boolean.FALSE),
-                mkEntry(TopicConfig.MIN_CLEANABLE_DIRTY_RATIO_CONFIG, Boolean.TRUE)),
-            topicReadOnlyMap);
-      }
+      assertEquals(
+          mkMap(
+              mkEntry(TopicConfig.RETENTION_BYTES_CONFIG, Boolean.FALSE),
+              mkEntry(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, Boolean.FALSE),
+              mkEntry(TopicConfig.MIN_CLEANABLE_DIRTY_RATIO_CONFIG, Boolean.TRUE)),
+          topicReadOnlyMap);
 
       Collection<DescribeConfigsResponse.ConfigEntry> interceptedBrokerConfigs =
               intercepted.configs().get(new ConfigResource(ConfigResource.Type.BROKER, "blah")).entries();
@@ -2604,22 +2598,16 @@ public class MultiTenantRequestContextTest {
       for (DescribeConfigsResponse.ConfigEntry configEntry : interceptedBrokerConfigs) {
         interceptedEntries.add(configEntry.name());
       }
-      if (allowDescribeBrokerConfigs) {
-        assertEquals(
-            mkSet(KafkaConfig.MessageMaxBytesProp(),
-                KafkaConfig.NumNetworkThreadsProp(),
-                KafkaConfig.BrokerInterceptorClassProp(),
-                KafkaConfig.AppendRecordInterceptorClassesProp(),
-                KafkaConfig.PreferTierFetchMsProp()),
-            interceptedEntries);
-      } else {
-        assertEquals(mkSet("message.max.bytes"), interceptedEntries);
-      }
+      assertEquals(mkSet("message.max.bytes", SslConfigs.SSL_CIPHER_SUITES_CONFIG), interceptedEntries);
       verifyResponseMetrics(ApiKeys.DESCRIBE_CONFIGS, Errors.NONE);
 
       DescribeConfigsResponse clientIntercepted = clusterLinkClient.intercept(intercepted, context.header);
       assertEquals(outbound.configs().keySet(), clientIntercepted.configs().keySet());
     }
+  }
+
+  private String sslCipherSuitesConfigWithExternalListenerPrefix() {
+    return MultiTenantConfigRestrictions.EXTERNAL_LISTENER_PREFIX + KafkaConfig.SslCipherSuitesProp();
   }
 
   @Test
@@ -2631,28 +2619,39 @@ public class MultiTenantRequestContextTest {
       HashSet<AlterConfigsRequest.ConfigEntry> configEntries = new HashSet<>();
       testConfigs().forEach(c -> configEntries.add(new AlterConfigsRequest.ConfigEntry(c.name(), c.value())));
 
+      AlterConfigsRequest.ConfigEntry sslCipherSuitesConfig = new AlterConfigsRequest.ConfigEntry(
+          SslConfigs.SSL_CIPHER_SUITES_CONFIG, "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256");
+
       resourceConfigs.put(new ConfigResource(ConfigResource.Type.TOPIC, "foo"),
           new AlterConfigsRequest.Config(configEntries));
       resourceConfigs.put(new ConfigResource(ConfigResource.Type.BROKER, "blah"), new AlterConfigsRequest.Config(
           Collections.emptyList()));
+      resourceConfigs.put(new ConfigResource(ConfigResource.Type.BROKER, ""), new AlterConfigsRequest.Config(
+          Arrays.asList(sslCipherSuitesConfig)));
       resourceConfigs.put(new ConfigResource(ConfigResource.Type.TOPIC, "bar"), new AlterConfigsRequest.Config(
           Collections.emptyList()));
       AlterConfigsRequest inbound = new AlterConfigsRequest.Builder(resourceConfigs, false).build(ver);
       AlterConfigsRequest intercepted = (AlterConfigsRequest) parseRequest(context, inbound);
       assertEquals(mkSet(new ConfigResource(ConfigResource.Type.TOPIC, "tenant_foo"),
           new ConfigResource(ConfigResource.Type.BROKER, "blah"),
+          new ConfigResource(ConfigResource.Type.BROKER, ""),
           new ConfigResource(ConfigResource.Type.TOPIC, "tenant_bar")), intercepted.configs().keySet());
 
-      HashMap<String, String> expected = new HashMap<>();
-      transformedTestConfigs().forEach(c -> expected.put(c.name(), c.value()));
+      HashMap<String, String> expectedTenantFooTopicConfigs = new HashMap<>();
+      transformedTestConfigs().forEach(c -> expectedTenantFooTopicConfigs.put(c.name(), c.value()));
 
-      HashMap<String, String> actual = new HashMap<>();
+      HashMap<String, String> actualTenantFooTopicConfigs = new HashMap<>();
       intercepted.configs()
               .get(new ConfigResource(ConfigResource.Type.TOPIC, "tenant_foo")).entries()
-              .forEach(c -> actual.put(c.name(), c.value()));
+              .forEach(c -> actualTenantFooTopicConfigs.put(c.name(), c.value()));
 
       // Configs should be transformed by removing non-updateable configs, except for min.insync.replicas
-      assertEquals(expected, actual);
+      assertEquals(expectedTenantFooTopicConfigs, actualTenantFooTopicConfigs);
+
+      Config clusterConfig = intercepted.configs().get(new ConfigResource(Type.BROKER, ""));
+      assertEquals(mkSet(sslCipherSuitesConfigWithExternalListenerPrefix()),
+          clusterConfig.entries().stream().map(e -> e.name()).collect(toSet()));
+      assertEquals(mkSet(sslCipherSuitesConfig.value()), clusterConfig.entries().stream().map(e -> e.value()).collect(toSet()));
 
       verifyRequestMetrics(ApiKeys.ALTER_CONFIGS);
 
@@ -2678,6 +2677,13 @@ public class MultiTenantRequestContextTest {
                       .setResourceType(ConfigResource.Type.BROKER.id())
                       .setResourceName("blah"));
       resourceErrors.add(
+          new AlterConfigsResponseData.AlterConfigsResourceResponse()
+              .setErrorCode(Errors.NONE.code())
+              .setErrorMessage(AlterConfigPolicy.ClusterPolicyConfig.invalidCipherSuiteMessage(
+                  ClusterPolicyConfig.DEFAULT_SSL_CIPHER_SUITES_ALLOWED, "TLS_ABC_RSA_WITH_AES_128_GCM_SHA256"))
+              .setResourceType(ConfigResource.Type.BROKER.id())
+              .setResourceName(""));
+      resourceErrors.add(
               new AlterConfigsResponseData.AlterConfigsResourceResponse()
                       .setErrorCode(Errors.NONE.code())
                       .setErrorMessage("")
@@ -2693,7 +2699,19 @@ public class MultiTenantRequestContextTest {
       AlterConfigsResponse intercepted = new AlterConfigsResponse(data);
       assertEquals(mkSet(new ConfigResource(ConfigResource.Type.TOPIC, "foo"),
           new ConfigResource(ConfigResource.Type.BROKER, "blah"),
+          new ConfigResource(ConfigResource.Type.BROKER, ""),
           new ConfigResource(ConfigResource.Type.TOPIC, "bar")), intercepted.errors().keySet());
+
+      assertEquals("", intercepted.errors().get(
+          new ConfigResource(ConfigResource.Type.BROKER, "blah")).message());
+
+      String clusterConfigErrorMessage = intercepted.errors().get(new ConfigResource(
+          Type.BROKER, "")).message();
+      assertFalse("Unexpected cluster config error message: " + clusterConfigErrorMessage,
+          clusterConfigErrorMessage.contains(sslCipherSuitesConfigWithExternalListenerPrefix()));
+      assertTrue("Unexpected cluster config error message: " + clusterConfigErrorMessage,
+          clusterConfigErrorMessage.contains(SslConfigs.SSL_CIPHER_SUITES_CONFIG));
+
       verifyResponseMetrics(ApiKeys.ALTER_CONFIGS, Errors.NONE);
 
       clusterLinkClient.verifyNotAllowed(intercepted, context.header);
@@ -2742,6 +2760,10 @@ public class MultiTenantRequestContextTest {
                       .setValue(c.value())
                       .setConfigOperation((byte) 0)));
 
+      AlterableConfigCollection sslCipherSuites = new AlterableConfigCollection();
+      sslCipherSuites.add(new AlterableConfig()
+        .setName(SslConfigs.SSL_CIPHER_SUITES_CONFIG)
+        .setValue("TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"));
       resourceConfigs.add(new IncrementalAlterConfigsRequestData.AlterConfigsResource()
               .setResourceType(ConfigResource.Type.TOPIC.id())
               .setResourceName("foo")
@@ -2750,6 +2772,10 @@ public class MultiTenantRequestContextTest {
               .setResourceType(ConfigResource.Type.BROKER.id())
               .setResourceName("blah")
               .setConfigs(new IncrementalAlterConfigsRequestData.AlterableConfigCollection()));
+      resourceConfigs.add(new IncrementalAlterConfigsRequestData.AlterConfigsResource()
+          .setResourceType(ConfigResource.Type.BROKER.id())
+          .setResourceName("")
+          .setConfigs(sslCipherSuites));
       resourceConfigs.add(new IncrementalAlterConfigsRequestData.AlterConfigsResource()
               .setResourceType(ConfigResource.Type.TOPIC.id())
               .setResourceName("bar")
@@ -2770,6 +2796,10 @@ public class MultiTenantRequestContextTest {
                       .setValue(c.value())
                       .setConfigOperation((byte) 0)));
 
+      AlterableConfigCollection sslCipherSuitesWithExternalListenerPrefix = new AlterableConfigCollection();
+      sslCipherSuitesWithExternalListenerPrefix.add(new AlterableConfig()
+          .setName(sslCipherSuitesConfigWithExternalListenerPrefix())
+          .setValue("TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"));
       IncrementalAlterConfigsRequestData.AlterConfigsResourceCollection expectedResources =
               new IncrementalAlterConfigsRequestData.AlterConfigsResourceCollection();
       expectedResources.add(new IncrementalAlterConfigsRequestData.AlterConfigsResource()
@@ -2780,6 +2810,10 @@ public class MultiTenantRequestContextTest {
               .setResourceType(ConfigResource.Type.BROKER.id())
               .setResourceName("blah")
               .setConfigs(new IncrementalAlterConfigsRequestData.AlterableConfigCollection()));
+      expectedResources.add(new IncrementalAlterConfigsRequestData.AlterConfigsResource()
+          .setResourceType(ConfigResource.Type.BROKER.id())
+          .setResourceName("")
+          .setConfigs(sslCipherSuitesWithExternalListenerPrefix));
       expectedResources.add(new IncrementalAlterConfigsRequestData.AlterConfigsResource()
               .setResourceType(ConfigResource.Type.TOPIC.id())
               .setResourceName("tenant_bar")
@@ -2797,6 +2831,10 @@ public class MultiTenantRequestContextTest {
       assertEquals(
               new HashSet<>(expected.data().resources().find(ConfigResource.Type.TOPIC.id(), "tenant_foo").configs()),
               new HashSet<>(actual.data().resources().find(ConfigResource.Type.TOPIC.id(), "tenant_foo").configs()));
+
+      assertEquals(
+          new HashSet<>(expected.data().resources().find(ConfigResource.Type.BROKER.id(), "").configs()),
+          new HashSet<>(actual.data().resources().find(ConfigResource.Type.BROKER.id(), "").configs()));
 
       verifyRequestMetrics(ApiKeys.INCREMENTAL_ALTER_CONFIGS);
 
@@ -2822,6 +2860,12 @@ public class MultiTenantRequestContextTest {
               .setErrorCode(Errors.NONE.code())
               .setErrorMessage(""));
       responses.add(new IncrementalAlterConfigsResponseData.AlterConfigsResourceResponse()
+          .setResourceType(ConfigResource.Type.BROKER.id())
+          .setResourceName("")
+          .setErrorCode(Errors.NONE.code())
+          .setErrorMessage(AlterConfigPolicy.ClusterPolicyConfig.invalidCipherSuiteMessage(
+              ClusterPolicyConfig.DEFAULT_SSL_CIPHER_SUITES_ALLOWED, "TLS_ABC_RSA_WITH_AES_128_GCM_SHA256")));
+      responses.add(new IncrementalAlterConfigsResponseData.AlterConfigsResourceResponse()
               .setResourceType(ConfigResource.Type.TOPIC.id())
               .setResourceName("tenant_bar")
               .setErrorCode(Errors.NONE.code())
@@ -2832,10 +2876,25 @@ public class MultiTenantRequestContextTest {
 
       Struct struct = parseResponse(ApiKeys.INCREMENTAL_ALTER_CONFIGS, ver, context.buildResponse(outbound));
       IncrementalAlterConfigsResponse intercepted = new IncrementalAlterConfigsResponse(struct, ver);
-      assertEquals(mkSet("foo", "blah", "bar"),
+      assertEquals(mkSet("foo", "blah", "bar", ""),
               intercepted.data().responses().stream()
                       .map(IncrementalAlterConfigsResponseData.AlterConfigsResourceResponse::resourceName)
                       .collect(Collectors.toSet()));
+
+      assertEquals(mkSet(""), intercepted.data().responses().stream()
+        .filter(r -> r.resourceType() == ConfigResource.Type.BROKER.id() && r.resourceName().equals("blah"))
+        .map(r -> r.errorMessage())
+        .collect(toSet()));
+
+      String clusterConfigErrorMessage = intercepted.data()
+          .responses().stream()
+          .filter(r -> r.resourceType() == Type.BROKER.id() && r.resourceName().equals(""))
+          .map(r -> r.errorMessage())
+          .findFirst().get();
+      assertFalse("Unexpected cluster config error message: " + clusterConfigErrorMessage,
+          clusterConfigErrorMessage.contains(sslCipherSuitesConfigWithExternalListenerPrefix()));
+      assertTrue("Unexpected cluster config error message: " + clusterConfigErrorMessage,
+          clusterConfigErrorMessage.contains(SslConfigs.SSL_CIPHER_SUITES_CONFIG));
 
       verifyResponseMetrics(ApiKeys.INCREMENTAL_ALTER_CONFIGS, Errors.NONE);
 

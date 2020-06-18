@@ -9,9 +9,12 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Hierarchical scopes for role bindings. This is used to scope roles bindings or other scoped
@@ -113,6 +116,55 @@ public class Scope {
       return true;
     else
       return containsScope(o.parent);
+  }
+
+  public ScopeType scopeType() {
+    if (!this.clusters.isEmpty()) {
+      return ScopeType.CLUSTER;
+    }
+    if (this.path.isEmpty()) {
+      return ScopeType.ROOT;
+    }
+    // This implementation is currently Confluent-Cloud specific
+    String lastPathElement = this.path.get(this.path.size() - 1);
+    // scopes are `organization=org_id` or `environment=env_id`
+    String[] parts = lastPathElement.split("=");
+    if (parts.length != 2) {
+      return ScopeType.UNKNOWN;
+    }
+    try {
+      return ScopeType.valueOf(parts[0].toUpperCase(Locale.ROOT));
+    } catch (IllegalArgumentException e) {
+      return ScopeType.UNKNOWN;
+    }
+  }
+
+  /**
+   * Returns a scope with the appropriate scope type that has the given scope type.
+   * The scope can be this scope, if it's of the given type. Null is returned
+   * if there is no enclosing scope of the given type.
+   */
+  public Scope enclosingScope(ScopeType scopeType) {
+    if (scopeType == ScopeType.RESOURCE) {
+      return this;
+    }
+    if (this.scopeType() == scopeType) {
+      return this;
+    }
+    if (this.parent == null) {
+      return null;
+    }
+    return this.parent.enclosingScope(scopeType);
+  }
+
+  public Set<Scope> enclosingScopes() {
+    HashSet<Scope> scopes = new HashSet<>();
+    Scope next = this;
+    while (next != null) {
+      scopes.add(next);
+      next = next.parent;
+    }
+    return scopes;
   }
 
   @Override

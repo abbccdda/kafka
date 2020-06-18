@@ -32,6 +32,9 @@ import org.apache.kafka.common.metrics.stats.WindowedCount;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.server.audit.AuditEventStatus;
+import org.apache.kafka.server.audit.AuditLogProvider;
+import org.apache.kafka.server.audit.DefaultAuthenticationEvent;
 import org.slf4j.Logger;
 
 import java.io.IOException;
@@ -50,6 +53,7 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -88,6 +92,7 @@ public class Selector implements Selectable, AutoCloseable {
 
     public static final long NO_IDLE_TIMEOUT_MS = -1;
     public static final int NO_FAILED_AUTHENTICATION_DELAY = 0;
+    private final Optional<AuditLogProvider> auditLogProvider;
 
     // public for testing
     public enum CloseMode {
@@ -144,6 +149,7 @@ public class Selector implements Selectable, AutoCloseable {
      * @param metricsPerConnection Whether or not to enable per-connection metrics
      * @param channelBuilder Channel builder for every new connection
      * @param logContext Context for logging with additional info
+     * @param auditLogProvider optional auditLogProvider
      */
     public Selector(int maxReceiveSize,
             long connectionMaxIdleMs,
@@ -156,7 +162,8 @@ public class Selector implements Selectable, AutoCloseable {
             boolean recordTimePerConnection,
             ChannelBuilder channelBuilder,
             MemoryPool memoryPool,
-            LogContext logContext) {
+            LogContext logContext,
+            Optional<AuditLogProvider> auditLogProvider) {
         try {
             this.nioSelector = java.nio.channels.Selector.open();
         } catch (IOException e) {
@@ -185,6 +192,7 @@ public class Selector implements Selectable, AutoCloseable {
         this.lowMemThreshold = (long) (0.1 * this.memoryPool.size());
         this.failedAuthenticationDelayMs = failedAuthenticationDelayMs;
         this.delayedClosingChannels = (failedAuthenticationDelayMs > NO_FAILED_AUTHENTICATION_DELAY) ? new LinkedHashMap<String, DelayedAuthenticationFailureClose>() : null;
+        this.auditLogProvider = Objects.requireNonNull(auditLogProvider);
     }
 
     public Selector(int maxReceiveSize,
@@ -199,7 +207,7 @@ public class Selector implements Selectable, AutoCloseable {
                     MemoryPool memoryPool,
                     LogContext logContext) {
         this(maxReceiveSize, connectionMaxIdleMs, NO_FAILED_AUTHENTICATION_DELAY, metrics, time, metricGrpPrefix, metricTags,
-                metricsPerConnection, recordTimePerConnection, channelBuilder, memoryPool, logContext);
+                metricsPerConnection, recordTimePerConnection, channelBuilder, memoryPool, logContext, Optional.empty());
     }
 
     public Selector(int maxReceiveSize,
@@ -212,7 +220,7 @@ public class Selector implements Selectable, AutoCloseable {
                     boolean metricsPerConnection,
                     ChannelBuilder channelBuilder,
                     LogContext logContext) {
-        this(maxReceiveSize, connectionMaxIdleMs, failedAuthenticationDelayMs, metrics, time, metricGrpPrefix, metricTags, metricsPerConnection, false, channelBuilder, MemoryPool.NONE, logContext);
+        this(maxReceiveSize, connectionMaxIdleMs, failedAuthenticationDelayMs, metrics, time, metricGrpPrefix, metricTags, metricsPerConnection, false, channelBuilder, MemoryPool.NONE, logContext, Optional.empty());
     }
 
     public Selector(int maxReceiveSize,
@@ -233,6 +241,10 @@ public class Selector implements Selectable, AutoCloseable {
 
     public Selector(long connectionMaxIdleMS, int failedAuthenticationDelayMs, Metrics metrics, Time time, String metricGrpPrefix, ChannelBuilder channelBuilder, LogContext logContext) {
         this(NetworkReceive.UNLIMITED, connectionMaxIdleMS, failedAuthenticationDelayMs, metrics, time, metricGrpPrefix, Collections.<String, String>emptyMap(), true, channelBuilder, logContext);
+    }
+
+    public Selector(long connectionMaxIdleMS, int failedAuthenticationDelayMs, Metrics metrics, Time time, String metricGrpPrefix, ChannelBuilder channelBuilder, LogContext logContext, Optional<AuditLogProvider> auditLogProvider) {
+        this(NetworkReceive.UNLIMITED, connectionMaxIdleMS, failedAuthenticationDelayMs, metrics, time, metricGrpPrefix, Collections.<String, String>emptyMap(), true, false, channelBuilder, MemoryPool.NONE, logContext, auditLogProvider);
     }
 
     /**
@@ -568,6 +580,7 @@ public class Selector implements Selectable, AutoCloseable {
                                         channel.principal(), metrics);
                             if (!channel.connectedClientSupportsReauthentication())
                                 sensors.successfulAuthenticationNoReauth.record(1.0, readyTimeMs);
+                            auditAuthenticationSuccess(channel);
                         }
                         log.debug("Successfully {}authenticated with {}", isReauthentication ?
                             "re-" : "", channel.socketDescription());
@@ -623,10 +636,15 @@ public class Selector implements Selectable, AutoCloseable {
                     else
                         sensors.failedAuthentication.record();
                     String exceptionMessage = e.getMessage();
-                    if (e instanceof DelayedResponseAuthenticationException)
+                    if (e instanceof DelayedResponseAuthenticationException) {
                         exceptionMessage = e.getCause().getMessage();
+                        auditAuthenticationFailure(channel, (AuthenticationException) e.getCause());
+                    } else {
+                        auditAuthenticationFailure(channel, (AuthenticationException) e);
+                    }
                     log.info("Failed {}authentication with {} ({})", isReauthentication ? "re-" : "",
                         desc, exceptionMessage);
+
                 } else {
                     log.warn("Unexpected error from {}; closing connection", desc, e);
                 }
@@ -639,6 +657,31 @@ public class Selector implements Selectable, AutoCloseable {
                 maybeRecordTimePerConnection(channel, channelStartTimeNanos, performedWrite);
             }
         }
+    }
+
+    private void auditAuthenticationSuccess(final KafkaChannel channel) {
+        auditLogProvider.ifPresent(p -> {
+            try {
+                DefaultAuthenticationEvent authenticationEvent =
+                    new DefaultAuthenticationEvent(channel.principal(), channel.authenticationContext(), AuditEventStatus.SUCCESS);
+                p.logEvent(authenticationEvent);
+            } catch (Exception exception) {
+                log.error("Unexpected error while authentication success audit event for principal: {}", channel.principal(), exception);
+            }
+        });
+    }
+
+    private void auditAuthenticationFailure(final KafkaChannel channel,
+                                            final AuthenticationException authenticationException) {
+        auditLogProvider.ifPresent(p -> {
+            try {
+                DefaultAuthenticationEvent authenticationEvent = new DefaultAuthenticationEvent(null, channel.authenticationContext(),
+                    authenticationException);
+                p.logEvent(authenticationEvent);
+            } catch (Exception exception) {
+                log.error("Unexpected error while authentication failure audit event. ", exception);
+            }
+        });
     }
 
     private boolean attemptWrite(SelectionKey key, KafkaChannel channel, long nowNanos) throws IOException {

@@ -66,26 +66,26 @@ public class ProviderLogAuthorizationBenchmark {
 
   private long counter = 0;
 
-  private final LogAuthorizationArguments[] args = new LogAuthorizationArguments[LogAuthorizationBenchmarkDefaults.DISTINCT_KEYS];
+  private final LogAuthorizationArguments[] args = new LogAuthorizationArguments[ProviderBenchmarkDefaults.DISTINCT_KEYS];
   private ConfluentAuditLogProvider provider;
 
   @Setup(Level.Trial)
   public void setUp()
       throws Exception {
 
-    for (int i = 0; i < LogAuthorizationBenchmarkDefaults.DISTINCT_KEYS; i++) {
-      Scope scope = Scope.kafkaClusterScope(LogAuthorizationBenchmarkDefaults.CLUSTER_ID);
-      KafkaPrincipal principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "user" + i % LogAuthorizationBenchmarkDefaults.USERS);
-      ResourcePattern topic = new ResourcePattern(new ResourceType("Topic"), "topic" + i % LogAuthorizationBenchmarkDefaults.TOPICS,
+    for (int i = 0; i < ProviderBenchmarkDefaults.DISTINCT_KEYS; i++) {
+      Scope scope = Scope.kafkaClusterScope(ProviderBenchmarkDefaults.CLUSTER_ID);
+      KafkaPrincipal principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "user" + i % ProviderBenchmarkDefaults.USERS);
+      ResourcePattern topic = new ResourcePattern(new ResourceType("Topic"), "topic" + i % ProviderBenchmarkDefaults.TOPICS,
           PatternType.LITERAL);
       RequestContext context = new MockRequestContext(
           new RequestHeader(
-              LogAuthorizationBenchmarkDefaults.API_KEYS[i % LogAuthorizationBenchmarkDefaults.API_KEYS.length], (short) 1, "", i), "",
+              ProviderBenchmarkDefaults.API_KEYS[i % ProviderBenchmarkDefaults.API_KEYS.length], (short) 1, "", i), "",
           InetAddress.getLoopbackAddress(), principal, ListenerName.normalised("EXTERNAL"),
           SecurityProtocol.SASL_SSL, RequestContext.KAFKA);
       Action action = new Action(scope, topic.resourceType(), topic.name(),
           new Operation(
-              LogAuthorizationBenchmarkDefaults.ACTIONS[i % LogAuthorizationBenchmarkDefaults.ACTIONS.length]));
+              ProviderBenchmarkDefaults.ACTIONS[i % ProviderBenchmarkDefaults.ACTIONS.length]));
       AuthorizeResult result =
           i % 2 == 0 ? AuthorizeResult.ALLOWED : AuthorizeResult.DENIED;
       AuthorizePolicy policy = new AuthorizePolicy.SuperUser(AuthorizePolicy.PolicyType.SUPER_USER,
@@ -94,12 +94,12 @@ public class ProviderLogAuthorizationBenchmark {
       args[i] = new LogAuthorizationArguments(scope, context, action, result, policy);
     }
 
-    LogAuthorizationBenchmarkDefaults.noneProvider.setSanitizer(null);
-    LogAuthorizationBenchmarkDefaults.createProvider.setSanitizer(null);
-    LogAuthorizationBenchmarkDefaults.createProduceOneLogProvider.setSanitizer(null);
-    LogAuthorizationBenchmarkDefaults.createProduceSomeLogProvider.setSanitizer(null);
-    LogAuthorizationBenchmarkDefaults.createProduceAllLogProvider.setSanitizer(null);
-    LogAuthorizationBenchmarkDefaults.everythingLogProvider.setSanitizer(null);
+    ProviderBenchmarkDefaults.noneProvider.setSanitizer(null);
+    ProviderBenchmarkDefaults.createProvider.setSanitizer(null);
+    ProviderBenchmarkDefaults.createProduceOneLogProvider.setSanitizer(null);
+    ProviderBenchmarkDefaults.createProduceSomeLogProvider.setSanitizer(null);
+    ProviderBenchmarkDefaults.createProduceAllLogProvider.setSanitizer(null);
+    ProviderBenchmarkDefaults.everythingLogProvider.setSanitizer(null);
   }
 
   @SuppressWarnings("unchecked")
@@ -114,9 +114,9 @@ public class ProviderLogAuthorizationBenchmark {
 
   @Benchmark
   public void testLogAuthorizationNone() {
-    provider = LogAuthorizationBenchmarkDefaults.noneProvider;
+    provider = ProviderBenchmarkDefaults.noneProvider;
     counter++;
-    int index = (int) (counter % LogAuthorizationBenchmarkDefaults.DISTINCT_KEYS);
+    int index = (int) (counter % ProviderBenchmarkDefaults.DISTINCT_KEYS);
     LogAuthorizationArguments arg = args[index];
     provider
         .logEvent(new ConfluentAuthorizationEvent(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
@@ -125,9 +125,9 @@ public class ProviderLogAuthorizationBenchmark {
 
   @Benchmark
   public void testLogAuthorizationCreate() {
-    provider = LogAuthorizationBenchmarkDefaults.createProvider;
+    provider = ProviderBenchmarkDefaults.createProvider;
     counter++;
-    int index = (int) (counter % LogAuthorizationBenchmarkDefaults.DISTINCT_KEYS);
+    int index = (int) (counter % ProviderBenchmarkDefaults.DISTINCT_KEYS);
     LogAuthorizationArguments arg = args[index];
     provider
         .logEvent(new ConfluentAuthorizationEvent(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
@@ -136,9 +136,9 @@ public class ProviderLogAuthorizationBenchmark {
 
   @Benchmark
   public void testLogAuthorizationCreateProduceOne() {
-    provider = LogAuthorizationBenchmarkDefaults.createProduceOneLogProvider;
+    provider = ProviderBenchmarkDefaults.createProduceOneLogProvider;
     counter++;
-    int index = (int) (counter % LogAuthorizationBenchmarkDefaults.DISTINCT_KEYS);
+    int index = (int) (counter % ProviderBenchmarkDefaults.DISTINCT_KEYS);
     LogAuthorizationArguments arg = args[index];
     provider
         .logEvent(new ConfluentAuthorizationEvent(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
@@ -147,9 +147,9 @@ public class ProviderLogAuthorizationBenchmark {
 
   @Benchmark
   public void testLogAuthorizationCreateProduceSome() {
-    provider = LogAuthorizationBenchmarkDefaults.createProduceSomeLogProvider;
+    provider = ProviderBenchmarkDefaults.createProduceSomeLogProvider;
     counter++;
-    int index = (int) (counter % LogAuthorizationBenchmarkDefaults.DISTINCT_KEYS);
+    int index = (int) (counter % ProviderBenchmarkDefaults.DISTINCT_KEYS);
     LogAuthorizationArguments arg = args[index];
     provider
         .logEvent(new ConfluentAuthorizationEvent(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
@@ -158,9 +158,9 @@ public class ProviderLogAuthorizationBenchmark {
 
   @Benchmark
   public void testLogAuthorizationCreateProduceAll() {
-    provider = LogAuthorizationBenchmarkDefaults.createProduceAllLogProvider;
+    provider = ProviderBenchmarkDefaults.createProduceAllLogProvider;
     counter++;
-    int index = (int) (counter % LogAuthorizationBenchmarkDefaults.DISTINCT_KEYS);
+    int index = (int) (counter % ProviderBenchmarkDefaults.DISTINCT_KEYS);
     LogAuthorizationArguments arg = args[index];
     provider
         .logEvent(new ConfluentAuthorizationEvent(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,
@@ -169,9 +169,9 @@ public class ProviderLogAuthorizationBenchmark {
 
   @Benchmark
   public void testLogAuthorizationEverything() {
-    provider = LogAuthorizationBenchmarkDefaults.everythingLogProvider;
+    provider = ProviderBenchmarkDefaults.everythingLogProvider;
     counter++;
-    int index = (int) (counter % LogAuthorizationBenchmarkDefaults.DISTINCT_KEYS);
+    int index = (int) (counter % ProviderBenchmarkDefaults.DISTINCT_KEYS);
     LogAuthorizationArguments arg = args[index];
     provider
         .logEvent(new ConfluentAuthorizationEvent(arg.sourceScope, arg.requestContext, arg.action, arg.authorizeResult,

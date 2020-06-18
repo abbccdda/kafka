@@ -20,6 +20,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -32,6 +33,7 @@ import org.apache.kafka.common.security.authenticator.CredentialCache;
 import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.server.audit.AuditLogProvider;
 import org.apache.kafka.test.TestUtils;
 
 /**
@@ -56,7 +58,16 @@ public class NetworkTestUtils {
             AbstractConfig serverConfig, CredentialCache credentialCache,
             int failedAuthenticationDelayMs, Time time, DelegationTokenCache tokenCache) throws Exception {
         NioEchoServer server = new NioEchoServer(listenerName, securityProtocol, serverConfig, "localhost",
-                null, credentialCache, failedAuthenticationDelayMs, time, tokenCache);
+                null, credentialCache, failedAuthenticationDelayMs, time, tokenCache, Optional.empty());
+        server.start();
+        return server;
+    }
+
+    public static NioEchoServer createEchoServer(ListenerName listenerName, SecurityProtocol securityProtocol,
+                                                 AbstractConfig serverConfig, CredentialCache credentialCache,
+                                                 Time time, Optional<AuditLogProvider> auditLogProvider) throws Exception {
+        NioEchoServer server = new NioEchoServer(listenerName, securityProtocol, serverConfig, "localhost",
+            null, credentialCache, time, auditLogProvider);
         server.start();
         return server;
     }

@@ -16,6 +16,8 @@
  */
 package org.apache.kafka.common.errors;
 
+import org.apache.kafka.server.audit.AuthenticationErrorInfo;
+
 import javax.security.sasl.SaslServer;
 
 /**
@@ -45,4 +47,11 @@ public class SaslAuthenticationException extends AuthenticationException {
         super(message, cause);
     }
 
+    public SaslAuthenticationException(String message, Throwable cause, final AuthenticationErrorInfo errorInfo) {
+        super(message, cause, errorInfo);
+    }
+
+    public SaslAuthenticationException(final String message, final AuthenticationErrorInfo errorInfo) {
+        super(message, errorInfo);
+    }
 }

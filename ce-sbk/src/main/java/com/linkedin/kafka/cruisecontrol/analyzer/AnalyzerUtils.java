@@ -4,25 +4,25 @@
 
 package com.linkedin.kafka.cruisecontrol.analyzer;
 
-import com.linkedin.kafka.cruisecontrol.common.Resource;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.Goal;
+import com.linkedin.kafka.cruisecontrol.common.Resource;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.executor.ExecutionProposal;
 import com.linkedin.kafka.cruisecontrol.model.ClusterModel;
-
 import com.linkedin.kafka.cruisecontrol.model.RawAndDerivedResource;
 import com.linkedin.kafka.cruisecontrol.model.Replica;
 import com.linkedin.kafka.cruisecontrol.model.ReplicaPlacementInfo;
+import org.apache.commons.math3.random.MersenneTwister;
+import org.apache.commons.math3.random.RandomGenerator;
+import org.apache.commons.math3.stat.inference.KolmogorovSmirnovTest;
+import org.apache.kafka.common.TopicPartition;
+
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
-
-import org.apache.commons.math3.random.MersenneTwister;
-import org.apache.commons.math3.random.RandomGenerator;
-import org.apache.commons.math3.stat.inference.KolmogorovSmirnovTest;
-import org.apache.kafka.common.TopicPartition;
 
 import static com.linkedin.kafka.cruisecontrol.analyzer.ActionAcceptance.ACCEPT;
 
@@ -56,8 +56,10 @@ public class AnalyzerUtils {
    */
   public static Set<ExecutionProposal> getDiff(Map<TopicPartition, List<ReplicaPlacementInfo>> initialReplicaDistribution,
                                                Map<TopicPartition, ReplicaPlacementInfo> initialLeaderDistribution,
+                                               Map<TopicPartition, List<ReplicaPlacementInfo>> initialObserverDistribution,
                                                ClusterModel optimizedClusterModel) {
-    return getDiff(initialReplicaDistribution, initialLeaderDistribution, optimizedClusterModel, false);
+    return getDiff(initialReplicaDistribution, initialLeaderDistribution, initialObserverDistribution, optimizedClusterModel,
+            false);
   }
 
   /**
@@ -72,18 +74,22 @@ public class AnalyzerUtils {
    */
   public static Set<ExecutionProposal> getDiff(Map<TopicPartition, List<ReplicaPlacementInfo>> initialReplicaDistribution,
                                                Map<TopicPartition, ReplicaPlacementInfo> initialLeaderDistribution,
+                                               Map<TopicPartition, List<ReplicaPlacementInfo>> initialObserverDistribution,
                                                ClusterModel optimizedClusterModel,
                                                boolean skipReplicationFactorChangeCheck) {
-    Map<TopicPartition, List<ReplicaPlacementInfo>> finalDistribution = optimizedClusterModel.getReplicaDistribution();
+    Map<TopicPartition, List<ReplicaPlacementInfo>> finalReplicaDistribution = optimizedClusterModel.getReplicaDistribution();
+    Map<TopicPartition, List<ReplicaPlacementInfo>> finalObserverDistribution = optimizedClusterModel.getObserverDistribution();
     // Sanity check to make sure that given distributions contain the same replicas.
-    if (!initialReplicaDistribution.keySet().equals(finalDistribution.keySet())) {
+    if (!initialReplicaDistribution.keySet().equals(finalReplicaDistribution.keySet())
+            || !initialReplicaDistribution.keySet().equals(initialObserverDistribution.keySet())
+            || !initialObserverDistribution.keySet().equals(finalObserverDistribution.keySet())) {
       throw new IllegalArgumentException("Attempt to diff distributions with different partitions.");
     }
     if (!skipReplicationFactorChangeCheck) {
       for (Map.Entry<TopicPartition, List<ReplicaPlacementInfo>> entry : initialReplicaDistribution.entrySet()) {
         TopicPartition tp = entry.getKey();
         List<ReplicaPlacementInfo> initialReplicas = entry.getValue();
-        if (finalDistribution.get(tp).size() != initialReplicas.size()) {
+        if (finalReplicaDistribution.get(tp).size() != initialReplicas.size()) {
           throw new IllegalArgumentException("Attempt to diff distributions with modified replication factor.");
         }
       }
@@ -94,12 +100,16 @@ public class AnalyzerUtils {
     for (Map.Entry<TopicPartition, List<ReplicaPlacementInfo>> entry : initialReplicaDistribution.entrySet()) {
       TopicPartition tp = entry.getKey();
       List<ReplicaPlacementInfo> initialReplicas = entry.getValue();
-      List<ReplicaPlacementInfo> finalReplicas = finalDistribution.get(tp);
+      List<ReplicaPlacementInfo> finalReplicas = finalReplicaDistribution.get(tp);
+      List<ReplicaPlacementInfo> initialObservers = initialObserverDistribution.get(tp);
+      List<ReplicaPlacementInfo> finalObservers = finalObserverDistribution.get(tp);
       Replica finalLeader = optimizedClusterModel.partition(tp).leader();
       ReplicaPlacementInfo finalLeaderPlacementInfo = new ReplicaPlacementInfo(finalLeader.broker().id(),
                                                                                finalLeader.disk() == null ? null : finalLeader.disk().logDir());
       // The partition has no change.
-      if (finalReplicas.equals(initialReplicas) && initialLeaderDistribution.get(tp).equals(finalLeaderPlacementInfo)) {
+      if (finalReplicas.equals(initialReplicas)
+              && initialLeaderDistribution.get(tp).equals(finalLeaderPlacementInfo)
+              && finalObservers.equals(initialObservers)) {
         continue;
       }
       // We need to adjust the final broker list order to ensure the final leader is the first replica.
@@ -108,8 +118,13 @@ public class AnalyzerUtils {
         finalReplicas.set(leaderPos, finalReplicas.get(0));
         finalReplicas.set(0, finalLeaderPlacementInfo);
       }
+      List<ReplicaPlacementInfo> observersAsSuffix = new ArrayList<>(finalReplicas);
+      observersAsSuffix.removeAll(finalObservers);
+      observersAsSuffix.addAll(finalObservers);
+
       Double partitionSize = optimizedClusterModel.partition(tp).leader().load().expectedUtilizationFor(Resource.DISK);
-      diff.add(new ExecutionProposal(tp, partitionSize.intValue(), initialLeaderDistribution.get(tp), initialReplicas, finalReplicas));
+      diff.add(new ExecutionProposal(tp, partitionSize.intValue(), initialLeaderDistribution.get(tp), initialReplicas,
+              observersAsSuffix, initialObservers, finalObservers));
     }
     return diff;
   }

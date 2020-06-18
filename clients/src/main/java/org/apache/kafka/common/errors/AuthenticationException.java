@@ -16,7 +16,11 @@
  */
 package org.apache.kafka.common.errors;
 
+import org.apache.kafka.server.audit.AuthenticationErrorInfo;
+
 import javax.net.ssl.SSLException;
+
+import static org.apache.kafka.server.audit.AuthenticationErrorInfo.UNAUTHENTICATED_USER_ERROR;
 
 /**
  * This exception indicates that SASL authentication has failed.
@@ -36,6 +40,8 @@ public class AuthenticationException extends ApiException {
 
     private static final long serialVersionUID = 1L;
 
+    private AuthenticationErrorInfo errorInfo = UNAUTHENTICATED_USER_ERROR;
+
     public AuthenticationException(String message) {
         super(message);
     }
@@ -48,4 +54,28 @@ public class AuthenticationException extends ApiException {
         super(message, cause);
     }
 
+    public AuthenticationException(String message,  AuthenticationErrorInfo errorInfo) {
+        super(message);
+        this.errorInfo = errorInfo;
+    }
+
+    public AuthenticationException(String message, Throwable cause, AuthenticationErrorInfo errorInfo) {
+        super(message, cause);
+        this.errorInfo = errorInfo;
+    }
+
+    public AuthenticationErrorInfo errorInfo() {
+        return errorInfo;
+    }
+
+    /**
+     * This message is for internal audit logging and should not be returned to clients.
+     */
+    public String getAuditMessage() {
+        final Throwable cause = getCause();
+        if (cause != null)
+            return super.getMessage() + " caused by " + cause.getMessage();
+        else
+            return super.getMessage();
+    }
 }

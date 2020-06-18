@@ -100,7 +100,7 @@ public class ReplicationThrottleHelperTest extends CCKafkaIntegrationTestHarness
         100,
         new ReplicaPlacementInfo(0),
         Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(1)),
-        Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(2)));
+        Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(2)), Collections.emptyList(), Collections.emptyList());
 
     ExecutionTask task = completedTaskForProposal(0, proposal);
 
@@ -141,7 +141,7 @@ public class ReplicationThrottleHelperTest extends CCKafkaIntegrationTestHarness
               100,
               new ReplicaPlacementInfo(0),
               Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(1)),
-              Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(2)));
+              Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(2)), Collections.emptyList(), Collections.emptyList());
 
       ExecutionTask task = completedTaskForProposal(0, proposal);
 
@@ -187,7 +187,7 @@ public class ReplicationThrottleHelperTest extends CCKafkaIntegrationTestHarness
             100,
             new ReplicaPlacementInfo(0),
             Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(1)),
-            Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(2)));
+            Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(2)), Collections.emptyList(), Collections.emptyList());
 
     ExecutionTask task = completedTaskForProposal(0, proposal);
 
@@ -242,7 +242,7 @@ public class ReplicationThrottleHelperTest extends CCKafkaIntegrationTestHarness
             100,
             new ReplicaPlacementInfo(0),
             Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(1)),
-            Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(2)));
+            Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(2)), Collections.emptyList(), Collections.emptyList());
 
     ExecutionTask task = completedTaskForProposal(0, proposal);
 
@@ -301,7 +301,7 @@ public class ReplicationThrottleHelperTest extends CCKafkaIntegrationTestHarness
             100,
             new ReplicaPlacementInfo(0),
             Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(1)),
-            Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(2)));
+            Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(2)), Collections.emptyList(), Collections.emptyList());
 
     ExecutionTask task = completedTaskForProposal(0, proposal);
 
@@ -344,7 +344,7 @@ public class ReplicationThrottleHelperTest extends CCKafkaIntegrationTestHarness
               100,
               new ReplicaPlacementInfo(0),
               Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(1)),
-              Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(2)));
+              Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(2)), Collections.emptyList(), Collections.emptyList());
 
       ExecutionTask task = completedTaskForProposal(0, proposal);
 
@@ -417,14 +417,14 @@ public class ReplicationThrottleHelperTest extends CCKafkaIntegrationTestHarness
               100,
               new ReplicaPlacementInfo(0),
               Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(1)),
-              Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(2)));
+              Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(2)), Collections.emptyList(), Collections.emptyList());
 
       ExecutionProposal proposal2 = new ExecutionProposal(
               new TopicPartition(TOPIC0, 1),
               100,
               new ReplicaPlacementInfo(0),
               Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(3)),
-              Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(2)));
+              Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(2)), Collections.emptyList(), Collections.emptyList());
 
     throttleHelper.setThrottles(Arrays.asList(proposal, proposal2), null);
 
@@ -538,14 +538,14 @@ public class ReplicationThrottleHelperTest extends CCKafkaIntegrationTestHarness
             100,
             new ReplicaPlacementInfo(0),
             Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(1)),
-            Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(2)));
+            Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(2)), Collections.emptyList(), Collections.emptyList());
 
     ExecutionProposal proposal2 = new ExecutionProposal(
             new TopicPartition(TOPIC0, 1),
             100,
             new ReplicaPlacementInfo(0),
             Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(3)),
-            Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(2)));
+            Arrays.asList(new ReplicaPlacementInfo(0), new ReplicaPlacementInfo(2)), Collections.emptyList(), Collections.emptyList());
 
     // Throttle should be computed by the load monitor
     helper.setThrottles(Arrays.asList(proposal, proposal2), mockLoadMonitor);

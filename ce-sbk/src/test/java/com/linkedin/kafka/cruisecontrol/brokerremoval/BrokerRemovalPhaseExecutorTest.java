@@ -5,16 +5,17 @@ package com.linkedin.kafka.cruisecontrol.brokerremoval;
 
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlTest;
 import com.linkedin.kafka.cruisecontrol.exception.KafkaCruiseControlException;
-import java.util.Set;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.function.Function;
+import io.confluent.databalancer.operation.BrokerRemovalStateMachine;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
+import java.util.Set;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
@@ -43,7 +44,7 @@ public class BrokerRemovalPhaseExecutorTest {
 
   @Test
   public void testExecute_throwsInterruptedExceptionWithoutAnyMoreAction() {
-    BrokerRemovalPhaseExecutor executor = new BrokerRemovalPhaseExecutor.Builder(
+    BrokerRemovalPhaseExecutor<Void> executor = new BrokerRemovalPhaseExecutor.Builder<Void>(
         null, BrokerRemovalCallback.BrokerRemovalEvent.PLAN_EXECUTION_FAILURE,
         brokerIds -> String.format("Unexpected exception while submitting the broker removal plan for broker %s", brokerIds),
         KafkaCruiseControlException.class
@@ -51,8 +52,16 @@ public class BrokerRemovalPhaseExecutorTest {
     InterruptedException expectedException = new InterruptedException("Interrupted!");
 
     CompletionException thrownException = assertThrows(CompletionException.class, () ->
-      executor.execute(args -> {
-        throw expectedException;
+      executor.execute(new BrokerRemovalPhase<Void>() {
+        @Override
+        public Void execute(BrokerRemovalOptions args) throws Exception {
+            throw expectedException;
+        }
+
+        @Override
+        public BrokerRemovalStateMachine.BrokerRemovalState startState() {
+          return null;
+        }
       }).join()
     );
 
@@ -71,15 +80,23 @@ public class BrokerRemovalPhaseExecutorTest {
     String expectedExceptionMessage = errMsgSupplier.apply(null);
     KafkaCruiseControlException expectedException = new KafkaCruiseControlException(expectedExceptionMessage);
 
-    BrokerRemovalPhaseExecutor executor = new BrokerRemovalPhaseExecutor.Builder(
+    BrokerRemovalPhaseExecutor<Void> executor = new BrokerRemovalPhaseExecutor.Builder<Void>(
         null, BrokerRemovalCallback.BrokerRemovalEvent.PLAN_EXECUTION_FAILURE,
         errMsgSupplier,
         expectedException.getClass()
     ).build(mockRemovalCallback, mockOptions);
 
     CompletionException thrownException = assertThrows(CompletionException.class, () ->
-        executor.execute(args -> {
-          throw new Exception("a");
+        executor.execute(new BrokerRemovalPhase<Void>() {
+          @Override
+          public Void execute(BrokerRemovalOptions args) throws Exception {
+            throw new Exception("a");
+          }
+
+          @Override
+          public BrokerRemovalStateMachine.BrokerRemovalState startState() {
+            return null;
+          }
         }).join()
     );
 
@@ -98,7 +115,7 @@ public class BrokerRemovalPhaseExecutorTest {
   @Test
   public void testExecute_handlesExceptionInCallback() {
     Function<Set<Integer>, String> errMsgSupplier = brokerIds -> String.format("Unexpected exception while submitting the broker removal plan for broker %s", brokerIds);
-    BrokerRemovalPhaseExecutor executor = new BrokerRemovalPhaseExecutor.Builder(
+    BrokerRemovalPhaseExecutor<Void> executor = new BrokerRemovalPhaseExecutor.Builder<Void>(
         null, BrokerRemovalCallback.BrokerRemovalEvent.PLAN_EXECUTION_FAILURE,
         errMsgSupplier,
         null
@@ -110,8 +127,16 @@ public class BrokerRemovalPhaseExecutorTest {
     Exception expectedException = new Exception("a");
 
     ExecutionException thrownException = assertThrows(ExecutionException.class, () ->
-        executor.execute(args -> {
-          throw expectedException;
+        executor.execute(new BrokerRemovalPhase<Void>() {
+          @Override
+          public Void execute(BrokerRemovalOptions args) throws Exception {
+            throw expectedException;
+          }
+
+          @Override
+          public BrokerRemovalStateMachine.BrokerRemovalState startState() {
+            return null;
+          }
         }).get(100, TimeUnit.MILLISECONDS)
     );
 

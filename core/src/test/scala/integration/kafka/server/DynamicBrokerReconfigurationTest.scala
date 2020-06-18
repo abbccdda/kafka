@@ -31,8 +31,8 @@ import javax.management.ObjectName
 import com.yammer.metrics.core.MetricName
 import kafka.admin.ConfigCommand
 import kafka.api.{KafkaSasl, SaslSetup}
-import kafka.common.BrokerRemovalStatus
-import kafka.controller.{ControllerChannelManager, DataBalanceManager, ControllerBrokerStateInfo}
+import kafka.common.BrokerRemovalDescriptionInternal
+import kafka.controller.{ControllerBrokerStateInfo, ControllerChannelManager, DataBalanceManager}
 import kafka.log.LogConfig
 import kafka.message.ProducerCompressionCodec
 import kafka.metrics.KafkaYammerMetrics
@@ -60,6 +60,7 @@ import org.apache.kafka.common.network.CertStores.{KEYSTORE_PROPS, TRUSTSTORE_PR
 import org.apache.kafka.common.record.TimestampType
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.serialization.{StringDeserializer, StringSerializer}
+import org.apache.kafka.common.utils.Utils
 import org.apache.kafka.test.{TestSslUtils, TestUtils => JTestUtils}
 import org.junit.Assert._
 import org.junit.{After, Before, Ignore, Test}
@@ -74,6 +75,7 @@ import scala.collection.Seq
 object DynamicBrokerReconfigurationTest {
   val SecureInternal = "INTERNAL"
   val SecureExternal = "EXTERNAL"
+  val CipherSuitesProps = Utils.mkSet(SSL_CIPHER_SUITES_CONFIG)
 }
 
 class DynamicBrokerReconfigurationTest extends ZooKeeperTestHarness with SaslSetup {
@@ -464,6 +466,58 @@ class DynamicBrokerReconfigurationTest extends ZooKeeperTestHarness with SaslSet
       JTestUtils.fieldValue(controllerChannelManager, classOf[ControllerChannelManager], "brokerStateInfo")
     brokerStateInfo(0).networkClient.disconnect("0")
     TestUtils.createTopic(zkClient, "testtopic2", numPartitions, replicationFactor = numServers, servers)
+  }
+
+  @Test
+  def testSslCipherAlter(): Unit = {
+    val existingCipherName = "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+    val trustStoreFile = File.createTempFile("truststore", ".jks")
+    val configPrefix = listenerPrefix(SecureExternal)
+
+    // First, modify the server to only support a single cipher.
+    val sslWithExistingCipherProps = TestUtils.sslConfigs(Mode.SERVER, clientCert = false, Some(trustStoreFile), "kafka",
+      cipherSuites = Seq(existingCipherName))
+    val existingProps = securityProps(sslWithExistingCipherProps, CipherSuitesProps, configPrefix)
+    TestUtils.incrementalAlterConfigs(servers, adminClients.head, existingProps, perBrokerConfig = false).all.get
+    waitForConfig(s"$configPrefix$SSL_CIPHER_SUITES_CONFIG", existingCipherName)
+
+    val cipherTestTopic = "cipher-test-topic"
+    TestUtils.createTopic(zkClient, cipherTestTopic, numPartitions, replicationFactor = numServers, servers)
+
+    // Producer with default cipher suites
+    val plainOldProducer = ProducerBuilder()
+      .listenerName(SecureExternal)
+      .securityProtocol(SecurityProtocol.SASL_SSL)
+      .keyStoreProps(sslProperties1)
+      .build()
+    verifyNoAuthenticationFailure(plainOldProducer, cipherTestTopic)
+
+    val newCipherName = "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+    val sslWithNewCipherProps = TestUtils.sslConfigs(Mode.SERVER, clientCert = false, Some(trustStoreFile), "kafka",
+      cipherSuites = Seq(newCipherName))
+    // If our producer selects a cipher suite not supported by the broker, not good (
+    // we use properties that are identical to the earlier ones, *except* for an added cipher).
+    val producerWithCipher1 = ProducerBuilder()
+      .listenerName(SecureExternal)
+      .securityProtocol(SecurityProtocol.SASL_SSL)
+      .keyStoreProps(sslProperties1)
+      .cipherSuitesProps(sslWithNewCipherProps)
+      .build()
+    verifyAuthenticationFailure(producerWithCipher1, cipherTestTopic);
+
+    // Update configs at broker, _cluster-wide_
+    val newProps = securityProps(sslWithNewCipherProps, CipherSuitesProps, configPrefix)
+    TestUtils.incrementalAlterConfigs(servers, adminClients.head, newProps, perBrokerConfig = false).all.get
+    waitForConfig(s"$configPrefix$SSL_CIPHER_SUITES_CONFIG", newCipherName)
+
+    // Verify that the same producer no longer has an issue (we re-construct the producer here, to avoid exceptions being re-reported on the next call below).
+    val producerWithCipher2 = ProducerBuilder()
+      .listenerName(SecureExternal)
+      .securityProtocol(SecurityProtocol.SASL_SSL)
+      .keyStoreProps(sslProperties1)
+      .cipherSuitesProps(sslWithNewCipherProps)
+      .build()
+    verifyNoAuthenticationFailure(producerWithCipher2, cipherTestTopic)
   }
 
   @Test
@@ -1315,10 +1369,14 @@ class DynamicBrokerReconfigurationTest extends ZooKeeperTestHarness with SaslSet
     TestUtils.pollUntilAtLeastNumRecords(consumer, numRecords)
   }
 
-  private def verifyAuthenticationFailure(producer: KafkaProducer[_, _]): Unit = {
+  private def verifyNoAuthenticationFailure(producer: KafkaProducer[_, _], topic: String): Unit = {
+    producer.partitionsFor(topic)
+  }
+
+  private def verifyAuthenticationFailure(producer: KafkaProducer[_, _], topic: String = topic): Unit = {
     try {
       producer.partitionsFor(topic)
-      fail("Producer connection did not fail with invalid keystore")
+      fail("Producer connection did not fail for invalid ssl configs")
     } catch {
       case _:AuthenticationException => // expected exception
     }
@@ -1687,6 +1745,7 @@ class DynamicBrokerReconfigurationTest extends ZooKeeperTestHarness with SaslSet
     def clientId(id: String): this.type = { _clientId = id; this }
     def keyStoreProps(props: Properties): this.type = { _propsOverride ++= securityProps(props, KEYSTORE_PROPS); this }
     def trustStoreProps(props: Properties): this.type = { _propsOverride ++= securityProps(props, TRUSTSTORE_PROPS); this }
+    def cipherSuitesProps(props: Properties): this.type = { _propsOverride ++= securityProps(props, CipherSuitesProps); this }
 
     def bootstrapServers: String =
       _bootstrapServers.getOrElse(TestUtils.bootstrapServers(servers, new ListenerName(_listenerName)))
@@ -1921,7 +1980,7 @@ class TestDataBalancer extends DataBalanceManager {
   var throttleConfig = ConfluentConfigs.BALANCER_THROTTLE_DEFAULT;
   var autoHealModeConfig = ConfluentConfigs.BALANCER_AUTO_HEAL_MODE_DEFAULT;
 
-  override def onElection(): Unit = {}
+  override def onElection(brokerEpochs: java.util.Map[java.lang.Integer, java.lang.Long]): Unit = {}
 
   override def onResignation(): Unit = {}
 
@@ -1937,7 +1996,9 @@ class TestDataBalancer extends DataBalanceManager {
     // do nothing
   }
 
-  override def scheduleBrokerAdd(brokersToAdd: java.util.Set[Integer]): Unit = { }
+  override def onBrokersStartup(emptyBrokers: java.util.Set[Integer], newBrokers: java.util.Set[Integer]): Unit = {
+    // do nothing
+  }
 
   def verifyBalancerConfigs(enabledExpected: Boolean = ConfluentConfigs.BALANCER_ENABLE_DEFAULT,
                             autoHealExpected: String = ConfluentConfigs.BALANCER_AUTO_HEAL_MODE_DEFAULT,
@@ -1947,7 +2008,7 @@ class TestDataBalancer extends DataBalanceManager {
     assertEquals("throttle doesn't match", throttleExpected, throttleConfig)
   }
 
-  override def brokerRemovals(): java.util.List[BrokerRemovalStatus] = List().asJava
+  override def brokerRemovals(): java.util.List[BrokerRemovalDescriptionInternal] = List().asJava
 }
 
 class MockFileConfigProvider extends FileConfigProvider {

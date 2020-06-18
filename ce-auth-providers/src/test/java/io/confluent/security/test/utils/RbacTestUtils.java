@@ -188,8 +188,9 @@ public class RbacTestUtils {
       AuthorizeRule rule = ruleMatcher.findRule(userPrincipal, groupPrincipals, action);
       assertFalse("Deny rule not expected for " + op, rule.deny());
       Operation operation = new Operation(op);
-      if (allowedOps.contains("All") ||
-          allowedOps.stream().anyMatch(allowedOp -> new Operation(allowedOp).matches(operation, PermissionType.ALLOW))) {
+      if (allowedOps.contains("All")) {
+        assertTrue("Expected allow for " + op, rule.allowRule().isPresent());
+      } else if (allowedOps.stream().anyMatch(allowedOp -> new Operation(allowedOp).matches(operation, PermissionType.ALLOW))) {
         assertTrue("Expected allow for " + op, rule.allowRule().isPresent());
         assertTrue("Unexpected rule for " + op, allowedOps.contains(rule.allowRule().get().operation().name()));
       } else

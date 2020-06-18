@@ -18,12 +18,14 @@
 package kafka.controller
 
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 import kafka.cluster.Broker
 import kafka.server.link.ClusterLinkTopicState
 import org.apache.kafka.common.TopicPartition
 
 import scala.collection.{mutable, Map, Seq, Set}
+import scala.jdk.CollectionConverters._
 
 object ReplicaAssignment {
   def apply(replicas: Seq[Int], observers: Seq[Int]): ReplicaAssignment = {
@@ -180,7 +182,7 @@ class ControllerContext {
 
   val allTopics = mutable.Set.empty[String]
   var topicIds = mutable.Map.empty[String, UUID]
-  val linkedTopics = mutable.Map.empty[String, ClusterLinkTopicState]
+  val linkedTopics = new ConcurrentHashMap[String, ClusterLinkTopicState].asScala
   val partitionAssignments = mutable.Map.empty[String, mutable.Map[Int, ReplicaAssignment]]
   private val partitionLeadershipInfo = mutable.Map.empty[TopicPartition, LeaderIsrAndControllerEpoch]
   val partitionsBeingReassigned = mutable.Set.empty[TopicPartition]

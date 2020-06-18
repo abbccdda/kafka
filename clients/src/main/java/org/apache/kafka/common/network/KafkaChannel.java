@@ -22,6 +22,7 @@ import org.apache.kafka.common.memory.MemoryPool;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.requests.RequestContext;
 import org.apache.kafka.common.requests.RequestHeader;
+import org.apache.kafka.common.security.auth.AuthenticationContext;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.Utils;
@@ -698,5 +699,12 @@ public class KafkaChannel implements AutoCloseable {
 
     public ChannelMetadataRegistry channelMetadataRegistry() {
         return metadataRegistry;
+    }
+
+    /**
+     * Returns the authenticationContext returned by `authenticator.authenticationContext()`.
+     */
+    public AuthenticationContext authenticationContext() {
+        return authenticator.authenticationContext();
     }
 }

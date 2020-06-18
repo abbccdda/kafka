@@ -24,9 +24,10 @@ import io.confluent.security.authorizer.PermissionType;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.ResourceType;
 import io.confluent.security.authorizer.Scope;
+import io.confluent.security.authorizer.ScopeType;
 import io.confluent.security.authorizer.acl.AclRule;
-import io.confluent.security.authorizer.provider.InvalidScopeException;
 import io.confluent.security.authorizer.provider.AuthorizeRule;
+import io.confluent.security.authorizer.provider.InvalidScopeException;
 import io.confluent.security.rbac.AccessPolicy;
 import io.confluent.security.rbac.RbacAccessRule;
 import io.confluent.security.rbac.RbacRoles;
@@ -48,7 +49,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
-
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.errors.CorruptRecordException;
@@ -124,7 +124,8 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
     roleBindings.entrySet().stream()
         .map(e -> roleBinding(e.getKey(), e.getValue()))
         .forEach(binding -> {
-          RoleBinding matching = filter.matchingBinding(binding, rbacRoles.role(binding.role()).hasResourceScope());
+          RoleBinding matching = filter.matchingBinding(binding,
+                  rbacRoles.role(binding.role()).hasResourceScope());
           if (matching != null)
             bindings.add(matching);
         });
@@ -363,7 +364,7 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
     Scope nextScope = resourceScope;
     while (nextScope != null) {
       NavigableMap<ResourcePattern, Set<AccessRule>> rules = scopeRules(nextScope, accessRules);
-      if (rules != null) {
+      if (!rules.isEmpty()) {
         String resourceName = resource.name();
         ResourceType resourceType = resource.resourceType();
 
@@ -419,25 +420,33 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
   }
 
   private RoleBindingValue updateRoleBinding(RoleBindingKey key, RoleBindingValue value) {
-    Scope scope = key.scope();
-    if (!this.rootScope.containsScope(scope))
+    Scope bindingScope = key.scope();
+    if (!this.rootScope.containsScope(bindingScope))
       return null;
 
-    AccessPolicy accessPolicy = accessPolicy(key);
-    if (accessPolicy == null)
+    Map<ScopeType, AccessPolicy> accessPolicies = accessPolicies(key);
+    if (accessPolicies.isEmpty())
       return null;
 
-    // Add new binding and access policies
     KafkaPrincipal principal = key.principal();
+    String role = key.role();
     RoleBindingValue oldValue = roleBindings.put(key, value);
-    NavigableMap<ResourcePattern, Set<AccessRule>> scopeRules =
-        rbacAccessRules.computeIfAbsent(scope, s -> new ConcurrentSkipListMap<>());
-    Map<ResourcePattern, Set<AccessRule>> rules = accessRules(key, value);
-    rules.forEach((r, a) ->
-        scopeRules.computeIfAbsent(r, x -> ConcurrentHashMap.newKeySet()).addAll(a));
 
-    // Remove access policy for any resources that were removed
-    removeDeletedAccessPolicies(principal, scope);
+    for (ScopeType scopeType : accessPolicies.keySet()) {
+      // we know that an enclosing scope of the appropriate type exists because
+      // we validated it in KafkaAuthWriter.validateRoleBindingUpdate
+      Scope policyScope = bindingScope.enclosingScope(scopeType);
+      RoleBindingKey policyKey = new RoleBindingKey(principal, role, policyScope);
+      // Add new binding and access policies
+      NavigableMap<ResourcePattern, Set<AccessRule>> scopeRules =
+              rbacAccessRules.computeIfAbsent(policyScope, s -> new ConcurrentSkipListMap<>());
+      Map<ResourcePattern, Set<AccessRule>> rules = accessRules(policyKey, value);
+      rules.forEach((r, a) ->
+              scopeRules.computeIfAbsent(r, x -> ConcurrentHashMap.newKeySet()).addAll(a));
+
+      // Remove access policy for any resources that were removed
+      removeDeletedAccessPolicies(principal, policyScope);
+    }
     return oldValue;
   }
 
@@ -447,7 +456,12 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
       return null;
     RoleBindingValue existing = roleBindings.remove(key);
     if (existing != null) {
-      removeDeletedAccessPolicies(key.principal(), scope);
+      Role role = rbacRoles.role(key.role());
+      for (ScopeType scopeType: role.scopeTypes()) {
+        // we know that an enclosing scope of the appropriate type exists because
+        // we validated it in KafkaAuthWriter.validateRoleBindingUpdate
+        removeDeletedAccessPolicies(key.principal(), scope.enclosingScope(scopeType));
+      }
       return existing;
     } else
       return null;
@@ -467,13 +481,13 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
     }
   }
 
-  private AccessPolicy accessPolicy(RoleBindingKey roleBindingKey) {
+  private Map<ScopeType, AccessPolicy> accessPolicies(RoleBindingKey roleBindingKey) {
     Role role = rbacRoles.role(roleBindingKey.role());
     if (role == null) {
       log.error("Unknown role, ignoring role binding {}", roleBindingKey);
-      return null;
+      return Collections.emptyMap();
     } else {
-      return role.accessPolicy();
+      return role.accessPolicies();
     }
   }
 
@@ -487,17 +501,25 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
     return accessRules.getOrDefault(scope, NO_RULES);
   }
 
+  private ScopeType scopeType(RoleBindingKey roleBindingKey, RoleBindingValue roleBindingValue) {
+    if (roleBindingValue.resources().isEmpty()) {
+      return roleBindingKey.scope().scopeType();
+    }
+    return ScopeType.RESOURCE;
+  }
+
   private Map<ResourcePattern, Set<AccessRule>> accessRules(RoleBindingKey roleBindingKey,
                                                             RoleBindingValue roleBindingValue) {
     Map<ResourcePattern, Set<AccessRule>> accessRules = new HashMap<>();
     KafkaPrincipal principal = roleBindingKey.principal();
     Collection<ResourcePattern> resources;
-    AccessPolicy accessPolicy = accessPolicy(roleBindingKey);
+    ScopeType scopeType = scopeType(roleBindingKey, roleBindingValue);
+    AccessPolicy accessPolicy = accessPolicies(roleBindingKey).get(scopeType);
     if (accessPolicy != null) {
       if (!accessPolicy.hasResourceScope()) {
         resources = accessPolicy.allowedOperations().stream()
-            .map(op -> ResourcePattern.all(new ResourceType(op.resourceType())))
-            .collect(Collectors.toSet());
+                .map(op -> ResourcePattern.all(new ResourceType(op.resourceType())))
+                .collect(Collectors.toSet());
       } else if (roleBindingValue.resources().isEmpty()) {
         resources = Collections.emptySet();
       } else {
@@ -507,7 +529,7 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
         Set<AccessRule> resourceRules = new HashSet<>();
         for (Operation op : accessPolicy.allowedOperations(resource.resourceType())) {
           AccessRule rule = new RbacAccessRule(resource, principal, PermissionType.ALLOW,
-              WILDCARD_HOST, op, PolicyType.ALLOW_ROLE, roleBinding(roleBindingKey, roleBindingValue));
+                  WILDCARD_HOST, op, PolicyType.ALLOW_ROLE, roleBinding(roleBindingKey, roleBindingValue));
           resourceRules.add(rule);
         }
         accessRules.put(resource, resourceRules);
@@ -520,16 +542,27 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
     NavigableMap<ResourcePattern, Set<AccessRule>> scopeRules = rbacRules(scope);
     if (scopeRules != null) {
       Map<ResourcePattern, Set<AccessRule>> deletedRules = new HashMap<>();
+      // start by considering each rule for this principal eligible for deletion
       scopeRules.forEach((resource, rules) -> {
         Set<AccessRule> principalRules = rules.stream()
             .filter(a -> a.principal().equals(principal))
             .collect(Collectors.toSet());
         deletedRules.put(resource, principalRules);
       });
+      // consider each role binding for this principal
       roleBindings.entrySet().stream()
-          .filter(e -> e.getKey().principal().equals(principal) && e.getKey().scope().equals(scope))
-          .flatMap(e -> accessRules(e.getKey(), e.getValue()).entrySet().stream())
+          .filter(e -> e.getKey().principal().equals(principal) &&
+                  // We need to look at bindings at this scope or below, since a multi-scope
+                  // role is bound at the most specific scope
+                  scope.containsScope(e.getKey().scope()))
+          .flatMap(e -> {
+            // We need to find the rules about how the role binding (which may be at a
+            // different scope) affects _this_ scope
+            RoleBindingKey key = new RoleBindingKey(e.getKey().principal(), e.getKey().role(), scope);
+            return accessRules(key, e.getValue()).entrySet().stream();
+          })
           .forEach(e -> {
+            // Any rules from an existing role binding are removed from the set to delete
             Set<AccessRule> existing = deletedRules.get(e.getKey());
             if (existing != null)
               existing.removeAll(e.getValue());

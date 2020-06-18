@@ -5,6 +5,7 @@ package io.confluent.kafka.multitenant.integration.test;
 
 import static java.util.stream.Collectors.toList;
 import static org.apache.kafka.common.resource.Resource.CLUSTER_NAME;
+import static org.apache.kafka.server.audit.AuthenticationErrorInfo.UNKNOWN_USER_ERROR;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -36,15 +37,19 @@ import kafka.server.KafkaConfig$;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.config.ConfigResource.Type;
+import org.apache.kafka.common.errors.AuthenticationException;
 import org.apache.kafka.common.errors.ClusterAuthorizationException;
+import org.apache.kafka.common.errors.SaslAuthenticationException;
+import org.apache.kafka.common.errors.SslAuthenticationException;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.AuthenticationContext;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.SaslAuthenticationContext;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.server.audit.AuditEventStatus;
+import org.apache.kafka.server.audit.AuthenticationErrorInfo;
 import org.apache.kafka.server.audit.AuthenticationEvent;
-import org.apache.kafka.server.audit.AuthenticationEventImpl;
+import org.apache.kafka.server.audit.DefaultAuthenticationEvent;
 import org.apache.kafka.test.IntegrationTest;
 import org.apache.kafka.test.TestUtils;
 import org.junit.After;
@@ -254,11 +259,11 @@ public class MultiTenantAuditLogTest {
 
     SaslServer server = mock(SaslServer.class);
     AuthenticationContext authenticationContext = new SaslAuthenticationContext(server,
-        SecurityProtocol.SASL_PLAINTEXT, InetAddress.getLocalHost(), SecurityProtocol.SASL_PLAINTEXT.name());
+        SecurityProtocol.SASL_PLAINTEXT, InetAddress.getLocalHost(), SecurityProtocol.SASL_SSL.name());
 
-    //generate a test event
+    //generate a authentication success test event
     Scope scope = Scope.kafkaClusterScope("ABC123");
-    AuthenticationEvent authenticationEvent = new AuthenticationEventImpl(principal, authenticationContext, AuditEventStatus.SUCCESS);
+    AuthenticationEvent authenticationEvent = new DefaultAuthenticationEvent(principal, authenticationContext, AuditEventStatus.SUCCESS);
     ConfluentAuthenticationEvent confluentAuthenticationEvent = new ConfluentAuthenticationEvent(authenticationEvent, scope);
     auditLogProvider.logEvent(confluentAuthenticationEvent);
 
@@ -268,6 +273,43 @@ public class MultiTenantAuditLogTest {
     assertEquals(KafkaPrincipal.USER_TYPE, sanitizedEvent.principal().get().getPrincipalType());
     assertFalse(sanitizedEvent.principal().get().toString().contains("tenantMetadata"));
     assertTrue(sanitizedEvent.getScope().toString().contains("kafka-cluster=lkc-12345"));
+    assertFalse(sanitizedEvent.getScope().toString().contains("ABC123"));
+
+    //test with ssh handshake failure
+    AuthenticationException authenticationException = new SslAuthenticationException("Ssl handshake failed");
+    DefaultAuthenticationEvent failureEvent = new
+        DefaultAuthenticationEvent(null, authenticationContext, AuditEventStatus.UNKNOWN_USER_DENIED, authenticationException);
+    ConfluentAuthenticationEvent confluentFailureEvent = new ConfluentAuthenticationEvent(failureEvent, scope);
+    auditLogProvider.logEvent(confluentFailureEvent);
+
+    sanitizedEvent = (ConfluentAuthenticationEvent) auditLogProvider.lastAuthenticationEntry();
+    assertFalse(sanitizedEvent.principal().isPresent());
+    assertTrue(sanitizedEvent.getScope().toString().contains("ABC123"));
+
+    //test "username not specified" error
+    authenticationException = new SslAuthenticationException("username not specified", UNKNOWN_USER_ERROR);
+    failureEvent = new DefaultAuthenticationEvent(null, authenticationContext,
+        AuditEventStatus.UNKNOWN_USER_DENIED, authenticationException);
+    confluentFailureEvent = new ConfluentAuthenticationEvent(failureEvent, scope);
+    auditLogProvider.logEvent(confluentFailureEvent);
+
+    sanitizedEvent = (ConfluentAuthenticationEvent) auditLogProvider.lastAuthenticationEntry();
+    assertFalse(sanitizedEvent.principal().isPresent());
+    assertTrue(sanitizedEvent.getScope().toString().contains("ABC123"));
+
+    //test with bad password error
+    AuthenticationErrorInfo errorInfo =
+        new AuthenticationErrorInfo(AuditEventStatus.UNAUTHENTICATED, "", "APIKEY123", "lkc123");
+
+    authenticationException = new SaslAuthenticationException("Bad password for user", errorInfo);
+    failureEvent = new
+        DefaultAuthenticationEvent(null, authenticationContext, AuditEventStatus.UNAUTHENTICATED, authenticationException);
+    confluentFailureEvent = new ConfluentAuthenticationEvent(failureEvent, scope);
+    auditLogProvider.logEvent(confluentFailureEvent);
+
+    sanitizedEvent = (ConfluentAuthenticationEvent) auditLogProvider.lastAuthenticationEntry();
+    assertFalse(sanitizedEvent.principal().isPresent());
+    assertTrue(sanitizedEvent.getScope().toString().contains("lkc123"));
     assertFalse(sanitizedEvent.getScope().toString().contains("ABC123"));
   }
 }

@@ -126,7 +126,7 @@ public class TenantQuotaCallbackTest {
   public void testTenantQuota() {
     createCluster(5);
     MultiTenantPrincipal principal = new MultiTenantPrincipal("userA",
-            new TenantMetadata("tenant1", "tenant1_cluster_id", false));
+            new TenantMetadata("tenant1", "tenant1_cluster_id"));
 
     // Partitions divided between two brokers
     setPartitionLeaders("tenant1_topic1", 0, 5, brokerId);
@@ -156,9 +156,9 @@ public class TenantQuotaCallbackTest {
   public void testTenantEqualQuotaDistribution() {
     createCluster(5);
     MultiTenantPrincipal principal = new MultiTenantPrincipal(
-        "userA", new TenantMetadata("tenant1", "tenant1_cluster_id", false));
+        "userA", new TenantMetadata("tenant1", "tenant1_cluster_id"));
     MultiTenantPrincipal principal2 = new MultiTenantPrincipal(
-        "userB", new TenantMetadata("tenant2", "tenant2_cluster_id", false));
+        "userB", new TenantMetadata("tenant2", "tenant2_cluster_id"));
 
     // One partition on one broker and 1000 partitions on another broker should result in equal
     // quota distribution between the two brokers
@@ -208,7 +208,7 @@ public class TenantQuotaCallbackTest {
     // setup cluster and topic partitions
     createCluster(numBrokers);
     MultiTenantPrincipal principal = new MultiTenantPrincipal(
-        "userA", new TenantMetadata(tenantName, "tenant1_cluster_id", false));
+        "userA", new TenantMetadata(tenantName, "tenant1_cluster_id"));
 
     // each broker has one tenant partition leader, so that quotas distributed equally among brokers
     for (int i = 1; i <= numBrokers; i++) {
@@ -249,7 +249,7 @@ public class TenantQuotaCallbackTest {
 
     // add one more tenant with one partition on this broker
     MultiTenantPrincipal principal2 = new MultiTenantPrincipal(
-        "userB", new TenantMetadata("tenant2", "tenant2_cluster_id", false));
+        "userB", new TenantMetadata("tenant2", "tenant2_cluster_id"));
     tenantQuotas.put("tenant2", quotaConfig(500, 500, 500));
     TenantQuotaCallback.updateQuotas(tenantQuotas, QuotaConfig.UNLIMITED_QUOTA);
     // this changed quotas from unlimited to min quota per broker (no partitions yet)
@@ -280,7 +280,7 @@ public class TenantQuotaCallbackTest {
   public void testSmallNumberOfPartitions() throws Exception {
     createCluster(5);
     MultiTenantPrincipal principal = new MultiTenantPrincipal("userA",
-            new TenantMetadata("tenant1", "tenant1_cluster_id", false));
+            new TenantMetadata("tenant1", "tenant1_cluster_id"));
 
     // One partition on one broker
     setPartitionLeaders("tenant1_topic1", 0, 1, brokerId);
@@ -310,7 +310,7 @@ public class TenantQuotaCallbackTest {
   public void testNoPartitions() throws Exception {
     createCluster(5);
     MultiTenantPrincipal principal = new MultiTenantPrincipal("userA",
-            new TenantMetadata("tenant1", "tenant1_cluster_id", false));
+            new TenantMetadata("tenant1", "tenant1_cluster_id"));
 
     verifyQuotas(principal, MIN_BROKER_PRODUCE_QUOTA, MIN_BROKER_CONSUME_QUOTA, 300);
 
@@ -330,7 +330,7 @@ public class TenantQuotaCallbackTest {
   @Test
   public void testNoClusterMetadata() {
     MultiTenantPrincipal principal = new MultiTenantPrincipal("userA",
-        new TenantMetadata("tenant1", "tenant1_cluster_id", false));
+        new TenantMetadata("tenant1", "tenant1_cluster_id"));
     verifyQuotas(principal, MIN_BROKER_PRODUCE_QUOTA, MIN_BROKER_CONSUME_QUOTA, 300);
   }
 
@@ -344,7 +344,7 @@ public class TenantQuotaCallbackTest {
     tenantQuotas.put("tenant1", quotaConfig(Long.MAX_VALUE, Long.MAX_VALUE, Integer.MAX_VALUE));
     TenantQuotaCallback.updateQuotas(tenantQuotas, QuotaConfig.UNLIMITED_QUOTA);
     MultiTenantPrincipal principal = new MultiTenantPrincipal("userA",
-        new TenantMetadata("tenant1", "tenant1_cluster_id", false));
+        new TenantMetadata("tenant1", "tenant1_cluster_id"));
     verifyUnlimitedQuotas(principal);
 
     setPartitionLeaders("tenant1_topic1", 0, 5, brokerId);
@@ -371,7 +371,7 @@ public class TenantQuotaCallbackTest {
     // By default, we don't apply quotas until tenant is known (i.e unlimited quota by default)
     createCluster(5);
     MultiTenantPrincipal principal = new MultiTenantPrincipal("userA",
-            new TenantMetadata("tenant100", "tenant100_cluster_id", false));
+            new TenantMetadata("tenant100", "tenant100_cluster_id"));
 
     setPartitionLeaders("tenant100_topic1", 0, 1, brokerId);
     setPartitionLeaders("tenant100_topic2", 0, 10, brokerId + 1);
@@ -385,7 +385,7 @@ public class TenantQuotaCallbackTest {
     QuotaConfig defaultQuota = quotaConfig(1000L, 2000L, 10.0);
     TenantQuotaCallback.updateQuotas(Collections.emptyMap(), defaultQuota);
     MultiTenantPrincipal principal2 = new MultiTenantPrincipal("userA",
-        new TenantMetadata("tenant101", "tenant101_cluster_id", false));
+        new TenantMetadata("tenant101", "tenant101_cluster_id"));
     setPartitionLeaders("tenant101_topic2", 0, 1, brokerId + 1);
     setPartitionLeaders("tenant101_topic3", 0, 1, brokerId + 2);
     setPartitionLeaders("tenant101_topic4", 0, 1, brokerId + 3);
@@ -425,7 +425,7 @@ public class TenantQuotaCallbackTest {
   public void testUnavailableBrokers() {
     createCluster(2);
     MultiTenantPrincipal principal = new MultiTenantPrincipal("userA",
-        new TenantMetadata("tenant1", "tenant1_cluster_id", false));
+        new TenantMetadata("tenant1", "tenant1_cluster_id"));
 
     // Replicas may refer to nodes that are not available. Quotas should
     // still be calculated correctly.

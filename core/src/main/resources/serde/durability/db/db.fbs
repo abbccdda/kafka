@@ -1,0 +1,44 @@
+/*
+ * Copyright 2020 Confluent Inc.
+ */
+
+namespace kafka.durability.db.serdes;
+
+struct EpochChain {
+    epoch: int (id: 0);
+    start: long (id: 1);
+}
+
+table Header {
+    version: int (id: 0);
+    durabilityRunId: int (id: 1);
+    durabilityPartitionsOffsets: [long] (id: 2);
+}
+
+table PartitionInfo {
+    partition: int (id: 0);
+    startOffset: long (id: 1);
+    highWaterMark: long (id: 2);
+    // currentCount of messages found lost. Loss which we accounted from leader.
+    // Will be useful when we support finer recovery.
+    externalLostMessages: long (id: 3);
+    // Total message processed. Will be useful when we support finer recovery.
+    totalMessages: long (id: 4);
+    // Last known retention limits
+    retentionTime: long (id: 5);
+    retentionSize: long (id: 6);
+    // Epoch Chain information. We may have retention based on say last 1 month of info.
+    epochChain: [EpochChain] (id: 7);
+}
+
+table TopicInfo {
+    topic: string (id: 0);
+    partitions: [PartitionInfo] (id: 1);
+}
+
+table Database {
+    header: Header (id: 0);
+    topics: [TopicInfo] (id: 1);
+}
+
+root_type Database;

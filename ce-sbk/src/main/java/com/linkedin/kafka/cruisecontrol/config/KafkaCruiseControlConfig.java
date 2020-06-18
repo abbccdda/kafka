@@ -28,23 +28,21 @@ import com.linkedin.kafka.cruisecontrol.executor.strategy.PrioritizeLargeReplica
 import com.linkedin.kafka.cruisecontrol.executor.strategy.PrioritizeSmallReplicaMovementStrategy;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.DefaultMetricSamplerPartitionAssignor;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore;
-
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.Set;
-import java.util.TreeSet;
-import java.util.concurrent.TimeUnit;
-
-import io.confluent.cruisecontrol.analyzer.goals.CrossRackMovementGoal;
+import io.confluent.cruisecontrol.analyzer.goals.ReplicaPlacementGoal;
 import io.confluent.cruisecontrol.analyzer.goals.SequentialReplicaMovementGoal;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
-
-import java.util.Map;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
+
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.concurrent.TimeUnit;
 
 import static org.apache.kafka.common.config.ConfigDef.Range.atLeast;
 import static org.apache.kafka.common.config.ConfigDef.Range.between;
@@ -553,7 +551,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   private static final String GOALS_DOC = "A list of case insensitive goals in the order of priority. The high "
       + "priority goals will be executed first.";
   public static final List<String> DEFAULT_GOALS_LIST = Arrays.asList(
-          CrossRackMovementGoal.class.getName(),
+          ReplicaPlacementGoal.class.getName(),
           SequentialReplicaMovementGoal.class.getName(),
           ReplicaCapacityGoal.class.getName(),
           DiskCapacityGoal.class.getName(),
@@ -583,7 +581,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   private static final String HARD_GOALS_DOC = "A list of case insensitive hard goals. Hard goals will be enforced to execute "
       + "if Cruise Control runs in non-kafka-assigner mode and skip_hard_goal_check parameter is not set in request.";
   public static final List<String> DEFAULT_HARD_GOALS_LIST = Arrays.asList(
-          CrossRackMovementGoal.class.getName(),
+          ReplicaPlacementGoal.class.getName(),
           SequentialReplicaMovementGoal.class.getName(),
           ReplicaCapacityGoal.class.getName(),
           DiskCapacityGoal.class.getName(),
@@ -654,7 +652,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   private static final String ANOMALY_DETECTION_GOALS_DOC = "The goals that anomaly detector should detect if they are"
       + "violated.";
   public static final List<String> DEFAULT_ANOMALY_DETECTION_GOALS_LIST = Arrays.asList(
-          CrossRackMovementGoal.class.getName(),
+          ReplicaPlacementGoal.class.getName(),
           SequentialReplicaMovementGoal.class.getName(),
           ReplicaCapacityGoal.class.getName(),
           DiskCapacityGoal.class.getName(),
@@ -691,14 +689,6 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   public static final String GOAL_VIOLATION_EXCLUDE_RECENTLY_REMOVED_BROKERS_CONFIG = "goal.violation.exclude.recently.removed.brokers";
   private static final String GOAL_VIOLATION_EXCLUDE_RECENTLY_REMOVED_BROKERS_DOC = "True if recently removed brokers "
       + "are excluded from optimizations during goal violation self healing, false otherwise.";
-
-  /**
-   * <code>failed.brokers.zk.path</code>
-   */
-  public static final String FAILED_BROKERS_ZK_PATH_CONFIG = "failed.brokers.zk.path";
-  private static final String FAILED_BROKERS_ZK_PATH_DOC = "The zk path to store the failed broker list. This is to "
-      + "persist the broker failure time in case Cruise Control failed and restarted when some brokers are down.";
-  public static final String DEFAULT_FAILED_BROKERS_ZK_PATH = "/DataBalancerBrokerList";
 
   /**
    * <code>use.linear.regression.model</code>
@@ -1303,10 +1293,6 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 true,
                 ConfigDef.Importance.MEDIUM,
                 GOAL_VIOLATION_EXCLUDE_RECENTLY_REMOVED_BROKERS_DOC)
-        .define(FAILED_BROKERS_ZK_PATH_CONFIG,
-                ConfigDef.Type.STRING,
-                DEFAULT_FAILED_BROKERS_ZK_PATH,
-                ConfigDef.Importance.LOW, FAILED_BROKERS_ZK_PATH_DOC)
         .define(USE_LINEAR_REGRESSION_MODEL_CONFIG,
                 ConfigDef.Type.BOOLEAN,
                 false,

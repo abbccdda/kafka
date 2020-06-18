@@ -17,7 +17,7 @@ import java.util
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.regex.Pattern
-import java.util.{Collections, Optional, Properties}
+import java.util.{Collection, Collections, Optional, Properties}
 
 import kafka.admin.ConsumerGroupCommand.{ConsumerGroupCommandOptions, ConsumerGroupService}
 import kafka.log.LogConfig
@@ -180,7 +180,7 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
     ApiKeys.LEADER_AND_ISR -> ((resp: requests.LeaderAndIsrResponse) => Errors.forCode(
       resp.partitions.asScala.find(p => p.topicName == tp.topic && p.partitionIndex == tp.partition).get.errorCode)),
     ApiKeys.STOP_REPLICA -> ((resp: requests.StopReplicaResponse) => Errors.forCode(
-      resp.partitionErrors.asScala.find(pe => pe.topicName == tp.topic && pe.partitionIndex == tp.partition).get.errorCode)),
+      resp.partitions.asScala.find(pe => pe.topicName == tp.topic && pe.partitionIndex == tp.partition).get.errorCode)),
     ApiKeys.CONTROLLED_SHUTDOWN -> ((resp: requests.ControlledShutdownResponse) => resp.error),
     ApiKeys.CREATE_TOPICS -> ((resp: CreateTopicsResponse) => Errors.forCode(resp.data.topics.find(topic).errorCode())),
     ApiKeys.DELETE_TOPICS -> ((resp: requests.DeleteTopicsResponse) => Errors.forCode(resp.data.responses.find(topic).errorCode())),
@@ -609,13 +609,13 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
 
   private def describeBrokerRemovalsRequest = new DescribeBrokerRemovalsRequest.Builder().build()
 
-  private def replicaStatusRequest = new ReplicaStatusRequest.Builder(Collections.singleton(tp)).build()
+  private def replicaStatusRequest = new ReplicaStatusRequest.Builder(Collections.singleton(tp), false).build()
 
   private def createClusterLinksRequest = new CreateClusterLinksRequest.Builder(
     Collections.singleton(new NewClusterLink(linkName, null, Map("bootstrap.servers" -> "localhost:9092").asJava)),
     false, false, 10000).build()
 
-  private def listClusterLinksRequest = new ListClusterLinksRequest.Builder().build()
+  private def listClusterLinksRequest = new ListClusterLinksRequest.Builder(Optional.empty[Collection[String]], false, 10000).build()
 
   private def deleteClusterLinksRequest = new DeleteClusterLinksRequest.Builder(
     Collections.singleton(linkName), false, true, 10000).build()

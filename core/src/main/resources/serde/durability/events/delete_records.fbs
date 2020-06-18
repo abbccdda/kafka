@@ -1,0 +1,13 @@
+/*
+ * Copyright 2020 Confluent Inc.
+ */
+
+include "baseinfo.fbs";
+namespace kafka.durability.events.serdes;
+
+table DeleteRecords {
+    trimmedOffset: long (id: 0);
+    info: BaseInfo (id: 1);
+}
+
+root_type DeleteRecords;

@@ -532,6 +532,7 @@ public class LoadMonitorTest {
   private TestContext prepareContext(int numWindowToPreserve, boolean isClusterJBOD) {
     // Create mock metadata client.
     Cluster cluster = getCluster(Arrays.asList(T0P0, T0P1, T1P0, T1P1));
+    MetadataClient.ClusterAndPlacements clusterAndPlacements = new MetadataClient.ClusterAndPlacements(cluster, Collections.emptyMap());
     MetadataClient mockMetadataClient = EasyMock.mock(MetadataClient.class);
     EasyMock.expect(mockMetadataClient.cluster())
         .andReturn(getCluster(Collections.emptyList()))
@@ -540,13 +541,13 @@ public class LoadMonitorTest {
             .andReturn(cluster)
             .anyTimes();
     EasyMock.expect(mockMetadataClient.clusterAndGeneration())
-            .andReturn(new MetadataClient.ClusterAndGeneration(cluster, 0))
+            .andReturn(new MetadataClient.ClusterAndGeneration(clusterAndPlacements, 0))
             .anyTimes();
     EasyMock.expect(mockMetadataClient.refreshMetadata())
-            .andReturn(new MetadataClient.ClusterAndGeneration(cluster, 0))
+            .andReturn(new MetadataClient.ClusterAndGeneration(clusterAndPlacements, 0))
             .anyTimes();
     EasyMock.expect(mockMetadataClient.refreshMetadata(EasyMock.anyInt()))
-            .andReturn(new MetadataClient.ClusterAndGeneration(cluster, 0))
+            .andReturn(new MetadataClient.ClusterAndGeneration(clusterAndPlacements, 0))
             .anyTimes();
     EasyMock.replay(mockMetadataClient);
 

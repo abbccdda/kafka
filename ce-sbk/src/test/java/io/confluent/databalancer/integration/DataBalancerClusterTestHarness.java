@@ -3,29 +3,32 @@ package io.confluent.databalancer.integration;
 
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils;
 import io.confluent.databalancer.KafkaDataBalanceManager;
-import java.time.Duration;
-import java.util.Collections;
-import org.apache.kafka.clients.CommonClientConfigs;
-import org.apache.kafka.clients.admin.ConfluentAdmin;
-import org.apache.kafka.common.security.auth.SecurityProtocol;
-import org.apache.kafka.test.IntegrationTest;
-
-import org.junit.After;
-import org.junit.Before;
-import org.junit.experimental.categories.Category;
-
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-
 import kafka.server.KafkaConfig;
 import kafka.server.KafkaServer;
 import kafka.utils.TestUtils;
 import kafka.zk.EmbeddedZookeeper;
+import org.apache.kafka.clients.CommonClientConfigs;
+import org.apache.kafka.clients.admin.BrokerRemovalDescription;
+import org.apache.kafka.clients.admin.BrokerRemovalError;
+import org.apache.kafka.clients.admin.ConfluentAdmin;
+import org.apache.kafka.common.errors.PlanComputationException;
+import org.apache.kafka.common.protocol.Errors;
+import org.apache.kafka.common.security.auth.SecurityProtocol;
+import org.apache.kafka.test.IntegrationTest;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.experimental.categories.Category;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.collection.JavaConverters;
+
+import java.time.Duration;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.concurrent.ExecutionException;
 
 
 @Category(IntegrationTest.class)
@@ -50,6 +53,11 @@ public abstract class DataBalancerClusterTestHarness {
     return props; // no-op
   }
 
+  // To allow a test case to override properties based on broker ID
+  protected Map<Integer, Map<String, String>> brokerOverrideProps() {
+    return Collections.emptyMap();
+  }
+
   @SuppressWarnings("deprecation")
   @Before
   public void setUp() throws Exception {
@@ -57,7 +65,7 @@ public abstract class DataBalancerClusterTestHarness {
     generalProperties = injectTestSpecificProperties(new Properties());
     kafkaCluster = new EmbeddedSBKKafkaCluster();
     kafkaCluster.startZooKeeper();
-    kafkaCluster.startBrokers(initialBrokerCount(), generalProperties);
+    kafkaCluster.startBrokers(initialBrokerCount(), generalProperties, brokerOverrideProps());
 
     servers = kafkaCluster.brokers();
     brokerList = TestUtils.getBrokerListStrFromServers(JavaConverters.asScalaBuffer(servers),
@@ -112,5 +120,43 @@ public abstract class DataBalancerClusterTestHarness {
     logger.info(separator);
     logger.info(msg, arguments);
     logger.info(separator);
+  }
+
+  protected boolean retryRemoval(BrokerRemovalDescription brokerRemovalDescription, int brokerToRemoveId) throws ExecutionException, InterruptedException {
+    info("Broker removal failed due to", brokerRemovalDescription.removalError()
+        .orElse(new BrokerRemovalError(Errors.NONE, null))
+        .exception());
+    info("Re-scheduling removal...");
+    adminClient.removeBrokers(Collections.singletonList(brokerToRemoveId)).all().get();
+    return false;
+  }
+
+  protected boolean isCompletedRemoval(BrokerRemovalDescription brokerRemovalDescription) {
+    boolean reassignmentCompleted = brokerRemovalDescription.partitionReassignmentsStatus() == BrokerRemovalDescription.PartitionReassignmentsStatus.COMPLETE;
+    boolean removalCompleted = brokerRemovalDescription.brokerShutdownStatus() == BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE;
+
+    return removalCompleted && reassignmentCompleted;
+  }
+
+  protected boolean isInProgressRemoval(BrokerRemovalDescription brokerRemovalDescription) {
+    boolean reassignmentInProgress = brokerRemovalDescription.partitionReassignmentsStatus() == BrokerRemovalDescription.PartitionReassignmentsStatus.PENDING
+        || brokerRemovalDescription.partitionReassignmentsStatus() == BrokerRemovalDescription.PartitionReassignmentsStatus.IN_PROGRESS;
+    boolean removalInProgress = brokerRemovalDescription.brokerShutdownStatus() == BrokerRemovalDescription.BrokerShutdownStatus.PENDING;
+
+    return removalInProgress || reassignmentInProgress;
+  }
+
+  protected boolean isFailedRemoval(BrokerRemovalDescription brokerRemovalDescription) {
+    boolean reassignmentFailed = brokerRemovalDescription.partitionReassignmentsStatus() == BrokerRemovalDescription.PartitionReassignmentsStatus.CANCELED
+        || brokerRemovalDescription.partitionReassignmentsStatus() == BrokerRemovalDescription.PartitionReassignmentsStatus.FAILED;
+    boolean removalFailed = brokerRemovalDescription.brokerShutdownStatus() == BrokerRemovalDescription.BrokerShutdownStatus.FAILED
+        || brokerRemovalDescription.brokerShutdownStatus() == BrokerRemovalDescription.BrokerShutdownStatus.CANCELED;
+
+    return removalFailed || reassignmentFailed;
+  }
+
+  protected boolean isFailedPlanComputationInRemoval(BrokerRemovalDescription brokerRemovalDescription) {
+    return brokerRemovalDescription.removalError().isPresent()
+        && brokerRemovalDescription.removalError().get().exception() instanceof PlanComputationException;
   }
 }

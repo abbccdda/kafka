@@ -567,7 +567,19 @@ class AdminZkClient(zkClient: KafkaZkClient) extends Logging {
     zkClient.getClusterLinks(zkClient.getChildren(ClusterLinksZNode.path).map(UUID.fromString).toSet).values.toSeq
 
   /**
-    * Deletes a cluster link.
+    * Sets the cluster link to the provided data.
+    *
+    * @param clusterLinkData the cluster link's data
+    */
+  def setClusterLink(clusterLinkData: ClusterLinkData): Unit = {
+    val linkId = clusterLinkData.linkId
+    ensureClusterLinkExists(linkId)
+    zkClient.setClusterLink(clusterLinkData)
+    zkClient.createConfigChangeNotification(ConfigType.ClusterLink + '/' + linkId)
+  }
+
+  /**
+    * Deletes a cluster link by removing its metadata.
     *
     * @param linkId the ID of the cluster link to delete
     */

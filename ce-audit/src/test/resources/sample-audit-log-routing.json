@@ -1,0 +1,123 @@
+{
+  "destinations": {
+    "bootstrap_servers": [
+      "host1:port",
+      "host2:port"
+    ],
+    "topics": {
+      "confluent-audit-log-events_success": {
+        "retention_ms": 2592000000
+      },
+      "confluent-audit-log-events_failure": {
+        "retention_ms": 2592000000
+      },
+      "confluent-audit-log-events_ksql": {
+        "retention_ms": 2592000000
+      },
+      "confluent-audit-log-events_connect_success": {
+        "retention_ms": 2592000000
+      },
+      "confluent-audit-log-events_connect_failure": {
+        "retention_ms": 15552000000
+      },
+      "confluent-audit-log-events_clicks_produce_allowed": {
+        "retention_ms": 15552000000
+      },
+      "confluent-audit-log-events_clicks_produce_denied": {
+        "retention_ms": 15552000000
+      },
+      "confluent-audit-log-events_clicks_consume_allowed": {
+        "retention_ms": 15552000000
+      },
+      "confluent-audit-log-events_clicks_consume_denied": {
+        "retention_ms": 15552000000
+      },
+      "confluent-audit-log-events_accounting": {
+        "retention_ms": 15552000000
+      },
+      "confluent-audit-log-events_cluster": {
+        "retention_ms": 15552000000
+      },
+      "confluent-audit-log-events_authentication_success": {
+        "retention_ms": 15552000000
+      },
+      "confluent-audit-log-events_authentication_failure": {
+        "retention_ms": 15552000000
+      }
+    }
+  },
+  "default_topics": {
+    "allowed": "confluent-audit-log-events_success",
+    "denied": "confluent-audit-log-events_failure"
+  },
+  "excluded_principals": [
+    "User:Alice",
+    "User:service_account_id",
+    "None:UNKNOWN_USER"
+  ],
+  "routes": {
+    "crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/ksql=ksql1": {
+      "authorize": {
+        "allowed": "",
+        "denied": "confluent-audit-log-events_ksql"
+      }
+    },
+    "crn://mds1.example.com/kafka=vBmKJkYpSNW+cRw0z4BrBQ/connect=*": {
+      "authorize": {
+        "allowed": "confluent-audit-log-events_connect_success",
+        "denied": "confluent-audit-log-events_connect_failure"
+      }
+    },
+    "crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=clicks": {
+      "produce": {
+        "allowed": "confluent-audit-log-events_clicks_produce_allowed",
+        "denied": "confluent-audit-log-events_clicks_produce_denied"
+      },
+      "consume": {
+        "allowed": "confluent-audit-log-events_clicks_consume_allowed",
+        "denied": "confluent-audit-log-events_clicks_consume_denied"
+      }
+    },
+    "crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=accounting-*": {
+      "produce": {
+        "allowed": null,
+        "denied": "confluent-audit-log-events_accounting"
+      }
+    },
+    "crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA/topic=*": {
+      "produce": {
+        "allowed": "",
+        "denied": "confluent-audit-log-events_cluster"
+      },
+      "consume": {
+        "denied": "confluent-audit-log-events_cluster"
+      }
+    },
+    "crn://mds1.example.com/kafka=63REM3VWREiYtMuVxZeplA": {
+      "interbroker": {
+        "allowed": "",
+        "denied": "confluent-audit-log-events_cluster"
+      },
+      "authentication": {
+        "allowed": "confluent-audit-log-events_authentication_success",
+        "denied": "confluent-audit-log-events_authentication_failure"
+      },
+      "other": {
+        "denied": "confluent-audit-log-events_cluster"
+      }
+    },
+    "crn://mds1.example.com/kafka=*": {
+      "interbroker": {
+        "allowed": "",
+        "denied": "confluent-audit-log-events_cluster"
+      },
+      "other": {
+        "denied": "confluent-audit-log-events_cluster"
+      }
+    }
+  },
+  "metadata": {
+    "resource_version": "f109371d0a856a40a2a96cca98f90ec2",
+    "updated_at": "2019-08-21T18:31:47+00:00"
+  }
+}

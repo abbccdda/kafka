@@ -6,19 +6,19 @@
 package com.linkedin.kafka.cruisecontrol.analyzer.goals;
 
 import com.linkedin.cruisecontrol.common.CruiseControlConfigurable;
-import com.linkedin.kafka.cruisecontrol.analyzer.OptimizationOptions;
 import com.linkedin.kafka.cruisecontrol.analyzer.ActionAcceptance;
 import com.linkedin.kafka.cruisecontrol.analyzer.BalancingAction;
+import com.linkedin.kafka.cruisecontrol.analyzer.OptimizationOptions;
 import com.linkedin.kafka.cruisecontrol.exception.KafkaCruiseControlException;
 import com.linkedin.kafka.cruisecontrol.exception.OptimizationFailureException;
 import com.linkedin.kafka.cruisecontrol.model.ClusterModel;
-
 import com.linkedin.kafka.cruisecontrol.model.ClusterModelStats;
 import com.linkedin.kafka.cruisecontrol.monitor.ModelCompletenessRequirements;
+import org.apache.kafka.common.annotation.InterfaceStability;
+
 import java.io.Serializable;
 import java.util.Comparator;
 import java.util.Set;
-import org.apache.kafka.common.annotation.InterfaceStability;
 
 
 /**
@@ -121,6 +121,12 @@ public interface Goal extends CruiseControlConfigurable {
    */
   boolean isHardGoal();
 
+  /**
+   * True if this goal can change replication factor of a topic
+   */
+  default boolean canChangeReplicationFactor() {
+    return false;
+  }
   /**
    * A comparator that compares two cluster model stats.
    */

@@ -5,14 +5,17 @@
 package com.linkedin.kafka.cruisecontrol.model;
 
 import com.linkedin.cruisecontrol.monitor.sampling.aggregator.AggregatedMetricValues;
-import com.linkedin.kafka.cruisecontrol.common.Resource;
-import com.linkedin.kafka.cruisecontrol.analyzer.BalancingConstraint;
 import com.linkedin.kafka.cruisecontrol.analyzer.AnalyzerUtils;
-
+import com.linkedin.kafka.cruisecontrol.analyzer.BalancingConstraint;
+import com.linkedin.kafka.cruisecontrol.common.Resource;
 import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityInfo;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.monitor.ModelGeneration;
 import com.linkedin.kafka.cruisecontrol.servlet.response.stats.BrokerStats;
+import kafka.common.TopicPlacement;
+import org.apache.commons.math3.stat.descriptive.moment.Variance;
+import org.apache.kafka.common.TopicPartition;
+
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.Serializable;
@@ -24,18 +27,12 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.SortedSet;
-import java.util.TreeSet;
 import java.util.SortedMap;
+import java.util.SortedSet;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-
-import org.apache.commons.math3.stat.descriptive.moment.Variance;
-import org.apache.kafka.common.Cluster;
-import org.apache.kafka.common.Node;
-import org.apache.kafka.common.PartitionInfo;
-import org.apache.kafka.common.TopicPartition;
 
 import static com.linkedin.kafka.cruisecontrol.monitor.MonitorUtils.UNIT_INTERVAL_TO_PERCENTAGE;
 
@@ -70,6 +67,7 @@ public class ClusterModel implements Serializable {
   private Map<Integer, Load> _potentialLeadershipLoadByBrokerId;
   private int _unknownHostId;
   private Map<Integer, String> _capacityEstimationInfoByBrokerId;
+  private Map<String, TopicPlacement> _topicPlacements;
 
   /**
    * Constructor for the cluster class. It creates data structures to hold a list of racks, a map for partitions by
@@ -102,6 +100,7 @@ public class ClusterModel implements Serializable {
     _monitoredPartitionsRatio = monitoredPartitionsRatio;
     _unknownHostId = 0;
     _capacityEstimationInfoByBrokerId = new HashMap<>();
+    _topicPlacements = Collections.emptyMap();
   }
 
   /**
@@ -126,6 +125,10 @@ public class ClusterModel implements Serializable {
    */
   public ClusterModelStats getClusterStats(BalancingConstraint balancingConstraint) {
     return (new ClusterModelStats()).populate(this, balancingConstraint);
+  }
+
+  public Set<String> aliveRackIds() {
+    return _racksById.values().stream().filter(Rack::isRackAlive).map(Rack::id).collect(Collectors.toSet());
   }
 
   /**
@@ -174,6 +177,24 @@ public class ClusterModel implements Serializable {
     return leaders;
   }
 
+  /**
+   * Get the distribution of observer replicas in the cluster.
+   */
+  public Map<TopicPartition, List<ReplicaPlacementInfo>> getObserverDistribution() {
+    Map<TopicPartition, List<ReplicaPlacementInfo>> observerDistribution = new HashMap<>(_partitionsByTopicPartition.size());
+    for (Map.Entry<TopicPartition, Partition> entry : _partitionsByTopicPartition.entrySet()) {
+      TopicPartition tp = entry.getKey();
+      Partition partition = entry.getValue();
+      List<ReplicaPlacementInfo> replicaPlacementInfos = partition.replicas().stream().filter(Replica::isObserver)
+              .map(r -> r.disk() == null ? new ReplicaPlacementInfo(r.broker().id()) :
+                      new ReplicaPlacementInfo(r.broker().id(), r.disk().logDir()))
+              .collect(Collectors.toList());
+      // Add distribution of replicas in the partition.
+      observerDistribution.put(tp, replicaPlacementInfos);
+    }
+
+    return observerDistribution;
+  }
   /**
    * Get replicas eligible for self-healing.
    */
@@ -400,6 +421,35 @@ public class ClusterModel implements Serializable {
   }
 
   /**
+   * Swaps an observer(source) and sync-replica(destination) via the following:
+   * (1) Removes observership from the source replica
+   * (2) Adds observership to the destination replica
+   * (3) Performs a leadership transfer from the destination replica to the source replica if destination replica
+   *     is a leader
+   */
+  public boolean transferObservership(TopicPartition tp, int sourceBrokerId, int destinationBrokerId) {
+    Replica sourceReplica = _partitionsByTopicPartition.get(tp).replica(sourceBrokerId);
+    if (!sourceReplica.isObserver()) {
+      return false;
+    }
+
+    Replica destinationReplica = _partitionsByTopicPartition.get(tp).replica(destinationBrokerId);
+    if (destinationReplica.isObserver()) {
+      throw new IllegalArgumentException("Cannot relocate observership of partition " + tp + "from broker "
+              + sourceBrokerId + " to broker " + destinationBrokerId
+              + " because the destination replica is an observer.");
+    }
+
+    // we need to transfer leadership if destination replica is a leader.
+    boolean success = !destinationReplica.isLeader() || relocateLeadership(tp, destinationBrokerId, sourceBrokerId);
+    if (success) {
+      sourceReplica.setObservership(false);
+      destinationReplica.setObservership(true);
+    }
+    return success;
+  }
+
+  /**
    * Get alive brokers in the cluster.
    */
   public Set<Broker> aliveBrokers() {
@@ -470,6 +520,13 @@ public class ClusterModel implements Serializable {
     }
 
     return brokersWithOfflineReplicasOnBadDisks;
+  }
+
+  /**
+   * Get brokers with matching attributes
+   */
+  public Set<Broker> aliveBrokersMatchingAttributes(Map<String, String> attributes) {
+    return aliveBrokers().stream().filter(broker -> broker.attributes().equals(attributes)).collect(Collectors.toSet());
   }
 
   /**
@@ -767,9 +824,9 @@ public class ClusterModel implements Serializable {
    * created replica. Set the replica as offline if it is on a dead broker.
    *
    * The {@link com.linkedin.kafka.cruisecontrol.monitor.LoadMonitor} uses {@link #createReplica(String, int,
-   * TopicPartition, int, boolean, boolean, String, boolean)} while setting the replica offline status, and it considers
-   * the broken disks as well. Whereas, this method is used only by the unit tests. The relevant unit tests may use
-   * {@link Replica#markOriginalOffline()} to mark offline replicas on broken disks.
+   * TopicPartition, int, boolean, boolean, String, boolean, boolean)} while setting the replica offline status, and it
+   * considers the broken disks as well. Whereas, this method is used only by the unit tests. The relevant unit tests
+   * may use {@link Replica#markOriginalOffline()} to mark offline replicas on broken disks.
    *
    * The main reason for this separation is the lack of disk representation in the current broker model. Once the
    * <a href="https://github.com/linkedin/cruise-control/pull/327">patch #327</a> is merged, we can simplify this logic.
@@ -782,7 +839,7 @@ public class ClusterModel implements Serializable {
    * @return Created replica.
    */
   public Replica createReplica(String rackId, int brokerId, TopicPartition tp, int index, boolean isLeader) {
-    return createReplica(rackId, brokerId, tp, index, isLeader, !broker(brokerId).isAlive(), null, false);
+    return createReplica(rackId, brokerId, tp, index, isLeader, !broker(brokerId).isAlive(), null, false, false);
   }
 
   /**
@@ -801,6 +858,7 @@ public class ClusterModel implements Serializable {
    *                       we are going to add to the cluster. This replica's original broker will not be any existing broker
    *                       so that it will be treated as an immigrant replica for whatever broker it is assigned to and
    *                       grant goals greatest freedom to allocate to an existing broker.
+   * @param isObserver     True if the replica is an observer, false otherwise
    * @return Created replica.
    */
   public Replica createReplica(String rackId,
@@ -810,7 +868,8 @@ public class ClusterModel implements Serializable {
                                boolean isLeader,
                                boolean isOffline,
                                String logdir,
-                               boolean isFuture) {
+                               boolean isFuture,
+                               boolean isObserver) {
     Replica replica;
     Broker broker = broker(brokerId);
     if (!isFuture) {
@@ -826,7 +885,7 @@ public class ClusterModel implements Serializable {
           }
         }
       }
-      replica = new Replica(tp, broker, isLeader, isOffline, disk);
+      replica = new Replica(tp, broker, isLeader, isOffline, disk, isObserver);
     } else {
       replica = new Replica(tp, GENESIS_BROKER, false);
       replica.setBroker(broker);
@@ -939,15 +998,14 @@ public class ClusterModel implements Serializable {
    * @param topicsByReplicationFactor The topics to modify replication factor with target replication factor.
    * @param brokersByRack A map from rack to broker.
    * @param rackByBroker A map from broker to rack.
-   * @param cluster The metadata of the cluster.
    */
   public void createOrDeleteReplicas(Map<Short, Set<String>> topicsByReplicationFactor,
                                      Map<String, List<Integer>> brokersByRack,
-                                     Map<Integer, String> rackByBroker,
-                                     Cluster cluster) {
+                                     Map<Integer, String> rackByBroker) {
     // After replica deletion of some topic partitions, the cluster's maximal replication factor may decrease.
     boolean needToRefreshClusterMaxReplicationFactor = false;
 
+    Map<String, List<Partition>> partitionsByTopic = getPartitionsByTopic();
     for (Map.Entry<Short, Set<String>> entry : topicsByReplicationFactor.entrySet()) {
       short replicationFactor = entry.getKey();
       Set<String> topics = entry.getValue();
@@ -955,30 +1013,31 @@ public class ClusterModel implements Serializable {
         List<String> racks = new ArrayList<>(brokersByRack.keySet());
         int[] cursors = new int[racks.size()];
         int rackCursor = 0;
-        for (PartitionInfo partitionInfo : cluster.partitionsForTopic(topic)) {
-          if (partitionInfo.replicas().length == replicationFactor) {
+        for (Partition partition : partitionsByTopic.get(topic)) {
+          if (partition.replicas().size() == replicationFactor) {
             continue;
           }
-          List<Integer> newAssignedReplica = new ArrayList<>();
-          if (partitionInfo.replicas().length < replicationFactor) {
+          List<Integer> newReplicas = new ArrayList<>();
+          if (partition.replicas().size() < replicationFactor) {
             Set<String> currentOccupiedRack = new HashSet<>();
             // Make sure the current replicas are in new replica list.
-            for (Node node : partitionInfo.replicas()) {
-              newAssignedReplica.add(node.id());
-              currentOccupiedRack.add(rackByBroker.get(node.id()));
+            for (Replica replica : partition.replicas()) {
+              Integer brokerId = replica.broker().id();
+              newReplicas.add(brokerId);
+              currentOccupiedRack.add(rackByBroker.get(brokerId));
             }
             // Add new replica to partition in rack-aware(if possible), round-robin way.
-            while (newAssignedReplica.size() < replicationFactor) {
+            while (newReplicas.size() < replicationFactor) {
               String rack = racks.get(rackCursor);
               if (!currentOccupiedRack.contains(rack) || currentOccupiedRack.size() == racks.size()) {
                 int cursor = cursors[rackCursor];
                 Integer brokerId = brokersByRack.get(rack).get(cursor);
-                if (!newAssignedReplica.contains(brokerId)) {
-                  newAssignedReplica.add(brokersByRack.get(rack).get(cursor));
+                if (!newReplicas.contains(brokerId)) {
+                  newReplicas.add(brokersByRack.get(rack).get(cursor));
                   // Create a new replica in the cluster model and populate its load from the leader replica.
-                  TopicPartition tp = new TopicPartition(topic, partitionInfo.partition());
+                  TopicPartition tp = partition.topicPartition();
                   Load load = partition(tp).leader().getFollowerLoadFromLeader();
-                  createReplica(rack, brokerId, tp, partitionInfo.replicas().length, false, false, null, true);
+                  createReplica(rack, brokerId, tp, partition.replicas().size(), false, false, null, true, false);
                   setReplicaLoad(rack, brokerId, tp, load.loadByWindows(), load.windows());
                   currentOccupiedRack.add(rack);
                 }
@@ -988,13 +1047,15 @@ public class ClusterModel implements Serializable {
             }
           } else {
             // Make sure the leader replica is in new replica list.
-            newAssignedReplica.add(partitionInfo.leader().id());
-            for (Node node : partitionInfo.replicas()) {
-              if (node.id() != newAssignedReplica.get(0)) {
-                if (newAssignedReplica.size() < replicationFactor) {
-                  newAssignedReplica.add(node.id());
+            newReplicas.add(partition.leader().broker().id());
+            List<Replica> replicas = new ArrayList<>(partition.replicas());
+            for (Replica replica : replicas) {
+              Integer brokerId = replica.broker().id();
+              if (brokerId != newReplicas.get(0)) {
+                if (newReplicas.size() < replicationFactor) {
+                  newReplicas.add(brokerId);
                 } else {
-                  deleteReplica(new TopicPartition(topic, partitionInfo.partition()), node.id());
+                  deleteReplica(partition.topicPartition(), brokerId);
                   needToRefreshClusterMaxReplicationFactor = true;
                 }
               }
@@ -1006,6 +1067,22 @@ public class ClusterModel implements Serializable {
     if (needToRefreshClusterMaxReplicationFactor) {
       refreshClusterMaxReplicationFactor();
     }
+  }
+
+  /**
+   * For partitions of specified topics, create or delete replicas in given cluster model to change the partition's replication
+   * factor to target replication factor. New replicas for partition are added in a rack-aware, round-robin way.
+   *
+   * @param topicsByReplicationFactor The topics to modify replication factor with target replication factor.
+   */
+  public void updateReplicationFactor(Map<Short, Set<String>> topicsByReplicationFactor,
+                                      Set<Integer> brokersExcludedForReplicaMovement) {
+    Map<Integer, String> brokerIdToRack = _brokerIdToRack.entrySet().stream().collect(Collectors.toMap(
+            entry -> entry.getKey(), entry -> entry.getValue().id()));
+    brokerIdToRack.keySet().removeAll(brokersExcludedForReplicaMovement);
+    Map<String, List<Integer>> rackToBrokerId = brokerIdToRack.entrySet().stream().collect(
+            Collectors.groupingBy(Map.Entry::getValue, Collectors.mapping(Map.Entry::getKey, Collectors.toList())));
+    createOrDeleteReplicas(topicsByReplicationFactor, rackToBrokerId, brokerIdToRack);
   }
 
   /**
@@ -1344,6 +1421,14 @@ public class ClusterModel implements Serializable {
       rack.writeTo(out);
     }
     out.write("</Cluster>".getBytes(StandardCharsets.UTF_8));
+  }
+
+  public TopicPlacement getTopicPlacement(String topic) {
+    return _topicPlacements.get(topic);
+  }
+
+  public void setTopicPlacements(Map<String, TopicPlacement> topicPlacements) {
+    _topicPlacements = topicPlacements;
   }
 
   @Override

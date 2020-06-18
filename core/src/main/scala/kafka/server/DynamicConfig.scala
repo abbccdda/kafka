@@ -40,15 +40,20 @@ object DynamicConfig {
 
     //Defaults
     val DefaultAlterLogDirsIoThrottledRate = Defaults.QuotaBytesPerSecond
+    val DefaultClusterLinkIoThrottledRate = Defaults.QuotaBytesPerSecond
 
     //Documentation
     val ReplicaAlterLogDirsIoMaxBytesPerSecondDoc = "A long representing the upper bound (bytes/sec) on disk IO used for moving replica between log directories on the same broker. " +
+      s"This property can be only set dynamically. It is suggested that the limit be kept above 1MB/s for accurate behaviour."
+    val ClusterLinkIoMaxBytesPerSecondDoc = "A long representing the upper bound (bytes/sec) on disk IO used for cluster link replication. " +
       s"This property can be only set dynamically. It is suggested that the limit be kept above 1MB/s for accurate behaviour."
 
     //Definitions
     val brokerConfigDef = new ConfigDef()
       //round minimum value down, to make it easier for users.
       .define(ReplicaAlterLogDirsIoMaxBytesPerSecondProp, LONG, DefaultAlterLogDirsIoThrottledRate, atLeast(0), MEDIUM, ReplicaAlterLogDirsIoMaxBytesPerSecondDoc)
+      .define(ClusterLinkIoMaxBytesPerSecondProp, LONG, DefaultClusterLinkIoThrottledRate, atLeast(0), MEDIUM, ClusterLinkIoMaxBytesPerSecondDoc)
+
     DynamicBrokerConfig.addDynamicConfigs(brokerConfigDef)
     val nonDynamicProps = KafkaConfig.configNames.toSet -- brokerConfigDef.names.asScala
 

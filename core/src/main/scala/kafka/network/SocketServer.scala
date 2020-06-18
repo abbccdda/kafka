@@ -46,6 +46,7 @@ import org.apache.kafka.common.protocol.ApiKeys
 import org.apache.kafka.common.requests.{ApiVersionsRequest, RequestHeader}
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.utils.{KafkaThread, LogContext, Time}
+import org.apache.kafka.server.audit.{AuditLogProvider, NoOpAuditLogProvider}
 import org.slf4j.event.Level
 
 import scala.collection._
@@ -74,7 +75,8 @@ import scala.util.control.ControlThrowable
 class SocketServer(val config: KafkaConfig,
                    val metrics: Metrics,
                    val time: Time,
-                   val credentialProvider: CredentialProvider)
+                   val credentialProvider: CredentialProvider,
+                   val auditLogProvider: AuditLogProvider = NoOpAuditLogProvider.INSTANCE)
   extends Logging with KafkaMetricsGroup with BrokerReconfigurable {
 
   private val maxQueuedRequests = config.queuedMaxRequests
@@ -415,7 +417,8 @@ class SocketServer(val config: KafkaConfig,
       metrics,
       credentialProvider,
       memoryPool,
-      logContext
+      logContext,
+      auditLogProvider
     )
   }
 
@@ -742,6 +745,7 @@ private[kafka] class Processor(val id: Int,
                                credentialProvider: CredentialProvider,
                                memoryPool: MemoryPool,
                                logContext: LogContext,
+                               auditLogProvider: AuditLogProvider = NoOpAuditLogProvider.INSTANCE,
                                connectionQueueSize: Int = ConnectionQueueSize) extends AbstractServerThread(connectionQuotas) with KafkaMetricsGroup {
 
   private object ConnectionId {
@@ -781,9 +785,10 @@ private[kafka] class Processor(val id: Int,
   private val expiredConnectionsKilledCountMetricName = metrics.metricName("expired-connections-killed-count", "socket-server-metrics", metricTags)
   metrics.addMetric(expiredConnectionsKilledCountMetricName, expiredConnectionsKilledCount)
 
+  val isInterBrokerListener = listenerName == config.interBrokerListenerName
   private val selector = createSelector(
     ChannelBuilders.serverChannelBuilder(listenerName,
-      listenerName == config.interBrokerListenerName,
+      isInterBrokerListener,
       securityProtocol,
       config,
       credentialProvider.credentialCache,
@@ -808,7 +813,17 @@ private[kafka] class Processor(val id: Int,
       true,
       channelBuilder,
       memoryPool,
-      logContext)
+      logContext,
+      auditLogProvider())
+  }
+
+  private def auditLogProvider(): Optional[AuditLogProvider] = {
+    //For now disable auditlogs for interbroker listener and plaintext. We will add per listener enable config.
+    // Set Optional.empty() for NoOpAuditLogProvider to avoid unnecessary object allocations
+    if (isInterBrokerListener || securityProtocol == SecurityProtocol.PLAINTEXT ||
+      !config.authenticationAuditLogEnabled || auditLogProvider == NoOpAuditLogProvider.INSTANCE)
+      Optional.empty()
+    else Optional.of(auditLogProvider)
   }
 
   // Connection ids have the format `localAddr:localPort-remoteAddr:remotePort-index`. The index is a

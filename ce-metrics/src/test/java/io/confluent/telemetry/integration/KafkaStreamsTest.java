@@ -127,14 +127,14 @@ public class KafkaStreamsTest extends TelemetryClusterTestHarness {
     streamsConfiguration
         .setProperty(CommonClientConfigs.METRICS_CONTEXT_PREFIX + ConfluentConfigs.RESOURCE_LABEL_PREFIX + "pkc", "pkc-bar");
     streamsConfiguration
-            .setProperty(CommonClientConfigs.METRICS_CONTEXT_PREFIX + Utils.RESOURCE_LABEL_CLUSTER_ID, "stream-cluster");
+        .setProperty(CommonClientConfigs.METRICS_CONTEXT_PREFIX + Utils.RESOURCE_LABEL_CLUSTER_ID, "stream-cluster");
 
     streamsConfiguration
-            .setProperty(CommonClientConfigs.METRICS_CONTEXT_PREFIX + ConfluentConfigs.RESOURCE_LABEL_TYPE, "ksql");
+        .setProperty(CommonClientConfigs.METRICS_CONTEXT_PREFIX + ConfluentConfigs.RESOURCE_LABEL_TYPE, "ksql");
     streamsConfiguration
-            .setProperty(CommonClientConfigs.METRICS_CONTEXT_PREFIX + ConfluentConfigs.RESOURCE_LABEL_VERSION, AppInfoParser.getVersion());
+        .setProperty(CommonClientConfigs.METRICS_CONTEXT_PREFIX + ConfluentConfigs.RESOURCE_LABEL_VERSION, AppInfoParser.getVersion());
     streamsConfiguration
-            .setProperty(CommonClientConfigs.METRICS_CONTEXT_PREFIX + ConfluentConfigs.RESOURCE_LABEL_COMMIT_ID, AppInfoParser.getCommitId());
+        .setProperty(CommonClientConfigs.METRICS_CONTEXT_PREFIX + ConfluentConfigs.RESOURCE_LABEL_COMMIT_ID, AppInfoParser.getCommitId());
 
     runApplication();
   }

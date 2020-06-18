@@ -22,7 +22,9 @@
       { "name": "LinkId", "type": "uuid", "versions": "0+",
         "about": "The ID associated with the cluster link." },
       { "name": "ClusterId", "type": "string", "versions": "0+", "nullableVersions": "0+",
-        "about": "The required cluster ID for the cluster, or null if ignored." }
+        "about": "The required cluster ID for the cluster, or null if ignored." },
+      { "name": "Topics", "type": "[]string", "versions": "0+", "nullableVersions": "0+", "default": "null",
+        "about": "The topics that are linked with the cluster link, otherwise if null, then the topics weren't requested." }
     ]}
   ]
 }

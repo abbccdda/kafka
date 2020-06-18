@@ -6,28 +6,29 @@ package io.confluent.databalancer;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControl;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkInboundCapacityGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkOutboundCapacityGoal;
-import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalPhaseBuilder;
+import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalFuture;
 import com.linkedin.kafka.cruisecontrol.client.BlockingSendClient;
 import com.linkedin.kafka.cruisecontrol.common.KafkaCruiseControlThreadFactory;
 import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityResolver;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.KafkaSampleStore;
-import com.linkedin.kafka.cruisecontrol.monitor.sampling.MetricSampler;
-import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSampler;
 import io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsSamplerBase;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
-import io.confluent.databalancer.operation.BrokerRemovalProgressListener;
 import io.confluent.databalancer.operation.BalanceOpExecutionCompletionCallback;
+import io.confluent.databalancer.operation.BrokerRemovalProgressListener;
+import io.confluent.databalancer.operation.BrokerRemovalStateMachine;
 import io.confluent.databalancer.operation.BrokerRemovalStateTracker;
+import io.confluent.databalancer.operation.BrokerRemovalTerminationListener;
+import io.confluent.databalancer.operation.PersistRemoveApiStateListener;
 import io.confluent.databalancer.persistence.ApiStatePersistenceStore;
+import io.confluent.databalancer.persistence.BrokerRemovalStateRecord;
 import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
-import kafka.common.BrokerRemovalStatus;
 import kafka.server.KafkaConfig;
 import org.apache.kafka.common.Endpoint;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
+import org.apache.kafka.common.errors.BalancerOfflineException;
 import org.apache.kafka.common.errors.BrokerRemovalInProgressException;
-import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.SystemTime;
@@ -35,9 +36,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.collection.JavaConverters;
 
+import javax.annotation.Nonnull;
 import java.time.Duration;
 import java.util.HashMap;
-import javax.annotation.Nonnull;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -105,6 +106,12 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     // access is serialized through here (in particular for startup/shutdown).
     private final ExecutorService ccRunner;
 
+    // a function that takes in a broker ID as a parameter and registers a metric that tracks the broker removal state
+    private Function<Integer, AtomicReference<String>> brokerRemovalStateMetricRegistrationHandler;
+
+    // package-private for testing
+    final BrokerRemovalTerminationListener removalTerminationListener;
+
     // Visible for testing
     final ConfluentDataBalanceEngineContext context;
     private Semaphore abortStartupCheck  = new Semaphore(0);
@@ -132,17 +139,30 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     // Visible for testing
     volatile boolean canAcceptRequests = false;
 
-    public ConfluentDataBalanceEngine(DataBalancerMetricsRegistry dataBalancerMetricsRegistry) {
-        this(Executors.newSingleThreadExecutor(
-                     new KafkaCruiseControlThreadFactory("DataBalanceEngine", true, LOG)),
-                new ConfluentDataBalanceEngineContext(dataBalancerMetricsRegistry, null, new SystemTime())
-            );
+    public ConfluentDataBalanceEngine(DataBalancerMetricsRegistry dataBalancerMetricsRegistry, KafkaConfig config) {
+        this(Executors.newSingleThreadExecutor(createThreadFactory(config)),
+             createContext(dataBalancerMetricsRegistry));
+    }
+
+    private static ConfluentDataBalanceEngineContext createContext(DataBalancerMetricsRegistry dataBalancerMetricsRegistry) {
+        return new ConfluentDataBalanceEngineContext(dataBalancerMetricsRegistry, null, new SystemTime());
+    }
+
+    private static KafkaCruiseControlThreadFactory createThreadFactory(KafkaConfig config) {
+        return new KafkaCruiseControlThreadFactory("DataBalanceEngine",
+                true,
+                LOG,
+                Optional.of(KafkaDataBalanceManager.getBrokerId(config)));
     }
 
     ConfluentDataBalanceEngine(ExecutorService executor,
                                ConfluentDataBalanceEngineContext context) {
         this.ccRunner = Objects.requireNonNull(executor, "ExecutorService must be non-null");
         this.context = context;
+        this.removalTerminationListener = (brokerId1, state, e) -> {
+            context.brokerRemovalsStateTrackers.remove(brokerId1);
+            LOG.info("Removal for broker {} reached terminal state {}", brokerId1, state);
+        };
     }
 
     @Override
@@ -151,16 +171,19 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     }
 
     @Override
-    public synchronized void onActivation(KafkaConfig kafkaConfig)  {
+    public synchronized void onActivation(EngineInitializationContext initializationContext)  {
+        brokerRemovalStateMetricRegistrationHandler = initializationContext.brokerRemovalStateMetricRegistrationHandler;
+
         LOG.info("DataBalancer: Scheduling DataBalanceEngine Startup");
+
         abortStartupCheck.drainPermits();
         canAcceptRequests = true;
-        ccRunner.submit(() -> startCruiseControl(kafkaConfig, this::createKafkaCruiseControl));
+        ccRunner.submit(() -> startCruiseControl(initializationContext, this::createKafkaCruiseControl));
     }
 
     @Override
     public synchronized void onDeactivation() {
-        LOG.info("DataBalancer: Scheduling DataBalanceEngine Shutdown");
+        LOG.info("DataBalancer: Scheduling DataBalanceEngine Shutdown.");
 
         // If startup is in progress, abort it
         abortStartupCheck.release();
@@ -171,7 +194,6 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     /**
      * Called when the object is going away for good (end of broker lifetime). May stall for a while for cleanup.
      * IT IS EXPECTED THAT onDeactivation WILL HAVE ALREADY BEEN CALLED WHEN THIS IS INVOKED.
-     * @throws InterruptedException
      */
     @Override
     public void shutdown() throws InterruptedException {
@@ -196,21 +218,19 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     @Override
     public void removeBroker(int brokerToRemove,
                              Optional<Long> brokerToRemoveEpoch,
-                             AtomicReference<String> registerBrokerRemovalMetric,
-                             BrokerRemovalProgressListener listener,
                              String uid) {
         LOG.info("DataBalancer: Scheduling DataBalanceEngine broker removal: {} (uid: {})", brokerToRemove, uid);
         if (!canAcceptRequests) {
             String msg = String.format("Received request to remove broker %d (uid %s) while SBK is not started.",
                     brokerToRemove, uid);
             LOG.error(msg);
-            throw new InvalidRequestException(msg);
+            throw new BalancerOfflineException(msg);
         }
 
         // Validate that the broker is not already getting removed
         ApiStatePersistenceStore persistenceStore = context.getPersistenceStore();
-        BrokerRemovalStatus existingBrokerRemovalStatus = persistenceStore.getBrokerRemovalStatus(brokerToRemove);
-        if (existingBrokerRemovalStatus != null && !existingBrokerRemovalStatus.isDone()) {
+        BrokerRemovalStateRecord existingBrokerRemovalStateRecord = persistenceStore.getBrokerRemovalStateRecord(brokerToRemove);
+        if (existingBrokerRemovalStateRecord != null && !existingBrokerRemovalStateRecord.state().isTerminal()) {
             String msg = String.format("Received request to remove broker %d (uid %s) while another request " +
                     "to remove the broker is already in progress", brokerToRemove, uid);
             LOG.error(msg);
@@ -218,8 +238,8 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         }
 
         // Validate that no other broker is already getting removed
-        Set<BrokerRemovalStatus> ongoingRemovals = persistenceStore.getAllBrokerRemovalStatus().values().stream()
-                .filter(status -> !status.isDone())
+        Set<BrokerRemovalStateRecord> ongoingRemovals = persistenceStore.getAllBrokerRemovalStateRecords().values().stream()
+                .filter(status -> !status.state().isTerminal())
                 .collect(Collectors.toSet());
         if (!ongoingRemovals.isEmpty()) {
             String brokerIds = ongoingRemovals.stream()
@@ -231,9 +251,23 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
             throw new BrokerRemovalInProgressException(msg);
         }
 
+        BrokerRemovalProgressListener listener = new PersistRemoveApiStateListener(
+            context.getPersistenceStore());
+        BrokerRemovalStateTracker stateTracker = new BrokerRemovalStateTracker(brokerToRemove,
+            listener,
+            removalTerminationListener,
+            brokerRemovalStateMetricRegistrationHandler.apply(brokerToRemove));
+
+        submitRemoveBroker(brokerToRemove, brokerToRemoveEpoch, stateTracker, uid);
+    }
+
+    private void submitRemoveBroker(int brokerToRemove,
+                                    Optional<Long> brokerToRemoveEpoch,
+                                    BrokerRemovalStateTracker stateTracker,
+                                    String uid) {
+        context.brokerRemovalsStateTrackers.put(brokerToRemove, stateTracker);
         // This call will create initial remove broker api state. We should not fail synchronously after this line.
-        BrokerRemovalStateTracker stateTracker = BrokerRemovalStateTracker.initialize(brokerToRemove, listener,
-                registerBrokerRemovalMetric);
+        stateTracker.initialize();
 
         submitToCcRunner(() -> doRemoveBroker(brokerToRemove, brokerToRemoveEpoch, stateTracker, uid),
                 "Broker removal operation with UID " + uid + " was not initiated" +
@@ -256,15 +290,15 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     @Override
     public void addBrokers(Set<Integer> brokersToAdd, @Nonnull BalanceOpExecutionCompletionCallback onExecutionCompletion, String uid) {
         if (!canAcceptRequests) {
-            String msg = String.format("Received request to add brokers {} while SBK is not started.", brokersToAdd);
+            String msg = String.format("Received request to add brokers %s while SBK is not started.", brokersToAdd);
             LOG.error(msg);
-            throw new InvalidRequestException(msg);
+            throw new BalancerOfflineException(msg);
         }
 
         // Check to make sure this can proceed (no ongoing removals)
         ApiStatePersistenceStore persistenceStore = context.getPersistenceStore();
-        Map<Integer, BrokerRemovalStatus> existingBrokerRemovalStatus = persistenceStore.getAllBrokerRemovalStatus();
-        if (existingBrokerRemovalStatus.values().stream().anyMatch(s -> !s.isDone())) {
+        Map<Integer, BrokerRemovalStateRecord> existingBrokerRemovalStatus = persistenceStore.getAllBrokerRemovalStateRecords();
+        if (existingBrokerRemovalStatus.values().stream().anyMatch(s -> !s.state().isTerminal())) {
             LOG.warn("Broker removals ongoing, will not add new brokers {}", brokersToAdd);
             return;
         }
@@ -273,6 +307,26 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         submitToCcRunner(() -> doAddBrokers(brokersToAdd, onExecutionCompletion, uid),
                 "Broker addition operation with UID " + uid + " was not initiated" +
                 " due to the data balance engine not being initialized");
+    }
+
+    /**
+     * Cancels the on-going broker removal operations for the given #{@code brokerIds}
+     * @return - the successfully canceled broker removal operations and their associated exceptions
+     */
+    @Override
+    public boolean cancelBrokerRemoval(int brokerId) {
+        BrokerRemovalFuture removalFuture = context.brokerRemovalFuture(brokerId);
+        if (removalFuture == null) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Will not cancel broker {} removal as it is not being removed.", brokerId);
+            }
+            return false;
+        }
+
+        LOG.info("Canceling broker removal task for broker {}", brokerId);
+        boolean wasCanceled = removalFuture.cancel();
+        LOG.info("Canceled broker removal task for broker {} (future canceled {})", brokerId, wasCanceled);
+        return wasCanceled;
     }
 
     /**
@@ -305,12 +359,14 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         LOG.info("Initiating broker removal operation with UID {} for broker {} (epoch {})",
                 uid, brokerToRemove, brokerToRemoveEpoch);
         try {
-            BrokerRemovalPhaseBuilder.BrokerRemovalExecution removalExecutor = context.getCruiseControl().removeBroker(
+            BrokerRemovalFuture brokerRemovalFuture = context.getCruiseControl().removeBroker(
                     brokerToRemove, brokerToRemoveEpoch,
-                    (success, ex) -> { }, // CNKAF-757 -- do something when the operation completes
+                    (success, ex) -> {
+                        context.removeBrokerRemovalFuture(brokerToRemove);
+                    },
                     stateTracker, uid);
-            // TODO: Persist removalExecutor.chainedFutures to be able to cancel them
-            removalExecutor.execute(Duration.ofMinutes(60));
+            context.putBrokerRemovalFuture(brokerToRemove, brokerRemovalFuture);
+            brokerRemovalFuture.execute(Duration.ofMinutes(60));
         } catch (InterruptedException ex) {
             LOG.error("Interrupted when removing broker: {}", brokerToRemove, ex);
             Thread.currentThread().interrupt();
@@ -320,18 +376,16 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
             // persists them in Api State store topic. If we reach here, its some generic error not
             // related to remove broker. So we should log and add catch for other known errors
             // (like InterruptedException)
-            LOG.error("Broker removal operation with UID {} failed due to {}", uid, e);
+            LOG.error("Broker removal operation with UID {} failed due to ", uid, e);
         }
     }
 
     /**
      * Launch CruiseControl. Expected to run in a thread-safe context such as a SingleThreadExecutor.
      * This should be appropriately serialized with shutdown requests.
-     *
-     * @param kafkaConfig -- the broker configuration, from which the CruiseControl config will be derived
      */
     // Visible for testing
-    void startCruiseControl(KafkaConfig kafkaConfig,
+    void startCruiseControl(EngineInitializationContext initializationContext,
                             Function<KafkaConfig, KafkaCruiseControl> kafkaCruiseControlCreator) {
         if (context.isCruiseControlInitialized()) {
             LOG.warn("DataBalanceEngine already running when startUp requested.");
@@ -340,9 +394,13 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
 
         LOG.info("DataBalancer: Instantiating DataBalanceEngine");
         try {
-            KafkaCruiseControl newCruiseControl = kafkaCruiseControlCreator.apply(kafkaConfig);
+            KafkaCruiseControl newCruiseControl = kafkaCruiseControlCreator.apply(initializationContext.kafkaConfig);
             newCruiseControl.startUp();
-            context.setPersistenceStore(new ApiStatePersistenceStore(kafkaConfig, context.getTime()));
+            context.setPersistenceStore(new ApiStatePersistenceStore(initializationContext.kafkaConfig, context.getTime(), generateClientConfigs(initializationContext.kafkaConfig)));
+
+            // Now we have cruise control started, resubmit pending operations
+            resubmitPendingOperations(initializationContext);
+
             // This should be last line in this method. Setting cruise control object makes
             // `isActive`/`context.isCruiseControlInitialized()` methods to return true, which allows
             // databalance engine to accept new requests.
@@ -356,7 +414,42 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
             context.closeAndClearState();
         }
     }
-    
+
+    /**
+     * Resubmit any ongoing operations that couldn't complete as controller went down. SBK gets restarted
+     * along with that.
+     *
+     * Currently this only restarts remove operations, add operations need to be tackled too.
+     */
+    private void resubmitPendingOperations(EngineInitializationContext initializationContext) {
+        ApiStatePersistenceStore persistenceStore = context.getPersistenceStore();
+        Set<BrokerRemovalStateRecord> pendingRemovals = persistenceStore.getAllBrokerRemovalStateRecords().values().stream()
+                .filter(status -> !status.state().isTerminal())
+                .collect(Collectors.toSet());
+        if (pendingRemovals.isEmpty()) {
+            LOG.info("No pending SBK operations found at startup.");
+        }
+
+        BrokerRemovalProgressListener listener = new PersistRemoveApiStateListener(context.getPersistenceStore());
+
+        for (BrokerRemovalStateRecord removalStateRecord : pendingRemovals) {
+            int brokerId = removalStateRecord.brokerId();
+            BrokerRemovalStateMachine.BrokerRemovalState pendingState = removalStateRecord.state();
+            BrokerRemovalStateTracker stateTracker = new BrokerRemovalStateTracker(brokerId,
+                    pendingState,
+                    listener,
+                    removalTerminationListener,
+                    brokerRemovalStateMetricRegistrationHandler.apply(brokerId));
+
+            String uid = String.format("remove-broker-%d-%d", brokerId, context.getTime().milliseconds());
+            submitRemoveBroker(brokerId,
+                               Optional.ofNullable(initializationContext.brokerEpochs.get(brokerId)),
+                               stateTracker,
+                               uid);
+            LOG.info("Submitted pending operation to remove broker id {} with state {}.", brokerId, pendingState);
+        }
+    }
+
     // This method abstracts "new" call so that unit test can mock this part out
     // and test startCruiseControl method
     private KafkaCruiseControl createKafkaCruiseControl(KafkaConfig kafkaConfig) {
@@ -367,9 +460,10 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
                 new LogContext());
 
         KafkaCruiseControlConfig config = generateCruiseControlConfig(kafkaConfig);
-        MetricSampler sampler = config.getConfiguredInstance(KafkaCruiseControlConfig.METRIC_SAMPLER_CLASS_CONFIG, MetricSampler.class);
-        if (sampler instanceof ConfluentMetricsSamplerBase) {
-            STARTUP_COMPONENTS.add(new StartupComponent(ConfluentMetricsReporterSampler.class.getSimpleName(), ((ConfluentMetricsSamplerBase) sampler)::checkStartupCondition));
+        Class<?> sampler = config.getClass(KafkaCruiseControlConfig.METRIC_SAMPLER_CLASS_CONFIG);
+        // All metric sampler classes derived from the ConfluentMetricsSampler have a startup component
+        if (ConfluentMetricsSamplerBase.class.isAssignableFrom(sampler)) {
+            STARTUP_COMPONENTS.add(new StartupComponent(sampler.getSimpleName(), ConfluentMetricsSamplerBase::checkStartupCondition));
         }
 
         checkStartupComponentsReady(config);
@@ -444,12 +538,10 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
      * Given a KafkaConfig, generate an appropriate KafkaCruiseControlConfig to bring up CruiseControl internally.
      * Visible for testing
      */
-    @SuppressWarnings("deprecation")
     static KafkaCruiseControlConfig generateCruiseControlConfig(KafkaConfig config) {
         // Extract all confluent.databalancer.X properties from the KafkaConfig, so we
         // can create a CruiseControlConfig from it.
         Map<String, Object> ccConfigProps = new HashMap<>(config.originalsWithPrefix(ConfluentConfigs.CONFLUENT_BALANCER_PREFIX));
-
         // Special overrides: zookeeper.connect, etc.
         ccConfigProps.putIfAbsent(KafkaCruiseControlConfig.ZOOKEEPER_CONNECT_CONFIG, config.get(KafkaConfig.ZkConnectProp()));
         ccConfigProps.put(BrokerCapacityResolver.LOG_DIRS_CONFIG, getConfiguredLogDirs(config));
@@ -475,15 +567,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         // Derive bootstrap.servers from the provided KafkaConfig, instead of requiring
         // users to specify it.
         if (ccConfigProps.get(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG) == null) {
-            Endpoint interBrokerEp = config.listeners()
-                .find(ep -> ep.listenerName().equals(config.interBrokerListenerName()))
-                .get().toJava();
-            LOG.info("DataBalancer: Listener endpoint is {}", interBrokerEp);
-            Map<String, Object> clientConfigs = ConfluentConfigs.interBrokerClientConfigs(config, interBrokerEp);
-
-            LOG.info("Adding configs {} to config", clientConfigs);
-
-            ccConfigProps.putAll(clientConfigs);
+            populateClientConfigs(config, ccConfigProps);
         }
         LOG.info("DataBalancer: BOOTSTRAP_SERVERS determined to be {}", ccConfigProps.get(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG));
 
@@ -517,6 +601,44 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         return new KafkaCruiseControlConfig(ccConfigProps);
     }
 
+    /**
+     * Derives the bootstrap.servers from the provided #{@link KafkaConfig}
+     * and populates the passed in #{@code props} with it, along with more default client properties
+     */
+    static void populateClientConfigs(KafkaConfig config, Map<String, Object> props) {
+        Map<String, Object> clientConfigs = generateClientConfigs(config);
+        LOG.info("Adding configs {} to config", clientConfigs);
+
+        props.putAll(clientConfigs);
+    }
+
+    private static Map<String, Object> generateClientConfigs(KafkaConfig config) {
+        Endpoint interBrokerEndpoint = config.listeners()
+            .find(ep -> ep.listenerName().equals(config.interBrokerListenerName()))
+            .get().toJava();
+
+        if (interBrokerEndpoint.host() == null || interBrokerEndpoint.host().isEmpty()) {
+            // If listeners list doesn't have host port for bootstrap server, then check advertised listeners
+            // As advertised listeners are used by clients to connect to kafka brokers, they should contain
+            // hostname. Also Inter broker communication endpoint is guaranteed to be part of advertised listeners.
+            // NOTE: `listeners` list is used by kafka to bind to host/port, where as `advertised.listeners` is
+            // used by clients to connect to kafka cluster
+            Endpoint advertisedInterBrokerEndpoint = config.advertisedListeners()
+                    .find(ep -> ep.listenerName().equals(config.interBrokerListenerName()))
+                    .get().toJava();
+
+            if (advertisedInterBrokerEndpoint.host() == null || advertisedInterBrokerEndpoint.host().isEmpty()) {
+                LOG.warn(String.format("Could not find a host in both the normal (%s) and advertised (%s) internal broker listener. This will default to localhost",
+                    interBrokerEndpoint, advertisedInterBrokerEndpoint));
+            }
+
+            interBrokerEndpoint = advertisedInterBrokerEndpoint;
+        }
+
+        LOG.info("DataBalancer: Listener endpoint is {}", interBrokerEndpoint);
+        return ConfluentConfigs.interBrokerClientConfigs(config, interBrokerEndpoint);
+    }
+
     private static void configureCruiseControlSelfHealing(KafkaConfig config, Map<String, Object> cruiseControlProps) {
         Long brokerFailureSelfHealingThreshold = config.getLong(ConfluentConfigs.BALANCER_BROKER_FAILURE_THRESHOLD_CONFIG);
         boolean brokerFailureSelfHealingEnabled = !brokerFailureSelfHealingThreshold.equals(ConfluentConfigs.BALANCER_BROKER_FAILURE_THRESHOLD_DISABLED);
@@ -537,7 +659,6 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
 
     /**
      * Get the log directories from the Kafka Config. For SBK, there can be only one.
-     * @param config
      */
     @SuppressWarnings("deprecation")
     private static String getConfiguredLogDirs(KafkaConfig config) {

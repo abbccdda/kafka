@@ -190,7 +190,11 @@ public class HttpExporterConfig extends ExporterConfig {
     }
 
     public HttpExporterConfig(Map<String, ?> originals) {
-        super(CONFIG, originals);
+        this(originals, true);
+    }
+
+    public HttpExporterConfig(Map<String, ?> originals, boolean doLog) {
+        super(CONFIG, originals, doLog);
     }
 
     /**

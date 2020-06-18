@@ -8,8 +8,9 @@ import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUnitTestUtils;
 import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityConfigFileResolver;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.CruiseControlMetric;
-import io.confluent.metrics.record.ConfluentMetric;
-import io.confluent.serializers.ProtoSerde;
+
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.common.record.TimestampType;
 import org.apache.kafka.common.utils.Time;
 import org.junit.Assert;
 import org.junit.Test;
@@ -17,6 +18,9 @@ import org.junit.Test;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
+
+import io.confluent.metrics.record.ConfluentMetric;
+import io.confluent.serializers.ProtoSerde;
 
 import static com.linkedin.kafka.cruisecontrol.monitor.sampling.MetricFetcherManager.BROKER_CAPACITY_CONFIG_RESOLVER_OBJECT_CONFIG;
 import static org.junit.Assert.assertThrows;
@@ -65,8 +69,13 @@ public class ConfluentMetricsReporterSamplerTest {
         byte[] metricsMessage = serde.serialize(metricsMessageBuilder.build());
 
         ConfluentMetricsReporterSampler sampler = new ConfluentMetricsReporterSampler();
-        assertThrows(IllegalStateException.class, () -> sampler.convertMetricRecord(metricsMessage));
+        assertThrows(IllegalStateException.class, () -> sampler.convertMetricRecord(createRecord(metricsMessage)));
     }
+
+    static ConsumerRecord<byte[], byte[]> createRecord(byte[] metricsMessage) {
+        return new ConsumerRecord<>("test-topic", 0, 0, 0, TimestampType.CREATE_TIME, 0, 0, 0, null, metricsMessage);
+    }
+
     @Test
     public void testMetricsSampler() {
         ProtoSerde<ConfluentMetric.MetricsMessage> serde =
@@ -164,7 +173,7 @@ public class ConfluentMetricsReporterSamplerTest {
         byte[] metricsMessage = serde.serialize(metricsMessageBuilder.build());
 
         ConfluentMetricsReporterSampler sampler = new ConfluentMetricsReporterSampler();
-        List<CruiseControlMetric> metricList = sampler.convertMetricRecord(metricsMessage);
+        List<CruiseControlMetric> metricList = sampler.convertMetricRecord(createRecord(metricsMessage));
 
         // There should be 11 total metrics
         Assert.assertEquals(11, metricList.size());

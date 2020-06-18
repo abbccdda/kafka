@@ -157,15 +157,15 @@ public class OAuthBearerValidatorCallbackHandler implements AuthenticateCallback
             .get(OAUTH_NEGOTIATED_LOGICAL_CLUSTER_PROPERTY_KEY);
 
     if (logicalCluster == null || logicalCluster.isEmpty()) {
-      log.info("The logical cluster extension is missing or is empty");
-      callback.error(OAUTH_NEGOTIATED_LOGICAL_CLUSTER_PROPERTY_KEY, AUTH_ERROR_MESSAGE);
+      String errorMessage = "The logical cluster extension is missing or is empty";
+      handleError(callback, errorMessage);
       return;
     }
 
     if (!token.allowedClusters().contains(logicalCluster)) {
-      log.info("The principal {}'s logical cluster {} is not part of the allowed clusters in this token ({}).",
+      String errorMessage = String.format("The principal %s's logical cluster %s is not part of the allowed clusters in this token (%s).",
               token.principalName(), logicalCluster, String.join(",", token.allowedClusters()));
-      callback.error(OAUTH_NEGOTIATED_LOGICAL_CLUSTER_PROPERTY_KEY, AUTH_ERROR_MESSAGE);
+      handleError(callback, errorMessage);
       return;
     }
 
@@ -174,12 +174,13 @@ public class OAuthBearerValidatorCallbackHandler implements AuthenticateCallback
         if (clusterMetadata.logicalClusterIdsIncludingStale().contains(logicalCluster))
           log.info("Failing OAuth authentication because the metadata for the logical cluster {} is stale.", logicalCluster);
 
-        log.info("The principal {}'s logical cluster {} is not hosted on this broker.", token.principalName(), logicalCluster);
-        callback.error(OAUTH_NEGOTIATED_LOGICAL_CLUSTER_PROPERTY_KEY, AUTH_ERROR_MESSAGE);
+        String errorMessage = String.format("The principal %s's logical cluster %s is not hosted on this broker.", token.principalName(), logicalCluster);
+        handleError(callback, errorMessage);
         return;
       }
     } catch (IllegalStateException e) {
       log.error("Could not get physical cluster metadata to validate the token. ", e);
+      callback.errorMessage("Could not get cluster metadata to validate the token");
       callback.error(OAUTH_NEGOTIATED_LOGICAL_CLUSTER_PROPERTY_KEY, AUTH_ERROR_MESSAGE);
       return;
     }
@@ -187,6 +188,13 @@ public class OAuthBearerValidatorCallbackHandler implements AuthenticateCallback
     callback.valid(OAUTH_NEGOTIATED_LOGICAL_CLUSTER_PROPERTY_KEY);
     log.debug("Successfully authenticated for user: {} (cluster: {})",
             token.principalName(), logicalCluster);
+  }
+
+  private void handleError(final OAuthBearerExtensionsValidatorCallback callback,
+                           final String errorMessage) {
+    log.info(errorMessage);
+    callback.errorMessage(errorMessage);
+    callback.error(OAUTH_NEGOTIATED_LOGICAL_CLUSTER_PROPERTY_KEY, AUTH_ERROR_MESSAGE);
   }
 
   /**

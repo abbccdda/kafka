@@ -108,6 +108,24 @@ class ClusterLinkSyncOffsetsTest {
   }
 
   @Test
+  def testCurrentOffsetsAreNotUpdatedOnCommitFailure(): Unit = {
+    setupMock(isController = true)
+    val topic = "testTopic"
+    val group = "testGroup"
+    val clusterLinkConfig = linkConfig(allowAllFilter)
+
+    setupMockListGroupsResponse(group)
+    val offsetEntries = Map(new TopicPartition(topic, 1) -> offsetAndMetadata(1))
+    val listOffsetsResult = mockListOffsets(offsetEntries)
+    val alterOffsetsResult = mockAlterOffsets(Some(new GroupAuthorizationException("not authorized")))
+    expect(admin.listConsumerGroupOffsets(group)).andReturn(listOffsetsResult).times(1)
+    expect(destAdmin.alterConsumerGroupOffsets(group, offsetEntries.asJava)).andReturn(alterOffsetsResult).times(1)
+
+    val syncOffsets = syncOffsetsAndVerify(clusterLinkConfig)
+    assertEquals(Map.empty, syncOffsets.currentOffsets.toMap)
+  }
+
+  @Test
   def testFiltersGroupListingWithLiteral(): Unit = {
     setupMock(isController = true)
 
@@ -216,6 +234,71 @@ class ClusterLinkSyncOffsetsTest {
   }
 
   @Test
+  def testCanUpdateGroupFilters(): Unit = {
+    setupMock(isController = true)
+
+    val topic = "testTopic"
+    val validGroupName = "validGroup"
+    val newGroupName = "newGroup"
+
+    val origFilter =
+      s"""
+         |{
+         |"groupFilters": [
+         |  {
+         |     "name": "validGroup",
+         |     "patternType": "LITERAL",
+         |     "filterType": "WHITELIST"
+         |  }
+         |]}
+      """.stripMargin
+
+    val updatedFilter =
+      s"""
+         |{
+         |"groupFilters": [
+         |  {
+         |     "name": "validGroup",
+         |     "patternType": "LITERAL",
+         |     "filterType": "WHITELIST"
+         |  },
+         |  {
+         |     "name": "$newGroupName",
+         |     "patternType": "LITERAL",
+         |     "filterType": "WHITELIST"
+         |  }
+         |]}
+      """.stripMargin
+
+    val origLinkConfig = linkConfig(origFilter)
+    val updatedLinkConfig = linkConfig(updatedFilter)
+
+    // the first call is to get the offset sync period
+    expect(clientManager.currentConfig).andReturn(origLinkConfig).times(3)
+    expect(clientManager.currentConfig).andReturn(updatedLinkConfig).times(1)
+
+    // we respond with both groups every time
+    setupMockListGroupsResponse(validGroupName, newGroupName)
+    setupMockListGroupsResponse(validGroupName, newGroupName)
+
+    val offsetEntries = Map(new TopicPartition(topic, 1) -> offsetAndMetadata(1))
+    setupMockOffsetResponses(offsetEntries, validGroupName)
+    setupMockOffsetResponses(offsetEntries, validGroupName, newGroupName)
+
+    replay(admin, clientManager, destAdmin)
+    val syncOffsets = new ClusterLinkSyncOffsets(clientManager,
+      linkData(),
+      controller,
+      () => destAdmin,
+      metrics,
+      Collections.emptyMap())
+
+    syncOffsets.runOnce().get(5, TimeUnit.SECONDS)
+    syncOffsets.runOnce().get(5, TimeUnit.SECONDS)
+    verifyMock()
+  }
+
+  @Test
   def testDoesNotUpdateUnchangedOffsets(): Unit = {
     setupMock(isController = true)
 
@@ -223,6 +306,7 @@ class ClusterLinkSyncOffsetsTest {
     val groupName = "testGroup"
 
     val clusterLinkConfig = linkConfig(allowAllFilter)
+    expect(clientManager.currentConfig).andReturn(clusterLinkConfig).anyTimes()
 
     setupMockListGroupsResponse(groupName)
 
@@ -231,7 +315,7 @@ class ClusterLinkSyncOffsetsTest {
 
     replay(admin, clientManager, destAdmin)
 
-    val syncOffsets = new ClusterLinkSyncOffsets(clientManager, linkData(), clusterLinkConfig,
+    val syncOffsets = new ClusterLinkSyncOffsets(clientManager, linkData(),
       controller, () => destAdmin, metrics, Collections.emptyMap())
 
     // we force the existing offset to be the same as the fetched one, this should not call alterConsumerGroupOffsets
@@ -251,6 +335,7 @@ class ClusterLinkSyncOffsetsTest {
     val oldGroupName = "oldGroup"
 
     val clusterLinkConfig = linkConfig(allowAllFilter)
+    expect(clientManager.currentConfig).andReturn(clusterLinkConfig).anyTimes()
 
     setupMockListGroupsResponse(groupName)
 
@@ -258,7 +343,7 @@ class ClusterLinkSyncOffsetsTest {
     setupMockOffsetResponses(offsetEntries, groupName)
     replay(admin, clientManager, destAdmin)
 
-    val syncOffsets = new ClusterLinkSyncOffsets(clientManager, linkData(), clusterLinkConfig,
+    val syncOffsets = new ClusterLinkSyncOffsets(clientManager, linkData(),
       controller,() => destAdmin, metrics, Collections.emptyMap())
 
     syncOffsets.currentOffsets.clear()
@@ -401,7 +486,7 @@ class ClusterLinkSyncOffsetsTest {
   }
 
   private def linkData(tenantPrefix: Option[String] = None): ClusterLinkData =
-    ClusterLinkData("testLink", UUID.randomUUID, None, tenantPrefix)
+    ClusterLinkData("testLink", UUID.randomUUID, None, tenantPrefix, false)
 
 
   private def mockListGroups(groups: String*): ListConsumerGroupsResult = {
@@ -423,21 +508,24 @@ class ClusterLinkSyncOffsetsTest {
     result
   }
 
-  private def mockAlterOffsets(): AlterConsumerGroupOffsetsResult = {
+  private def mockAlterOffsets(exception: Option[Throwable] = None): AlterConsumerGroupOffsetsResult = {
     val future = new KafkaFutureImpl[Void]
-    future.complete(null)
+    exception match {
+      case Some(e) => future.completeExceptionally(e)
+      case None => future.complete(null)
+    }
     val result: AlterConsumerGroupOffsetsResult = createMock(classOf[AlterConsumerGroupOffsetsResult])
-    expect(result.all).andReturn(future)
+    expect(result.all).andReturn(future).anyTimes()
     replay(result)
     result
   }
 
   private def syncOffsetsAndVerify(clusterLinkConfig: ClusterLinkConfig,
                                    tenantPrefix: Option[String] = None): ClusterLinkSyncOffsets = {
+    expect(clientManager.currentConfig).andReturn(clusterLinkConfig).anyTimes()
     replay(admin, clientManager, destAdmin)
     val syncOffsets = new ClusterLinkSyncOffsets(clientManager,
       linkData(tenantPrefix),
-      clusterLinkConfig,
       controller,
       () => destAdmin,
       metrics,

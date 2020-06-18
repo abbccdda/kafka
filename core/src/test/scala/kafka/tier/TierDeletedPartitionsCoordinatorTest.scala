@@ -8,8 +8,9 @@ import java.io.File
 import java.nio.ByteBuffer
 import java.util.{Optional, UUID}
 
+import kafka.cluster.Partition
 import kafka.log._
-import kafka.server.{BrokerTopicStats, ReplicaManager}
+import kafka.server.{BrokerTopicStats, HostedPartition, ReplicaManager}
 import kafka.tier.domain._
 import kafka.tier.state.OffsetAndEpoch
 import kafka.tier.store.TierObjectStore
@@ -281,14 +282,16 @@ class TierDeletedPartitionsCoordinatorTest {
   }
 
   @Test
-  def testCollectDeletedPartitions(): Unit = {
+  def testCollectDeletedPartitionsWithOnlinePartition(): Unit = {
     val log = createLog(logDir)
+    val partition = mock(classOf[Partition])
     val leaderEpoch = 0
 
     // immigrate partition
     deletedPartitionsCoordinator.handleImmigration(tierTopicPartition.partition)
 
-    when(replicaManager.getLog(tierTopicPartition)).thenReturn(Some(log))
+    when(replicaManager.getPartition(tierTopicPartition)).thenReturn(HostedPartition.Online(partition))
+    when(partition.localLogOrException).thenReturn(log)
 
     val topicIdPartition_1 = new TopicIdPartition("foo", UUID.randomUUID, 0)
     val topicIdPartition_2 = new TopicIdPartition("bar", UUID.randomUUID, 3)
@@ -315,6 +318,28 @@ class TierDeletedPartitionsCoordinatorTest {
     // validate tracked deleted partitions
     val immigratedPartition = deletedPartitionsCoordinator.immigratedPartitions(tierTopicPartition.partition)
     assertEquals(List(topicIdPartition_2), immigratedPartition.pendingDeletions.keySet.toList)
+  }
+
+  @Test
+  def testCollectDeletedPartitionsWithOfflinePartition(): Unit = {
+    when(replicaManager.getPartition(tierTopicPartition)).thenReturn(HostedPartition.Offline)
+
+    val buffer = ByteBuffer.allocate(200)
+    val startOffset = 0
+    val (lastReadOffset, _) = deletedPartitionsCoordinator.collectDeletedPartitions(tierTopicPartition, startOffset, buffer)
+
+    assertEquals(lastReadOffset, startOffset)
+  }
+
+  @Test
+  def testCollectDeletedPartitionsWithNonePartition(): Unit = {
+    when(replicaManager.getPartition(tierTopicPartition)).thenReturn(HostedPartition.None)
+
+    val buffer = ByteBuffer.allocate(200)
+    val startOffset = 0
+    val (lastReadOffset, _) = deletedPartitionsCoordinator.collectDeletedPartitions(tierTopicPartition, startOffset, buffer)
+
+    assertEquals(lastReadOffset, startOffset)
   }
 
   private def initiateSegmentUpload(topicIdPartition: TopicIdPartition,

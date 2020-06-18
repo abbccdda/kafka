@@ -22,6 +22,7 @@ import kafka.tier.tools.DumpTierPartitionState
 import kafka.utils.TestUtils
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.KafkaStorageException
+import org.apache.kafka.common.utils.Utils
 import org.junit.Assert._
 import org.junit.{After, Before, Test}
 import org.mockito.Mockito.{mock, when}
@@ -56,6 +57,32 @@ class FileTierPartitionStateTest {
     state.close()
     dir.delete()
     parentDir.delete()
+  }
+
+  @Test
+  def testTopicWithTierDisabledDoesNotHaveTierPartitionStateFile(): Unit = {
+    // A topic partition with tiering disabled must not open FileTierPartitionState channel and thereby have a persistent
+    // FileTierPartitionState file on disk. When this file is present, we assume that tiering is currently enabled, or was
+    // enabled earlier for this topic partition and the partition may have some data on tiered storage that needs to be
+    // made available to the MergedLog.
+    val dir2 = TestUtils.randomPartitionLogDir(parentDir)
+    val tp2 = Log.parseTopicPartitionName(dir2)
+    val fp = new FileTierPartitionState(dir2, logDirFailureChannel, tp2, false)
+    val flushedFilePath = FileTierPartitionState.flushedFilePath(fp.basePath())
+    assertFalse(Files.exists(flushedFilePath))
+    // assign topic Id. FileTierPartitionState should still not get created as tiering is disabled
+    fp.setTopicId(UUID.randomUUID())
+    assertFalse(Files.exists(flushedFilePath))
+    // when broker reboots, a new FileTierPartitionState object will be created on the same topic partition directory
+    val fp2 = new FileTierPartitionState(dir2, logDirFailureChannel, tp2, false)
+    val flushedFilePath2 = FileTierPartitionState.flushedFilePath(fp2.basePath())
+    assertFalse(Files.exists(flushedFilePath2))
+    // enable tiering. FileTierPartitionState must now get created
+    fp.enableTierConfig()
+    assertTrue(Files.exists(flushedFilePath))
+    fp.close()
+    fp2.close()
+    dir2.delete()
   }
 
   @Test
@@ -188,7 +215,6 @@ class FileTierPartitionStateTest {
 
     state.close()
     checkInvalidFileKafkaStorageExceptionOnInit(dir, tp, path)
-    checkInvalidFileKafkaStorageExceptionOnEnable(dir, tp, path)
   }
 
   @Test
@@ -1883,9 +1909,15 @@ class FileTierPartitionStateTest {
     assertEquals(baseOffsets.floor(155), state.materializeUpto(155.toLong).get(0, TimeUnit.MILLISECONDS).baseOffset)
     assertEquals(baseOffsets.floor(199), state.materializeUpto(199.toLong).get(0, TimeUnit.MILLISECONDS).baseOffset)
 
+    // Verify that materializationLag returns 0L when listener is completed
+    assertEquals(0L, state.materializationLag())
+
     // Verify that listener is not completed for offsets that has not been materialized yet
     val promise = state.materializeUpto(200.toLong)
     assertFalse(promise.isDone)
+
+    // Verify that materializationLag is calculated correctly when listener is not completed (200-199)
+    assertEquals(1L, state.materializationLag())
 
     // complete upload for segment [200-249]; this should also complete the materialization listener
     assertEquals(AppendResult.ACCEPTED, state.append(new TierSegmentUploadComplete(tpid, epoch, lastObjectId, lastObjectStateOffset), TierTestUtils.nextTierTopicOffsetAndEpoch()))
@@ -1896,8 +1928,14 @@ class FileTierPartitionStateTest {
     assertEquals(lastObjectId, promise.get.objectId)
     assertEquals(200 + numOffsetsInSegment, state.committedEndOffset)
 
+    // Verify that materializationLag returns 0L when listener is completed
+    assertEquals(0L, state.materializationLag())
+
     // must be able to register a new materialization listener
     assertFalse(state.materializeUpto(500.toLong).isDone)
+
+    // Verify that materializationLag is calculated correctly when listener is not completed (500-251)
+    assertEquals(251L, state.materializationLag())
   }
 
   @Test
@@ -1923,6 +1961,46 @@ class FileTierPartitionStateTest {
     assertThrows[Exception] {
       state.materializeUpto(200).get(0, TimeUnit.MILLISECONDS)
     }
+  }
+
+  /*
+  Check that tier partition state throws exception on enabling tierStorage, if the file is read and is invalid.
+  This will cause the tier partition state to throw KafkaStorageException and also trigger crash of broker.
+  */
+  @Test
+  def testEnableTierStorageWithInvalidFileThrowsKafkaStorageException(): Unit = {
+    // An invalid FileTierPartitionState file must not get loaded. This test checks the loading of this file in enable tiered
+    // storage path.
+    val dir2 = TestUtils.randomPartitionLogDir(parentDir)
+    val tp2 = Log.parseTopicPartitionName(dir2)
+    val topicIdPartition = new TopicIdPartition(tp2.topic(), UUID.randomUUID, tp2.partition())
+    val fp = new FileTierPartitionState(dir2, logDirFailureChannel, tp2, false)
+    // create a FileTierPartitionState file. write header
+    val flushedFilePath = FileTierPartitionState.flushedFilePath(fp.basePath())
+    val channel = FileChannel.open(flushedFilePath, StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE)
+    val header = new Header(topicIdPartition.topicId, fp.version(), -1, TierPartitionStatus.INIT, -1L, -1L, OffsetAndEpoch.EMPTY, OffsetAndEpoch.EMPTY, OffsetAndEpoch.EMPTY, OffsetAndEpoch.EMPTY)
+    val sizePrefix = header.payloadBuffer.remaining.toShort
+    val sizeBuf = ByteBuffer.allocate(Header.HEADER_LENGTH_LENGTH).order(ByteOrder.LITTLE_ENDIAN)
+    sizeBuf.putShort(sizePrefix)
+    sizeBuf.flip
+    Utils.writeFully(channel, 0, sizeBuf)
+    Utils.writeFully(channel, Header.HEADER_LENGTH_LENGTH, header.payloadBuffer)
+    // write some garbage to FileTierPartitionState file
+    val buf = ByteBuffer.allocate(9).order(ByteOrder.LITTLE_ENDIAN)
+    buf.putShort(80)
+    buf.putInt(1)
+    buf.flip()
+    Utils.writeFully(channel, channel.size(), buf)
+    channel.close()
+    // expect KafkaStorageException when enabling tier storage as the FileTierPartitionState file is corrupt
+    assertThrows[KafkaStorageException] {
+      fp.enableTierConfig()
+    }
+    assertEquals(fp.dir().getParent(), logDirFailureChannel.takeNextOfflineLogDir())
+    assertTrue(Files.exists(FileTierPartitionState.errorFilePath(fp.basePath)))
+    assertFalse(fp.status.isOpenForWrite)
+    fp.close()
+    dir2.delete()
   }
 
   private def currentStateOffset(): OffsetAndEpoch = {
@@ -2004,30 +2082,4 @@ class FileTierPartitionStateTest {
     assertEquals(baseDir.getParent(), logDirFailureChannelLocal.takeNextOfflineLogDir())
   }
 
-  /*
-    Check that tier partition state throws exception on enabling tierStorage, if the file is read and is invalid.
-    This will cause the tier partition state to throw KafkaStorageException and also trigger crash of broker.
-    */
-  private def checkInvalidFileKafkaStorageExceptionOnEnable(baseDir: File, tp: TopicPartition, path: String): Unit = {
-    // write some garbage to the end to test truncation
-    val fp = new FileTierPartitionState(baseDir, logDirFailureChannel, tp, false)
-    val channel = FileChannel.open(Paths.get(path), StandardOpenOption.READ, StandardOpenOption.WRITE)
-
-    // append garbage
-    val buf = ByteBuffer.allocate(9).order(ByteOrder.LITTLE_ENDIAN)
-    buf.putShort(80)
-    buf.putInt(1)
-    buf.flip()
-    channel.position(channel.size())
-    channel.write(buf)
-    channel.close()
-
-    assertThrows[KafkaStorageException] {
-      fp.enableTierConfig()
-    }
-
-    assertEquals(fp.dir().getParent(), logDirFailureChannel.takeNextOfflineLogDir())
-    assertTrue(Files.exists(FileTierPartitionState.errorFilePath(fp.basePath)))
-    assertFalse(fp.status.isOpenForWrite)
-  }
 }

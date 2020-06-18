@@ -11,6 +11,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import org.apache.kafka.common.errors.SaslAuthenticationException;
 import org.apache.kafka.common.security.plain.internals.PlainServerCallbackHandler;
+import org.apache.kafka.server.audit.AuditEventStatus;
+import org.apache.kafka.server.audit.AuthenticationErrorInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -25,6 +27,8 @@ import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+
+import static org.apache.kafka.server.audit.AuthenticationErrorInfo.UNKNOWN_USER_ERROR;
 
 /**
  * SaslServer implementation for SASL/PLAIN with an authenticator
@@ -43,6 +47,7 @@ public class PlainSaslServer implements MultiTenantSaslServer {
   private boolean complete;
   private String authorizationID;
   private TenantMetadata tenantMetadata;
+  private String username = "";
 
   public PlainSaslServer(List<AppConfigurationEntry> jaasContextEntries,
                          SaslAuthenticator authenticator) {
@@ -96,16 +101,21 @@ public class PlainSaslServer implements MultiTenantSaslServer {
     String password = tokens.get(2);
 
     if (username.isEmpty()) {
-      throw new SaslAuthenticationException("Authentication failed: username not specified");
+      throw new SaslAuthenticationException("Authentication failed: username not specified", UNKNOWN_USER_ERROR);
     }
     MDC.put("username", username);
+
+    this.username = username;
+
     if (password.isEmpty()) {
-      throw new SaslAuthenticationException("Authentication failed: password not specified");
+      AuthenticationErrorInfo errorInfo = getErrorInfo();
+      throw new SaslAuthenticationException("Authentication failed: password not specified", errorInfo);
     }
 
-    if (!authorizationIdFromClient.isEmpty() && !authorizationIdFromClient.equals(username))
-      throw new SaslAuthenticationException("Authentication failed: Client requested an authorization id that is different from username");
-
+    if (!authorizationIdFromClient.isEmpty() && !authorizationIdFromClient.equals(username)) {
+      AuthenticationErrorInfo errorInfo = getErrorInfo();
+      throw new SaslAuthenticationException("Authentication failed: Client requested an authorization id that is different from username", errorInfo);
+    }
 
     MultiTenantPrincipal principal = authenticator.authenticate(username, password);
     authorizationID = principal.user();
@@ -117,6 +127,11 @@ public class PlainSaslServer implements MultiTenantSaslServer {
     log.debug("SASL/PLAIN authentication succeeded for user {}", username);
     complete = true;
     return new byte[0];
+  }
+
+  private AuthenticationErrorInfo getErrorInfo() throws SaslException {
+    String clusterId = authenticator.clusterId(username).orElse("");
+    return new AuthenticationErrorInfo(AuditEventStatus.UNAUTHENTICATED, "", username, clusterId);
   }
 
   private List<String> extractTokens(String string) {
@@ -134,7 +149,7 @@ public class PlainSaslServer implements MultiTenantSaslServer {
 
     if (tokens.size() != 3)
       throw new SaslAuthenticationException("Invalid SASL/PLAIN response: expected 3 tokens, got " +
-          tokens.size());
+          tokens.size(), UNKNOWN_USER_ERROR);
 
     return tokens;
   }
@@ -234,4 +249,11 @@ public class PlainSaslServer implements MultiTenantSaslServer {
       }
     }
   }
+
+
+  @Override
+  public String userIdentifier() {
+    return username;
+  }
+
 }

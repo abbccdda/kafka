@@ -30,6 +30,7 @@ import org.apache.kafka.common.security.scram.internals.ScramMechanism;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.server.audit.AuditLogProvider;
 import org.apache.kafka.test.TestUtils;
 
 import java.io.IOException;
@@ -47,6 +48,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache;
@@ -95,13 +97,20 @@ public class NioEchoServer extends Thread {
     public NioEchoServer(ListenerName listenerName, SecurityProtocol securityProtocol, AbstractConfig config,
                          String serverHost, ChannelBuilder channelBuilder, CredentialCache credentialCache,
                          int failedAuthenticationDelayMs, Time time) throws Exception {
+        this(listenerName, securityProtocol, config, serverHost, channelBuilder, credentialCache, failedAuthenticationDelayMs, time,
+                new DelegationTokenCache(ScramMechanism.mechanismNames()), Optional.empty());
+    }
+
+    public NioEchoServer(ListenerName listenerName, SecurityProtocol securityProtocol, AbstractConfig config,
+                         String serverHost, ChannelBuilder channelBuilder, CredentialCache credentialCache,
+                         Time time, Optional<AuditLogProvider> auditLogProvider) throws Exception {
         this(listenerName, securityProtocol, config, serverHost, channelBuilder, credentialCache, 100, time,
-                new DelegationTokenCache(ScramMechanism.mechanismNames()));
+            new DelegationTokenCache(ScramMechanism.mechanismNames()), auditLogProvider);
     }
 
     public NioEchoServer(ListenerName listenerName, SecurityProtocol securityProtocol, AbstractConfig config,
             String serverHost, ChannelBuilder channelBuilder, CredentialCache credentialCache,
-            int failedAuthenticationDelayMs, Time time, DelegationTokenCache tokenCache) throws Exception {
+            int failedAuthenticationDelayMs, Time time, DelegationTokenCache tokenCache, Optional<AuditLogProvider> auditLogProvider) throws Exception {
         super("echoserver");
         setDaemon(true);
         serverSocketChannel = ServerSocketChannel.open();
@@ -124,7 +133,7 @@ public class NioEchoServer extends Thread {
                     securityProtocol, config, credentialCache, tokenCache, time, logContext);
         this.metrics = new Metrics();
         this.selector = new Selector(10000, failedAuthenticationDelayMs, metrics, time,
-                "MetricGroup", channelBuilder, logContext);
+                "MetricGroup", channelBuilder, logContext, auditLogProvider);
         acceptorThread = new AcceptorThread();
         this.time = time;
     }

@@ -5,6 +5,7 @@ package io.confluent.kafka.server.plugins.policy;
 import io.confluent.kafka.multitenant.MultiTenantConfigRestrictions;
 import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -33,7 +34,7 @@ public class AlterConfigPolicy implements org.apache.kafka.server.policy.AlterCo
     public static final String SSL_CIPHER_SUITES_ALLOWED_CONFIG = CONFIG_PREFIX + "ssl.cipher.suites.allowed";
     public static final List<String> DEFAULT_SSL_CIPHER_SUITES_ALLOWED = Arrays.asList(
         "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256", "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
-        "TLS_ECDHE_RSA_CHACHA20_POLY1305_SHA256",
+        "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
         "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256", "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384"
     );
     private static final String SSL_CIPHER_SUITES_ALLOWED_DOC = "List of allowed cipher suites for TLS.";
@@ -61,6 +62,9 @@ public class AlterConfigPolicy implements org.apache.kafka.server.policy.AlterCo
     private static final String RETENTION_MS_MAX_DOC = "The maximum value allowed for retention.ms.";
 
     private static final ConfigDef CONFIG_DEF;
+
+    static final String EXTERNAL_LISTENER_SSL_CIPHER_SUITES_CONFIG =
+        MultiTenantConfigRestrictions.EXTERNAL_LISTENER_PREFIX + SslConfigs.SSL_CIPHER_SUITES_CONFIG;
 
     static {
       CONFIG_DEF = new ConfigDef()
@@ -98,12 +102,12 @@ public class AlterConfigPolicy implements org.apache.kafka.server.policy.AlterCo
     }
 
     private final boolean alterConfigsEnabled;
-    private final Set<String> allowedCiphers = new HashSet<>();
+    private final Set<String> allowedCipherSuites = new HashSet<>();
 
     ClusterPolicyConfig(Map<String, ?> configMap) {
       super(CONFIG_DEF, configMap);
       this.alterConfigsEnabled = getBoolean(ALTER_ENABLE_CONFIG);
-      allowedCiphers.addAll(getList(SSL_CIPHER_SUITES_ALLOWED_CONFIG));
+      allowedCipherSuites.addAll(getList(SSL_CIPHER_SUITES_ALLOWED_CONFIG));
     }
 
     public void validateBrokerConfigs(RequestMetadata reqMetadata) {
@@ -130,16 +134,21 @@ public class AlterConfigPolicy implements org.apache.kafka.server.policy.AlterCo
     }
 
     private void checkSslCiphers(Map<String, String> configs) {
-      List<String> ciphers = parseList(configs, SslConfigs.SSL_CIPHER_SUITES_CONFIG);
+      List<String> ciphers = parseList(configs, EXTERNAL_LISTENER_SSL_CIPHER_SUITES_CONFIG);
       if (ciphers == null)
         return;
 
       boolean foundInvalid = ciphers.stream().anyMatch(c ->
-          !allowedCiphers.contains(c.toUpperCase(Locale.ROOT)));
+          !allowedCipherSuites.contains(c.toUpperCase(Locale.ROOT)));
       if (foundInvalid)
-        throw new PolicyViolationException(SslConfigs.SSL_CIPHER_SUITES_CONFIG + "=" +
-            configs.get(SslConfigs.SSL_CIPHER_SUITES_CONFIG) + " contains one or more invalid cipher " +
-            "suites. Allowed cipher suites: " + allowedCiphers);
+        throw new PolicyViolationException(invalidCipherSuiteMessage(allowedCipherSuites,
+          configs.get(EXTERNAL_LISTENER_SSL_CIPHER_SUITES_CONFIG)));
+    }
+
+    // Visible for testing
+    public static String invalidCipherSuiteMessage(Collection<String> allowedCipherSuites, String cipherSuites) {
+      return EXTERNAL_LISTENER_SSL_CIPHER_SUITES_CONFIG + "=" + cipherSuites
+           + " contains one or more invalid cipher suites. Allowed cipher suites: " + allowedCipherSuites;
     }
 
   }

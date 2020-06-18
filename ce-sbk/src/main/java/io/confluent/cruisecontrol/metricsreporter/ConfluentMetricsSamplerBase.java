@@ -8,8 +8,7 @@ import com.linkedin.kafka.cruisecontrol.exception.MetricSamplingException;
 import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.CruiseControlMetric;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.CruiseControlMetricsProcessor;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.MetricSampler;
-import io.confluent.databalancer.StartupCheckInterruptedException;
-import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
+
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRebalanceListener;
@@ -40,10 +39,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+import io.confluent.databalancer.StartupCheckInterruptedException;
+import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
+
 import static com.linkedin.kafka.cruisecontrol.monitor.sampling.MetricFetcherManager.BROKER_CAPACITY_CONFIG_RESOLVER_OBJECT_CONFIG;
 import static com.linkedin.kafka.cruisecontrol.monitor.sampling.MetricFetcherManager.DEFAULT_BROKER_CAPACITY_CONFIG_RESOLVER_OBJECT_CONFIG;
 
 public abstract class ConfluentMetricsSamplerBase implements MetricSampler {
+
   protected final Logger LOG = LoggerFactory.getLogger(this.getClass().getName());
 
   // Configurations
@@ -52,6 +55,7 @@ public abstract class ConfluentMetricsSamplerBase implements MetricSampler {
   public static final String METRIC_SAMPLER_GROUP_ID = "metric.reporter.sampler.group.id";
   // Default configs
   private static final String DEFAULT_METRIC_SAMPLER_GROUP_ID = "ConfluentMetricsReporterSampler";
+
   // static random token to avoid group conflict.
   private static final Random RANDOM = ThreadLocalRandom.current();
   // timeout for polling for a consumer assignment
@@ -64,7 +68,7 @@ public abstract class ConfluentMetricsSamplerBase implements MetricSampler {
   // static metric processor for metrics aggregation.
   private CruiseControlMetricsProcessor metricsProcessor;
 
-  protected String getMetricReporterTopic(Map<String, ?> configs) {
+  protected static String getMetricReporterTopic(Map<String, ?> configs) {
       String metricReporterTopic = (String) configs.get(METRIC_REPORTER_TOPIC_PATTERN);
       if (metricReporterTopic == null) {
           metricReporterTopic = ConfluentMetricsReporterConfig.DEFAULT_TOPIC_CONFIG;
@@ -72,14 +76,20 @@ public abstract class ConfluentMetricsSamplerBase implements MetricSampler {
       return metricReporterTopic;
   }
 
-  protected Properties getMetricConsumerProperties(Map<String, ?> configs) {
+  protected static Properties getMetricConsumerProperties(Map<String, ?> configs) {
       String bootstrapServers = (String) configs.get(METRIC_SAMPLER_BOOTSTRAP_SERVERS);
       if (bootstrapServers == null) {
           bootstrapServers = configs.get(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG).toString();
       }
       String groupId = (String) configs.get(METRIC_SAMPLER_GROUP_ID);
       if (groupId == null) {
-          groupId = defaultMetricSamplerGroupId() + "-" + RANDOM.nextLong();
+          String configuredSamplerName;
+          try {
+              configuredSamplerName = ((Class<?>) configs.get(KafkaCruiseControlConfig.METRIC_SAMPLER_CLASS_CONFIG)).getSimpleName();
+          } catch (Exception e) {
+              configuredSamplerName = DEFAULT_METRIC_SAMPLER_GROUP_ID;
+          }
+          groupId = configuredSamplerName + "-" + RANDOM.nextLong();
       }
 
       Properties consumerProps = new Properties();
@@ -97,8 +107,7 @@ public abstract class ConfluentMetricsSamplerBase implements MetricSampler {
       return consumerProps;
   }
 
-
-  protected boolean checkIfMetricReporterTopicExist(
+  protected static boolean checkIfMetricReporterTopicExist(
       String metricReporterTopic, Consumer<byte[], byte[]> metricConsumer) {
       Pattern topicPattern = Pattern.compile(metricReporterTopic);
       for (String topic : metricConsumer.listTopics().keySet()) {
@@ -109,7 +118,7 @@ public abstract class ConfluentMetricsSamplerBase implements MetricSampler {
       return false;
   }
 
-  protected Consumer<byte[], byte[]> createConsumerForMetricTopic(
+  protected static Consumer<byte[], byte[]> createConsumerForMetricTopic(
       Properties consumerProps, String metricReporterTopic) {
       // Contortion to ensure that we only get valid consumer properties; needed for type safety.
       Map<String, Object> filteredConsumerProperties = KafkaCruiseControlUtils.filterConsumerConfigs(
@@ -213,7 +222,7 @@ public abstract class ConfluentMetricsSamplerBase implements MetricSampler {
                   LOG.debug("Cannot parse record.");
                   continue;
               }
-              List<CruiseControlMetric> metrics = convertMetricRecord(record.value());
+              List<CruiseControlMetric> metrics = convertMetricRecord(record);
               for (CruiseControlMetric metric : metrics) {
                   if (startTimeMs <= metric.time() && metric.time() < endTimeMs) {
                       metricsProcessor.addMetric(metric);
@@ -261,7 +270,7 @@ public abstract class ConfluentMetricsSamplerBase implements MetricSampler {
       return true;
   }
 
-  protected abstract List<CruiseControlMetric> convertMetricRecord(byte[] confluentMetric);
+  protected abstract List<CruiseControlMetric> convertMetricRecord(ConsumerRecord<byte[], byte[]> record);
 
   protected abstract String defaultMetricSamplerGroupId();
 
@@ -307,9 +316,12 @@ public abstract class ConfluentMetricsSamplerBase implements MetricSampler {
     /**
      * Make sure any condition needed to start this {@code CruiseControlComponent} is satisfied.
      */
-    public void checkStartupCondition(KafkaCruiseControlConfig config,
+    public static void checkStartupCondition(KafkaCruiseControlConfig config,
                                              Semaphore abortStartupCheck) {
+        Logger startupLog = LoggerFactory.getLogger(ConfluentMetricsSamplerBase.class);
+
         Map<String, Object> configPairs = config.mergedConfigValues();
+
         String metricReporterTopic = getMetricReporterTopic(configPairs);
         Properties metricConsumerProperties = getMetricConsumerProperties(configPairs);
 
@@ -318,7 +330,7 @@ public abstract class ConfluentMetricsSamplerBase implements MetricSampler {
             long maxTimeoutSec = 60;
             long currentTimeoutInSec = 1;
             while (!checkIfMetricReporterTopicExist(metricReporterTopic, metricConsumer)) {
-                LOG.info("Waiting for {} seconds for metric reporter topic {} to become available.",
+                startupLog.info("Waiting for {} seconds for metric reporter topic {} to become available.",
                         currentTimeoutInSec, metricReporterTopic);
                 try {
                     if (abortStartupCheck.tryAcquire(currentTimeoutInSec, TimeUnit.SECONDS)) {
@@ -331,7 +343,7 @@ public abstract class ConfluentMetricsSamplerBase implements MetricSampler {
             }
         }
 
-        LOG.info("Metric Reporter Sampler ready to start.");
+        startupLog.info("Metric Reporter Sampler ready to start.");
     }
 
     @Override

@@ -9,6 +9,8 @@ import io.confluent.kafka.multitenant.integration.cluster.UserMetadata;
 import io.confluent.kafka.multitenant.quota.TenantQuotaCallback;
 import io.confluent.kafka.server.plugins.policy.TopicPolicyConfig;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
+import io.confluent.kafka.test.utils.SecurityTestUtils;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -19,8 +21,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
+import kafka.admin.AclCommand;
 import kafka.log.LogManager;
-import kafka.security.authorizer.AclAuthorizer$;
 import kafka.server.KafkaConfig$;
 import kafka.server.link.ClusterLinkConfig$;
 import kafka.server.link.ClusterLinkFactory.LinkManager;
@@ -33,6 +35,7 @@ import org.apache.kafka.clients.admin.Config;
 import org.apache.kafka.clients.admin.ConfigEntry;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.clients.admin.CreateClusterLinksOptions;
+import org.apache.kafka.clients.admin.ListClusterLinksOptions;
 import org.apache.kafka.clients.admin.NewPartitions;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.admin.NewTopicMirror;
@@ -52,6 +55,7 @@ import org.apache.kafka.common.config.ConfigResource.Type;
 import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
+import org.apache.kafka.common.requests.ClusterLinkListing;
 import org.apache.kafka.common.requests.NewClusterLink;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.resource.ResourcePattern;
@@ -64,6 +68,7 @@ import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.test.IntegrationTest;
 import org.apache.kafka.test.TestUtils;
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -84,6 +89,7 @@ public class MultiTenantClusterLinkTest {
     sourceCluster.startCluster(brokerProps(false), "sourceLogicalCluster", 1);
     destCluster.startCluster(brokerProps(true), "destLogicalCluster", 11);
     addAcls(destCluster.admin, destCluster.user);
+    addAcls(sourceCluster.admin, sourceCluster.user);
   }
 
   @After
@@ -98,6 +104,7 @@ public class MultiTenantClusterLinkTest {
     destCluster.createClusterLink(destCluster.admin, linkName, sourceCluster);
 
     createMirroredTopic();
+    verifyTopicListing();
     verifyTopicMirroring();
 
     addSourcePartitionsAndVerifyMirror(4);
@@ -116,11 +123,12 @@ public class MultiTenantClusterLinkTest {
 
     destCluster.createClusterLink(destCluster.admin, linkName, sourceCluster);
     createMirroredTopic();
+    verifyTopicListing();
     verifyTopicMirroring();
     verifyAclAndOffsetMigration();
 
     // Update link to use a different user
-    LogicalClusterUser newUser = sourceCluster.createUser(2001);
+    LogicalClusterUser newUser = sourceCluster.createLinkUser(2001);
     String newJaasConfig = newUser.saslJaasConfig();
     destCluster.admin.incrementalAlterConfigs(Collections.singletonMap(
         new ConfigResource(Type.CLUSTER_LINK, linkName),
@@ -130,8 +138,8 @@ public class MultiTenantClusterLinkTest {
         .all().get(15, TimeUnit.SECONDS);
     waitFor(() -> destCluster.linkConfig(linkName, SaslConfigs.SASL_JAAS_CONFIG), newJaasConfig,
         "Link config not updated");
-    sourceCluster.deleteUser(sourceCluster.user);
-    sourceCluster.user = newUser;
+    sourceCluster.deleteUser(sourceCluster.linkUser);
+    sourceCluster.linkUser = newUser;
 
     verifyTopicMirroring();
     verifyAclAndOffsetMigration();
@@ -146,7 +154,6 @@ public class MultiTenantClusterLinkTest {
     Properties props = new Properties();
     props.put(ConfluentConfigs.CLUSTER_LINK_ENABLE_CONFIG, String.valueOf(isDest));
     props.put(KafkaConfig$.MODULE$.AuthorizerClassNameProp(), MultiTenantAuthorizer.class.getName());
-    props.put(AclAuthorizer$.MODULE$.AllowEveryoneIfNoAclIsFoundProp(), "true");
     props.put(TopicPolicyConfig.REPLICATION_FACTOR_CONFIG, "1");
     props.put(KafkaConfig$.MODULE$.AutoCreateTopicsEnableProp(), "false");
     props.put(KafkaConfig$.MODULE$.ClientQuotaCallbackClassProp(), TenantQuotaCallback.class.getName());
@@ -160,6 +167,18 @@ public class MultiTenantClusterLinkTest {
     NewTopic newTopic = new NewTopic(topic, Optional.empty(), Optional.of((short) 1))
         .mirror(Optional.of(new NewTopicMirror(linkName, topic)));
     destCluster.admin.createTopics(Collections.singleton(newTopic)).all().get();
+  }
+
+  private void verifyTopicListing() throws Exception {
+    ListClusterLinksOptions options = new ListClusterLinksOptions().includeTopics(true);
+    Collection<ClusterLinkListing> listings = destCluster.admin.listClusterLinks(options).result().get();
+    Assert.assertEquals(1, listings.size());
+    ClusterLinkListing listing = listings.iterator().next();
+    Assert.assertEquals(linkName, listing.linkName());
+    Assert.assertTrue(listing.topics().isPresent());
+    Collection<String> topics = listing.topics().get();
+    Assert.assertEquals(1, topics.size());
+    Assert.assertEquals(topic, topics.iterator().next());
   }
 
   /**
@@ -178,7 +197,8 @@ public class MultiTenantClusterLinkTest {
    */
   private void verifyAclAndOffsetMigration() throws Throwable {
     Set<AclBinding> acls = addAcls(sourceCluster.admin, sourceCluster.user);
-    String group = "testGroup";
+    addBrokerAclsForOffsetMigration();
+    String group = "linkedGroup";
     Map<TopicPartition, OffsetAndMetadata> offsets = commitOffsets(sourceCluster.admin, group);
 
     waitFor(() -> destCluster.describeAcls(sourceCluster.user), acls, "Acls not migrated");
@@ -211,21 +231,27 @@ public class MultiTenantClusterLinkTest {
    * Add ACLs for specified user to perform operations used in the tests.
    */
   private Set<AclBinding> addAcls(Admin adminClient, LogicalClusterUser user) throws Exception {
+    String principal = user.unprefixedKafkaPrincipal().toString();
     AclBinding topicAcl = new AclBinding(
         new ResourcePattern(ResourceType.TOPIC, "linked", PatternType.PREFIXED),
-        new AccessControlEntry(user.unprefixedKafkaPrincipal().toString(),
-            "*", AclOperation.ALL, AclPermissionType.ALLOW));
+        new AccessControlEntry(principal, "*", AclOperation.ALL, AclPermissionType.ALLOW));
     AclBinding clusterAcl = new AclBinding(
         new ResourcePattern(ResourceType.CLUSTER, "kafka-cluster", PatternType.LITERAL),
-        new AccessControlEntry(user.unprefixedKafkaPrincipal().toString(),
-            "*", AclOperation.DESCRIBE, AclPermissionType.ALLOW));
+        new AccessControlEntry(principal, "*", AclOperation.DESCRIBE, AclPermissionType.ALLOW));
     AclBinding groupAcl = new AclBinding(
         new ResourcePattern(ResourceType.GROUP, "*", PatternType.LITERAL),
-        new AccessControlEntry(user.unprefixedKafkaPrincipal().toString(),
-            "*", AclOperation.READ, AclPermissionType.ALLOW));
+        new AccessControlEntry(principal, "*", AclOperation.READ, AclPermissionType.ALLOW));
     Set<AclBinding> acls = Utils.mkSet(topicAcl, groupAcl, clusterAcl);
     adminClient.createAcls(acls).all().get(15, TimeUnit.SECONDS);
     return acls;
+  }
+
+  private void addBrokerAclsForOffsetMigration() throws Exception {
+    String zkConnect = destCluster.physicalCluster.kafkaCluster().zkConnect();
+    String prefix = destCluster.user.tenantPrefix() + "linked";
+    String[] aclArgs = SecurityTestUtils.consumeAclArgs(zkConnect, PhysicalCluster.BROKER_PRINCIPAL,
+        prefix, prefix, PatternType.PREFIXED);
+    AclCommand.main(aclArgs);
   }
 
   /**
@@ -253,20 +279,24 @@ public class MultiTenantClusterLinkTest {
     private PhysicalCluster physicalCluster;
     private LogicalCluster logicalCluster;
     private LogicalClusterUser user;
+    private LogicalClusterUser linkUser;
     private ConfluentAdmin admin;
     KafkaProducer<String, String> producer;
     KafkaConsumer<String, String> consumer;
 
     void startCluster(Properties brokerOverrideProps, String logicalClusterId, int userId) throws Exception {
-      physicalCluster = start(brokerOverrideProps, Optional.of(Time.SYSTEM));
+      physicalCluster = start(brokerOverrideProps, Optional.of(Time.SYSTEM), PhysicalCluster::addBrokerAcls);
       logicalCluster = physicalCluster.createLogicalCluster(logicalClusterId, 100, userId);
       this.user = logicalCluster.user(userId);
       admin = (ConfluentAdmin) super.createAdminClient(logicalCluster.adminUser());
+      addAclsForAdminUser();
     }
 
-    LogicalClusterUser createUser(int newUserId) {
+    LogicalClusterUser createLinkUser(int newUserId) throws Exception {
       UserMetadata newUser = physicalCluster.getOrCreateUser(newUserId, false);
-      return logicalCluster.addUser(newUser);
+      LogicalClusterUser linkUser = logicalCluster.addUser(newUser);
+      addLinkAcls(linkUser);
+      return linkUser;
     }
 
     void deleteUser(LogicalClusterUser user) {
@@ -283,11 +313,12 @@ public class MultiTenantClusterLinkTest {
     }
 
     void createClusterLink(ConfluentAdmin admin, String linkName, MultiTenantCluster sourceCluster) throws Throwable {
+      sourceCluster.linkUser = sourceCluster.createLinkUser(1001);
       Properties sourceClientProps = KafkaTestUtils.securityProps(
           sourceCluster.physicalCluster.bootstrapServers(),
           SecurityProtocol.SASL_PLAINTEXT,
           ScramMechanism.SCRAM_SHA_256.mechanismName(),
-          sourceCluster.user.saslJaasConfig()
+          sourceCluster.linkUser.saslJaasConfig()
       );
       Map<String, String> linkConfigs = new HashMap<>();
       sourceClientProps.stringPropertyNames().forEach(name -> linkConfigs.put(name, sourceClientProps.getProperty(name)));
@@ -351,6 +382,30 @@ public class MultiTenantClusterLinkTest {
           AclOperation.ANY,
           AclPermissionType.ANY);
       return new AclBindingFilter(ResourcePatternFilter.ANY, aceFilter);
+    }
+
+    private void addAclsForAdminUser() throws Exception {
+      String[] aclArgs = SecurityTestUtils.clusterAclArgs(physicalCluster.kafkaCluster().zkConnect(),
+          user.prefixedKafkaPrincipal(), "All");
+      AclCommand.main(aclArgs);
+    }
+
+    private void addLinkAcls(LogicalClusterUser user) throws Exception {
+      String principal = user.unprefixedKafkaPrincipal().toString();
+      AclBinding topicAcl = new AclBinding(
+          new ResourcePattern(ResourceType.TOPIC, "linked", PatternType.PREFIXED),
+          new AccessControlEntry(principal, "*", AclOperation.READ, AclPermissionType.ALLOW));
+      AclBinding topicConfigAcl = new AclBinding(
+          new ResourcePattern(ResourceType.TOPIC, "linked", PatternType.PREFIXED),
+          new AccessControlEntry(principal, "*", AclOperation.DESCRIBE_CONFIGS, AclPermissionType.ALLOW));
+      AclBinding clusterAcl = new AclBinding(
+          new ResourcePattern(ResourceType.CLUSTER, "kafka-cluster", PatternType.LITERAL),
+          new AccessControlEntry(principal, "*", AclOperation.DESCRIBE, AclPermissionType.ALLOW));
+      AclBinding groupAcl = new AclBinding(
+          new ResourcePattern(ResourceType.GROUP, "*", PatternType.LITERAL),
+          new AccessControlEntry(principal, "*", AclOperation.READ, AclPermissionType.ALLOW));
+      Set<AclBinding> acls = Utils.mkSet(topicAcl, topicConfigAcl, groupAcl, clusterAcl);
+      admin.createAcls(acls).all().get(15, TimeUnit.SECONDS);
     }
 
     int partitionsForTopic(String topic) {

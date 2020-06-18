@@ -25,13 +25,15 @@ public interface BrokerRemovalCallback {
     BROKER_RESTARTED
   }
 
+  BrokerRemovalStateMachine.BrokerRemovalState currentState();
+
   /**
    * Registers a new errorful #{@link BrokerRemovalEvent} as part of the progress changing
    */
-  public void registerEvent(BrokerRemovalEvent pe, Exception e);
+  void registerEvent(BrokerRemovalEvent pe, Exception e);
 
   /**
    * Registers a new #{@link BrokerRemovalEvent} as part of the progress changing
    */
-  public void registerEvent(BrokerRemovalEvent pe);
+  void registerEvent(BrokerRemovalEvent pe);
 }

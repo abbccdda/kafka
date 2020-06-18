@@ -90,4 +90,14 @@ public class BrokerRemovalDescription {
   public Optional<BrokerRemovalError> removalError() {
     return removalError;
   }
+
+  @Override
+  public String toString() {
+    return "BrokerRemovalDescription{" +
+        "brokerId=" + brokerId +
+        ", brokerShutdownStatus=" + brokerShutdownStatus +
+        ", partitionReassignmentsStatus=" + partitionReassignmentsStatus +
+        ", removalError=" + removalError +
+        '}';
+  }
 }

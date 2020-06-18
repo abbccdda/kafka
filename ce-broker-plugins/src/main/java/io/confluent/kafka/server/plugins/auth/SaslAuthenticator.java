@@ -7,6 +7,7 @@ import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 import javax.security.auth.login.AppConfigurationEntry;
 import javax.security.sasl.SaslException;
 import java.util.List;
+import java.util.Optional;
 
 interface SaslAuthenticator {
 
@@ -17,5 +18,11 @@ interface SaslAuthenticator {
    * authorization id and tenant
    */
   MultiTenantPrincipal authenticate(String username, String password) throws SaslException;
+
+  /**
+   *
+   * return cluster Id for the given username/APIKey
+   */
+  Optional<String> clusterId(String username) throws SaslException;
 
 }
