@@ -25,6 +25,7 @@ import org.apache.kafka.common.utils.Time;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -149,6 +150,7 @@ public class GoalViolationDetector implements Runnable {
       Set<Integer> excludedBrokersForReplicaMove = _excludeRecentlyRemovedBrokers ? executorState.recentlyRemovedBrokers()
                                                                                   : Collections.emptySet();
 
+      List<Goal> skippedGoals = new ArrayList<>();
       for (Goal goal : _detectionGoals) {
         if (_loadMonitor.meetCompletenessRequirements(goal.clusterModelCompletenessRequirements())) {
           LOG.debug("Detecting if {} is violated.", goal.name());
@@ -175,8 +177,11 @@ public class GoalViolationDetector implements Runnable {
           }
           newModelNeeded = optimizeForGoal(clusterModel, goal, goalViolations, excludedBrokersForLeadership, excludedBrokersForReplicaMove);
         } else {
-          LOG.warn("Skipping goal violation detection for {} because load completeness requirement is not met.", goal);
+          skippedGoals.add(goal);
         }
+      }
+      if (!skippedGoals.isEmpty()) {
+        LOG.warn("Skipped goal violation detection for goals {} because load completeness requirement were not met.", skippedGoals);
       }
       Map<Boolean, List<String>> violatedGoalsByFixability = goalViolations.violatedGoalsByFixability();
       if (!violatedGoalsByFixability.isEmpty()) {
