@@ -286,7 +286,7 @@ class MergedLog(private[log] val localLog: Log,
     if (!config.tierEnable) {
       val deleted = localLog.deleteOldSegments(None, maxNumSegmentsToDelete)
       // Partitions that follow this path may have had `tierEnable = true` in past and thereby, may have some segments tiered.
-      maybeIncrementLogStartOffset(firstTieredOffset.getOrElse(localLogStartOffset))
+      maybeIncrementLogStartOffset(firstTieredOffset.getOrElse(localLogStartOffset), SegmentDeletion)
       deleted
     } else {
       val retentionDeleted = localLog.deleteOldSegments(None, maxNumSegmentsToDelete)  // apply retention: all segments are eligible for deletion

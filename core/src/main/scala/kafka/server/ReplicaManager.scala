@@ -118,7 +118,9 @@ sealed trait AbstractLogReadResult {
  * @param followerLogStartOffset The log start offset of the follower taken from the Fetch request
  * @param fetchTimeMs The time the fetch was received
  * @param lastStableOffset Current LSO or None if the result has an exception
- * @param preferredReadReplica the preferred read replica to be used for future fetches
+ * @param isReadAllowed read operation is not allowed for this partition as fetch request
+ *                      maxBytes was already satisfied by previous partitions when
+ *                      hardMaxBytesLimitNote in TRUE * @param preferredReadReplica the preferred read replica to be used for future fetches
  * @param exception Exception if error encountered while reading from the log
  */
 case class LogReadResult(info: FetchDataInfo,
@@ -128,6 +130,7 @@ case class LogReadResult(info: FetchDataInfo,
                          followerLogStartOffset: Long,
                          fetchTimeMs: Long,
                          lastStableOffset: Option[Long],
+                         isReadAllowed: Boolean,
                          preferredReadReplica: Option[Int] = None,
                          exception: Option[Throwable] = None) extends AbstractLogReadResult {
 
@@ -142,6 +145,7 @@ case class LogReadResult(info: FetchDataInfo,
       s"leaderLogEndOffset=$leaderLogEndOffset, " +
       s"followerLogStartOffset=$followerLogStartOffset, " +
       s"fetchTimeMs=$fetchTimeMs, " +
+      s"isReadAllowed: $isReadAllowed" +
       s"preferredReadReplica=$preferredReadReplica, " +
       s"lastStableOffset=$lastStableOffset, " +
       s"error=$error" +
@@ -192,6 +196,7 @@ case class TierLogReadResult(info: TierFetchDataInfo,
       leaderLogEndOffset = this.leaderLogEndOffset,
       followerLogStartOffset = this.followerLogStartOffset,
       fetchTimeMs = this.fetchTimeMs,
+      isReadAllowed = isReadAllowed,
       lastStableOffset = this.lastStableOffset,
       preferredReadReplica = this.preferredReadReplica,
       exception = exceptionOpt
@@ -1337,6 +1342,7 @@ class ReplicaManager(val config: KafkaConfig,
             leaderLogEndOffset = offsetSnapshot.logEndOffset.messageOffset,
             followerLogStartOffset = followerLogStartOffset,
             fetchTimeMs = -1L,
+            isReadAllowed = false,
             lastStableOffset = Some(offsetSnapshot.lastStableOffset.messageOffset),
             preferredReadReplica = preferredReadReplica,
             exception = None)
@@ -1378,6 +1384,7 @@ class ReplicaManager(val config: KafkaConfig,
                 leaderLogEndOffset = readInfo.logEndOffset,
                 followerLogStartOffset = followerLogStartOffset,
                 fetchTimeMs = fetchTimeMs,
+                isReadAllowed = adjustedMaxBytes > 0 || minOneMessage,
                 lastStableOffset = Some(readInfo.lastStableOffset),
                 preferredReadReplica = preferredReadReplica,
                 exception = None)
@@ -1412,6 +1419,7 @@ class ReplicaManager(val config: KafkaConfig,
             leaderLogEndOffset = Log.UnknownOffset,
             followerLogStartOffset = Log.UnknownOffset,
             fetchTimeMs = -1L,
+            isReadAllowed = false,
             lastStableOffset = None,
             exception = Some(e))
         case e: Throwable =>
@@ -1428,6 +1436,7 @@ class ReplicaManager(val config: KafkaConfig,
             leaderLogEndOffset = Log.UnknownOffset,
             followerLogStartOffset = Log.UnknownOffset,
             fetchTimeMs = -1L,
+            isReadAllowed = false,
             lastStableOffset = None,
             exception = Some(e))
       }
@@ -2012,6 +2021,7 @@ class ReplicaManager(val config: KafkaConfig,
               leaderLogEndOffset = -1L,
               followerLogStartOffset = -1L,
               fetchTimeMs = -1L,
+              isReadAllowed = false,
               lastStableOffset = None,
               exception = Some(new OffsetTieredException(reason)))
         }
@@ -2238,6 +2248,9 @@ object FetchLag {
    * 4. lag = result.fetchTimeMs - firstBatchTimestamp
    */
   private def lagInMs(result: LogReadResult): Long = {
+    if (!result.isReadAllowed)
+      return FetchLag.UnknownFetchLagMs
+
     val iterator = result.info.records.batches.iterator
     if (!iterator.hasNext())
       return 0L

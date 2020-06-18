@@ -435,6 +435,7 @@ class DelayedFetchTest extends EasyMockSupport {
       leaderLogEndOffset = -1L,
       followerLogStartOffset = -1L,
       fetchTimeMs = -1L,
+      isReadAllowed = false,
       lastStableOffset = None)
   }
 
@@ -457,7 +458,7 @@ class DelayedFetchTest extends EasyMockSupport {
       case (tp, tierFetchDataInfo: TierFetchDataInfo, exceptionOpt: Option[Throwable]) =>
         (tp, TierLogReadResult(info = tierFetchDataInfo, highWatermark, 0, 0, 0, mockTime.milliseconds(), 0, None, None, exceptionOpt))
       case (tp, fetchDataInfo: FetchDataInfo, exceptionOpt: Option[Throwable]) =>
-        (tp, LogReadResult(info = fetchDataInfo, highWatermark, 0, 0, 0, mockTime.milliseconds(), None, None, exceptionOpt))
+        (tp, LogReadResult(info = fetchDataInfo, highWatermark, 0, 0, 0, mockTime.milliseconds(), None, true, None, exceptionOpt))
     }
 
     EasyMock.expect(replicaManager.isAddingReplica(EasyMock.anyObject(), EasyMock.anyInt())).andReturn(false).anyTimes()
