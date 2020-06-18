@@ -2750,18 +2750,18 @@ class KafkaApis(val requestChannel: RequestChannel,
     val removeBrokersRequest = request.body[RemoveBrokersRequest]
     val brokersToRemove = removeBrokersRequest.data.brokersToRemove.asScala.toList.map(_.brokerId())
     if (brokersToRemove.isEmpty) {
-      throw new InvalidRequestException("At least one broker id need to be specified.")
+      throw new InvalidBrokerRemovalException("At least one broker id need to be specified.")
     }
 
     // Check if broker ids are valid
     val invalidBrokers = brokersToRemove.filter(_ < 0)
     if (invalidBrokers.nonEmpty) {
-      throw new InvalidRequestException(s"Invalid broker ids specified: $invalidBrokers")
+      throw new InvalidBrokerRemovalException(s"Invalid broker ids specified: $invalidBrokers")
     }
 
     if (brokersToRemove.size != 1) {
       val errMsg = s"Only one broker can be removed at a time. Multiple broker ids specified: $brokersToRemove"
-      throw new InvalidRequestException(errMsg)
+      throw new InvalidBrokerRemovalException(errMsg)
     }
 
     val brokerToRemove = brokersToRemove.head
@@ -2801,7 +2801,7 @@ class KafkaApis(val requestChannel: RequestChannel,
 
     if (partitionsWithReplicationFactorOne.nonEmpty) {
       // Can't get rid of only replica. This may result in partition unavailability/data loss
-      throw new InvalidRequestException(s"Can't remove broker $brokersToRemove as this will result in " +
+      throw new InvalidBrokerRemovalException(s"Can't remove broker $brokersToRemove as this will result in " +
         s"partitions becoming unavailable: ${partitionsWithReplicationFactorOne.head}")
     }
 
@@ -2819,7 +2819,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       }
 
       if (!brokerToRemoveHostsReplica)
-        throw new InvalidRequestException(s"Unknown broker id specified: $brokersToRemove")
+        throw new InvalidBrokerRemovalException(s"Unknown broker id specified: $brokersToRemove")
     }
 
     def sendResponseCallback(result: Option[ApiError]): Unit = {

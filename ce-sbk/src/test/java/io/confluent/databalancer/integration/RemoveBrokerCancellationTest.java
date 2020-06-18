@@ -6,6 +6,7 @@ import kafka.server.KafkaServer;
 import org.apache.kafka.clients.admin.BrokerRemovalDescription;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.errors.BrokerRemovalCanceledException;
+import org.apache.kafka.common.errors.BrokerRemovalInProgressException;
 import org.apache.kafka.common.utils.Exit;
 import org.apache.kafka.test.IntegrationTest;
 import org.apache.kafka.test.TestUtils;
@@ -25,8 +26,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.fail;
 
+/**
+ * An integration test for broker removal which sets the balancer throttle to a low value
+ * in order to ensure the reassignments are slower
+ */
 @Category(IntegrationTest.class)
 public class RemoveBrokerCancellationTest extends DataBalancerClusterTestHarness {
   protected static final Logger log = LoggerFactory.getLogger(RemoveBrokerCancellationTest.class);
@@ -70,6 +77,52 @@ public class RemoveBrokerCancellationTest extends DataBalancerClusterTestHarness
   protected Properties injectTestSpecificProperties(Properties props) {
     props.put(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, 10L);
     return props;
+  }
+
+  @Test
+  public void testRemoveBroker_TwoConsecutiveRemovalsResultInBrokerRemovalInProgressException() throws InterruptedException, ExecutionException {
+    KafkaTestUtils.createTopic(adminClient, "test-topic", 50, 3);
+    kafkaCluster.produceData("test-topic", 200);
+
+    adminClient.removeBrokers(Collections.singletonList(brokerToRemoveId)).all().get();
+
+    AtomicReference<String> failureMessage = new AtomicReference<>();
+    // retry removal in case something went wrong
+    // return the moment we see it's in progress
+    // also await removal completion so that we have something to restart
+    TestUtils.waitForCondition(() -> {
+          Map<Integer, BrokerRemovalDescription> descriptionMap = adminClient.describeBrokerRemovals().descriptions().get();
+          if (descriptionMap.isEmpty()) {
+            return false;
+          }
+          BrokerRemovalDescription brokerRemovalDescription = descriptionMap.get(brokerToRemoveId);
+
+          if (isFailedRemoval(brokerRemovalDescription)) {
+            return retryRemoval(brokerRemovalDescription, brokerToRemoveId);
+          } else if (isCompletedRemoval(brokerRemovalDescription)) {
+            failureMessage.set("Broker removal finished successfully despite the broker restarting.");
+            return true;
+          } else if (isInProgressRemoval(brokerRemovalDescription)) {
+              return true;
+          } else {
+            info("Removal is in an unknown state. PAR: {} BSS: {}",
+                brokerRemovalDescription.partitionReassignmentsStatus(), brokerRemovalDescription.brokerShutdownStatus());
+            return false;
+          }
+        },
+        removalFinishTimeout.toMillis(),
+        removalPollInterval.toMillis(),
+        () -> "Broker removal did not become in progress in time!"
+    );
+
+    if (failureMessage.get() != null && !failureMessage.get().isEmpty()) {
+      fail(failureMessage.get());
+    }
+
+    ExecutionException exc = assertThrows(ExecutionException.class,
+        () -> adminClient.removeBrokers(Collections.singletonList(brokerToRemoveId)).all().get());
+    assertNotNull("Expected exception to have a cause", exc.getCause());
+    assertEquals(BrokerRemovalInProgressException.class, exc.getCause().getClass());
   }
 
   /**

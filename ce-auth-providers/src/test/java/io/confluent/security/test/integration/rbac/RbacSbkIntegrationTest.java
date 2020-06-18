@@ -8,7 +8,7 @@ import io.confluent.security.test.utils.RbacClusters;
 import org.apache.kafka.clients.admin.KafkaAdminClient;
 import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.errors.ClusterAuthorizationException;
-import org.apache.kafka.common.errors.InvalidRequestException;
+import org.apache.kafka.common.errors.InvalidBrokerRemovalException;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.Utils;
@@ -95,7 +95,7 @@ public class RbacSbkIntegrationTest {
                 TestUtils.assertFutureError(future, ClusterAuthorizationException.class);
             else
                 // This fails as we try to remove broker having partitions with RF = 1.
-                TestUtils.assertFutureError(future, InvalidRequestException.class);
+                TestUtils.assertFutureError(future, InvalidBrokerRemovalException.class);
         }
     }
 }

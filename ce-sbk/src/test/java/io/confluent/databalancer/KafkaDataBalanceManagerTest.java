@@ -20,6 +20,7 @@ import kafka.server.KafkaConfig$;
 import kafka.utils.TestUtils;
 import kafka.utils.TestUtils$;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
+import org.apache.kafka.common.errors.BalancerOfflineException;
 import org.apache.kafka.common.errors.BrokerRemovalCanceledException;
 import org.apache.kafka.common.utils.Time;
 import org.junit.Before;
@@ -327,8 +328,8 @@ public class KafkaDataBalanceManagerTest {
         verify(mockInactiveDataBalanceEngine).shutdown();
     }
 
-    @Test(expected = IllegalStateException.class)
-    public void testRemoveBrokerNotActive() {
+    @Test(expected = BalancerOfflineException.class)
+    public void testRemoveBroker_NotActiveThrowsBalancerOfflineException() {
         dataBalancer = new KafkaDataBalanceManager(initConfig,
                 new KafkaDataBalanceManager.DataBalanceEngineFactory(mockActiveDataBalanceEngine, mockInactiveDataBalanceEngine),
                 mockDbMetrics, time);

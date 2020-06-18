@@ -43,8 +43,8 @@ import org.apache.kafka.common.Endpoint;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
+import org.apache.kafka.common.errors.BalancerOfflineException;
 import org.apache.kafka.common.errors.BrokerRemovalInProgressException;
-import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.utils.Time;
 import org.junit.After;
 import org.junit.Before;
@@ -968,8 +968,8 @@ public class ConfluentDataBalanceEngineTest  {
         dbe.removeBroker(brokerToRemove, brokerEpoch, "uid");
     }
 
-    @Test(expected = InvalidRequestException.class)
-    public void testRemoveBrokerThrowsInvalidRequestExceptionIfNoActiveDatabalancer() throws InterruptedException {
+    @Test(expected = BalancerOfflineException.class)
+    public void testRemoveBrokerThrowsBalancerOfflineExceptionIfNoActiveDatabalancer() throws InterruptedException {
         ConfluentDataBalanceEngine dbe = getTestDataBalanceEngine();
         int brokerToRemove = 1;
         Optional<Long> brokerEpoch = Optional.of(1L);

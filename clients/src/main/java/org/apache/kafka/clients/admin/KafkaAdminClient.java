@@ -60,6 +60,7 @@ import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.errors.ApiException;
 import org.apache.kafka.common.errors.AuthenticationException;
 import org.apache.kafka.common.errors.DisconnectException;
+import org.apache.kafka.common.errors.InvalidBrokerRemovalException;
 import org.apache.kafka.common.errors.InvalidGroupIdException;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.errors.InvalidTopicException;
@@ -4125,7 +4126,7 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
 
         if (brokersToRemove.isEmpty()) {
             KafkaFutureImpl<Void> future = new KafkaFutureImpl<>();
-            future.completeExceptionally(new InvalidRequestException("Broker to remove list is empty."));
+            future.completeExceptionally(new InvalidBrokerRemovalException("Broker to remove list is empty."));
             invalidRemoveBrokerFutures.put(null, future);
             return new RemoveBrokersResult(new HashMap<>(invalidRemoveBrokerFutures));
         }
@@ -4136,12 +4137,12 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
             }
             if (brokerIdIsUnrepresentable(brokerToRemove)) {
                 KafkaFutureImpl<Void> future = new KafkaFutureImpl<>();
-                future.completeExceptionally(new InvalidRequestException("The given broker id '" +
+                future.completeExceptionally(new InvalidBrokerRemovalException("The given broker id '" +
                         brokerToRemove + "' is invalid and cannot be represented in a request"));
                 invalidRemoveBrokerFutures.put(brokerToRemove, future);
             } else if (removeBrokerFutures.containsKey(brokerToRemove)) {
                 KafkaFutureImpl<Void> future = new KafkaFutureImpl<>();
-                future.completeExceptionally(new InvalidRequestException("The given broker id '" +
+                future.completeExceptionally(new InvalidBrokerRemovalException("The given broker id '" +
                         brokerToRemove + "' is duplicate and cannot be represented in a request"));
                 invalidRemoveBrokerFutures.put(brokerToRemove, future);
             } else {
@@ -4152,7 +4153,7 @@ public class KafkaAdminClient extends AdminClient implements ConfluentAdmin {
         if (!invalidRemoveBrokerFutures.isEmpty()) {
             for (Map.Entry<Integer, KafkaFutureImpl<Void>> removeBrokerFuture : removeBrokerFutures.entrySet()) {
                 KafkaFutureImpl<Void> future = removeBrokerFuture.getValue();
-                future.completeExceptionally(new InvalidRequestException("The request contains " +
+                future.completeExceptionally(new InvalidBrokerRemovalException("The request contains " +
                         "some invalid or duplicate broker ids"));
                 invalidRemoveBrokerFutures.putIfAbsent(removeBrokerFuture.getKey(), future);
             }

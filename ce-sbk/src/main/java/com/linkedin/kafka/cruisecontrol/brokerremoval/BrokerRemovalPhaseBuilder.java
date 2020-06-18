@@ -3,7 +3,7 @@
  */
 package com.linkedin.kafka.cruisecontrol.brokerremoval;
 
-import com.linkedin.kafka.cruisecontrol.exception.KafkaCruiseControlException;
+import org.apache.kafka.common.errors.BalancerOperationFailedException;
 import org.apache.kafka.common.errors.PlanComputationException;
 
 import java.util.concurrent.CompletableFuture;
@@ -41,7 +41,7 @@ public class BrokerRemovalPhaseBuilder {
         BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_FAILURE,
         brokerIds ->
             String.format("Error while acquiring a reservation on the executor and aborting ongoing executions prior to beginning the broker removal operation for brokers %s.", brokerIds),
-        KafkaCruiseControlException.class
+        BalancerOperationFailedException.class
     );
     initialPlanComputationPhaseBuilder = new BrokerRemovalPhaseExecutor.Builder<>(
         BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS,
@@ -54,7 +54,7 @@ public class BrokerRemovalPhaseBuilder {
         BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_SUCCESS,
         BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_FAILURE,
         brokerIds -> String.format("Error while executing broker shutdown for brokers %s.", brokerIds),
-        KafkaCruiseControlException.class
+        BalancerOperationFailedException.class
     );
     planComputationPhaseBuilder = new BrokerRemovalPhaseExecutor.Builder<>(
         BrokerRemovalCallback.BrokerRemovalEvent.PLAN_COMPUTATION_SUCCESS,
@@ -66,7 +66,7 @@ public class BrokerRemovalPhaseBuilder {
     planExecutionPhaseBuilder = new BrokerRemovalPhaseExecutor.Builder<>(
         null, BrokerRemovalCallback.BrokerRemovalEvent.PLAN_EXECUTION_FAILURE,
         brokerIds -> String.format("Unexpected exception while submitting the broker removal plan for broker %s", brokerIds),
-        KafkaCruiseControlException.class
+        BalancerOperationFailedException.class
     );
   }
 

@@ -50,6 +50,7 @@ import org.apache.kafka.common.errors.ClusterLinkNotFoundException;
 import org.apache.kafka.common.errors.FencedInstanceIdException;
 import org.apache.kafka.common.errors.GroupAuthorizationException;
 import org.apache.kafka.common.errors.GroupSubscribedToTopicException;
+import org.apache.kafka.common.errors.InvalidBrokerRemovalException;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.errors.InvalidTopicException;
 import org.apache.kafka.common.errors.LeaderNotAvailableException;
@@ -708,8 +709,8 @@ public class KafkaAdminClientTest {
             // duplicate or invalid / negative broker ids throws exception
             RemoveBrokersResult result = env.adminClient().removeBrokers(
                     Arrays.asList(-2, 1, 1, null), new RemoveBrokersOptions().timeoutMs(1000));
-            TestUtils.assertFutureError(result.values().get(-2), InvalidRequestException.class);
-            TestUtils.assertFutureError(result.values().get(1), InvalidRequestException.class);
+            TestUtils.assertFutureError(result.values().get(-2), InvalidBrokerRemovalException.class);
+            TestUtils.assertFutureError(result.values().get(1), InvalidBrokerRemovalException.class);
             assertEquals(2, result.values().size());
         }
     }

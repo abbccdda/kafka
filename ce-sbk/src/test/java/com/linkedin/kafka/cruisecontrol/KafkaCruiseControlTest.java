@@ -23,6 +23,7 @@ import io.confluent.databalancer.operation.BalanceOpExecutionCompletionCallback;
 import io.confluent.databalancer.operation.BrokerRemovalStateMachine.BrokerRemovalState;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.Node;
+import org.apache.kafka.common.errors.BalancerOperationFailedException;
 import org.apache.kafka.common.errors.PlanComputationException;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.test.TestUtils;
@@ -328,7 +329,7 @@ public class KafkaCruiseControlTest {
         when(mockShutdownManager.maybeShutdownBroker(BROKER_ID_TO_REMOVE, BROKER_EPOCH_TO_REMOVE)).thenThrow(exception);
         when(loadMonitor.clusterModel(anyLong(), any(), any())).thenReturn(clusterModel);
 
-        KafkaCruiseControlException thrownException = assertThrows(KafkaCruiseControlException.class,
+        BalancerOperationFailedException thrownException = assertThrows(BalancerOperationFailedException.class,
             () -> kafkaCruiseControl.removeBroker(BROKER_ID_TO_REMOVE, BROKER_EPOCH_TO_REMOVE,
                                                   mockExecutionCompletionCb, mockRemovalCallback, "").execute(REMOVAL_TIMEOUT)
         );
@@ -434,7 +435,7 @@ public class KafkaCruiseControlTest {
             throw new IllegalStateException("boom");
         }).when(executor).setExecutionMode(false);
 
-        KafkaCruiseControlException thrownException = assertThrows(KafkaCruiseControlException.class,
+        BalancerOperationFailedException thrownException = assertThrows(BalancerOperationFailedException.class,
             () -> kafkaCruiseControl.removeBroker(BROKER_ID_TO_REMOVE, BROKER_EPOCH_TO_REMOVE,
                     mockExecutionCompletionCb, mockRemovalCallback, "").execute(REMOVAL_TIMEOUT)
         );
@@ -461,7 +462,7 @@ public class KafkaCruiseControlTest {
         TimeoutException expectedException = new TimeoutException("timeout!");
         when(executor.reserveAndAbortOngoingExecutions(any())).thenThrow(expectedException);
 
-        KafkaCruiseControlException thrownException = assertThrows(KafkaCruiseControlException.class,
+        BalancerOperationFailedException thrownException = assertThrows(BalancerOperationFailedException.class,
             () -> kafkaCruiseControl.removeBroker(BROKER_ID_TO_REMOVE, BROKER_EPOCH_TO_REMOVE, mockExecutionCompletionCb, mockRemovalCallback, uuid).execute(REMOVAL_TIMEOUT)
         );
 

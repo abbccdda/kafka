@@ -27,8 +27,8 @@ import kafka.server.KafkaConfig;
 import org.apache.kafka.common.Endpoint;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
+import org.apache.kafka.common.errors.BalancerOfflineException;
 import org.apache.kafka.common.errors.BrokerRemovalInProgressException;
-import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.SystemTime;
@@ -224,7 +224,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
             String msg = String.format("Received request to remove broker %d (uid %s) while SBK is not started.",
                     brokerToRemove, uid);
             LOG.error(msg);
-            throw new InvalidRequestException(msg);
+            throw new BalancerOfflineException(msg);
         }
 
         // Validate that the broker is not already getting removed
@@ -292,7 +292,7 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         if (!canAcceptRequests) {
             String msg = String.format("Received request to add brokers %s while SBK is not started.", brokersToAdd);
             LOG.error(msg);
-            throw new InvalidRequestException(msg);
+            throw new BalancerOfflineException(msg);
         }
 
         // Check to make sure this can proceed (no ongoing removals)

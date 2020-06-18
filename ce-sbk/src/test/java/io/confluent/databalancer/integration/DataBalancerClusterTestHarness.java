@@ -138,6 +138,14 @@ public abstract class DataBalancerClusterTestHarness {
     return removalCompleted && reassignmentCompleted;
   }
 
+  protected boolean isInProgressRemoval(BrokerRemovalDescription brokerRemovalDescription) {
+    boolean reassignmentInProgress = brokerRemovalDescription.partitionReassignmentsStatus() == BrokerRemovalDescription.PartitionReassignmentsStatus.PENDING
+        || brokerRemovalDescription.partitionReassignmentsStatus() == BrokerRemovalDescription.PartitionReassignmentsStatus.IN_PROGRESS;
+    boolean removalInProgress = brokerRemovalDescription.brokerShutdownStatus() == BrokerRemovalDescription.BrokerShutdownStatus.PENDING;
+
+    return removalInProgress || reassignmentInProgress;
+  }
+
   protected boolean isFailedRemoval(BrokerRemovalDescription brokerRemovalDescription) {
     boolean reassignmentFailed = brokerRemovalDescription.partitionReassignmentsStatus() == BrokerRemovalDescription.PartitionReassignmentsStatus.CANCELED
         || brokerRemovalDescription.partitionReassignmentsStatus() == BrokerRemovalDescription.PartitionReassignmentsStatus.FAILED;

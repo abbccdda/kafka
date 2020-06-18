@@ -16,6 +16,7 @@ import kafka.metrics.KafkaYammerMetrics;
 import kafka.server.KafkaConfig;
 import kafka.server.KafkaConfig$;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
+import org.apache.kafka.common.errors.BalancerOfflineException;
 import org.apache.kafka.common.errors.BrokerRemovalCanceledException;
 import org.apache.kafka.common.utils.SystemTime;
 import org.apache.kafka.common.utils.Time;
@@ -370,7 +371,7 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
         if (!balanceEngine.isActive()) {
             String msg = String.format("Received request to remove broker %d while SBK is not started.", brokerToRemove);
             LOG.error(msg);
-            throw new IllegalStateException(msg);
+            throw new BalancerOfflineException(msg);
         }
 
         Optional<Long> brokerEpochOpt = brokerToRemoveEpoch.isEmpty() ? Optional.empty()
