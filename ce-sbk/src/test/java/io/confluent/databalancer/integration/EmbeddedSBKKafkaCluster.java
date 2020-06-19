@@ -8,7 +8,8 @@ import com.linkedin.kafka.cruisecontrol.monitor.MockSampler;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.NoopSampleStore;
 import io.confluent.kafka.test.cluster.EmbeddedKafkaCluster;
 import io.confluent.license.validator.LicenseConfig;
-import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
+import io.confluent.telemetry.ConfluentTelemetryConfig;
+import io.confluent.telemetry.exporter.kafka.KafkaExporterConfig;
 import kafka.server.KafkaConfig;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
@@ -125,7 +126,8 @@ public class EmbeddedSBKKafkaCluster extends EmbeddedKafkaCluster {
     props.put(confluentBalancerConfig(BROKER_SAMPLE_STORE_TOPIC_PARTITION_COUNT_CONFIG), "1");
     // Even though we don't use the metrics reporter, its topic replicas config is used
     String replFactor = Integer.toString(REPLICATION_FACTOR);
-    props.put(ConfluentMetricsReporterConfig.TOPIC_REPLICAS_CONFIG, replFactor);
+    props.put(ConfluentTelemetryConfig.PREFIX_EXPORTER + ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME + "." +
+            KafkaExporterConfig.TOPIC_REPLICAS_CONFIG, replFactor);
     props.put(LicenseConfig.REPLICATION_FACTOR_PROP, replFactor);
     // larger concurrency limits for faster rebalances
     props.put(confluentBalancerConfig(KafkaCruiseControlConfig.NUM_CONCURRENT_PARTITION_MOVEMENTS_PER_BROKER_CONFIG), "50");

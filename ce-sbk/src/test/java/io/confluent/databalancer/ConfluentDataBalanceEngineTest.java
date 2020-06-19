@@ -31,7 +31,8 @@ import io.confluent.databalancer.operation.BrokerRemovalStateMachine;
 import io.confluent.databalancer.operation.BrokerRemovalStateTracker;
 import io.confluent.databalancer.persistence.ApiStatePersistenceStore;
 import io.confluent.databalancer.persistence.BrokerRemovalStateRecord;
-import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
+import io.confluent.telemetry.ConfluentTelemetryConfig;
+import io.confluent.telemetry.exporter.kafka.KafkaExporterConfig;
 import kafka.server.Defaults$;
 import kafka.server.KafkaConfig;
 import kafka.server.KafkaConfig$;
@@ -289,7 +290,7 @@ public class ConfluentDataBalanceEngineTest  {
         // Just some arbitrary values for the network capacity -- needs to be non-zero
         brokerProps.put(nwInCapacity, "1200");
         brokerProps.put(nwOutCapacity, "780");
-        brokerProps.put(metricSamplerClass, "io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSampler");
+        brokerProps.put(metricSamplerClass, "io.confluent.cruisecontrol.metricsreporter.ConfluentTelemetryReporterSampler");
         brokerProps.put(nonBalancerPropertyKey, "nonBalancerPropertyValue");
 
         KafkaConfig config = new KafkaConfig(brokerProps);
@@ -327,8 +328,9 @@ public class ConfluentDataBalanceEngineTest  {
         // Not all required properties go into the KafkaCruiseControlConfig. Extract everything for validation.
         // Expect nothing to be present as no overrides were present in this config
         Map<String, Object> ccOriginals = ccConfig.originals();
-        assertFalse("ConfluentMetricsReporterSampler.METRIC_REPORTER_TOPIC_PATTERN found in config",
-                ccOriginals.containsKey(ConfluentMetricsSamplerBase.METRIC_REPORTER_TOPIC_PATTERN));
+        assertFalse("KafkaExporterConfig.TOPIC_NAME_CONFIG found in config",
+                ccOriginals.containsKey(ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME) +
+                        KafkaExporterConfig.TOPIC_NAME_CONFIG));
         assertFalse("ConfluentConfigs.BALANCER_TOPICS_REPLICATION_FACTOR_CONFIG found in config",
                 ccOriginals.containsKey(ConfluentConfigs.BALANCER_TOPICS_REPLICATION_FACTOR_CONFIG));
     }
@@ -390,9 +392,11 @@ public class ConfluentDataBalanceEngineTest  {
         String nwInCapacity = ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_CONFIG;
         String nwOutCapacity = ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_CONFIG;
 
-        String  metricsTopicConfig = ConfluentMetricsReporterConfig.TOPIC_CONFIG;
+        String  metricsTopicConfig = ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME) +
+                KafkaExporterConfig.TOPIC_NAME_CONFIG;
         String testMetricsTopic = "testMetricsTopic";
-        String metricsRfConfig = ConfluentMetricsReporterConfig.TOPIC_REPLICAS_CONFIG;
+        String metricsRfConfig = ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME) +
+                KafkaExporterConfig.TOPIC_REPLICAS_CONFIG;
         String testMetricsRfValue = "2";
 
         brokerProps.put(nwInCapacity, "1200");
@@ -421,7 +425,7 @@ public class ConfluentDataBalanceEngineTest  {
         // Not all properties go into the KafkaCruiseControlConfig. Extract everything for validation.
         Map<String, Object> ccOriginals = ccConfig.originals();
 
-        Object actualMetricsTopic = ccOriginals.get(ConfluentMetricsSamplerBase.METRIC_REPORTER_TOPIC_PATTERN);
+        Object actualMetricsTopic = ccOriginals.get(ConfluentMetricsSamplerBase.TELEMETRY_REPORTER_TOPIC_PATTERN);
         assertEquals(actualMetricsTopic + " is not same as expected " + testMetricsTopic,
                 testMetricsTopic, actualMetricsTopic);
         Object actualTopicRf = ccOriginals.get(ConfluentConfigs.BALANCER_TOPICS_REPLICATION_FACTOR_CONFIG);

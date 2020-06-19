@@ -212,7 +212,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
    */
   public static final String METRIC_SAMPLER_CLASS_CONFIG = "metric.sampler.class";
   private static final String METRIC_SAMPLER_CLASS_DOC = "The class name of the metric sampler";
-  private static final String METRIC_SAMPLER_CLASS_DEFAULT = "io.confluent.cruisecontrol.metricsreporter.ConfluentMetricsReporterSampler";
+  private static final String METRIC_SAMPLER_CLASS_DEFAULT = "io.confluent.cruisecontrol.metricsreporter.ConfluentTelemetryReporterSampler";
 
   /**
    * <code>metric.sampler.partition.assignor.class</code>

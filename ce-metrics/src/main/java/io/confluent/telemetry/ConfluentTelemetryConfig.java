@@ -89,7 +89,7 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
                 "request_handler_avg_idle_percent",
                 "request_queue_size",
                 "request_queue_time_ms",
-                "requests_per_sec",
+                "requests",
                 "response_queue_size",
                 "response_queue_time_ms",
                 "response_send_time_ms",
