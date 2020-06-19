@@ -1059,6 +1059,24 @@ class KafkaConfigTest {
     assertFalse(isValidKafkaConfig(props))
   }
 
+  @Test
+  def testAuthenticationAuditLogEnablePropDefault(): Unit = {
+    val props = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 8181)
+    val config = KafkaConfig.fromProps(props)
+    assertFalse(config.get(KafkaConfig.AuthenticationAuditLogEnableProp).asInstanceOf[Boolean])
+    assertFalse(config.valuesWithPrefixOverride("listener.name.external.").get(KafkaConfig.AuthenticationAuditLogEnableProp).asInstanceOf[Boolean])
+  }
+
+  @Test
+  def testAuthenticationAuditLogEnablePropExplicit(): Unit = {
+    val props = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 8181)
+    props.put("listener.name.external.confluent.security.event.logger.authentication.enable", "true");
+
+    val config = KafkaConfig.fromProps(props)
+    assertFalse(config.get(KafkaConfig.AuthenticationAuditLogEnableProp).asInstanceOf[Boolean])
+    assertTrue(config.valuesWithPrefixOverride("listener.name.external.").get(KafkaConfig.AuthenticationAuditLogEnableProp).asInstanceOf[Boolean])
+  }
+
   private def assertPropertyInvalid(validRequiredProps: => Properties, name: String, values: Any*): Unit = {
     values.foreach((value) => {
       val props = validRequiredProps

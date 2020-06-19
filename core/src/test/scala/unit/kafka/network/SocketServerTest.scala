@@ -1751,10 +1751,11 @@ class SocketServerTest {
     testProps.put("inter.broker.listener.name", "INTERNAL")
     testProps.remove("security.inter.broker.protocol")
 
-    if (enableAuthenticationAuditLogs)
-      testProps.put(KafkaConfig.AuthenticationAuditLogEnableProp, "true")
-    else
-      testProps.put(KafkaConfig.AuthenticationAuditLogEnableProp, "false")
+    if (enableAuthenticationAuditLogs) {
+      // test with listener prefix override
+      val listenerOverrideConfig = new ListenerName("EXTERNAL").configPrefix() + KafkaConfig.AuthenticationAuditLogEnableProp
+      testProps.put(listenerOverrideConfig, "true")
+    }
 
     val auditLogProvider = new TestAuditLogProvider();
     val overrideServer = new SocketServer(KafkaConfig.fromProps(testProps), serverMetrics, Time.SYSTEM, credentialProvider, auditLogProvider)
