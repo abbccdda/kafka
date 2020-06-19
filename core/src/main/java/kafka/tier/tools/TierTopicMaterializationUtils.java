@@ -109,7 +109,7 @@ public class TierTopicMaterializationUtils {
         TierMessageFormatter writer = new TierMessageFormatter();
         setupConsumer(config);
 
-        System.out.println("Event processing from " + config.startOffset + " until " + config.endOffset);
+        System.out.println("Event processing from " + config.startOffset + " till  " + config.endOffset);
         try {
             while (config.endOffset == -1 || currentOffset <= config.endOffset) {
                 final ConsumerRecords<byte[], byte[]> records = fetchRecords();

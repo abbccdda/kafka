@@ -233,12 +233,14 @@ public class TierMetadataValidator implements AutoCloseable {
 
         System.out.println("**** Calling validator. \n");
         // Validate the state files.
-        for (TopicIdPartition topicIdPartition : utils.stateMap.keySet()) {
+        Iterator<TopicIdPartition> it = utils.stateMap.keySet().iterator();
+        while (it.hasNext()) {
             try {
-                Path eFile = utils.getTierStateFile(topicIdPartition);
-                Path aFile = stateMap.get(topicIdPartition).snapshot;
-                if (validateStates(eFile, aFile, topicIdPartition.topicPartition(),
-                        utils.getStartOffset(topicIdPartition.topicPartition()))) {
+                TopicIdPartition eid = it.next();
+                Path eFile = utils.getTierStateFile(eid);
+                Path aFile = stateMap.get(eid).snapshot;
+                if (validateStates(eFile, aFile, eid.topicPartition(),
+                                    utils.getStartOffset(eid.topicPartition()))) {
                     System.out.println("Metadata states is consistent " + eFile + " Vs " + aFile);
                 }
             } catch (Exception ex) {

@@ -8,24 +8,20 @@ from kafkatest.services.console_consumer import ConsoleConsumer
 from kafkatest.services.kafka import KafkaService
 from kafkatest.services.verifiable_producer import VerifiableProducer
 from kafkatest.services.zookeeper import ZookeeperService
-from kafkatest.services.tier_fence_restore import TierFenceRestore
 from kafkatest.tests.produce_consume_validate import ProduceConsumeValidateTest
 from kafkatest.utils import is_int
-from kafkatest.utils.tiered_storage import tier_set_configs, config_property, TierSupport, TieredStorageMetric, TieredStorageMetricsRegistry, S3_BACKEND, GCS_BACKEND
+from kafkatest.utils.tiered_storage import tier_set_configs, TierSupport, TieredStorageMetric, TieredStorageMetricsRegistry, S3_BACKEND, GCS_BACKEND
 from kafkatest.version import DEV_BRANCH, KafkaVersion
 from kafkatest.services.kafka.util import fix_opts_for_new_jvm
 
 import uuid
 import time
 
-class TierPartitionFenceRestoreTest(ProduceConsumeValidateTest, TierSupport):
+class TierMetadataPartitionFencingTest(ProduceConsumeValidateTest, TierSupport):
     """
     This test sets up tiered storage archival workload for a test topic, then intentionally triggers fencing on a
     partition of the tested topic. The test asserts that the fencing event is reported via JMX metrics, and also that
     the controller is able to delete the topic whose partition was fenced.
-
-    If should_restore is true, it then injects a TierPartitionRestore event and recovers the
-    partition back to health and continues archiving.
 
     When running this test via Ducker, the containers must be built such that AWS credentials
     for `TIER_S3_BUCKET` are available to the broker at runtime:
@@ -55,7 +51,7 @@ class TierPartitionFenceRestoreTest(ProduceConsumeValidateTest, TierSupport):
     }
 
     def __init__(self, test_context):
-        super(TierPartitionFenceRestoreTest, self).__init__(test_context=test_context)
+        super(TierMetadataPartitionFencingTest, self).__init__(test_context=test_context)
 
         self.zk = ZookeeperService(test_context, num_nodes=1)
         self.kafka = KafkaService(test_context, num_nodes=self.BROKER_COUNT, zk=self.zk)
@@ -66,7 +62,7 @@ class TierPartitionFenceRestoreTest(ProduceConsumeValidateTest, TierSupport):
         self.zk.start()
 
     def min_cluster_size(self):
-        return super(TierPartitionFenceRestoreTest, self).min_cluster_size() + self.num_producers + self.num_consumers
+        return super(TierMetadataPartitionFencingTest, self).min_cluster_size() + self.num_producers + self.num_consumers
 
     def topic_id(self, partition):
         self.logger.debug(
@@ -83,6 +79,55 @@ class TierPartitionFenceRestoreTest(ProduceConsumeValidateTest, TierSupport):
         self.logger.info("Topic ID assigned for topic %s is %s (partition %d)" % (self.topic, topic_id, partition))
         return topic_id
 
+    def trigger_fencing(self):
+        if not self.PARTITION_IDS_TO_BE_FENCED:
+            return
+
+        node = self.kafka.nodes[0]
+
+        # 1. Write file containing list of partitions to be fenced.
+        first_partition = list(self.PARTITION_IDS_TO_BE_FENCED)[0]
+        topic_id_b64 = base64.urlsafe_b64encode(uuid.UUID(self.topic_id(first_partition)).bytes)
+        fencing_input_file = "{}/trigger_fencing.input".format(KafkaService.PERSISTENT_ROOT)
+        input_tpids = []
+        for partition in self.PARTITION_IDS_TO_BE_FENCED:
+            input_tpids.append('{},{},{}'.format(topic_id_b64, self.topic, partition))
+
+        cmd = "echo -n '{}' > {}".format("\n".join(input_tpids), fencing_input_file)
+        self.logger.debug(cmd)
+
+        output = ""
+        for line in node.account.ssh_capture(cmd):
+            output += line
+        self.logger.debug(output)
+
+        # 2. Write file containing list of properties.
+        properties_file = "{}/trigger_fencing.properties".format(KafkaService.PERSISTENT_ROOT)
+        property = "confluent.tier.metadata.bootstrap.servers={}".format(
+            self.kafka.bootstrap_servers(self.kafka.security_protocol))
+        cmd = "echo -n '{}' > {}".format(property, properties_file)
+        self.logger.debug(cmd)
+
+        output = ""
+        for line in node.account.ssh_capture(cmd):
+            output += line
+        self.logger.debug(output)
+
+         # 3. Run TierPartitionStateFencingTrigger command to fence the partitions.
+        cmd = fix_opts_for_new_jvm(node)
+        cmd += self.kafka.path.script("kafka-run-class.sh", node)
+        cmd += " kafka.tier.tools.TierPartitionStateFencingTrigger"
+        cmd += " --tier.config %s --file-fence-target-partitions %s" % (
+            properties_file, fencing_input_file)
+        cmd += " 2>> %s/trigger_fencing.log" % KafkaService.PERSISTENT_ROOT
+        cmd += " | tee -a %s/trigger_fencing.log &" % KafkaService.PERSISTENT_ROOT
+        self.logger.debug(cmd)
+
+        output = ""
+        for line in node.account.ssh_capture(cmd):
+            output += line
+        self.logger.debug(output)
+
     def check_topic_deleted(self):
         topic_list_generator = self.kafka.list_topics()
         for topic in topic_list_generator:
@@ -90,8 +135,8 @@ class TierPartitionFenceRestoreTest(ProduceConsumeValidateTest, TierSupport):
                 return False
         return True
 
-    @matrix(client_version=[str(DEV_BRANCH)], backend=[S3_BACKEND, GCS_BACKEND], should_restore=[False, True])
-    def test_tier_partition_fence_restore_test(self, client_version, backend, should_restore=False):
+    @matrix(client_version=[str(DEV_BRANCH)], backend=[S3_BACKEND, GCS_BACKEND])
+    def test_tier_metadata_partition_fencing(self, client_version, backend):
         # 1. Setup tiering
         self.kafka.jmx_object_names = TieredStorageMetricsRegistry.ALL_MBEANS
         self.kafka.jmx_attributes = TieredStorageMetricsRegistry.ALL_ATTRIBUTES
@@ -115,22 +160,10 @@ class TierPartitionFenceRestoreTest(ProduceConsumeValidateTest, TierSupport):
 
         # 3. Trigger fencing on a partition. Then produce more data post fencing, eventually stop the producer.
         self.restart_jmx_tool()
-        assert self.check_fenced_partitions(0)
-
-        self.tier_fence_restore = TierFenceRestore(self.test_context, self.kafka, self.topic,
-                                                   self.PARTITION_IDS_TO_BE_FENCED, should_restore=should_restore)
-        self.tier_fence_restore.start()
-        self.tier_fence_restore.wait()
-
-        if should_restore:
-            expected_fenced=0
-        else:
-            expected_fenced=len(self.PARTITION_IDS_TO_BE_FENCED)
-
-        wait_until(lambda: self.check_fenced_partitions(expected_fenced),
-                   timeout_sec=600, backoff_sec=2,
-                   err_msg="num fenced partitions was not reported as %s" % expected_fenced)
-
+        assert (self.check_fenced_partitions(0))
+        self.trigger_fencing()
+        wait_until(lambda: self.check_fenced_partitions(len(self.PARTITION_IDS_TO_BE_FENCED)),
+                   timeout_sec=600, backoff_sec=2, err_msg="num fenced partitions was not reported as 1")
         wait_until(lambda: self.producer.each_produced_at_least(self.MIN_RECORDS_PRODUCED * 2),
                    timeout_sec=360, backoff_sec=1,
                    err_msg="Producer did not produce all messages in reasonable amount of time")
@@ -142,26 +175,19 @@ class TierPartitionFenceRestoreTest(ProduceConsumeValidateTest, TierSupport):
         partitions_without_error = list(set(range(0, self.PARTITION_COUNT)) - self.PARTITION_IDS_TO_BE_FENCED)
         wait_until(
             lambda: self.tiering_completed(
-                self.topic, partitions=partitions_without_error, ignore_error_partitions=not(should_restore)),
-            timeout_sec=720,
+                self.topic, partitions=partitions_without_error, ignore_error_partitions=True),
+            timeout_sec=360,
             backoff_sec=2,
             err_msg="archive did not complete within timeout for partitions without error")
+        assert (self.check_fenced_partitions(len(self.PARTITION_IDS_TO_BE_FENCED)))
 
-        assert self.check_fenced_partitions(expected_fenced)
-
-        # 5. Verify that produced data can be read by the consumer.
-        #    We start this consumer after all archiving, fencing, and recovery has finished so
-        #    that we can test that all data can still be consumed.
+        # 5. Verify that produced data can be read by the consumer
         self.consumer = ConsoleConsumer(self.test_context, self.num_consumers, self.kafka,
                                         self.topic, consumer_timeout_ms=60000, message_validator=is_int,
                                         version=KafkaVersion(client_version))
         self.consumer.start()
         self.consumer.wait()
         self.validate()
-
-        # check cluster state before delete
-        wait_until(lambda: self.check_cluster_state(expected_fenced=expected_fenced),
-                   timeout_sec=4, backoff_sec=1, err_msg="issue detected with cluster state metrics")
 
         # 6. Verify that the topic can be deleted, despite a partition being fenced
         self.kafka.delete_topic(self.topic)
@@ -174,8 +200,4 @@ class TierPartitionFenceRestoreTest(ProduceConsumeValidateTest, TierSupport):
         self.restart_jmx_tool()
 
         # 8. Verify that the objects in the object store have been deleted.
-        self.object_deletions_completed(backend, object_store_consistency_timeout_sec=720, jmx_metrics_timeout_sec=720)
-
-        # check cluster state after delete, no partitions should be fenced
-        wait_until(lambda: self.check_cluster_state(expected_fenced=0),
-                   timeout_sec=4, backoff_sec=1, err_msg="issue detected with cluster state metrics")
+        self.object_deletions_completed(backend)

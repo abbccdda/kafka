@@ -5,7 +5,6 @@
 package kafka.tier.tools.common;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import kafka.tier.TopicIdPartition;
@@ -90,14 +89,8 @@ public class ComparatorInfo {
             return replicas.get(REMATERIALIZED_REPLICA_ID);
         }
 
-        public static void writeJsonToFile(List<ComparatorOutput> outputList, Path outputJsonFile) throws IOException {
+        public static void writeJSONToFile(List<ComparatorOutput> outputList, Path outputJsonFile) throws IOException {
             JSON_SERDE.writeValue(outputJsonFile.toFile(), outputList);
-        }
-
-        public static List<ComparatorOutput> readJsonFromFile(Path inputJsonFile) throws IOException {
-            return JSON_SERDE.readValue(inputJsonFile.toFile(),
-                    new TypeReference<List<ComparatorOutput>>() {
-                    });
         }
     }
 

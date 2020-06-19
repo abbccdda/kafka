@@ -40,9 +40,13 @@ public class TierTopicProducerSupplier implements Supplier<Producer<byte[], byte
                 instanceId;
     }
 
-    public static void addBaseProperties(Properties properties,
-                                         String clientId,
-                                         Integer requestTimeoutMs) {
+    // visible for testing
+    public static Properties properties(TierTopicManagerConfig config, String clientId) {
+        Properties properties = new Properties();
+
+        for (Map.Entry<String, Object> configEntry : config.interBrokerClientConfigs.get().entrySet())
+            properties.put(configEntry.getKey(), configEntry.getValue());
+
         properties.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.ByteArraySerializer");
         properties.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.ByteArraySerializer");
         properties.put(ProducerConfig.ACKS_CONFIG, "all");
@@ -50,17 +54,8 @@ public class TierTopicProducerSupplier implements Supplier<Producer<byte[], byte
         properties.put(ProducerConfig.RETRY_BACKOFF_MS_CONFIG, Integer.toString(2000));
         properties.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, Integer.toString(Integer.MAX_VALUE));
         properties.put(ProducerConfig.CLIENT_ID_CONFIG, clientId);
-        properties.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, requestTimeoutMs);
+        properties.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, config.requestTimeoutMs);
         properties.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, 1);
-    }
-
-    // visible for testing
-    public static Properties properties(TierTopicManagerConfig config, String clientId) {
-        Properties properties = new Properties();
-        for (Map.Entry<String, Object> configEntry : config.interBrokerClientConfigs.get().entrySet())
-            properties.put(configEntry.getKey(), configEntry.getValue());
-
-        addBaseProperties(properties, clientId, config.requestTimeoutMs);
 
         // Explicitly remove the metrics reporter configuration, as it is not expected to be configured for tier topic clients
         properties.remove(CommonClientConfigs.METRIC_REPORTER_CLASSES_CONFIG);

@@ -622,8 +622,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
     () => new AdminZkClient(_zkClient)
   }
 
-  /* public for usage in tests */
-  def tieredStorageInterBrokerClientConfigsSupplier: Supplier[util.Map[String, Object]] = {
+  private def tieredStorageInterBrokerClientConfigsSupplier: Supplier[util.Map[String, Object]] = {
     () => {
       if (config.tierMetadataBootstrapServers != null) {
         Collections.singletonMap(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, config.tierMetadataBootstrapServers)

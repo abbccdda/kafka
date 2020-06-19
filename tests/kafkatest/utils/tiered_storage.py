@@ -76,7 +76,7 @@ class TieredStorageMetricsRegistry:
     ARCHIVER_LAG = TieredStorageMetric("kafka.tier.tasks.archive:type=TierArchiver,name=TotalLag", "Value")
     ARCHIVER_LAG_WITHOUT_ERROR_PARTITIONS = TieredStorageMetric("kafka.tier.tasks.archive:type=TierArchiver,name=TotalLagWithoutErrorPartitions", "Value")
     FETCHER_BYTES_FETCHED = TieredStorageMetric("kafka.server:type=TierFetcher", "BytesFetchedTotal")
-    TIER_TASKS_PARTITIONS_IN_ERROR = TieredStorageMetric("kafka.tier.tasks:type=TierTasks,name=NumPartitionsInError", "Value")
+    ARCHIVER_PARTITIONS_IN_ERROR = TieredStorageMetric("kafka.tier.tasks:type=TierTasks,name=NumPartitionsInError", "Value")
     TIER_TASKS_HEARTBEAT = TieredStorageMetric("kafka.tier.tasks:type=TierTasks,name=HeartbeatMs", "Value")
     TIER_TOPIC_MANAGER_HEARTBEAT = TieredStorageMetric("kafka.server:type=TierTopicConsumer", "HeartbeatMs")
     TIER_TOPIC_MANAGER_NUM_FENCED_PARTITIONS = TieredStorageMetric("kafka.server:type=TierTopicConsumer", "ErrorPartitions")
@@ -87,7 +87,7 @@ class TieredStorageMetricsRegistry:
     ALL_MBEANS = [ARCHIVER_LAG.mbean,
             ARCHIVER_LAG_WITHOUT_ERROR_PARTITIONS.mbean,
             FETCHER_BYTES_FETCHED.mbean,
-            TIER_TASKS_PARTITIONS_IN_ERROR.mbean,
+            ARCHIVER_PARTITIONS_IN_ERROR.mbean,
             TIER_TOPIC_MANAGER_HEARTBEAT.mbean,
             TIER_TOPIC_MANAGER_NUM_FENCED_PARTITIONS.mbean,
             TIER_TASKS_HEARTBEAT.mbean,
@@ -98,7 +98,7 @@ class TieredStorageMetricsRegistry:
     ALL_ATTRIBUTES = [ARCHIVER_LAG.attribute,
             ARCHIVER_LAG_WITHOUT_ERROR_PARTITIONS.attribute,
             FETCHER_BYTES_FETCHED.attribute,
-            TIER_TASKS_PARTITIONS_IN_ERROR.attribute,
+            ARCHIVER_PARTITIONS_IN_ERROR.attribute,
             TIER_TOPIC_MANAGER_HEARTBEAT.attribute,
             TIER_TOPIC_MANAGER_NUM_FENCED_PARTITIONS.attribute,
             TIER_TASKS_HEARTBEAT.attribute,
@@ -158,7 +158,7 @@ class TierSupport():
             return False
         return True
 
-    def check_cluster_state(self, expected_fenced=0):
+    def check_cluster_state(self):
         self.kafka.read_jmx_output_all_nodes()
         for node_stats in self.kafka.jmx_stats:
             last_jmx_entry = sorted(node_stats.items(), key=lambda kv: kv[0])[-1][1]
@@ -167,12 +167,12 @@ class TierSupport():
                     and self.check_heartbeat(last_jmx_entry, TieredStorageMetricsRegistry.DELETED_PARTITIONS_COORDINATOR_HEARTBEAT, 90000)):
                 return False
 
-            partitions_in_error = last_jmx_entry.get(str(TieredStorageMetricsRegistry.TIER_TASKS_PARTITIONS_IN_ERROR), -1)
-            if partitions_in_error != 0:
-                self.logger.debug("Archiver " + str(partitions_in_error) + " partitions in error")
+            archiver_partitions_in_error = last_jmx_entry.get(str(TieredStorageMetricsRegistry.ARCHIVER_PARTITIONS_IN_ERROR), -1)
+            if archiver_partitions_in_error != 0:
+                self.logger.debug("Archiver " + str(archiver_partitions_in_error) + " partitions in error")
                 return False
 
-        if not self.check_fenced_partitions(expected_fenced):
+        if not self.check_fenced_partitions(0):
             return False
 
         return True
@@ -191,7 +191,7 @@ class TierSupport():
         return True
 
     def tiering_completed(self, topic, partitions=[0], ignore_error_partitions=False):
-        """Ensure that:
+	"""Ensure that:
 	   1. Archive lag is 0 on all brokers
 	   2. One log segment is present on one broker (the leader)
 	   3. Fewer than two log segments are present on other brokers.
@@ -266,11 +266,11 @@ class TierSupport():
 
     def add_error_metrics(self):
         self.kafka.jmx_object_names += [TieredStorageMetricsRegistry.TIER_TOPIC_MANAGER_NUM_FENCED_PARTITIONS.mbean,
-                TieredStorageMetricsRegistry.TIER_TASKS_PARTITIONS_IN_ERROR.mbean,
+                TieredStorageMetricsRegistry.ARCHIVER_PARTITIONS_IN_ERROR.mbean,
                 TieredStorageMetricsRegistry.TIER_TOPIC_MANAGER_HEARTBEAT.mbean,
                 TieredStorageMetricsRegistry.DELETED_PARTITIONS_COORDINATOR_HEARTBEAT.mbean]
         self.kafka.jmx_attributes += [TieredStorageMetricsRegistry.TIER_TOPIC_MANAGER_NUM_FENCED_PARTITIONS.attribute,
-                TieredStorageMetricsRegistry.TIER_TASKS_PARTITIONS_IN_ERROR.attribute,
+                TieredStorageMetricsRegistry.ARCHIVER_PARTITIONS_IN_ERROR.attribute,
                 TieredStorageMetricsRegistry.TIER_TOPIC_MANAGER_HEARTBEAT.attribute,
                 TieredStorageMetricsRegistry.DELETED_PARTITIONS_COORDINATOR_HEARTBEAT.attribute]
 
@@ -293,11 +293,11 @@ class TierSupport():
             self.kafka.started[idx-1] = False
             self.kafka.start_jmx_tool(idx, node)
 
-    def list_s3_contents(self, data_type_prefix="0"):
+    def list_s3_contents(self):
         node = self.kafka.nodes[0]
         bucket = node.config[config_property.CONFLUENT_TIER_S3_BUCKET]
         prefix = node.config[config_property.CONFLUENT_TIER_S3_PREFIX]
-        cmd = "aws s3 ls --recursive {}/{}/{}".format(bucket, prefix, data_type_prefix)
+        cmd = "aws s3 ls --recursive {}/{}".format(bucket, prefix)
         for line in node.account.ssh_capture(cmd, allow_fail=True):
             yield line.rstrip()
 
@@ -306,11 +306,11 @@ class TierSupport():
             cmd = "gcloud auth activate-service-account --key-file %s" % node.config[config_property.CONFLUENT_TIER_GCS_CRED_FILE_PATH]
             node.account.ssh_capture(cmd, allow_fail=False)
 
-    def list_gcs_contents(self, data_prefix="0"):
+    def list_gcs_contents(self):
         node = self.kafka.nodes[0]
         bucket = node.config[config_property.CONFLUENT_TIER_GCS_BUCKET]
         prefix = node.config[config_property.CONFLUENT_TIER_GCS_PREFIX]
-        cmd = "gsutil ls -r gs://{}/{}/{}".format(bucket, prefix, data_prefix)
+        cmd = "gsutil ls -r gs://{}/{}".format(bucket, prefix)
         for line in node.account.ssh_capture(cmd, allow_fail=True):
             yield line.rstrip()
 
@@ -319,30 +319,30 @@ class TierSupport():
         for node in self.kafka.nodes:
             last_jmx_entry = self.kafka.last_jmx_item(self.kafka.idx(node))
             queued_deletions = last_jmx_entry.get(
-                str(TieredStorageMetricsRegistry.DELETED_PARTITIONS_COORDINATOR_QUEUED_DELETIONS), sys.maxint)
+                str(TieredStorageMetricsRegistry.DELETED_PARTITIONS_COORDINATOR_INPROGRESS_DELETIONS), sys.maxint)
             if queued_deletions > 0:
                 return True
 
             in_progress_deletions = last_jmx_entry.get(
-                str(TieredStorageMetricsRegistry.DELETED_PARTITIONS_COORDINATOR_INPROGRESS_DELETIONS), sys.maxint)
+                str(TieredStorageMetricsRegistry.DELETED_PARTITIONS_COORDINATOR_QUEUED_DELETIONS), sys.maxint)
             if in_progress_deletions > 0:
                 return True
 
         return False
 
-    def object_deletions_completed(self, backend, object_store_consistency_timeout_sec=1800, jmx_metrics_timeout_sec=360, backoff_sec=2):
+    def object_deletions_completed(self, backend, timeout_sec=1800, backoff_sec=2):
         if backend == S3_BACKEND:
             # we set the timeout to be very large here to ensure S3's ListBucket consistency properties
-            # have sufficient time to show object deletion
+            # have suffient time to show object deletion
             wait_until(lambda: len(list(self.list_s3_contents())) == 0,
-                       timeout_sec=object_store_consistency_timeout_sec, backoff_sec=backoff_sec, err_msg="deletion has not completed yet " +
+                       timeout_sec=timeout_sec, backoff_sec=backoff_sec, err_msg="deletion has not completed yet " +
                        str(list(self.list_s3_contents())))
         elif backend == GCS_BACKEND:
             self.setup_gsutil()
             wait_until(lambda: list(self.list_gcs_contents()) == ["CommandException: One or more URLs matched no objects."],
-            timeout_sec=object_store_consistency_timeout_sec, backoff_sec=backoff_sec,
+            timeout_sec=timeout_sec, backoff_sec=backoff_sec,
             err_msg="deletion has not completed yet " + str(list(self.list_gcs_contents())))
 
         self.restart_jmx_tool()
         wait_until(lambda: self.deletions_in_progress() == False,
-                   timeout_sec=jmx_metrics_timeout_sec, backoff_sec=backoff_sec, err_msg="deletions still in progress according to jmx metrics")
+                   timeout_sec=720, backoff_sec=2, err_msg="deletions still in progress according to jmx metrics")

@@ -5,7 +5,7 @@
 package kafka.tier.tools
 
 import java.time.Duration
-import java.util.Arrays
+import java.util.Arrays;
 import java.util.Collections
 import java.util.Optional
 import java.util.Properties
@@ -17,18 +17,35 @@ import kafka.tier.TopicIdPartition
 import kafka.tier.domain.{AbstractTierMetadata, TierTopicInitLeader}
 import kafka.tier.topic.{TierTopic, TierTopicAdmin, TierTopicManager}
 import kafka.utils.CoreUtils
+
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.KafkaConsumer
 import org.apache.kafka.clients.producer.Producer
-import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.clients.producer.RecordMetadata
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException
+
 import org.junit.Assert._
 import org.junit.Test
 import org.scalatest.Assertions.intercept
 
 class RecoveryUtilsTest extends IntegrationTestHarness {
   override protected def brokerCount: Int = 3
+
+  @Test
+  def testGetNumPartitionsOnExistingTopic(): Unit = {
+    val numPartitions = 31
+    val topicName = "test-topic"
+    createTopic(topicName, numPartitions, 3)
+    assertEquals(numPartitions, RecoveryUtils.getNumPartitions(brokerList, topicName))
+  }
+
+  @Test
+  def testGetNumPartitionsOnNonExistingTopic(): Unit = {
+    val topicName = "nonexisting-test-topic"
+    intercept[ExecutionException](
+      RecoveryUtils.getNumPartitions(brokerList, topicName)
+    ).getCause.isInstanceOf[UnknownTopicOrPartitionException]
+  }
 
   @Test
   def testInjectTierTopicEventOnExistingTopic(): Unit = {
@@ -61,13 +78,8 @@ class RecoveryUtilsTest extends IntegrationTestHarness {
     var mayBeProducer: Option[Producer[Array[Byte], Array[Byte]]] = None
     var mayBeMetadata: Option[RecordMetadata] = None
     try {
-      val properties = new Properties();
-      properties.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList)
       mayBeProducer = Some(RecoveryUtils.createTierTopicProducer(
-        properties, "test"))
-
-      assertEquals(numTierTopicPartitions, RecoveryUtils.getNumPartitions(mayBeProducer.get, tierTopicName))
-
+        brokerList, tierTopicNamespace, numTierTopicPartitions, "test"))
       mayBeMetadata = Some(RecoveryUtils.injectTierTopicEvent(
         mayBeProducer.get, initLeaderEvent, tierTopicName, numTierTopicPartitions))
     } finally {
@@ -128,10 +140,8 @@ class RecoveryUtilsTest extends IntegrationTestHarness {
     val numTierTopicPartitions: Short = 1
     var mayBeProducer: Option[Producer[Array[Byte], Array[Byte]]] = None
     try {
-      val properties = new Properties();
-      properties.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList)
       mayBeProducer = Some(RecoveryUtils.createTierTopicProducer(
-        properties, "test"))
+        brokerList, "", numTierTopicPartitions, "test"))
       intercept[ExecutionException](
         RecoveryUtils.injectTierTopicEvent(
           mayBeProducer.get, initLeaderEvent, "", numTierTopicPartitions)

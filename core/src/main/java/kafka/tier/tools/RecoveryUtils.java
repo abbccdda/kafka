@@ -1,24 +1,31 @@
 package kafka.tier.tools;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Supplier;
 import kafka.server.Defaults;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.client.TierTopicClient;
 import kafka.tier.client.TierTopicProducerSupplier;
 import kafka.tier.domain.AbstractTierMetadata;
 import kafka.tier.topic.TierTopic;
+import kafka.tier.topic.TierTopicManagerConfig;
 import kafka.tier.topic.TierTopicPartitioner;
 import kafka.utils.CoreUtils;
+import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.admin.DescribeTopicsResult;
+import org.apache.kafka.clients.admin.TopicDescription;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
+import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
-import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
 
 import org.slf4j.Logger;
@@ -44,45 +51,79 @@ public class RecoveryUtils {
 
     /**
      * Discovers and returns the number of partitions in the provided topicName.
+     * The implementation uses an Admin client to achieve the above.
+     *
+     * @param bootstrapServers   the comma-separated list of bootstrap servers to be used by the
+     *                           admin client (the string passed should be non-empty and valid)
      * @param topicName          the name of the topic (should be non-empty and valid)
      *
      * @return   the number of partitions in the provided topicName.
      *
+     * @throws InterruptedException
+     * @throws ExecutionException
      */
-    public static int getNumPartitions(Producer<byte[], byte[]> producer, String topicName) {
-        List<PartitionInfo> partitions = producer.partitionsFor(topicName);
-        Optional<Integer> max = partitions.stream().map(PartitionInfo::partition).max(Integer::compareTo);
-        if (!max.isPresent())
-            throw new IllegalStateException("Partitions not found for tier topic " + topicName);
+    public static short getNumPartitions(String bootstrapServers, String topicName)
+        throws InterruptedException, ExecutionException {
+        final Properties props = new Properties();
+        props.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        props.put(AdminClientConfig.CLIENT_ID_CONFIG, RecoveryUtils.class.getName());
+        final Admin adminClient = Admin.create(props);
 
-        if (max.get() + 1 > partitions.size())
-            throw new IllegalStateException("Partitions missing for tier topic " + topicName);
-
-        return partitions.size();
+        final DescribeTopicsResult result =
+            adminClient.describeTopics(Collections.singletonList(topicName));
+        final Map<String, TopicDescription> descriptions;
+        try {
+            descriptions = result.all().get();
+        } finally {
+            adminClient.close();
+        }
+        final int numPartitionsInt = descriptions.get(topicName).partitions().size();
+        final short numPartitions = (short) numPartitionsInt;
+        // Sanity check before casting.
+        if (numPartitions != numPartitionsInt) {
+            throw new IllegalStateException(
+                String.format("Unexpected num partitions: %d", numPartitionsInt));
+        }
+        return numPartitions;
     }
 
     /**
      * Create and return a new TierTopic Producer object.
      *
-     * @param properties               properties object to pass to the producer
+     * @param bootstrapServers         the comma-separated list of bootstrap servers to be used by
+     *                                 the producer (the string passed should be non-empty and
+     *                                 valid)
+     * @param tierTopicNamespace       the TierTopic namespace
+     * @param numTierTopicPartitions   the number of partitions in the TierTopic
      * @param clientId                 the client ID to be used to construct the producer
      *
      * @return                         a newly created TierTopic producer object
      */
     public static Producer<byte[], byte[]> createTierTopicProducer(
-        Properties properties,
+        String bootstrapServers,
+        String tierTopicNamespace,
+        short numTierTopicPartitions,
         String clientId
     ) {
+        final TierTopicManagerConfig config = new TierTopicManagerConfig(
+            (Supplier<Map<String, Object>>) () -> Collections.singletonMap(
+                ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers),
+            tierTopicNamespace,
+            numTierTopicPartitions,
+            Defaults.TierMetadataReplicationFactor(),
+            -1,
+            clientId,
+            Defaults.TierMetadataMaxPollMs(),
+            Defaults.TierMetadataRequestTimeoutMs(),
+            Defaults.TierPartitionStateCommitInterval(),
+            Collections.emptyList());
         final String tierTopicClientId = TierTopicClient.clientIdPrefix(clientId);
-        Properties producerProperties = new Properties();
-        producerProperties.putAll(properties);
-        TierTopicProducerSupplier.addBaseProperties(producerProperties, tierTopicClientId,
-                Defaults.TierMetadataRequestTimeoutMs());
-        final Producer<byte[], byte[]> newProducer = new KafkaProducer<>(producerProperties);
+        final Producer<byte[], byte[]> newProducer
+            = new KafkaProducer<>(TierTopicProducerSupplier.properties(config, tierTopicClientId));
         log.info(
-            "Created new TierTopic producer! properties={}, " +
-            ", tierTopicClientId={}, newProducer={}",
-            properties, tierTopicClientId, newProducer);
+            "Created new TierTopic producer! bootstrapServers={}, tierTopicNamespace={}" +
+            ", numTierTopicPartitions={}, tierTopicClientId={}, newProducer={}",
+            bootstrapServers, tierTopicNamespace, numTierTopicPartitions, tierTopicClientId, newProducer);
         return newProducer;
     }
 
@@ -104,7 +145,7 @@ public class RecoveryUtils {
         Producer<byte[], byte[]> producer,
         AbstractTierMetadata event,
         String tierTopicName,
-        int numTierTopicPartitions
+        short numTierTopicPartitions
     ) throws InterruptedException, ExecutionException {
         final TierTopicPartitioner partitioner = new TierTopicPartitioner(numTierTopicPartitions);
         final TopicPartition tierTopicPartition = TierTopic.toTierTopicPartition(
