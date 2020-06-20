@@ -8,6 +8,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import kafka.server.KafkaConfig;
 import kafka.tier.TopicIdPartition;
 import kafka.tier.fetcher.CancellationContext;
+import kafka.tier.state.TierPartitionStatus;
 import kafka.tier.store.TierObjectStore;
 import kafka.tier.store.TierObjectStore.Backend;
 import kafka.tier.store.TierObjectStoreConfig;
@@ -20,6 +21,7 @@ import net.sourceforge.argparse4j.inf.ArgumentParser;
 import net.sourceforge.argparse4j.inf.ArgumentParserException;
 import net.sourceforge.argparse4j.inf.Namespace;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.utils.Exit;
 import org.apache.kafka.common.utils.Utils;
 
 import java.io.IOException;
@@ -68,31 +70,30 @@ public class TierMetadataComparator implements AutoCloseable {
     private final Optional<TierObjectStore> objStoreOpt;
     private final boolean offsetScanFlag;
 
-    public static final String BROKER_WORKDIR_LIST = "broker-workdir-list";
     public static final List<String> REQUIRED_PROPERTIES = Arrays.asList(
-            BROKER_WORKDIR_LIST,
-            TierTopicMaterializationToolConfig.BOOTSTRAP_SERVER_CONFIG,
-            TierTopicMaterializationToolConfig.WORKING_DIR,
-            TierTopicMaterializationToolConfig.TIER_STORAGE_VALIDATION,
-            TierTopicMaterializationToolConfig.MATERIALIZE);
+            TierRecoveryConfig.BROKER_WORKDIR_LIST,
+            TierRecoveryConfig.WORKING_DIR,
+            TierRecoveryConfig.VALIDATE,
+            TierRecoveryConfig.MATERIALIZE);
 
     public TierMetadataComparator(final Properties props, final List<FenceEventInfo> fenceEvents,
                                   Path outputJsonFile) {
         this.props = props;
         this.fenceEvents = fenceEvents;
         this.fencedOffsetMap = generateOffsetMapFromInput(fenceEvents);
-        this.materializationUtils = new TierTopicMaterializationUtils(new TierTopicMaterializationToolConfig(props),
+        this.materializationUtils =
+                new TierTopicMaterializationUtils(new TierTopicMaterializationToolConfig(TierRecoveryConfig.toMaterializerProperties(props)),
                 new HashMap<>(this.fencedOffsetMap));
         this.cancellationContext = CancellationContext.newContext();
         this.outputJsonFile = outputJsonFile;
         this.objStoreOpt = getObjectStoreMaybe(this.props);
-        this.offsetScanFlag = props.containsKey(TierTopicMaterializationToolConfig.TIER_STORAGE_OFFSET_VALIDATION) &&
-                Boolean.parseBoolean(props.getProperty(TierTopicMaterializationToolConfig.TIER_STORAGE_OFFSET_VALIDATION));
+        this.offsetScanFlag = props.containsKey(TierRecoveryConfig.VALIDATE) &&
+                Boolean.parseBoolean(props.getProperty(TierRecoveryConfig.VALIDATE));
     }
 
     static Optional<TierObjectStore> getObjectStoreMaybe(Properties props) {
-        if (props.containsKey(TierTopicMaterializationToolConfig.TIER_STORAGE_VALIDATION) &&
-                Boolean.parseBoolean(props.getProperty(TierTopicMaterializationToolConfig.TIER_STORAGE_VALIDATION))) {
+        if (props.containsKey(TierRecoveryConfig.VALIDATE) &&
+                Boolean.parseBoolean(props.getProperty(TierRecoveryConfig.VALIDATE))) {
             final Backend backend = Backend.valueOf(props.getProperty(KafkaConfig.TierBackendProp()));
             final TierObjectStoreConfig config = TierObjectStoreUtils.generateBackendConfig(backend, props);
             final TierObjectStore objStore = TierObjectStoreFactory.getObjectStoreInstance(backend, config);
@@ -122,7 +123,7 @@ public class TierMetadataComparator implements AutoCloseable {
         System.out.println("Starting TierMetadataComparator with properties: " + props + " for partitions: " +
                 Arrays.toString(fenceEvents.toArray()));
 
-        Path baseMaterializationPath = Paths.get(props.getProperty(TierTopicMaterializationToolConfig.WORKING_DIR));
+        Path baseMaterializationPath = Paths.get(props.getProperty(TierRecoveryConfig.WORKING_DIR));
         try {
             materializationUtils.run();
         } catch (Exception e) {
@@ -139,7 +140,8 @@ public class TierMetadataComparator implements AutoCloseable {
 
         allReplicaInfo.forEach(replicaInfo -> {
             validateTierStateAndUpdateInfo(replicaInfo, cancellationContext,
-                    materializationUtils::getStartOffset, objStoreOpt, offsetScanFlag);
+                    materializationUtils::getStartOffset, objStoreOpt, offsetScanFlag,
+                    TierPartitionStatus.ERROR);
         });
         System.out.println("Completed tier-state validation for info count: " + allReplicaInfo.size());
         generateChoiceAndWriteJsonOutput(fenceEvents, allReplicaInfo, outputJsonFile, fencedOffsetMap);
@@ -149,11 +151,20 @@ public class TierMetadataComparator implements AutoCloseable {
                                                CancellationContext cancellationContext,
                                                Function<TopicPartition, Long> startOffsetProducer,
                                                Optional<TierObjectStore> objStoreOpt,
-                                               boolean offsetScanFlag) {
+                                               boolean offsetScanFlag,
+                                               TierPartitionStatus requiredStatus) {
         try {
             final TierMetadataValidator.TierMetadataValidatorResult validatorResult = TierMetadataValidator.validateStandaloneTierStateFile(
                     info.tierStateFile(), info.topicIdPartition(), objStoreOpt, offsetScanFlag,
                     cancellationContext, startOffsetProducer);
+            if (validatorResult.valid) {
+                if (!validatorResult.headerOpt.isPresent())
+                    throw new IllegalStateException("Valid state must have a header.");
+
+                if (validatorResult.headerOpt.get().status() != requiredStatus)
+                    throw new IllegalStateException("Validated TierPartitionState must be in "
+                            + requiredStatus + " status.");
+            }
             validatorResult.headerOpt.ifPresent(info::setHeader);
             info.setValidationSuccess(validatorResult.valid);
         } catch (Exception e) {
@@ -207,7 +218,7 @@ public class TierMetadataComparator implements AutoCloseable {
             return new ComparatorInfo.ComparatorOutput(replicaInfoMap, choice, input);
         }).collect(Collectors.toList());
         try {
-            ComparatorInfo.ComparatorOutput.writeJSONToFile(outputList, outputJsonFile);
+            ComparatorInfo.ComparatorOutput.writeJsonToFile(outputList, outputJsonFile);
             System.out.println("JSON Output written to: " + outputJsonFile);
         } catch (IOException e) {
             System.err.println("Error in writing out the Json output: " + outputJsonFile + "due to: " + e);
@@ -225,9 +236,8 @@ public class TierMetadataComparator implements AutoCloseable {
                         .snapshotStateFiles(tierStateFolder.toFile(), false, tierStateFolder.toString())
                         .entrySet().stream()
                         .filter(entry -> partitions.contains(entry.getKey()))
-                        .map(entry -> {
-                            return new ComparatorInfo.ComparatorReplicaInfo(replicaId, entry.getValue().snapshot, entry.getKey());
-                        }).collect(Collectors.toList());
+                        .map(entry -> new ComparatorInfo.ComparatorReplicaInfo(replicaId, entry.getValue().snapshot, entry.getKey()))
+                        .collect(Collectors.toList());
                 if (infoList.size() != partitions.size()) {
                     throw new IllegalStateException("Couldn't collect all partitions for replica: " + replicaId);
                 }
@@ -243,7 +253,7 @@ public class TierMetadataComparator implements AutoCloseable {
     static Map<TopicIdPartition, Long> generateOffsetMapFromInput(List<FenceEventInfo> fencedEvents) {
         List<Map.Entry<TopicIdPartition, Long>> fencedList = fencedEvents.stream().map(input -> {
             TopicIdPartition topicIdPartition = getTopicIdPartitionFromInput(input);
-            return new AbstractMap.SimpleEntry<TopicIdPartition, Long>(topicIdPartition, input.recordOffset);
+            return new AbstractMap.SimpleEntry<>(topicIdPartition, input.recordOffset);
         }).collect(Collectors.toList());
         Set<TopicIdPartition> topicIdPartitionSet = fencedList.stream().map(Map.Entry::getKey).collect(Collectors.toSet());
         if (topicIdPartitionSet.size() != fencedList.size()) {
@@ -280,9 +290,9 @@ public class TierMetadataComparator implements AutoCloseable {
     }
 
     static Map<String, Path> getVerifiedTierFolderMap(Properties props) {
-        String[] workingDirs = props.getProperty(BROKER_WORKDIR_LIST).split(",");
+        String[] workingDirs = props.getProperty(TierRecoveryConfig.BROKER_WORKDIR_LIST).split(",");
         if (workingDirs.length == 0) {
-            throw new IllegalArgumentException("Received empty: " + BROKER_WORKDIR_LIST);
+            throw new IllegalArgumentException("Received empty: " + TierRecoveryConfig.BROKER_WORKDIR_LIST);
         }
         Map<String, Path> bootstrapServerMap = new HashMap<>();
         for (final String workingDir : workingDirs) {
@@ -306,7 +316,7 @@ public class TierMetadataComparator implements AutoCloseable {
         ArgumentParser parser = ArgumentParsers
                 .newArgumentParser(TierMetadataComparator.class.getName())
                 .defaultHelp(true)
-                .description("Compares the tierstate files across different brokers");
+                .description("Compares the tier-state files across different brokers");
 
         parser.addArgument(RecoveryUtils.makeArgument(RecoveryUtils.TIER_PROPERTIES_CONF_FILE_CONFIG))
                 .dest(RecoveryUtils.TIER_PROPERTIES_CONF_FILE_CONFIG)
@@ -369,9 +379,9 @@ public class TierMetadataComparator implements AutoCloseable {
         try (final TierMetadataComparator comparator = new TierMetadataComparator(props, partitions, outputJsonFile)) {
             comparator.run();
         } catch (Exception e) {
-            System.err.println("Received exception during comparator runtime!");
+            System.err.println("Received exception during comparator runtime");
             e.printStackTrace();
-            System.exit(1);
+            Exit.exit(1);
         }
     }
 

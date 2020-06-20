@@ -7,6 +7,8 @@ package kafka.tier.tools;
 import kafka.tier.store.MockInMemoryTierObjectStore;
 import kafka.tier.store.S3TierObjectStore;
 import kafka.tier.store.S3TierObjectStoreConfig;
+import kafka.tier.store.GcsTierObjectStore;
+import kafka.tier.store.GcsTierObjectStoreConfig;
 import kafka.tier.store.TierObjectStore;
 import kafka.tier.store.TierObjectStoreConfig;
 import kafka.tier.store.TierObjectStore.Backend;
@@ -27,6 +29,7 @@ public class TierObjectStoreFactory {
      */
     private static final Map<Backend, ReferenceCountedObjStore> BACKEND_INSTANCE_MAP = new HashMap<Backend, ReferenceCountedObjStore>() {{
         put(Backend.S3, new ReferenceCountedObjStore());
+        put(Backend.GCS, new ReferenceCountedObjStore());
         put(Backend.Mock, new ReferenceCountedObjStore());
     }};
 
@@ -66,6 +69,8 @@ public class TierObjectStoreFactory {
         switch (backend) {
             case S3:
                 return maybeInitS3Store(config);
+            case GCS:
+                return maybeInitGcsStore(config);
             case Mock:
                 return maybeInitMockStore(config);
             default:
@@ -78,6 +83,14 @@ public class TierObjectStoreFactory {
             return new S3TierObjectStore((S3TierObjectStoreConfig) config);
         } else {
             throw new IllegalArgumentException("Expected S3TierObjectStoreConfig but received instance of: " + config.getClass());
+        }
+    }
+
+    private static GcsTierObjectStore maybeInitGcsStore(TierObjectStoreConfig config) {
+        if (config instanceof GcsTierObjectStoreConfig) {
+            return new GcsTierObjectStore((GcsTierObjectStoreConfig) config);
+        } else {
+            throw new IllegalArgumentException("Expected GcsTierObjectStoreConfig but received instance of: " + config.getClass());
         }
     }
 

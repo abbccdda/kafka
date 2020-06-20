@@ -13,6 +13,7 @@ import kafka.tier.fetcher.CancellationContext;
 import kafka.tier.state.FileTierPartitionState;
 import kafka.tier.state.OffsetAndEpoch;
 import kafka.tier.state.TierPartitionState;
+import kafka.tier.state.TierPartitionStatus;
 import kafka.tier.store.TierObjectStore;
 import kafka.tier.tools.common.ComparatorInfo;
 import kafka.tier.tools.common.FenceEventInfo;
@@ -89,9 +90,7 @@ public class TierMetadataComparatorTest {
 
     private void initializeObjectStore() {
         Properties props = new Properties();
-        props.setProperty(TierTopicMaterializationToolConfig.TIER_STORAGE_VALIDATION, "true");
-        props.setProperty("cluster-id", "mock-cluster");
-        props.put(KafkaConfig.BrokerIdProp(), 1);
+        props.setProperty(TierRecoveryConfig.VALIDATE, "true");
         props.setProperty(KafkaConfig.TierBackendProp(), backend.getName());
         objStoreOpt = TierMetadataComparator.getObjectStoreMaybe(props);
     }
@@ -103,7 +102,7 @@ public class TierMetadataComparatorTest {
             add(tempFolder.newFolder("hostB"));
         }};
         Properties props = new Properties();
-        props.setProperty(TierMetadataComparator.BROKER_WORKDIR_LIST,
+        props.setProperty(TierRecoveryConfig.BROKER_WORKDIR_LIST,
                 hostDirList.stream().map(File::getAbsolutePath).collect(Collectors.joining(",")));
         final Map<String, Path> hostPathMap = TierMetadataComparator.getVerifiedTierFolderMap(props);
         assertEquals("Unexpected hostPathMap length!", 2, hostPathMap.size());
@@ -114,7 +113,7 @@ public class TierMetadataComparatorTest {
     @Test
     public void testTierFolderMapThrowsOnNonExistentFolder() throws IOException {
         Properties props = new Properties();
-        props.setProperty(TierMetadataComparator.BROKER_WORKDIR_LIST, "/path/to/hostA");
+        props.setProperty(TierRecoveryConfig.BROKER_WORKDIR_LIST, "/path/to/hostA");
         final IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> TierMetadataComparator.getVerifiedTierFolderMap(props));
         assertEquals("Incorrect exception message", "Incorrect workdir: /path/to/hostA", exception.getMessage());
@@ -124,7 +123,7 @@ public class TierMetadataComparatorTest {
     public void testTierFolderMapThrowsOnRematerializedKey() throws IOException {
         final Path workdir = tempFolder.newFolder(ComparatorInfo.REMATERIALIZED_REPLICA_ID).toPath();
         Properties props = new Properties();
-        props.setProperty(TierMetadataComparator.BROKER_WORKDIR_LIST, workdir.toString());
+        props.setProperty(TierRecoveryConfig.BROKER_WORKDIR_LIST, workdir.toString());
         final IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> TierMetadataComparator.getVerifiedTierFolderMap(props));
         assertEquals("Incorrect exception message",
@@ -135,7 +134,7 @@ public class TierMetadataComparatorTest {
     public void testTierFolderMapThrowsOnDuplicateKey() throws IOException {
         final Path workdir = tempFolder.newFolder(REPLICA_ID_A).toPath();
         Properties props = new Properties();
-        props.setProperty(TierMetadataComparator.BROKER_WORKDIR_LIST, workdir.toString() + "," + workdir.toString());
+        props.setProperty(TierRecoveryConfig.BROKER_WORKDIR_LIST, workdir.toString() + "," + workdir.toString());
         final IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> TierMetadataComparator.getVerifiedTierFolderMap(props));
         assertTrue("Incorrect exception message", exception.getMessage().contains("Found duplicate replicaId " + REPLICA_ID_A));
@@ -254,7 +253,7 @@ public class TierMetadataComparatorTest {
         assertEquals(2, replicaList.size());
         replicaList.forEach(replicaInfo -> {
             TierMetadataComparator.validateTierStateAndUpdateInfo(replicaInfo, cancellationContext,
-                    constantStartOffsetProducer, objStoreOpt, false);
+                    constantStartOffsetProducer, objStoreOpt, false, TierPartitionStatus.ONLINE);
             if (idPartitionA.equals(replicaInfo.topicIdPartition())) {
                 assertEquals(idPartitionA.topicId(), replicaInfo.header.topicId());
                 assertEquals(4L, replicaInfo.header.localMaterializedOffsetAndEpoch().offset());
@@ -278,7 +277,7 @@ public class TierMetadataComparatorTest {
         assertEquals(2, replicaList.size());
         replicaList.forEach(replicaInfo -> {
             TierMetadataComparator.validateTierStateAndUpdateInfo(replicaInfo, cancellationContext,
-                    constantStartOffsetProducer, objStoreOpt, true);
+                    constantStartOffsetProducer, objStoreOpt, true, TierPartitionStatus.ONLINE);
             assertFalse(replicaInfo.isValidationSuccess());
             assertNotNull(replicaInfo.header);
             assertEquals(REPLICA_ID_A, replicaInfo.getReplica());
@@ -323,7 +322,8 @@ public class TierMetadataComparatorTest {
                 .stream()
                 .peek(replicaInfo ->
                         TierMetadataComparator.validateTierStateAndUpdateInfo(replicaInfo, cancellationContext,
-                                constantStartOffsetProducer, objStoreOpt, false)
+                                constantStartOffsetProducer, objStoreOpt, false,
+                                TierPartitionStatus.ONLINE)
                 ).collect(Collectors.toList());
 
         // the size should be 4 because each host will have two topicIdPartitions
@@ -357,7 +357,8 @@ public class TierMetadataComparatorTest {
                 .stream()
                 .peek(replicaInfo ->
                         TierMetadataComparator.validateTierStateAndUpdateInfo(replicaInfo, cancellationContext,
-                                constantStartOffsetProducer, objStoreOpt, false)
+                                constantStartOffsetProducer, objStoreOpt, false,
+                                TierPartitionStatus.ONLINE)
                 ).collect(Collectors.toList());
 
         // the size should be 4 because each host will have two topicIdPartitions
@@ -408,7 +409,8 @@ public class TierMetadataComparatorTest {
                 .stream()
                 .peek(replicaInfo ->
                         TierMetadataComparator.validateTierStateAndUpdateInfo(replicaInfo, cancellationContext,
-                                constantStartOffsetProducer, objStoreOpt, false)
+                                constantStartOffsetProducer, objStoreOpt, false,
+                                TierPartitionStatus.ONLINE)
                 ).collect(Collectors.toList());
 
         final Map<TopicIdPartition, Optional<ComparatorInfo.ComparatorReplicaInfo>> choiceMap =
@@ -473,7 +475,8 @@ public class TierMetadataComparatorTest {
                 .stream()
                 .peek(replicaInfo ->
                         TierMetadataComparator.validateTierStateAndUpdateInfo(replicaInfo, cancellationContext,
-                                constantStartOffsetProducer, objStoreOpt, false)
+                                constantStartOffsetProducer, objStoreOpt, false,
+                                TierPartitionStatus.ONLINE)
                 ).collect(Collectors.toList());
 
         final Map<TopicIdPartition, Optional<ComparatorInfo.ComparatorReplicaInfo>> choiceMap =
@@ -503,7 +506,8 @@ public class TierMetadataComparatorTest {
                 .stream()
                 .peek(replicaInfo ->
                         TierMetadataComparator.validateTierStateAndUpdateInfo(replicaInfo, cancellationContext,
-                                constantStartOffsetProducer, objStoreOpt, false)
+                                constantStartOffsetProducer, objStoreOpt, false,
+                                TierPartitionStatus.ONLINE)
                 ).collect(Collectors.toList());
 
         final Map<TopicIdPartition, Optional<ComparatorInfo.ComparatorReplicaInfo>> updatedChoiceMap =
@@ -546,7 +550,8 @@ public class TierMetadataComparatorTest {
                 .stream()
                 .peek(replicaInfo ->
                         TierMetadataComparator.validateTierStateAndUpdateInfo(replicaInfo, cancellationContext,
-                                constantStartOffsetProducer, objStoreOpt, false)
+                                constantStartOffsetProducer, objStoreOpt, false,
+                                TierPartitionStatus.ONLINE)
                 ).collect(Collectors.toList());
 
         final Map<TopicIdPartition, Optional<ComparatorInfo.ComparatorReplicaInfo>> choiceMap =
@@ -569,7 +574,8 @@ public class TierMetadataComparatorTest {
                 .stream()
                 .peek(replicaInfo ->
                         TierMetadataComparator.validateTierStateAndUpdateInfo(replicaInfo, cancellationContext,
-                                constantStartOffsetProducer, objStoreOpt, false)
+                                constantStartOffsetProducer, objStoreOpt, false,
+                                TierPartitionStatus.ONLINE)
                 ).collect(Collectors.toList());
 
         final Map<TopicIdPartition, Optional<ComparatorInfo.ComparatorReplicaInfo>> updatedChoiceMap =
