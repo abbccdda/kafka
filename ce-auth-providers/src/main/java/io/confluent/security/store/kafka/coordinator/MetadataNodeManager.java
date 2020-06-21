@@ -59,7 +59,6 @@ public class MetadataNodeManager implements MetadataServiceRebalanceListener {
 
   private final Logger log;
   private final Time time;
-  private final int minInSyncReplicas;
   private final CompletableFuture<Void> startFuture;
   private final NodeMetadata nodeMetadata;
   private final Writer writer;
@@ -69,6 +68,7 @@ public class MetadataNodeManager implements MetadataServiceRebalanceListener {
   private final MetadataServiceCoordinator coordinator;
   private final AtomicBoolean isAlive;
   private final ConcurrentLinkedQueue<Runnable> pendingTasks;
+  private final Thread managerThread;
 
   private volatile NodeMetadata masterWriterNode;
   private volatile int masterWriterGenerationId;
@@ -82,7 +82,6 @@ public class MetadataNodeManager implements MetadataServiceRebalanceListener {
     this.writer = metadataWriter;
     this.time = time;
     this.pendingTasks = new ConcurrentLinkedQueue<>();
-    this.minInSyncReplicas = config.minInSyncReplicas();
     this.startFuture = new CompletableFuture<>();
 
     ConsumerConfig coordinatorConfig = new ConsumerConfig(config.coordinatorConfigs());
@@ -134,12 +133,13 @@ public class MetadataNodeManager implements MetadataServiceRebalanceListener {
         this
     );
 
+    managerThread = new MetadataNodeManagerThread();
     this.isAlive = new AtomicBoolean(true);
     this.activeNodes = Collections.emptySet();
   }
 
   public CompletionStage<Void> start() {
-    new MetadataNodeManagerThread().start();
+    managerThread.start();
     return startFuture;
   }
 
@@ -195,10 +195,7 @@ public class MetadataNodeManager implements MetadataServiceRebalanceListener {
         this.masterWriterGenerationId = generationId;
         if (nodeMetadata.equals(newWriter))
           this.writer.startWriter(generationId);
-        // Complete the start future only when sufficient number of active nodes
-        // have joined so that writes can complete.
-        if (activeNodes.size() >= minInSyncReplicas)
-          startFuture.complete(null);
+        startFuture.complete(null);
       }
     });
     coordinator.wakeup();
@@ -239,6 +236,11 @@ public class MetadataNodeManager implements MetadataServiceRebalanceListener {
     }
     coordinatorNetworkClient.wakeup();
     AtomicReference<Throwable> firstException = new AtomicReference<>();
+    try {
+      managerThread.join(closeTimeout.toMillis());
+    } catch (Throwable e) {
+      firstException.set(e);
+    }
     try {
       coordinator.close(time.timer(closeTimeout.toMillis()));
     } catch (Throwable e) {

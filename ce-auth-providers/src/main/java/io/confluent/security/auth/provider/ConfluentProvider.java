@@ -27,6 +27,7 @@ import io.confluent.security.authorizer.provider.MetadataProvider;
 import io.confluent.security.store.NotMasterWriterException;
 import io.confluent.security.store.kafka.KafkaStoreConfig;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -200,8 +201,24 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
    *       but other listeners are started only at this point.</li>
    * </ol>
    *
-   * On brokers in other clusters, the reader starts up and waits for the writer on the
-   * metadata cluster to create and initialize the topic.
+   * On brokers in non-MDS clusters, the reader starts up and waits for the writer on the
+   * metadata cluster to create and initialize the topic. Provider start future is completed
+   * when reader is initialized.
+   * <p>
+   * MDS brokers complete the provider's start future only when both service future and reader
+   * future have completed. If either fails, broker start up is terminated.
+   * <ul>
+   *   <li>New cluster with MDS enabled requires `replication.factor` active brokers to create the
+   *       metadata topic and at least `min.insync.replicas` to update status. Both reader and
+   *       service futures block until sufficient brokers are available and hence brokers should be
+   *       started concurrently to enable start up to complete.</li>
+   *   <li>During rolling restart of an existing cluster to enable MDS, writer is elected with
+   *       as each broker is restarted and start up of each broker completes without waiting for MDS
+   *       to be enabled in other brokers.</li>
+   *   <li>If multiple brokers are configured with the same MDS URL, one broker may complete start
+   *       up with a single writer. But subsequent brokers will fail start up when duplicate URLs
+   *       are detected. Start up is failed immediately when an error is detected.</li>
+   * </ul>
    */
   @Override
   public CompletionStage<Void> start(ConfluentAuthorizerServerInfo serverInfo,
@@ -220,44 +237,41 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
       authenticateCallbackHandler.configure(configs, "PLAIN", Collections.emptyList());
     }
 
-    CompletableFuture<Void> failFuture = new CompletableFuture<>();
+    CompletionStage<Void> serviceFuture = null;
     if (usesMetadataFromThisKafkaCluster()) {
-      authStore.startService(metadataServerConfig.metadataServerAdvertisedListeners())
-          .exceptionally(e -> {
-            failFuture.completeExceptionally(e);
-            return null;
-          });
+      serviceFuture = authStore.startService(metadataServerConfig.metadataServerAdvertisedListeners());
     }
+    CompletionStage<Void> readerFuture = authStore.startReader();
+    CompletionStage<?> future = serviceFuture == null ? readerFuture :
+        allOrFail(Arrays.asList(readerFuture.toCompletableFuture(), serviceFuture.toCompletableFuture()));
 
-    return CompletableFuture.anyOf(authStore.startReader().toCompletableFuture(), failFuture)
-        .thenApply(unused -> {
-          if (usesMetadataFromThisKafkaCluster()) {
-            EmbeddedAuthorizer authorizer = createRbacAuthorizer();
+    return future.thenApply(unused -> {
+      if (usesMetadataFromThisKafkaCluster()) {
+        EmbeddedAuthorizer authorizer = createRbacAuthorizer();
 
-            MetadataServer metadataServer = serverInfo.metadataServer();
-            SimpleInjector injector = new SimpleInjector();
-            injector.putInstance(Authorizer.class, authorizer);
-            injector.putInstance(AuthStore.class, authStore);
-            injector.putInstance(AuthenticateCallbackHandler.class, authenticateCallbackHandler);
-            configurator = new DefaultDynamicConfigurator(createMdsAdminClient(serverInfo, clientConfigs));
-            injector.putInstance(DynamicConfigurator.class, configurator);
-            metadataServer.registerMetadataProvider(providerName(), injector);
-            ConfluentProvider.this.metadataServer = metadataServer;
+        MetadataServer metadataServer = serverInfo.metadataServer();
+        SimpleInjector injector = new SimpleInjector();
+        injector.putInstance(Authorizer.class, authorizer);
+        injector.putInstance(AuthStore.class, authStore);
+        injector.putInstance(AuthenticateCallbackHandler.class, authenticateCallbackHandler);
+        configurator = new DefaultDynamicConfigurator(createMdsAdminClient(serverInfo, clientConfigs));
+        injector.putInstance(DynamicConfigurator.class, configurator);
+        metadataServer.registerMetadataProvider(providerName(), injector);
+        ConfluentProvider.this.metadataServer = metadataServer;
 
-            KafkaHttpServerBinder httpServerBinder = serverInfo.httpServerBinder();
-            httpServerBinder.bindInstance(Authorizer.class, authorizer);
-            httpServerBinder.bindInstance(AuthStore.class, authStore);
-            httpServerBinder.bindInstance(
-                AuthenticateCallbackHandler.class, authenticateCallbackHandler);
-          }
+        KafkaHttpServerBinder httpServerBinder = serverInfo.httpServerBinder();
+        httpServerBinder.bindInstance(Authorizer.class, authorizer);
+        httpServerBinder.bindInstance(AuthStore.class, authStore);
+        httpServerBinder.bindInstance(AuthenticateCallbackHandler.class, authenticateCallbackHandler);
+      }
 
-          Set<String> accessProviders = ConfluentAuthorizerConfig.accessRuleProviders(configs);
-          if (accessProviders.contains(AccessRuleProviders.ZK_ACL.name()) ||
-              accessProviders.contains(AccessRuleProviders.CONFLUENT.name())) {
-            aclClient = Optional.of(createMdsAdminClient(serverInfo, clientConfigs));
-          }
-          return null;
-        });
+      Set<String> accessProviders = ConfluentAuthorizerConfig.accessRuleProviders(configs);
+      if (accessProviders.contains(AccessRuleProviders.ZK_ACL.name()) ||
+          accessProviders.contains(AccessRuleProviders.CONFLUENT.name())) {
+        aclClient = Optional.of(createMdsAdminClient(serverInfo, clientConfigs));
+      }
+      return null;
+    });
   }
 
   @Override
@@ -517,6 +531,16 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
 
   private ApiException toApiException(Throwable throwable) {
     return throwable instanceof ApiException ? (ApiException) throwable : new ApiException(throwable);
+  }
+
+  private CompletableFuture<?> allOrFail(List<CompletableFuture<Void>> futures) {
+    CompletableFuture<Void> failFuture = new CompletableFuture<>();
+    futures.forEach(future -> future.exceptionally(e -> {
+      failFuture.completeExceptionally(e);
+      return null;
+    }));
+    CompletableFuture[] futureArray = futures.toArray(new CompletableFuture[futures.size()]);
+    return CompletableFuture.anyOf(CompletableFuture.allOf(futureArray), failFuture);
   }
 
   private class RbacAuthorizer extends EmbeddedAuthorizer {

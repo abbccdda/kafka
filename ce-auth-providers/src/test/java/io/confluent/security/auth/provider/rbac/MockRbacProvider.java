@@ -43,11 +43,22 @@ public class MockRbacProvider extends ConfluentProvider implements MetadataProvi
     private final Scope scope;
     private final Collection<URL> activeNodes;
     private final DefaultAuthCache authCache;
+    private final CompletionStage<Void> readerFuture;
+    private final CompletionStage<Void> serviceFuture;
 
     public MockAuthStore(RbacRoles rbacRoles, Scope scope) {
+      this(rbacRoles, scope, CompletableFuture.completedFuture(null), CompletableFuture.completedFuture(null));
+    }
+
+    public MockAuthStore(RbacRoles rbacRoles,
+                         Scope scope,
+                         CompletionStage<Void> readerFuture,
+                         CompletionStage<Void> serviceFuture) {
       this.scope = scope;
       this.authCache = new DefaultAuthCache(rbacRoles, scope);
       this.activeNodes = new HashSet<>();
+      this.readerFuture = readerFuture;
+      this.serviceFuture = serviceFuture;
     }
 
     @Override
@@ -56,12 +67,12 @@ public class MockRbacProvider extends ConfluentProvider implements MetadataProvi
 
     @Override
     public CompletionStage<Void> startReader() {
-      return CompletableFuture.completedFuture(null);
+      return readerFuture;
     }
 
     @Override
     public CompletionStage<Void> startService(Collection<URL> serverUrls) {
-      return CompletableFuture.completedFuture(null);
+      return serviceFuture;
     }
 
     @Override
