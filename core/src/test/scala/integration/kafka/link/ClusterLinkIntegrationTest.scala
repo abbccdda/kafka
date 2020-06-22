@@ -64,6 +64,26 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
       |]}
       |""".stripMargin
 
+  @Test
+  def testCreateMirrorTopic(): Unit = {
+    val replicationFactor: Short = 2
+    val retentionMs = "10000"
+
+    val configs = new Properties()
+    configs.put(LogConfig.RetentionMsProp, retentionMs)
+    sourceCluster.createTopic(topic, numPartitions, replicationFactor, configs)
+
+    destCluster.createClusterLink(linkName, sourceCluster)
+    val result = destCluster.linkTopic(topic, replicationFactor, linkName)
+
+    assertEquals(numPartitions, result.numPartitions(topic).get)
+    assertEquals(replicationFactor.toInt, result.replicationFactor(topic).get)
+    assertEquals(retentionMs, result.config(topic).get.get(LogConfig.RetentionMsProp).value)
+
+    val listing = destCluster.listClusterLinks(includeTopics = true)
+    assertEquals(Set(topic), listing.filter(_.linkName == linkName).head.topics.get.asScala.toSet)
+  }
+
   /**
     * Verifies topic mirroring when mirroring is set up on a source topic that is empty.
     */

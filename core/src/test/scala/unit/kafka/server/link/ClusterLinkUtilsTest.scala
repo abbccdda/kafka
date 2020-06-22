@@ -7,6 +7,7 @@ import java.util.{Properties, UUID}
 import java.util.concurrent.CompletableFuture
 
 import kafka.log.LogConfig
+import kafka.server.KafkaConfig
 import org.apache.kafka.clients.admin.{Config, ConfigEntry, TopicDescription}
 import org.apache.kafka.common.{Node, TopicPartitionInfo}
 import org.apache.kafka.common.acl.AclOperation
@@ -67,6 +68,12 @@ class ClusterLinkUtilsTest {
   @Test(expected = classOf[InvalidConfigurationException])
   def testValidateInvalidMirrorProps(): Unit = {
     val props = makeProperties(Seq(LogConfig.CleanupPolicyProp -> "compact"))
+    ClusterLinkUtils.validateMirrorProps("test", props)
+  }
+
+  @Test(expected = classOf[InvalidConfigurationException])
+  def testValidateInvalidMirrorPropsSynonym(): Unit = {
+    val props = makeProperties(Seq(KafkaConfig.LogCleanupPolicyProp -> "compact"))
     ClusterLinkUtils.validateMirrorProps("test", props)
   }
 

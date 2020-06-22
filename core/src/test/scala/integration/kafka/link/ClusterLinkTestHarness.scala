@@ -21,7 +21,7 @@ import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.{Config => _, _}
-import org.apache.kafka.common.requests.{AlterMirrorsRequest, NewClusterLink}
+import org.apache.kafka.common.requests.{AlterMirrorsRequest, ClusterLinkListing, NewClusterLink}
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.security.scram.ScramCredential
 import org.junit.Assert._
@@ -112,6 +112,13 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
     linkId
   }
 
+  def listClusterLinks(includeTopics: Boolean = false): Seq[ClusterLinkListing] = {
+    withAdmin((admin: ConfluentAdmin) => {
+      val options = new ListClusterLinksOptions().includeTopics(includeTopics).timeoutMs(adminTimeoutMs)
+      admin.listClusterLinks(options).result.get(waitTimeMs, TimeUnit.MILLISECONDS).asScala.toSeq
+    })
+  }
+
   def deleteClusterLink(linkName: String, force: Boolean = false): Unit = {
     val linkId = servers.head.clusterLinkManager.resolveLinkIdOrThrow(linkName)
 
@@ -161,15 +168,16 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
   def linkTopic(topic: String,
                 replicationFactor: Short,
                 linkName: String,
-                configs: Map[String, String] = Map.empty): Unit = {
+                configs: Map[String, String] = Map.empty): CreateTopicsResult = {
     val newTopic = new NewTopic(topic, Optional.empty[Integer], Optional.of(Short.box(replicationFactor)))
     if (configs.nonEmpty)
       newTopic.configs(configs.asJava)
     newTopic.mirror(Optional.of(new NewTopicMirror(linkName, topic)))
     withAdmin((admin: ConfluentAdmin) => {
       val options = new CreateTopicsOptions().timeoutMs(adminTimeoutMs)
-      admin.createTopics(Collections.singleton(newTopic), options)
-        .all.get(waitTimeMs, TimeUnit.MILLISECONDS)
+      val result = admin.createTopics(Collections.singleton(newTopic), options)
+      result.all.get(waitTimeMs, TimeUnit.MILLISECONDS)
+      result
     })
   }
 

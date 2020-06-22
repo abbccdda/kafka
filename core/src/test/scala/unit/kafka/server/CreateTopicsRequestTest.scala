@@ -178,7 +178,7 @@ class CreateTopicsRequestTest extends AbstractCreateTopicsRequestTest {
     validateErrorCreateTopicsRequests(topicsReq(Seq(topicReq("mirror-no-link-name",
       numPartitions = CreateTopicsRequest.NO_NUM_PARTITIONS,
       replicationFactor = 2,
-      mirrorTopic = "mirror-empty-link-name"))),
+      mirrorTopic = "mirror-no-link-name"))),
       Map("mirror-no-link-name" -> error(Errors.INVALID_REQUEST)), checkErrorMessage = false)
     validateErrorCreateTopicsRequests(topicsReq(Seq(topicReq("mirror-empty-link-name",
       numPartitions = CreateTopicsRequest.NO_NUM_PARTITIONS,
