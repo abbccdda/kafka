@@ -17,7 +17,7 @@ import kafka.utils.{JaasTestUtils, TestUtils}
 import kafka.zk.ConfigEntityChangeNotificationZNode
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.clients.admin._
-import org.apache.kafka.clients.consumer.ConsumerConfig
+import org.apache.kafka.clients.consumer.{ConsumerConfig, OffsetAndMetadata}
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.{Config => _, _}
@@ -216,6 +216,19 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
     })
   }
 
+  def alterTopic(topic: String, updatedConfigs: Map[String, String]): Unit = {
+    val resource = new ConfigResource(ConfigResource.Type.TOPIC, topic)
+    val ops = updatedConfigs.map { case (k, v) =>
+      new AlterConfigOp(new ConfigEntry(k, v), AlterConfigOp.OpType.SET)
+    }
+
+    withAdmin((admin: ConfluentAdmin) => {
+      val options = new AlterConfigsOptions().timeoutMs(adminTimeoutMs)
+      admin.incrementalAlterConfigs(Map(resource -> ops.asJavaCollection).asJava, options)
+        .all.get(waitTimeMs, TimeUnit.MILLISECONDS)
+    })
+  }
+
   def deleteTopic(topic: String): Unit = {
     withAdmin((admin: ConfluentAdmin) => {
       val options = new DeleteTopicsOptions().timeoutMs(adminTimeoutMs)
@@ -236,6 +249,13 @@ class ClusterLinkTestHarness(kafkaSecurityProtocol: SecurityProtocol) extends In
     val topicLinkOpt = zkClient.getReplicaAssignmentAndTopicIdForTopics(Set(topic)).head.clusterLink
     assertTrue("Cluster link not found", topicLinkOpt.nonEmpty)
     topicLinkOpt.get
+  }
+
+  def getOffset(topic: String, partition: Int, consumerGroup: String): Long = {
+    withAdmin((admin: ConfluentAdmin) => {
+      admin.listConsumerGroupOffsets(consumerGroup).partitionsToOffsetAndMetadata.get(waitTimeMs, TimeUnit.MILLISECONDS)
+        .getOrDefault(new TopicPartition(topic, partition), new OffsetAndMetadata(0, "")).offset
+    })
   }
 
   def createLinkCredentials(userName: String, password: String): Unit = {

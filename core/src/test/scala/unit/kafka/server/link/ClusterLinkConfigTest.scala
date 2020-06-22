@@ -17,7 +17,8 @@ class ClusterLinkConfigTest {
     val allProps = ClusterLinkConfig.configNames.toSet
     val replicationProps = ClusterLinkConfig.ReplicationProps
     val migrationProps = ClusterLinkConfig.PeriodicMigrationProps
-    val notCategorizedProps = allProps -- replicationProps -- migrationProps -- AdminClientConfig.configNames.asScala
+    val notCategorizedProps = allProps -- replicationProps -- migrationProps -
+      ClusterLinkConfig.ClusterLinkPausedProp -- AdminClientConfig.configNames.asScala
     assertEquals(Set.empty, notCategorizedProps)
   }
 }
