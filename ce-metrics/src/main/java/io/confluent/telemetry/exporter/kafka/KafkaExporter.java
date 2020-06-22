@@ -6,6 +6,7 @@ import io.confluent.telemetry.MetricKey;
 import io.confluent.telemetry.MetricsUtils;
 import io.confluent.telemetry.collector.MetricsCollector;
 import io.confluent.telemetry.collector.MetricsCollectorProvider;
+import io.confluent.telemetry.exporter.AbstractExporter;
 import io.confluent.telemetry.exporter.Exporter;
 import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.metrics.v1.MetricDescriptor.Type;
@@ -33,7 +34,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 
-public class KafkaExporter implements Exporter, MetricsCollectorProvider {
+public class KafkaExporter extends AbstractExporter implements MetricsCollectorProvider {
 
     private static final Logger log = LoggerFactory.getLogger(KafkaExporter.class);
 
@@ -76,6 +77,7 @@ public class KafkaExporter implements Exporter, MetricsCollectorProvider {
     private volatile boolean isClosed = false;
 
     public KafkaExporter(Builder builder) {
+        reconfigureWhitelist(builder.whitelistPredicate);
         this.adminClientProperties = Objects.requireNonNull(builder.adminClientProperties);
         this.topicName = Objects.requireNonNull(builder.topicName);
         this.topicConfig = Objects.requireNonNull(builder.topicConfig);
@@ -83,6 +85,10 @@ public class KafkaExporter implements Exporter, MetricsCollectorProvider {
         this.topicReplicas = builder.topicReplicas;
         this.topicPartitions = builder.topicPartitions;
         this.producer = new KafkaProducer<>(Objects.requireNonNull(builder.producerProperties));
+    }
+
+    public void reconfigure(KafkaExporterConfig exporterConfig) {
+        reconfigureWhitelist(exporterConfig.buildMetricWhitelistFilter());
     }
 
     private boolean ensureTopic() {
@@ -120,7 +126,7 @@ public class KafkaExporter implements Exporter, MetricsCollectorProvider {
     }
 
     @Override
-    public void emit(Metric metric) {
+    public void doEmit(MetricKey metricKey, Metric metric) {
         try {
             if (!maybeCreateTopic()) {
                 return;
@@ -199,9 +205,10 @@ public class KafkaExporter implements Exporter, MetricsCollectorProvider {
 
                 String metricName = "io.confluent.telemetry/exporter/kafka/dropped/delta";
                 Map<String, String> metricLabels = Collections.emptyMap();
-                if (metricsWhitelistFilter.test(new MetricKey(metricName, metricLabels))) {
+                MetricKey metricKey = new MetricKey(metricName, metricLabels);
+                if (metricsWhitelistFilter.test(metricKey)) {
                     exporter.emit(
-                        context.metricWithSinglePointTimeseries(
+                        new MetricKey(metricName, metricLabels), context.metricWithSinglePointTimeseries(
                             metricName,
                             Type.CUMULATIVE_INT64,
                             metricLabels,
@@ -227,6 +234,7 @@ public class KafkaExporter implements Exporter, MetricsCollectorProvider {
    */
     public static Builder newBuilder(KafkaExporterConfig config) {
         return new Builder()
+            .setWhitelistPredicate(config.buildMetricWhitelistFilter())
             .setCreateTopic(config.isCreateTopic())
             .setTopicConfig(config.getTopicConfig())
             .setTopicName(config.getTopicName())
@@ -237,6 +245,7 @@ public class KafkaExporter implements Exporter, MetricsCollectorProvider {
     }
 
     public static final class Builder {
+        private Predicate<MetricKey> whitelistPredicate;
         private Properties adminClientProperties;
         private String topicName;
         private boolean createTopic;
@@ -246,6 +255,11 @@ public class KafkaExporter implements Exporter, MetricsCollectorProvider {
         private Properties producerProperties;
 
         private Builder() {
+        }
+
+        public Builder setWhitelistPredicate(Predicate<MetricKey> whitelistPredicate) {
+            this.whitelistPredicate = whitelistPredicate;
+            return this;
         }
 
         public Builder setAdminClientProperties(Properties adminClientProperties) {

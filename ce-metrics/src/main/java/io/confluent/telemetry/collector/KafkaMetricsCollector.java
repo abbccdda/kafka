@@ -25,6 +25,7 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiConsumer;
 import java.util.function.Predicate;
 
 import io.confluent.telemetry.Context;
@@ -139,10 +140,10 @@ public class KafkaMetricsCollector implements MetricsCollector {
                 double value = (Double) entry.getValue().metricValue();
 
                 if (measurable instanceof WindowedCount || measurable instanceof CumulativeSum) {
-                    collectMetric(name, labels, Type.CUMULATIVE_DOUBLE, value).ifPresent(exporter::emit);
-                    collectDelta(originalMetricName, name, labels, value).ifPresent(exporter::emit);
+                    collectMetric(name, labels, Type.CUMULATIVE_DOUBLE, value, exporter::emit);
+                    collectDelta(originalMetricName, name, labels, value, exporter::emit);
                 } else {
-                    collectMetric(name, labels, Type.GAUGE_DOUBLE, value).ifPresent(exporter::emit);
+                    collectMetric(name, labels, Type.GAUGE_DOUBLE, value, exporter::emit);
                 }
             } else {
                 // It is non-measurable Gauge metric.
@@ -151,10 +152,10 @@ public class KafkaMetricsCollector implements MetricsCollector {
                     Number value = (Number) entry.getValue().metricValue();
                     if (value instanceof Integer || value instanceof Long) {
                         // map integer types to GAUGE_INT64
-                        collectMetric(name, labels, Type.GAUGE_INT64, value.longValue()).ifPresent(exporter::emit);
+                        collectMetric(name, labels, Type.GAUGE_INT64, value.longValue(), exporter::emit);
                     } else {
                         // map any other number type to GAUGE_DOUBLE
-                        collectMetric(name, labels, Type.GAUGE_DOUBLE, value.doubleValue()).ifPresent(exporter::emit);
+                        collectMetric(name, labels, Type.GAUGE_DOUBLE, value.doubleValue(), exporter::emit);
                     }
                 } else {
                     // skip non-measurable metrics
@@ -164,10 +165,12 @@ public class KafkaMetricsCollector implements MetricsCollector {
         }
     }
 
-    private Optional<Metric> collectDelta(MetricName originalMetricName, String metricName, Map<String, String> labels, Double value) {
+    private void collectDelta(MetricName originalMetricName, String metricName, Map<String, String> labels,
+                                          Double value, BiConsumer<MetricKey, Metric> emit) {
         String deltaName = metricName + "/delta";
-        if (!metricWhitelistFilter.test(new MetricKey(deltaName, labels))) {
-            return Optional.empty();
+        MetricKey metricKey = new MetricKey(deltaName, labels);
+        if (!metricWhitelistFilter.test(metricKey)) {
+            return;
         }
 
         // calculate a getAndSet, and add to out if non-empty
@@ -179,30 +182,42 @@ public class KafkaMetricsCollector implements MetricsCollector {
             .build();
         Timestamp startTimestamp = MetricsUtils
             .toTimestamp(instantAndValue.getIntervalStart());
-        return Optional.of(context.metricWithSinglePointTimeseries(deltaName, Type.CUMULATIVE_DOUBLE, labels, point,
-                startTimestamp));
+        emit.accept(
+            metricKey,
+            context.metricWithSinglePointTimeseries(deltaName, Type.CUMULATIVE_DOUBLE, labels, point, startTimestamp)
+        );
     }
 
-    private Optional<Metric> collectMetric(String metricName, Map<String, String> labels, MetricDescriptor.Type type, double value) {
-        if (!metricWhitelistFilter.test(new MetricKey(metricName, labels))) {
-            return Optional.empty();
+    private void collectMetric(String metricName, Map<String, String> labels, MetricDescriptor.Type type,
+                                           double value, BiConsumer<MetricKey, Metric> emit) {
+        MetricKey metricKey = new MetricKey(metricName, labels);
+        if (!metricWhitelistFilter.test(metricKey)) {
+            return;
         }
 
-        return Optional.of(context.metricWithSinglePointTimeseries(metricName, type, labels,
-            Point.newBuilder()
-                .setTimestamp(MetricsUtils.now(clock))
-                .setDoubleValue(value).build()));
+        emit.accept(
+            metricKey,
+            context.metricWithSinglePointTimeseries(metricName, type, labels,
+                Point.newBuilder()
+                    .setTimestamp(MetricsUtils.now(clock))
+                    .setDoubleValue(value).build())
+        );
     }
 
-    private Optional<Metric> collectMetric(String metricName, Map<String, String> labels, MetricDescriptor.Type type, long value) {
-        if (!metricWhitelistFilter.test(new MetricKey(metricName, labels))) {
-            return Optional.empty();
+    private void collectMetric(String metricName, Map<String, String> labels, MetricDescriptor.Type type,
+                                           long value, BiConsumer<MetricKey, Metric> emit) {
+        MetricKey metricKey = new MetricKey(metricName, labels);
+        if (!metricWhitelistFilter.test(metricKey)) {
+            return;
         }
 
-        return Optional.of(context.metricWithSinglePointTimeseries(metricName, type, labels,
-            Point.newBuilder()
-                .setTimestamp(MetricsUtils.now(clock))
-                .setInt64Value(value).build()));
+        emit.accept(
+            metricKey,
+            context.metricWithSinglePointTimeseries(metricName, type, labels,
+                Point.newBuilder()
+                    .setTimestamp(MetricsUtils.now(clock))
+                    .setInt64Value(value).build())
+        );
     }
 
     @Override

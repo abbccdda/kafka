@@ -33,6 +33,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiConsumer;
 import java.util.function.Predicate;
 
 // Yammer -> Opencensus is based on : https://github.com/census-instrumentation/opencensus-java/blob/master/contrib/dropwizard/src/main/java/io/opencensus/contrib/dropwizard/DropWizardMetrics.java
@@ -117,12 +118,12 @@ public class YammerMetricsCollector implements MetricsCollector {
                 log.trace("Processing {}", metricName);
 
                 if (metric instanceof Gauge) {
-                    collectGauge(name, labels, ((Gauge<?>) metric).value()).ifPresent(exporter::emit);
+                    collectGauge(name, labels, ((Gauge<?>) metric).value(), exporter::emit);
                 } else if (metric instanceof Counter) {
                     long count = ((Counter) metric).count();
-                    collectCounter(name, labels, count).ifPresent(exporter::emit);
+                    collectCounter(name, labels, count, exporter::emit);
                     // Derived metric, results in a name like /delta.
-                    collectDelta(name, labels, count, metricAddedInstant).ifPresent(exporter::emit);
+                    collectDelta(name, labels, count, metricAddedInstant, exporter::emit);
                 } else if (metric instanceof Meter) {
                     // Only collect counters and 1min rate
                     Meter meter = (Meter) metric;
@@ -131,23 +132,23 @@ public class YammerMetricsCollector implements MetricsCollector {
 
                     String meterName = name + "/total";
                     // Derived metric, results in a name like /total.
-                    collectMeter(meterName, labels, count).ifPresent(exporter::emit);
+                    collectMeter(meterName, labels, count, exporter::emit);
                     // Derived metric, results in a name like /total/delta.
-                    collectDelta(meterName, labels, count, metricAddedInstant).ifPresent(exporter::emit);
+                    collectDelta(meterName, labels, count, metricAddedInstant, exporter::emit);
                     // Derived metric, results in a name like /rate/1_min.
-                    collectGauge(name + "/rate/1_min", labels, rateOneMinute).ifPresent(exporter::emit);
+                    collectGauge(name + "/rate/1_min", labels, rateOneMinute, exporter::emit);
                 } else if (metric instanceof Timer) {
-                    collectTimer(name, labels, (Timer) metric).ifPresent(exporter::emit);
+                    collectTimer(name, labels, (Timer) metric, exporter::emit);
                     // Derived metric, results in a name like /time/delta
-                    collectDelta(name + "/time", labels, ((Timer) metric).sum(), metricAddedInstant).ifPresent(exporter::emit);
+                    collectDelta(name + "/time", labels, ((Timer) metric).sum(), metricAddedInstant, exporter::emit);
                     // Derived metric, results in a name like /total/delta.
-                    collectDelta(name + "/total", labels, ((Timer) metric).count(), metricAddedInstant).ifPresent(exporter::emit);
+                    collectDelta(name + "/total", labels, ((Timer) metric).count(), metricAddedInstant, exporter::emit);
                 } else if (metric instanceof Histogram) {
-                    collectHistogram(name, labels, (Histogram) metric).ifPresent(exporter::emit);
+                    collectHistogram(name, labels, (Histogram) metric, exporter::emit);
                     // Derived metric, results in a name like /time/delta
-                    collectDelta(name + "/time", labels, ((Histogram) metric).sum(), metricAddedInstant).ifPresent(exporter::emit);
+                    collectDelta(name + "/time", labels, ((Histogram) metric).sum(), metricAddedInstant, exporter::emit);
                     // Derived metric, results in a name like /total/delta.
-                    collectDelta(name + "/total", labels, ((Histogram) metric).count(), metricAddedInstant).ifPresent(exporter::emit);
+                    collectDelta(name + "/total", labels, ((Histogram) metric).count(), metricAddedInstant, exporter::emit);
                 } else {
                     log.debug("Unexpected metric type for {}", metricName);
                 }
@@ -174,9 +175,11 @@ public class YammerMetricsCollector implements MetricsCollector {
         return this.getClass().getCanonicalName();
     }
 
-    private Optional<Metric> collectGauge(String metricName, Map<String, String> labels, Object gaugeValue) {
-        if (!isWhitelist(new MetricKey(metricName, labels))) {
-            return Optional.empty();
+    private void collectGauge(String metricName, Map<String, String> labels, Object gaugeValue,
+                              BiConsumer<MetricKey, Metric> emit) {
+        MetricKey metricKey = new MetricKey(metricName, labels);
+        if (!isWhitelist(metricKey)) {
+            return;
         }
 
         // Figure out which gauge instance and call the right method to get value
@@ -184,44 +187,59 @@ public class YammerMetricsCollector implements MetricsCollector {
 
         if (gaugeValue instanceof Integer || gaugeValue instanceof Long) {
             point.setInt64Value(((Number) gaugeValue).longValue());
-            return Optional.of(context
-                .metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.GAUGE_INT64, labels, point.build()));
+            emit.accept(
+                metricKey,
+                context
+                    .metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.GAUGE_INT64, labels, point.build())
+            );
 
         } else if (gaugeValue instanceof Float || gaugeValue instanceof Double) {
             point.setDoubleValue(((Number) gaugeValue).doubleValue());
-            return Optional.of(context
-                .metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.GAUGE_DOUBLE, labels, point.build()));
+            emit.accept(
+                metricKey,
+                context
+                    .metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.GAUGE_DOUBLE, labels, point.build())
+            );
 
         } else if (gaugeValue instanceof Boolean) {
             point.setInt64Value(((Boolean) gaugeValue) ? 1 : 0);
-            return Optional.of(context
-                .metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.GAUGE_INT64, labels, point.build()));
+            emit.accept(
+                metricKey,
+                context
+                    .metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.GAUGE_INT64, labels, point.build())
+            );
 
         } else {
             // Ignoring Gauge (gauge.getKey()) with unhandled type.
             log.debug("Ignoring {} value = {}", metricName, gaugeValue);
-            return Optional.empty();
         }
 
     }
 
-    private Optional<Metric> collectCounter(String metricName, Map<String, String> labels, long counterValue) {
-        if (!isWhitelist(new MetricKey(metricName, labels))) {
-            return Optional.empty();
+    private void collectCounter(String metricName, Map<String, String> labels, long counterValue,
+                                BiConsumer<MetricKey, Metric> emit) {
+        MetricKey metricKey = new MetricKey(metricName, labels);
+        if (!isWhitelist(metricKey)) {
+            return;
         }
 
         Point point = Point.newBuilder()
                 .setTimestamp(MetricsUtils.now(clock))
                 .setInt64Value(counterValue)
                 .build();
-        return Optional.of(context.metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.CUMULATIVE_INT64, labels, point));
+        emit.accept(
+            metricKey,
+            context.metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.CUMULATIVE_INT64, labels, point)
+        );
     }
 
 
-    private Optional<Metric> collectDelta(String metricName, Map<String, String> labels, long value, Instant metricAdded) {
+    private void collectDelta(String metricName, Map<String, String> labels, long value, Instant metricAdded,
+                              BiConsumer<MetricKey, Metric> emit) {
         String deltaMetricName = metricName + "/delta";
-        if (!isWhitelist(new MetricKey(deltaMetricName, labels))) {
-            return Optional.empty();
+        MetricKey metricKey = new MetricKey(deltaMetricName, labels);
+        if (!isWhitelist(metricKey)) {
+            return;
         }
 
         MetricKey key = new MetricKey(metricName, labels);
@@ -238,19 +256,24 @@ public class YammerMetricsCollector implements MetricsCollector {
             .setInt64Value(delta)
             .build();
 
-        return Optional.of(context
-            .metricWithSinglePointTimeseries(deltaMetricName, Type.CUMULATIVE_INT64, labels, point, MetricsUtils
-                .toTimestamp(start)));
+        emit.accept(
+            metricKey,
+            context
+                .metricWithSinglePointTimeseries(deltaMetricName, Type.CUMULATIVE_INT64, labels, point, MetricsUtils
+                    .toTimestamp(start))
+        );
     }
 
-    private Optional<Metric> collectDelta(String metricName, Map<String, String> labels, double value, Instant metricAdded) {
+    private void collectDelta(String metricName, Map<String, String> labels, double value, Instant metricAdded,
+                              BiConsumer<MetricKey, Metric> emit) {
         if (Double.isNaN(value) || Double.isInfinite(value)) {
-            return Optional.empty();
+            return;
         }
 
         String deltaMetricName = metricName + "/delta";
-        if (!isWhitelist(new MetricKey(deltaMetricName, labels))) {
-            return Optional.empty();
+        MetricKey metricKey = new MetricKey(deltaMetricName, labels);
+        if (!isWhitelist(metricKey)) {
+            return;
         }
 
         MetricKey key = new MetricKey(metricName, labels);
@@ -268,40 +291,58 @@ public class YammerMetricsCollector implements MetricsCollector {
             .setDoubleValue(delta)
             .build();
 
-        return Optional.of(context
-            .metricWithSinglePointTimeseries(deltaMetricName, Type.CUMULATIVE_DOUBLE, labels, point, MetricsUtils
-                .toTimestamp(start)));
+        emit.accept(
+            metricKey,
+            context
+                .metricWithSinglePointTimeseries(deltaMetricName, Type.CUMULATIVE_DOUBLE, labels, point, MetricsUtils
+                    .toTimestamp(start))
+        );
     }
 
 
-    private Optional<Metric> collectMeter(String metricName, Map<String, String> labels, long meterCount) {
-        if (!isWhitelist(new MetricKey(metricName, labels))) {
-            return Optional.empty();
+    private void collectMeter(String metricName, Map<String, String> labels, long meterCount,
+                              BiConsumer<MetricKey, Metric> emit) {
+        MetricKey metricKey = new MetricKey(metricName, labels);
+        if (!isWhitelist(metricKey)) {
+            return;
         }
 
         Point point = Point.newBuilder()
                 .setTimestamp(MetricsUtils.now(clock))
                 .setInt64Value(meterCount)
                 .build();
-        return Optional.of(context.metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.CUMULATIVE_INT64, labels, point));
+        emit.accept(
+            metricKey,
+            context.metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.CUMULATIVE_INT64, labels, point)
+        );
     }
 
-    private Optional<Metric> collectHistogram(String metricName, Map<String, String> labels, Histogram histogram) {
-        if (!isWhitelist(new MetricKey(metricName, labels))) {
-            return Optional.empty();
+    private void collectHistogram(String metricName, Map<String, String> labels, Histogram histogram,
+                                  BiConsumer<MetricKey, Metric> emit) {
+        MetricKey metricKey = new MetricKey(metricName, labels);
+        if (!isWhitelist(metricKey)) {
+            return;
         }
 
-        return Optional.of(collectSnapshotAndCount(
-                metricName, labels, DEFAULT_UNIT, histogram.getSnapshot(), histogram.count(), histogram.max()));
+        emit.accept(
+            metricKey,
+            collectSnapshotAndCount(
+                metricName, labels, DEFAULT_UNIT, histogram.getSnapshot(), histogram.count(), histogram.max())
+        );
     }
 
-    private Optional<Metric> collectTimer(String metricName, Map<String, String> labels, Timer timer) {
-        if (!isWhitelist(new MetricKey(metricName, labels))) {
-            return Optional.empty();
+    private void collectTimer(String metricName, Map<String, String> labels, Timer timer,
+                              BiConsumer<MetricKey, Metric> emit) {
+        MetricKey metricKey = new MetricKey(metricName, labels);
+        if (!isWhitelist(metricKey)) {
+            return;
         }
 
-        return Optional.of(collectSnapshotAndCount(
-                metricName, labels, NS_UNIT, timer.getSnapshot(), timer.count(), timer.max()));
+        emit.accept(
+            metricKey,
+            collectSnapshotAndCount(
+                metricName, labels, NS_UNIT, timer.getSnapshot(), timer.count(), timer.max())
+        );
     }
 
     private Metric collectSnapshotAndCount(

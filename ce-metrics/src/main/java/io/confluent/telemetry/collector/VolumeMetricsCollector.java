@@ -150,9 +150,9 @@ public class VolumeMetricsCollector implements MetricsCollector {
         for (VolumeInfo volumeInfo : getMetrics().values()) {
 
             Map<String, String> labels = labelsFor(volumeInfo.name());
-
-            if (metricWhitelistFilter.test(new MetricKey(diskTotalBytesName, labels))) {
-                exporter.emit(context.metricWithSinglePointTimeseries(
+            MetricKey metricKeyTotal = new MetricKey(diskTotalBytesName, labels);
+            if (metricWhitelistFilter.test(metricKeyTotal)) {
+                exporter.emit(metricKeyTotal, context.metricWithSinglePointTimeseries(
                     diskTotalBytesName,
                     MetricDescriptor.Type.GAUGE_INT64,
                     labels,
@@ -160,18 +160,21 @@ public class VolumeMetricsCollector implements MetricsCollector {
                         .setTimestamp(MetricsUtils.now())
                         .setInt64Value(volumeInfo.totalBytes()).build(),
                     MetricsUtils.toTimestamp(lastUpdateInstant)
-                    ));
+                    )
+                );
             }
 
-            if (metricWhitelistFilter.test(new MetricKey(diskUsableBytesName, labels))) {
-                exporter.emit(context.metricWithSinglePointTimeseries(
+            MetricKey metricKeyUsable = new MetricKey(diskUsableBytesName, labels);
+            if (metricWhitelistFilter.test(metricKeyUsable)) {
+                exporter.emit(metricKeyUsable, context.metricWithSinglePointTimeseries(
                     diskUsableBytesName,
                     MetricDescriptor.Type.GAUGE_INT64,
                     labels,
                     Point.newBuilder()
                         .setTimestamp(MetricsUtils.now())
                         .setInt64Value(volumeInfo.usableBytes()).build(),
-                    MetricsUtils.toTimestamp(lastUpdateInstant)));
+                    MetricsUtils.toTimestamp(lastUpdateInstant))
+                );
             }
         }
     }

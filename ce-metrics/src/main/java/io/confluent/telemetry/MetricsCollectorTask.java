@@ -9,16 +9,15 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BiConsumer;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 import io.confluent.telemetry.collector.MetricsCollector;
+import io.confluent.telemetry.exporter.AbstractExporter;
 import io.confluent.telemetry.exporter.Exporter;
 import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.metrics.v1.MetricDescriptor.Type;
@@ -33,7 +32,6 @@ public class MetricsCollectorTask implements MetricsCollector {
     private final Supplier<Collection<Exporter>> exportersSupplier;
     private final Collection<MetricsCollector> collectors;
     private final long collectIntervalMs;
-    private final ConcurrentMap<MetricsCollector, AtomicLong> metricsCollected = new ConcurrentHashMap<>();
     private volatile Predicate<MetricKey> whitelistPredicate;
 
     public MetricsCollectorTask(
@@ -81,24 +79,11 @@ public class MetricsCollectorTask implements MetricsCollector {
     }
 
     private void collectAndExport(MetricsCollector collector) {
-        final AtomicLong collectedMetricsCount = metricsCollected.getOrDefault(collector, new AtomicLong());
-        Exporter exporter = new Exporter() {
-            @Override
-            public void emit(Metric metric) {
-                exportersSupplier.get().forEach(e -> e.emit(metric));
-                collectedMetricsCount.incrementAndGet();
-            }
-
-            @Override
-            public void close() {
-                // exporters are closed in KafkaServerMetricsReporter.close()
-            }
-        };
-        try {
-            collector.collect(exporter);
-            long metricCount = collectedMetricsCount.getAndSet(0);
+        try (CompositeExporter compositeExporter = new CompositeExporter(this.exportersSupplier)) {
+            collector.collect(compositeExporter);
+            long metricCount = compositeExporter.getCountAndReset();
             log.trace("Collected {} metrics from {}", metricCount, collector);
-            buildMetricsCollectedMetric(collector, metricCount).ifPresent(m -> exporter.emit(m));
+            emitMetricsCollectedMetric(collector, metricCount, compositeExporter::emit);
         } catch (Throwable t) {
             log.error("Error while collecting metrics for collector = {})",
                 collector,
@@ -114,7 +99,8 @@ public class MetricsCollectorTask implements MetricsCollector {
      * Builds a Metric for the total number of metrics that have been collected (including the
      * additionalMetrics) for the collector.
      */
-    private Optional<Metric> buildMetricsCollectedMetric(MetricsCollector collector, long metricCount) {
+    private void emitMetricsCollectedMetric(MetricsCollector collector, long metricCount,
+                                            BiConsumer<MetricKey, Metric> emit) {
         String metricName = "io.confluent.telemetry/metrics_collector_task/metrics_collected_total/delta";
         String collectorName = collector.getClass().getSimpleName();
         Map<String, String> labels = new HashMap<>();
@@ -122,9 +108,10 @@ public class MetricsCollectorTask implements MetricsCollector {
         if (context.isDebugEnabled()) {
             labels.put(MetricsCollector.LABEL_LIBRARY, MetricsCollector.LIBRARY_NONE);
         }
-
-        if (whitelistPredicate.test(new MetricKey(metricName, labels))) {
-            return Optional.of(
+        MetricKey metricKey = new MetricKey(metricName, labels);
+        if (this.whitelistPredicate.test(metricKey)) {
+            emit.accept(
+                metricKey,
                 context.metricWithSinglePointTimeseries(
                     metricName,
                     Type.CUMULATIVE_INT64,
@@ -133,7 +120,6 @@ public class MetricsCollectorTask implements MetricsCollector {
                 )
             );
         }
-        return Optional.empty();
     }
 
     @Override
@@ -144,5 +130,42 @@ public class MetricsCollectorTask implements MetricsCollector {
     @Override
     public void reconfigureWhitelist(Predicate<MetricKey> whitelistPredicate) {
         this.whitelistPredicate = whitelistPredicate;
+    }
+
+    private static class CompositeExporter extends AbstractExporter {
+
+        private final Supplier<Collection<Exporter>> exportersSupplier;
+        private final AtomicLong collectedMetricsCount = new AtomicLong();
+
+        public CompositeExporter(Supplier<Collection<Exporter>> exportersSupplier) {
+            this.exportersSupplier = exportersSupplier;
+        }
+
+        public long getCountAndReset() {
+            return collectedMetricsCount.getAndSet(0);
+        }
+
+        @Override
+        public void reconfigureWhitelist(Predicate<MetricKey> whitelistPredicate) {
+            // we never want to update the whitelist for this exporter
+        }
+
+        @Override
+        public void doEmit(MetricKey metricKey, Metric metric) {
+            boolean collected = false;
+            for (Exporter e : exportersSupplier.get()) {
+                if (e.emit(metricKey, metric)) {
+                    collected = true;
+                }
+            }
+            if (collected) {
+                collectedMetricsCount.incrementAndGet();
+            }
+        }
+
+        @Override
+        public void close() {
+            // exporters are closed in KafkaServerMetricsReporter.close()
+        }
     }
 }

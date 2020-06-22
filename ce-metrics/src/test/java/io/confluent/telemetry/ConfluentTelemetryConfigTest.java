@@ -163,6 +163,38 @@ public class ConfluentTelemetryConfigTest {
   }
 
   @Test
+  public void testGlobalExporterWhitelist() {
+    String globalWhitelist = ".*blah.*";
+    String exporterLevelWhitelist = ".*blahblahblah.*";
+
+    String httpExporterPrefix = ConfluentTelemetryConfig.exporterPrefixForName("http");
+    String kafkaExporterPrefix = ConfluentTelemetryConfig.exporterPrefixForName("kafka");
+    builder
+        .put(ConfluentTelemetryConfig.WHITELIST_CONFIG, globalWhitelist)
+
+        // override the global whitelist for this exporter
+        .put(httpExporterPrefix + ExporterConfig.TYPE_CONFIG, ExporterConfig.ExporterType.http.name())
+        .put(httpExporterPrefix + HttpExporterConfig.CLIENT_BASE_URL, "https://api.telemetry.confluent.cloud")
+        .put(httpExporterPrefix + HttpExporterConfig.CLIENT_COMPRESSION, "gzip")
+        .put(httpExporterPrefix + ExporterConfig.WHITELIST_CONFIG, exporterLevelWhitelist)
+
+        // this exporter should inherit the global whitelist
+        .put(kafkaExporterPrefix + ExporterConfig.TYPE_CONFIG, ExporterConfig.ExporterType.kafka.name())
+        .put(kafkaExporterPrefix + KafkaExporterConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:1234")
+        .put(kafkaExporterPrefix + KafkaExporterConfig.TOPIC_NAME_CONFIG, "topicName");
+
+    ConfluentTelemetryConfig config = new ConfluentTelemetryConfig(builder.build());
+    Map<String, ExporterConfig> exporterConfigs = config.enabledExporters();
+    assertThat(exporterConfigs)
+        .hasEntrySatisfying("http",
+            new Condition<>(c -> c.getString(ExporterConfig.WHITELIST_CONFIG).equals(exporterLevelWhitelist),
+                "http exporter has exporter-level whitelist"))
+        .hasEntrySatisfying("kafka",
+            new Condition<>(c -> c.getString(ExporterConfig.WHITELIST_CONFIG).equals(globalWhitelist),
+                "kafka exporter has global whitelist"));
+  }
+
+  @Test
   public void testDefaultExporters() {
     ConfluentTelemetryConfig config = new ConfluentTelemetryConfig(builder.build());
 

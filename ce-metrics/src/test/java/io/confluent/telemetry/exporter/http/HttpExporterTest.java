@@ -3,6 +3,7 @@ package io.confluent.telemetry.exporter.http;
 import com.google.common.collect.ImmutableMap;
 
 import io.confluent.shaded.io.reactivex.Observable;
+import io.confluent.telemetry.MetricKey;
 import org.assertj.core.data.Offset;
 import org.junit.Rule;
 import org.junit.Test;
@@ -64,7 +65,7 @@ public class HttpExporterTest {
 
         Metric metric = Metric.newBuilder().setMetricDescriptor(
             MetricDescriptor.newBuilder().setName("test").build()).build();
-        exporter.emit(metric);
+        exporter.emit(new MetricKey("test", Collections.emptyMap()), metric);
 
         verify(bufferingClient).submit(Collections.singleton(metric));
     }

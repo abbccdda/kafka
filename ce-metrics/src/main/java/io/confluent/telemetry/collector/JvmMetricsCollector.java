@@ -112,10 +112,10 @@ public class JvmMetricsCollector implements MetricsCollector {
             final Number metricValue = attribute.getValue();
             final String name =
                 MetricsUtils.fullMetricName(context.getDomain(), metricGroup, metricKey);
-
-            if (metricWhitelistFilter.test(new MetricKey(name, labels))) {
+            MetricKey key = new MetricKey(name, labels);
+            if (metricWhitelistFilter.test(key)) {
                 exporter.emit(
-                    context.metricWithSinglePointTimeseries(
+                    key, context.metricWithSinglePointTimeseries(
                         name,
                         getType(metricValue),
                         labels,

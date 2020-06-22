@@ -29,12 +29,13 @@ import io.confluent.telemetry.MetricKey;
 import io.confluent.telemetry.MetricsUtils;
 import io.confluent.telemetry.collector.MetricsCollector;
 import io.confluent.telemetry.collector.MetricsCollectorProvider;
+import io.confluent.telemetry.exporter.AbstractExporter;
 import io.confluent.telemetry.exporter.Exporter;
 import io.opencensus.proto.metrics.v1.Metric;
 import io.opencensus.proto.metrics.v1.MetricDescriptor.Type;
 import io.opencensus.proto.metrics.v1.Point;
 
-public class HttpExporter implements Exporter, MetricsCollectorProvider {
+public class HttpExporter extends AbstractExporter implements MetricsCollectorProvider {
 
     private static final Logger log = LoggerFactory.getLogger(HttpExporter.class);
     public static final String GROUP = "http_exporter";
@@ -49,6 +50,7 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
             throw new RuntimeException(e);
         }
     };
+
     private final BufferingAsyncTelemetryHttpClient<Metric, ExportMetricsServiceRequest, ExportMetricsServiceResponse> bufferingClient;
     public volatile boolean canEmitMetrics = false;
 
@@ -64,6 +66,7 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
             .setCreateRequestFn(REQUEST_CONVERTER)
             .build());
         this.canEmitMetrics = config.canEmitMetrics();
+        reconfigureWhitelist(config.buildMetricWhitelistFilter());
     }
 
     @VisibleForTesting
@@ -92,7 +95,7 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
     }
 
     @Override
-    public void emit(Metric metric) throws RuntimeException {
+    public void doEmit(MetricKey metricKey, Metric metric) throws RuntimeException {
         if (!canEmitMetrics) {
             return;
         }
@@ -138,7 +141,7 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
                         return;
                     }
                     exporter.emit(
-                        context.metricWithSinglePointTimeseries(
+                        new MetricKey(batchName, statusLabels), context.metricWithSinglePointTimeseries(
                             batchName,
                             Type.CUMULATIVE_INT64,
                             statusLabels,
@@ -160,7 +163,7 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
                         return;
                     }
                     exporter.emit(
-                        context.metricWithSinglePointTimeseries(
+                        new MetricKey(itemName, statusLabels), context.metricWithSinglePointTimeseries(
                             itemName,
                             Type.CUMULATIVE_INT64,
                             statusLabels,
@@ -175,7 +178,7 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
                     .fullMetricName(context.getDomain(), GROUP, "send_time_seconds");
                 if (metricWhitelistFilter.test(new MetricKey(timingName, labels))) {
                     exporter.emit(
-                        context.metricWithSinglePointTimeseries(
+                        new MetricKey(timingName, labels), context.metricWithSinglePointTimeseries(
                             timingName,
                             Type.CUMULATIVE_DOUBLE,
                             labels,
@@ -196,6 +199,8 @@ public class HttpExporter implements Exporter, MetricsCollectorProvider {
     }
 
     public void reconfigure(HttpExporterConfig config) {
+        reconfigureWhitelist(config.buildMetricWhitelistFilter());
+
         String apiKey = config.getString(HttpExporterConfig.API_KEY);
         String apiSecretKey = config.getString(HttpExporterConfig.API_SECRET);
         if (config.canEmitMetrics()) {

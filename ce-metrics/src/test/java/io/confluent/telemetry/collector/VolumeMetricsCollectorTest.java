@@ -30,9 +30,9 @@ public class VolumeMetricsCollectorTest {
         .setContext(context)
         .setUpdatePeriodMs(100L)
         .setLogDirs(new String[] {System.getProperties().get("java.io.tmpdir").toString()})
-        .setMetricWhitelistFilter(key -> !key.getName().contains("disk_total_bytes"))
         .build();
 
+    exporter.reconfigureWhitelist(key -> !key.getName().contains("disk_total_bytes"));
     metrics.collect(exporter);
     Metric metric = Iterables.getOnlyElement(exporter.emittedMetrics());
 
@@ -48,9 +48,9 @@ public class VolumeMetricsCollectorTest {
         .setContext(context)
         .setUpdatePeriodMs(100L)
         .setLogDirs(new String[] {System.getProperties().get("java.io.tmpdir").toString()})
-        .setMetricWhitelistFilter(key -> !key.getName().contains("disk_usable_bytes"))
         .build();
 
+    exporter.reconfigureWhitelist(key -> !key.getName().contains("disk_usable_bytes"));
     metrics.collect(exporter);
     Metric metric = Iterables.getOnlyElement(exporter.emittedMetrics());
 
@@ -66,10 +66,10 @@ public class VolumeMetricsCollectorTest {
         .setContext(context)
         .setUpdatePeriodMs(100L)
         .setLogDirs(new String[] {System.getProperties().get("java.io.tmpdir").toString()})
-        .setMetricWhitelistFilter(key -> !key.getName().contains("disk_usable_bytes"))
         .build();
 
     // collect twice so that we have a cached set of labels.
+    exporter.reconfigureWhitelist(key -> !key.getName().contains("disk_usable_bytes"));
     metrics.collect(exporter);
     exporter.reset();
     metrics.collect(exporter);
@@ -86,19 +86,18 @@ public class VolumeMetricsCollectorTest {
         .setContext(context)
         .setUpdatePeriodMs(100L)
         .setLogDirs(new String[] {System.getProperties().get("java.io.tmpdir").toString()})
-        .setMetricWhitelistFilter(key -> true)
         .build();
 
     metrics.collect(exporter);
     assertThat(exporter.emittedMetrics()).hasSize(2); // disk_total_bytes, disk_usable_bytes
 
     exporter.reset();
-    metrics.reconfigureWhitelist(key -> key.getName().endsWith("/disk_total_bytes"));
+    exporter.reconfigureWhitelist(key -> key.getName().endsWith("/disk_total_bytes"));
     metrics.collect(exporter);
     assertThat(exporter.emittedMetrics()).hasSize(1); // disk_total_bytes
 
     exporter.reset();
-    metrics.reconfigureWhitelist(key -> true);
+    exporter.reconfigureWhitelist(key -> true);
     metrics.collect(exporter);
     assertThat(exporter.emittedMetrics()).hasSize(2); // disk_total_bytes, disk_usable_bytes
   }
