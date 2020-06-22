@@ -16,7 +16,6 @@ import io.confluent.security.auth.store.data.RoleBindingValue;
 import io.confluent.security.auth.store.data.StatusKey;
 import io.confluent.security.auth.store.data.StatusValue;
 import io.confluent.security.auth.store.external.ExternalStore;
-import io.confluent.security.authorizer.ScopeType;
 import io.confluent.security.authorizer.acl.AclRule;
 import io.confluent.security.authorizer.AccessRule;
 import io.confluent.security.authorizer.ResourcePattern;
@@ -767,25 +766,24 @@ public class KafkaAuthWriter implements Writer, AuthWriter, ConsumerListener<Aut
     Role roleDefinition = authCache.rbacRoles().role(role);
     if (roleDefinition == null)
       throw new InvalidRoleBindingException("Role not found " + role);
-    ScopeType mostSpecific = roleDefinition.mostSpecificScopeType();
-    if (mostSpecific == ScopeType.RESOURCE) {
+    if (roleDefinition.bindWithResource()) {
       // If we're deleting a resource level role binding, resources are allowed to be empty
       if (expectResourcesForResourceLevel && resources.isEmpty()) {
-        throw new InvalidRequestException("Role binding update of resource-scope role without any resources");
+        throw new InvalidRequestException("Resources must be specified for role " + role);
       }
     } else {
+      String mostSpecific = roleDefinition.mostSpecificBindingScope();
       if (!resources.isEmpty()) {
-        throw new InvalidRequestException("Resources cannot be specified for role " + role +
-                " with scope type " + mostSpecific);
+        throw new InvalidRequestException("Resources must not be specified for role " + role);
       }
-      if (mostSpecific != scope.scopeType()) {
-        throw new InvalidRequestException("Role " + role + " should be bound at scope " +
-                mostSpecific + ", but was bound at " + scope.scopeType());
+      if (!mostSpecific.equals(scope.bindingScope())) {
+        throw new InvalidRequestException("Role " + role + " must be bound at scope " +
+                mostSpecific + ", but was bound at " + scope.bindingScope());
       }
-      for (ScopeType scopeType : roleDefinition.scopeTypes()) {
-        if (scope.enclosingScope(scopeType) == null) {
+      for (String bindingScope : roleDefinition.bindingScopes()) {
+        if (scope.ancestorWithBindingScope(bindingScope) == null) {
           throw new InvalidRequestException("Role " + role +
-                  " should be bound in a scope with an enclosing scope of " + scopeType);
+                  " must be bound in a scope with an enclosing scope of " + bindingScope);
         }
       }
     }

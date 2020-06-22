@@ -115,7 +115,7 @@ public class FileBasedPlainSaslAuthIntegrationTest {
             "io.confluent.kafka.server.plugins.auth.FileBasedLoginModule required " +
                 "config_path=\"" + path + "\" refresh_ms=\"1000\";");
         props.put("listener.name.external.principal.builder.class", MultiTenantPrincipalBuilder.class.getName());
-        props.put(ConfluentConfigs.ENABLE_AUTHENTICATION_AUDIT_LOGS, "true");
+        props.put("listener.name.external.confluent.security.event.logger.authentication.enable", "true");
         props.put(KafkaConfig$.MODULE$.AuthorizerClassNameProp(), MultiTenantAuthorizer.class.getName());
         props.put(MultiTenantAuditLogConfig.MULTI_TENANT_AUDIT_LOGGER_ENABLE_CONFIG, "true");
         return props;

@@ -357,7 +357,7 @@
     <suppress checks="ClassFanOutComplexity" files="MultiTenantRequestContextTest.java"/>
 
     <!-- ce-auth-providers test suppressions -->
-    <suppress checks="ClassDataAbstractionCoupling" files="(MiniKdcWithLdapService|MockAuthStore).java"/>
+    <suppress checks="ClassDataAbstractionCoupling" files="(MiniKdcWithLdapService|MockAuthStore|ConfluentProviderTest).java"/>
     <suppress checks="ClassFanOutComplexity" files="(MiniKdcWithLdapService|MockAuthStore|KafkaAuthWriter).java"/>
     <suppress checks="CyclomaticComplexity" files="KafkaUtils.java"/>
     <suppress checks="ImportControl" files="ClusterLinkAclSyncIntegrationTest.java"/>

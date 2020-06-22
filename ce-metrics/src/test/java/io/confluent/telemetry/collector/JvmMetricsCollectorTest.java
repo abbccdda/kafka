@@ -30,10 +30,10 @@ public class JvmMetricsCollectorTest {
 
   @Test
   public void collect() {
+    exporter.reconfigureWhitelist(key -> key.getName().contains("cpu_usage"));
     JvmMetricsCollector metrics =
         JvmMetricsCollector
           .newBuilder()
-          .setMetricWhitelistFilter(key -> key.getName().contains("cpu_usage"))
           .setContext(context)
           .build();
 
@@ -61,16 +61,18 @@ public class JvmMetricsCollectorTest {
 
     AtomicInteger count = new AtomicInteger(metricNames.size());
 
+    exporter
+        .reconfigureWhitelist(key -> metricNames.stream().anyMatch(s -> {
+          if (key.getName().contains(s)) {
+            count.decrementAndGet();
+            return true;
+          }
+          return false;
+        }));
+
     JvmMetricsCollector metrics =
       JvmMetricsCollector
         .newBuilder()
-        .setMetricWhitelistFilter(key -> metricNames.stream().anyMatch(s -> {
-            if (key.getName().contains(s)) {
-              count.decrementAndGet();
-              return true;
-            }
-            return false;
-        }))
         .setContext(context)
         .build();
 
@@ -85,7 +87,6 @@ public class JvmMetricsCollectorTest {
     JvmMetricsCollector metrics =
       JvmMetricsCollector
         .newBuilder()
-        .setMetricWhitelistFilter(key -> true)
         .setContext(context)
         .build();
 
@@ -101,8 +102,8 @@ public class JvmMetricsCollectorTest {
 
   @Test
   public void collectFilteredOut() {
+    exporter.reconfigureWhitelist(key -> !key.getName().contains("cpu_usage"));
     JvmMetricsCollector metrics = JvmMetricsCollector.newBuilder()
-        .setMetricWhitelistFilter(key -> !key.getName().contains("cpu_usage"))
         .setContext(context)
         .build();
     metrics.collect(exporter);
@@ -117,7 +118,6 @@ public class JvmMetricsCollectorTest {
   @Test
   public void collectFilteredOutDynamicWhitelist() {
     JvmMetricsCollector metrics = JvmMetricsCollector.newBuilder()
-        .setMetricWhitelistFilter(key -> true)
         .setContext(context)
         .build();
 
@@ -125,12 +125,12 @@ public class JvmMetricsCollectorTest {
     assertThat(exporter.emittedMetrics()).hasSizeGreaterThan(0);
 
     exporter.reset();
-    metrics.reconfigureWhitelist(key -> key.getName().contains("cpu_usage"));
+    exporter.reconfigureWhitelist(key -> key.getName().contains("cpu_usage"));
     metrics.collect(exporter);
     assertThat(exporter.emittedMetrics()).hasSize(1);
 
     exporter.reset();
-    metrics.reconfigureWhitelist(key -> true);
+    exporter.reconfigureWhitelist(key -> true);
     metrics.collect(exporter);
     assertThat(exporter.emittedMetrics()).hasSizeGreaterThan(0);
   }

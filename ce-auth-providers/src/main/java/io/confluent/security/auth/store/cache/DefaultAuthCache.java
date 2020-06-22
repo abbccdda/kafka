@@ -24,11 +24,11 @@ import io.confluent.security.authorizer.PermissionType;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.ResourceType;
 import io.confluent.security.authorizer.Scope;
-import io.confluent.security.authorizer.ScopeType;
 import io.confluent.security.authorizer.acl.AclRule;
 import io.confluent.security.authorizer.provider.AuthorizeRule;
 import io.confluent.security.authorizer.provider.InvalidScopeException;
 import io.confluent.security.rbac.AccessPolicy;
+import io.confluent.security.rbac.InvalidRoleBindingException;
 import io.confluent.security.rbac.RbacAccessRule;
 import io.confluent.security.rbac.RbacRoles;
 import io.confluent.security.rbac.Role;
@@ -125,7 +125,7 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
         .map(e -> roleBinding(e.getKey(), e.getValue()))
         .forEach(binding -> {
           RoleBinding matching = filter.matchingBinding(binding,
-                  rbacRoles.role(binding.role()).hasResourceScope());
+                  rbacRoles.role(binding.role()).bindWithResource());
           if (matching != null)
             bindings.add(matching);
         });
@@ -420,11 +420,10 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
   }
 
   private RoleBindingValue updateRoleBinding(RoleBindingKey key, RoleBindingValue value) {
-    Scope bindingScope = key.scope();
-    if (!this.rootScope.containsScope(bindingScope))
+    if (!this.rootScope.containsScope(key.scope()))
       return null;
 
-    Map<ScopeType, AccessPolicy> accessPolicies = accessPolicies(key);
+    Map<String, AccessPolicy> accessPolicies = accessPolicies(key);
     if (accessPolicies.isEmpty())
       return null;
 
@@ -432,10 +431,14 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
     String role = key.role();
     RoleBindingValue oldValue = roleBindings.put(key, value);
 
-    for (ScopeType scopeType : accessPolicies.keySet()) {
+    for (String bindingScope : accessPolicies.keySet()) {
       // we know that an enclosing scope of the appropriate type exists because
       // we validated it in KafkaAuthWriter.validateRoleBindingUpdate
-      Scope policyScope = bindingScope.enclosingScope(scopeType);
+      Scope policyScope = key.scope().ancestorWithBindingScope(bindingScope);
+      if (policyScope == null) {
+        throw new InvalidRoleBindingException("Binding at scope " + bindingScope
+                + " is missing enclosing scope " + bindingScope);
+      }
       RoleBindingKey policyKey = new RoleBindingKey(principal, role, policyScope);
       // Add new binding and access policies
       NavigableMap<ResourcePattern, Set<AccessRule>> scopeRules =
@@ -457,10 +460,10 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
     RoleBindingValue existing = roleBindings.remove(key);
     if (existing != null) {
       Role role = rbacRoles.role(key.role());
-      for (ScopeType scopeType: role.scopeTypes()) {
+      for (String bindingScope: role.bindingScopes()) {
         // we know that an enclosing scope of the appropriate type exists because
         // we validated it in KafkaAuthWriter.validateRoleBindingUpdate
-        removeDeletedAccessPolicies(key.principal(), scope.enclosingScope(scopeType));
+        removeDeletedAccessPolicies(key.principal(), scope.ancestorWithBindingScope(bindingScope));
       }
       return existing;
     } else
@@ -481,7 +484,7 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
     }
   }
 
-  private Map<ScopeType, AccessPolicy> accessPolicies(RoleBindingKey roleBindingKey) {
+  private Map<String, AccessPolicy> accessPolicies(RoleBindingKey roleBindingKey) {
     Role role = rbacRoles.role(roleBindingKey.role());
     if (role == null) {
       log.error("Unknown role, ignoring role binding {}", roleBindingKey);
@@ -501,11 +504,8 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
     return accessRules.getOrDefault(scope, NO_RULES);
   }
 
-  private ScopeType scopeType(RoleBindingKey roleBindingKey, RoleBindingValue roleBindingValue) {
-    if (roleBindingValue.resources().isEmpty()) {
-      return roleBindingKey.scope().scopeType();
-    }
-    return ScopeType.RESOURCE;
+  private String bindingScope(RoleBindingKey roleBindingKey, RoleBindingValue roleBindingValue) {
+    return roleBindingKey.scope().bindingScope();
   }
 
   private Map<ResourcePattern, Set<AccessRule>> accessRules(RoleBindingKey roleBindingKey,
@@ -513,10 +513,10 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
     Map<ResourcePattern, Set<AccessRule>> accessRules = new HashMap<>();
     KafkaPrincipal principal = roleBindingKey.principal();
     Collection<ResourcePattern> resources;
-    ScopeType scopeType = scopeType(roleBindingKey, roleBindingValue);
-    AccessPolicy accessPolicy = accessPolicies(roleBindingKey).get(scopeType);
+    String bindingScope = bindingScope(roleBindingKey, roleBindingValue);
+    AccessPolicy accessPolicy = accessPolicies(roleBindingKey).get(bindingScope);
     if (accessPolicy != null) {
-      if (!accessPolicy.hasResourceScope()) {
+      if (!accessPolicy.bindWithResource()) {
         resources = accessPolicy.allowedOperations().stream()
                 .map(op -> ResourcePattern.all(new ResourceType(op.resourceType())))
                 .collect(Collectors.toSet());

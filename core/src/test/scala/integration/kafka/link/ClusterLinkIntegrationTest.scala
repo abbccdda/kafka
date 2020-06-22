@@ -15,9 +15,7 @@ import kafka.server.{ConfigType, DynamicConfig}
 import kafka.utils.TestUtils
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.clients.admin._
-import org.apache.kafka.clients.consumer.OffsetAndMetadata
 import org.apache.kafka.clients.producer.ProducerRecord
-import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.{Config => _, _}
 import org.apache.kafka.common.errors._
 import org.apache.kafka.common.quota.{ClientQuotaAlteration, ClientQuotaEntity}
@@ -35,34 +33,38 @@ import scala.jdk.CollectionConverters._
 class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
 
   val offsetToCommit = 10L
-  val syncPeriod = 10000L
+  val syncPeriod = 100L
+  val consumerGroup = "testGroup"
   val consumerGroupFilter =
-    """
-      |{
-      |"groupFilters": [
-      |  {
-      |     "name": "testGroup",
-      |     "patternType": "literal",
-      |     "filterType": "whitelist"
-      |  }
-      |]}
-      |""".stripMargin
-  val multiConsumerGroupFilter =
-    """
-      |{
-      |"groupFilters": [
-      |  {
-      |     "name": "testGroup",
-      |     "patternType": "literal",
-      |     "filterType": "whitelist"
-      |  },
-      |  {
-      |     "name": "testGroup2",
-      |     "patternType": "literal",
-      |     "filterType": "whitelist"
-      |  }
-      |]}
-      |""".stripMargin
+    s"""|{
+        |"groupFilters": [
+        |  {
+        |     "name": "$consumerGroup",
+        |     "patternType": "literal",
+        |     "filterType": "whitelist"
+        |  }
+        |]}
+        |""".stripMargin
+
+  @Test
+  def testCreateMirrorTopic(): Unit = {
+    val replicationFactor: Short = 2
+    val retentionMs = "10000"
+
+    val configs = new Properties()
+    configs.put(LogConfig.RetentionMsProp, retentionMs)
+    sourceCluster.createTopic(topic, numPartitions, replicationFactor, configs)
+
+    destCluster.createClusterLink(linkName, sourceCluster)
+    val result = destCluster.linkTopic(topic, replicationFactor, linkName)
+
+    assertEquals(numPartitions, result.numPartitions(topic).get)
+    assertEquals(replicationFactor.toInt, result.replicationFactor(topic).get)
+    assertEquals(retentionMs, result.config(topic).get.get(LogConfig.RetentionMsProp).value)
+
+    val listing = destCluster.listClusterLinks(includeTopics = true)
+    assertEquals(Set(topic), listing.filter(_.linkName == linkName).head.topics.get.asScala.toSet)
+  }
 
   /**
     * Verifies topic mirroring when mirroring is set up on a source topic that is empty.
@@ -369,12 +371,27 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
   }
 
   /**
-   * Verifies offset migration for a for 2 consumer groups added progressively
+   * Verifies offset migration for 2 consumer groups added progressively
    */
   @Test
   def testOffsetMigrationWithAddedConsumerGroup(): Unit = {
     val finalOffset = 20L
     val additionalConsumerGroup = "testGroup2"
+    val multiConsumerGroupFilter =
+      s"""|{
+          |"groupFilters": [
+          |  {
+          |     "name": "$consumerGroup",
+          |     "patternType": "literal",
+          |     "filterType": "whitelist"
+          |  },
+          |  {
+          |     "name": "$additionalConsumerGroup",
+          |     "patternType": "literal",
+          |     "filterType": "whitelist"
+          |  }
+          |]}
+          |""".stripMargin
 
     sourceCluster.createTopic(topic, numPartitions, replicationFactor = 2)
 
@@ -385,9 +402,9 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
     destCluster.createClusterLink(linkName, sourceCluster, configOverrides = linkProps)
     destCluster.linkTopic(topic, 2, linkName)
 
-    commitOffsets(sourceCluster, topic, offsetToCommit, consumerGroupFilter)
+    commitOffsets(sourceCluster, topic, partition = 0, offsetToCommit, consumerGroup)
 
-    verifyOffsetMigration(topic, offsetToCommit, syncPeriod * 4, consumerGroupFilter)
+    verifyOffsetMigration(topic, partition = 0, offsetToCommit, syncPeriod * 4, consumerGroup)
 
     val updatedProps = Map[String,String] (
       ClusterLinkConfig.ConsumerOffsetSyncEnableProp -> "true",
@@ -395,11 +412,11 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
       ClusterLinkConfig.ConsumerOffsetSyncMsProp -> String.valueOf(syncPeriod))
     destCluster.alterClusterLink(linkName, updatedProps)
 
-    commitOffsets(sourceCluster, topic, finalOffset, consumerGroupFilter)
-    commitOffsets(sourceCluster, topic, finalOffset, additionalConsumerGroup)
+    commitOffsets(sourceCluster, topic, partition = 0, finalOffset, consumerGroup)
+    commitOffsets(sourceCluster, topic, partition = 0, finalOffset, additionalConsumerGroup)
 
-    verifyOffsetMigration(topic, finalOffset, syncPeriod * 4, consumerGroupFilter)
-    verifyOffsetMigration(topic, finalOffset, syncPeriod * 4, additionalConsumerGroup)
+    verifyOffsetMigration(topic, partition = 0, finalOffset, syncPeriod * 4, consumerGroup)
+    verifyOffsetMigration(topic, partition = 0, finalOffset, syncPeriod * 4, additionalConsumerGroup)
 
     destCluster.unlinkTopic(topic, linkName)
     destCluster.deleteClusterLink(linkName)
@@ -423,17 +440,17 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
     destCluster.createClusterLink(linkName, sourceCluster, configOverrides = linkProps)
     destCluster.linkTopic(topic, 2, linkName)
 
-    commitOffsets(sourceCluster, topic, offsetToCommit, consumerGroupFilter)
+    commitOffsets(sourceCluster, topic, partition = 0, offsetToCommit, consumerGroup)
 
-    verifyOffsetMigration(topic, offsetToCommit, syncPeriod * 4, consumerGroupFilter)
+    verifyOffsetMigration(topic, partition = 0, offsetToCommit, syncPeriod * 4, consumerGroup)
 
     destCluster.linkTopic(additionalTopic, 2, linkName)
 
-    commitOffsets(sourceCluster, topic, finalOffset, consumerGroupFilter)
-    commitOffsets(sourceCluster, additionalTopic, finalOffset, consumerGroupFilter)
+    commitOffsets(sourceCluster, topic, partition = 0, finalOffset, consumerGroup)
+    commitOffsets(sourceCluster, additionalTopic, partition = 0, finalOffset, consumerGroup)
 
-    verifyOffsetMigration(topic, finalOffset, syncPeriod * 4, consumerGroupFilter)
-    verifyOffsetMigration(additionalTopic, finalOffset, syncPeriod * 4, consumerGroupFilter)
+    verifyOffsetMigration(topic, partition = 0, finalOffset, syncPeriod * 4, consumerGroup)
+    verifyOffsetMigration(additionalTopic, partition = 0, finalOffset, syncPeriod * 4, consumerGroup)
 
     destCluster.unlinkTopic(topic, linkName, false)
     destCluster.unlinkTopic(additionalTopic, linkName)
@@ -530,13 +547,72 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
     assertTrue(destCluster.zkClient.getEntityConfigs(ConfigType.ClusterLink, linkId.toString).isEmpty)
   }
 
-  private def verifyOffsetMigration(topic: String,offset:Long,timeout: Long, consumerGroup: String): Unit = {
+  @Test
+  def testPauseClusterLink(): Unit = {
+    val oldNumPartitions = numPartitions
+    val oldDeleteRetentionMs = "10000"
+    val oldOffset = 10
+    sourceCluster.createTopic(topic, oldNumPartitions, replicationFactor = 2)
+    sourceCluster.alterTopic(topic, Map(LogConfig.DeleteRetentionMsProp -> oldDeleteRetentionMs))
 
-    destCluster.withAdmin((adminClient: ConfluentAdmin) => {
-      val (actualOffset, foundOffset) = TestUtils.computeUntilTrue(adminClient.listConsumerGroupOffsets(consumerGroup).partitionsToOffsetAndMetadata.get
-        .getOrDefault(new TopicPartition(topic, 0), new OffsetAndMetadata(0, "")).offset(), timeout)(_ != offset)
-      assertTrue("expected offset: " + offset + " and got offset: " + actualOffset + " for topic: " + topic + " and group " + consumerGroup, foundOffset)
-    })
+    val linkProps = new Properties()
+    linkProps.setProperty(ClusterLinkConfig.TopicConfigSyncMsProp, "100")
+    linkProps.setProperty(ClusterLinkConfig.ConsumerOffsetSyncMsProp, "100")
+    linkProps.setProperty(ClusterLinkConfig.ConsumerOffsetSyncEnableProp, "true")
+    linkProps.setProperty(ClusterLinkConfig.ConsumerOffsetGroupFiltersProp, consumerGroupFilter)
+    linkProps.setProperty(ClusterLinkConfig.ConsumerOffsetSyncMsProp, "100")
+    destCluster.createClusterLink(linkName, sourceCluster, metadataMaxAgeMs = 100L, configOverrides = linkProps)
+    destCluster.linkTopic(topic, replicationFactor = 2, linkName)
+
+    // Wait for mirroring to complete.
+    produceToSourceCluster(8)
+    waitForMirror(topic)
+    commitOffsets(sourceCluster, topic, partition = 0, oldOffset, consumerGroup)
+    verifyOffsetMigration(topic, partition = 0, oldOffset, 1000, consumerGroup)
+
+    // Pause the cluster link.
+    destCluster.alterClusterLink(linkName, Map(ClusterLinkConfig.ClusterLinkPausedProp -> "true"))
+
+    // Modify properties on the source topic and ensure they aren't duplicated on the destination.
+    val newNumPartitions = oldNumPartitions + 2
+    val newDeleteRetentionMs = "20000"
+    val newOffset = 20
+    sourceCluster.createPartitions(topic, newNumPartitions)
+    sourceCluster.alterTopic(topic, Map(LogConfig.DeleteRetentionMsProp -> newDeleteRetentionMs))
+    produceToSourceCluster(8)
+    commitOffsets(sourceCluster, topic, partition = 0, newOffset, consumerGroup)
+
+    // Verify mirror topics cannot be created for the cluster link if the link is paused.
+    intercept[ClusterLinkPausedException] {
+      destCluster.linkTopic("paused-topic", replicationFactor = 2, linkName)
+    }
+
+    // Wait for state to be mirrored in case pausing was broken.
+    Thread.sleep(250)
+
+    // Verify state hasn't moved forward.
+    assertEquals(oldNumPartitions, destCluster.describeTopic(topic).partitions.size)
+    assertEquals(oldDeleteRetentionMs, destCluster.describeTopicConfig(topic).get(LogConfig.DeleteRetentionMsProp).value)
+    assertEquals(oldOffset, destCluster.getOffset(topic, partition = 0, consumerGroup))
+
+    // Unpause the cluster link.
+    destCluster.alterClusterLink(linkName, Map(ClusterLinkConfig.ClusterLinkPausedProp -> "false"))
+
+    // Verify state is mirrored.
+    val (numDestPartitions, _) = TestUtils.computeUntilTrue(destCluster.describeTopic(topic).partitions.size)(_ == newNumPartitions)
+    assertEquals(newNumPartitions, numDestPartitions)
+    val (destDeleteRetentionMs, _) = TestUtils.computeUntilTrue(
+      destCluster.describeTopicConfig(topic).get(LogConfig.DeleteRetentionMsProp).value)(_ == newDeleteRetentionMs)
+    assertEquals(newDeleteRetentionMs, destDeleteRetentionMs)
+    verifyOffsetMigration(topic, partition = 0, newOffset, 1000, consumerGroup)
+
+    destCluster.unlinkTopic(topic, linkName)
+    destCluster.deleteClusterLink(linkName)
+  }
+
+  private def verifyOffsetMigration(topic: String, partition: Int, offset: Long, timeout: Long, consumerGroup: String): Unit = {
+    val (actualOffset, foundOffset) = TestUtils.computeUntilTrue(destCluster.getOffset(topic, partition, consumerGroup), timeout)(_ == offset)
+    assertTrue(s"expected offset: $offset and got offset: $actualOffset for topic: $topic and group $consumerGroup", foundOffset)
   }
 
   private def truncate(records: mutable.Buffer[ProducerRecord[Array[Byte], Array[Byte]]], numRecords: Int): Unit = {

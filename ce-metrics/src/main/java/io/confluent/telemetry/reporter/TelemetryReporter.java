@@ -49,7 +49,7 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
   private final Map<String, Exporter> exporters = new ConcurrentHashMap<>();
   private final Map<String, MetricsCollector> exporterCollectors = new ConcurrentHashMap<>();
   private final List<MetricsCollector> collectors = new CopyOnWriteArrayList<>();
-  private volatile Predicate<MetricKey> whitelistPredicate;
+  private volatile Predicate<MetricKey> unionPredicate;
   private KafkaMetricsCollector.StateLedger kafkaMetricsStateLedger = new KafkaMetricsCollector.StateLedger();
 
   private Provider activeProvider;
@@ -62,7 +62,7 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
     this.originalConfig = new ConfluentTelemetryConfig(configs);
     this.config = originalConfig;
     this.kafkaMetricsStateLedger.configure(configs);
-    this.whitelistPredicate = this.config.buildMetricWhitelistFilter();
+    this.unionPredicate = createUnionPredicate(this.config);
   }
 
   /* Implementing Reconfigurable interface to make this reporter dynamically reconfigurable. */
@@ -80,15 +80,11 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
     ConfluentTelemetryConfig oldConfig = this.config;
     this.config = newConfig;
 
-    reconfigureWhitelist(newConfig);
+    this.unionPredicate = createUnionPredicate(this.config);
+    reconfigureCollectors();
+
     reconfigureExporters(oldConfig, newConfig);
 
-  }
-
-  private void reconfigureWhitelist(ConfluentTelemetryConfig newConfig) {
-    this.whitelistPredicate = newConfig.buildMetricWhitelistFilter();
-    Stream.concat(collectors.stream(), Stream.of(this.collectorTask))
-            .forEach(collector -> collector.reconfigureWhitelist(this.whitelistPredicate));
   }
 
   private void initExporters() {
@@ -113,7 +109,7 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
 
       // init exporter collectors
       if (newExporter instanceof MetricsCollectorProvider) {
-        MetricsCollector collector = ((MetricsCollectorProvider) newExporter).collector(this.whitelistPredicate, this.ctx);
+        MetricsCollector collector = ((MetricsCollectorProvider) newExporter).collector(this.unionPredicate, this.ctx);
         collectors.add(collector);
         exporterCollectors.put(entry.getKey(), collector);
       }
@@ -131,6 +127,8 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
       ExporterConfig exporterConfig = entry.getValue();
       if (exporter instanceof HttpExporter) {
         ((HttpExporter) exporter).reconfigure((HttpExporterConfig) exporterConfig);
+      } else if (exporter instanceof KafkaExporter) {
+        ((KafkaExporter) exporter).reconfigure((KafkaExporterConfig) exporterConfig);
       }
     }
   }
@@ -179,6 +177,11 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
         Sets.difference(newEnabled, oldEnabled)
       )
     );
+  }
+
+  private void reconfigureCollectors() {
+    Stream.concat(collectors.stream(), Stream.of(this.collectorTask))
+        .forEach(collector -> collector.reconfigureWhitelist(this.unionPredicate));
   }
 
   @Override
@@ -277,7 +280,8 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
       () -> this.exporters.values(),
       collectors,
       config.getLong(ConfluentTelemetryConfig.COLLECT_INTERVAL_CONFIG),
-      whitelistPredicate);
+      this.unionPredicate
+    );
 
     this.collectorTask.start();
   }
@@ -286,12 +290,12 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
     collectors.add(
       KafkaMetricsCollector.newBuilder()
         .setContext(ctx)
+        .setMetricWhitelistFilter(unionPredicate)
         .setLedger(kafkaMetricsStateLedger)
-        .setMetricWhitelistFilter(whitelistPredicate)
         .build()
     );
 
-    collectors.addAll(this.activeProvider.extraCollectors(ctx, whitelistPredicate));
+    collectors.addAll(this.activeProvider.extraCollectors(ctx, unionPredicate));
   }
 
   @VisibleForTesting
@@ -359,5 +363,21 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
     return reconfigurableConfigs().stream()
       .filter(c -> originals.containsKey(c))
       .collect(Collectors.toMap(c -> c, c -> originals.get(c)));
+  }
+
+  private static Predicate<MetricKey> createUnionPredicate(ConfluentTelemetryConfig config) {
+    List<Predicate<MetricKey>> enabledWhitelists =
+        config.enabledExporters()
+            .values().stream()
+            .map(e -> e.buildMetricWhitelistFilter())
+            .collect(Collectors.toList());
+
+    // combine all the predicates with ORs
+    return
+        enabledWhitelists
+            .stream()
+            .reduce(Predicate::or)
+            // if there are no exporters, then never match metrics
+            .orElse(metricKey -> false);
   }
 }

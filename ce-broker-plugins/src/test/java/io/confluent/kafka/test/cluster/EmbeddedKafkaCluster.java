@@ -28,6 +28,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -131,13 +132,22 @@ public class EmbeddedKafkaCluster {
         }));
       }
 
+      AtomicReference<Exception> firstException = new AtomicReference<>();
       for (Future<EmbeddedKafka> future : brokerFutures) {
-        EmbeddedKafka broker = future.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
-        brokers.add(broker);
-        log.debug("Kafka instance started: {}", broker);
+        try {
+          EmbeddedKafka broker = future.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+          brokers.add(broker);
+          log.debug("Kafka instance started: {}", broker);
+        } catch (Exception t) {
+          firstException.compareAndSet(null, t);
+        }
+      }
+      if (firstException.get() != null) {
+        throw firstException.get();
       }
     } finally {
       executorService.shutdownNow();
+      executorService.awaitTermination(30, TimeUnit.SECONDS);
     }
   }
 

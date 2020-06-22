@@ -4,9 +4,8 @@ package io.confluent.security.rbac;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import io.confluent.security.authorizer.ScopeType;
 import java.util.Collections;
-import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -18,7 +17,8 @@ import java.util.Set;
 public class Role {
 
   private final String name;
-  private final Map<ScopeType, AccessPolicy> accessPolicies;
+  private final Map<String, AccessPolicy> accessPolicies;
+  private String mostSpecificBindingScope = null;
 
   @JsonCreator
   public Role(@JsonProperty("name") String name,
@@ -27,22 +27,22 @@ public class Role {
     if (name == null || name.isEmpty())
       throw new IllegalArgumentException("Role name must be non-empty");
     this.name = name;
-    EnumMap<ScopeType, AccessPolicy> policies = new EnumMap<>(ScopeType.class);
+    HashMap<String, AccessPolicy> policies = new HashMap<>();
     if (accessPolicy != null) {
       if (accessPolicies != null) {
         throw new InvalidRoleDefinitionException(
                 "role must not define both 'accessPolicy' and 'accessPolicies'");
       }
-      policies.put(accessPolicy.scopeType(), accessPolicy);
+      policies.put(accessPolicy.bindingScope(), accessPolicy);
     }
     if (accessPolicies != null) {
       for (AccessPolicy policy : accessPolicies) {
-        ScopeType scopeType = policy.scopeType();
-        if (policies.containsKey(scopeType)) {
+        String bindingScope = policy.bindingScope();
+        if (policies.containsKey(bindingScope)) {
           throw new InvalidRoleDefinitionException(
-                  "each scope type may only have one policy: " + scopeType);
+                  "each scope level may only have one policy: " + bindingScope);
         }
-        policies.put(scopeType, policy);
+        policies.put(bindingScope, policy);
       }
     }
     if (policies.isEmpty()) {
@@ -51,25 +51,34 @@ public class Role {
     this.accessPolicies = Collections.unmodifiableMap(policies);
   }
 
+  @JsonProperty
   public String name() {
     return name;
   }
 
-  public Map<ScopeType, AccessPolicy> accessPolicies() {
+  @JsonProperty("policies")
+  public Map<String, AccessPolicy> accessPolicies() {
     return accessPolicies;
   }
 
-  public Set<ScopeType> scopeTypes() {
+  public Set<String> bindingScopes() {
     return accessPolicies.keySet();
   }
 
-  public boolean hasResourceScope() {
-    return accessPolicies.containsKey(ScopeType.RESOURCE);
+  public boolean bindWithResource() {
+    return accessPolicies.values().stream().anyMatch(AccessPolicy::bindWithResource);
   }
 
-  public ScopeType mostSpecificScopeType() {
-    // use the natural ordering of the ScopeType enum
-    return accessPolicies.keySet().stream().sorted().findFirst().orElse(ScopeType.UNKNOWN);
+  /*
+   * This can only be known in the context of an ordered list of defined bindingScopes,
+   * so it is set when this Role is added to an RbacRoles
+   */
+  void setMostSpecificBindingScope(String bindingScope) {
+    this.mostSpecificBindingScope = bindingScope;
+  }
+
+  public String mostSpecificBindingScope() {
+    return this.mostSpecificBindingScope;
   }
 
   @Override

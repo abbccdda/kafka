@@ -83,12 +83,13 @@ public class KafkaAuthWriterTest {
   private final int numPartitions = 2;
   private final KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
   private final KafkaPrincipal bob = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Bob");
-  private final Scope rootScope = Scope.intermediateScope("testOrg");
-  private final Scope clusterA = new Scope.Builder("testOrg").withKafkaCluster("clusterA").build();
-  private final Scope clusterB = new Scope.Builder("testOrg").withKafkaCluster("clusterB").build();
-  private final Scope anotherClusterA = new Scope.Builder("anotherOrg").withKafkaCluster("clusterA").build();
+  private final Scope rootScope = Scope.intermediateScope("org=testOrg");
+  private final Scope clusterA = new Scope.Builder("org=testOrg").withKafkaCluster("clusterA").build();
+  private final Scope clusterB = new Scope.Builder("org=testOrg").withKafkaCluster("clusterB").build();
+  private final Scope anotherClusterA = new Scope.Builder("org=anotherOrg").withKafkaCluster("clusterA").build();
   private final Scope invalidScope = new Scope(Collections.emptyList(), Collections.singletonMap("", "invalid"));
-  private final Scope clusterInEnv = new Scope.Builder("testOrg", "environment=testOrg").withKafkaCluster("clusterC").build();
+  private final Scope region = new Scope.Builder(
+          "org=testOrg", "businessUnit=finance", "division=sales", "region=central").build();
   private final int storeNodeId = 1;
 
   private RbacRoles rbacRoles;
@@ -210,8 +211,8 @@ public class KafkaAuthWriterTest {
 
   @Test
   public void testMultiScopeAssignment() throws Exception {
-    authWriter.addClusterRoleBinding(alice, "EnvClusterAdmin", clusterInEnv).toCompletableFuture().join();
-    assertEquals(Collections.emptySet(), rbacResources(alice, "EnvClusterAdmin", clusterInEnv));
+    authWriter.addClusterRoleBinding(alice, "RegionManager", region).toCompletableFuture().join();
+    assertEquals(Collections.emptySet(), rbacResources(alice, "RegionManager", region));
   }
 
   @Test
@@ -439,7 +440,7 @@ public class KafkaAuthWriterTest {
 
   @Test(expected = InvalidRequestException.class)
   public void testNoEnclosingScope() throws Exception {
-    authWriter.addClusterRoleBinding(alice, "EnvClusterAdmin", clusterA);
+    authWriter.addClusterRoleBinding(alice, "RegionManager", clusterA);
   }
 
   @Test(expected = NotMasterWriterException.class)

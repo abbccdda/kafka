@@ -46,6 +46,23 @@ public class TierObjectStoreUtils {
                                 Defaults.TierS3AutoAbortThresholdBytes()).toString()),
                         props.getProperty(KafkaConfig.TierS3PrefixProp(), Defaults.TierS3Prefix()),
                         props.getProperty(KafkaConfig.TierS3AssumeRoleArnProp(), Defaults.TierS3AssumeRoleArn()));
+            case GCS:
+                // The following are mandatory properties for the GCS backend generation
+                mandatoryProps = new ArrayList<String>() {{
+                    add(KafkaConfig.TierGcsBucketProp());
+                    add(KafkaConfig.TierGcsRegionProp());
+                }};
+                verifyMandatoryProps(backend, props, mandatoryProps);
+                String gcsBucket = props.getProperty(KafkaConfig.TierGcsBucketProp());
+                String gcsRegion = props.getProperty(KafkaConfig.TierGcsRegionProp());
+                String gcsPrefix = props.getProperty(KafkaConfig.TierGcsPrefixProp());
+                // The remaining configs will be loaded from the environment or the defaults provided in KafkaConfig
+                return GcsTierObjectStoreConfig.createWithEmptyClusterIdBrokerId(gcsBucket,
+                        gcsPrefix,
+                        gcsRegion,
+                        Integer.parseInt(props.getOrDefault(KafkaConfig.TierGcsWriteChunkSizeProp(),
+                                Defaults.TierGcsWriteChunkSize()).toString()),
+                        props.getProperty(KafkaConfig.TierGcsCredFilePathProp()));
             case Mock:
                 return TierObjectStoreConfig.createEmpty();
             default:

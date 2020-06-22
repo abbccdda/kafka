@@ -22,7 +22,8 @@ import io.confluent.databalancer.operation.BrokerRemovalTerminationListener;
 import io.confluent.databalancer.operation.PersistRemoveApiStateListener;
 import io.confluent.databalancer.persistence.ApiStatePersistenceStore;
 import io.confluent.databalancer.persistence.BrokerRemovalStateRecord;
-import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
+import io.confluent.telemetry.ConfluentTelemetryConfig;
+import io.confluent.telemetry.exporter.kafka.KafkaExporterConfig;
 import kafka.server.KafkaConfig;
 import org.apache.kafka.common.Endpoint;
 import org.apache.kafka.common.config.ConfigException;
@@ -573,21 +574,23 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
 
         // Some CruiseControl properties can be interpreted from existing properties,
         // but those properties aren't defined in KafkaConfig because they're in external modules,
-        // e.g. the MetricsReporter (needed by SBK for getting data about the cluster). These may
+        // e.g. the telemetry reporter (needed by SBK for getting data about the cluster). These may
         // be available in the "originals."
         // Specifically:
-        // Metrics Reporter topic -- needed to read metrics
-        // Metrics Reporter replication factor -- use this for the SampleStore
+        // Telemetry Reporter topic -- needed to read metrics
+        // Telemetry Reporter replication factor -- use this for the SampleStore
         Map<String, Object> kccProps = config.originals();
 
-        // Our metrics reporter sampler pulls from the Metrics Reporter Sampler. Copy that over if needed.
-        String metricsReporterTopic = (String) kccProps.get(ConfluentMetricsReporterConfig.TOPIC_CONFIG);
+        // Our metrics reporter sampler pulls from the telemetry reporter topic. Copy that over if needed.
+        String metricsReporterTopic = (String) kccProps.get(ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME) +
+                KafkaExporterConfig.TOPIC_NAME_CONFIG);
         if (metricsReporterTopic != null && metricsReporterTopic.length() > 0) {
-            ccConfigProps.putIfAbsent(ConfluentMetricsSamplerBase.METRIC_REPORTER_TOPIC_PATTERN, metricsReporterTopic);
+            ccConfigProps.putIfAbsent(ConfluentMetricsSamplerBase.TELEMETRY_REPORTER_TOPIC_PATTERN, metricsReporterTopic);
         }
 
-        String metricsReporterReplFactor = (String) kccProps.get(ConfluentMetricsReporterConfig.TOPIC_REPLICAS_CONFIG);
-        // The metrics reporter replication factor is the same RF we should use for all databalancer topics like:
+        String metricsReporterReplFactor = (String) kccProps.get(ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME) +
+                KafkaExporterConfig.TOPIC_REPLICAS_CONFIG);
+        // The telemetry reporter replication factor is the same RF we should use for all databalancer topics like:
         // 1. sample store topic.
         // 2. api state persistence topic
         if (metricsReporterReplFactor != null && metricsReporterReplFactor.length() > 0) {

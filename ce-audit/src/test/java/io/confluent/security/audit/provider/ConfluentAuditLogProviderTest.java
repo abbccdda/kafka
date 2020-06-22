@@ -49,7 +49,6 @@ import java.util.concurrent.TimeUnit;
 import static io.confluent.security.audit.AuditLogUtils.AUTHENTICATION_EVENT_NAME;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_LOGGER_ENABLE_CONFIG;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.CRN_AUTHORITY_NAME_CONFIG;
-import static org.apache.kafka.common.config.internals.ConfluentConfigs.ENABLE_AUTHENTICATION_AUDIT_LOGS;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -223,12 +222,7 @@ public class ConfluentAuditLogProviderTest {
 
   @Test
   public void testAuthenticationEvent() throws Throwable {
-    ConfluentAuditLogProvider provider = providerWithMockExporter("63REM3VWREiYtMuVxZeplA",
-        Utils.mkMap(
-            Utils.mkEntry(ENABLE_AUTHENTICATION_AUDIT_LOGS, "true")
-        )
-    );
-
+    ConfluentAuditLogProvider provider = providerWithMockExporter("63REM3VWREiYtMuVxZeplA", Utils.mkMap());
     KafkaPrincipal principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "user1");
     PlainSaslServer server = mock(PlainSaslServer.class);
     when(server.getMechanismName()).thenReturn(PlainSaslServer.PLAIN_MECHANISM);

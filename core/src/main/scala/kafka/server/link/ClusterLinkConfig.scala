@@ -39,12 +39,12 @@ class ClusterLinkConfig(props: util.Map[_, _]) extends AbstractConfig(configDef,
 
   val log: Logger = LoggerFactory.getLogger(getClass())
 
-
   validate(props)
 
   val numClusterLinkFetchers = getInt(NumClusterLinkFetchersProp)
-  val consumerOffsetSyncEnable = getBoolean(ClusterLinkConfig.ConsumerOffsetSyncEnableProp)
-  val consumerOffsetSyncMs = getInt(ClusterLinkConfig.ConsumerOffsetSyncMsProp)
+  val clusterLinkPaused = getBoolean(ClusterLinkPausedProp)
+  val consumerOffsetSyncEnable = getBoolean(ConsumerOffsetSyncEnableProp)
+  val consumerOffsetSyncMs = getInt(ConsumerOffsetSyncMsProp)
   val consumerGroupFilters: Option[GroupFiltersJson] = GroupFilterJson.parse(getString(ConsumerOffsetGroupFiltersProp))
   val aclSyncEnable = getBoolean(AclSyncEnableProp)
   val aclFilters: Option[AclFiltersJson] = AclJson.parse(getString(AclFiltersProp))
@@ -79,6 +79,9 @@ object ClusterLinkConfig {
   val RetryTimeoutMsDoc = "The number of milliseconds after which failures are no longer retried and" +
     " partitions are marked as failed. If the source topic is deleted and recreated within this timeout," +
     " the link may contain records from the old as well as the new topic."
+
+  val ClusterLinkPausedProp = "cluster.link.paused"
+  val ClusterLinkPausedDoc = "Whether all activity over the cluster link is paused."
 
   val ConsumerOffsetSyncEnableProp = "consumer.offset.sync.enable"
   val ConsumerOffsetSyncEnableDoc = "Whether or not to migrate consumer offsets from the source cluster."
@@ -129,6 +132,7 @@ object ClusterLinkConfig {
 
   private val configDef = new ConfigDef()
     .define(NumClusterLinkFetchersProp, INT, NumClusterLinkFetchers, LOW, NumClusterLinkFetchersDoc)
+    .define(ClusterLinkPausedProp, BOOLEAN, false, LOW, ClusterLinkPausedDoc)
     .define(ConsumerOffsetSyncEnableProp, BOOLEAN, false, LOW, ConsumerOffsetSyncEnableDoc)
     .define(ConsumerOffsetSyncMsProp, INT, OffsetSyncMsDefault, LOW, ConsumerOffsetSyncMsDoc)
     .define(ConsumerOffsetGroupFiltersProp, STRING, "", GroupFilterJson.VALIDATOR, LOW, ConsumerOffsetGroupFiltersDoc)

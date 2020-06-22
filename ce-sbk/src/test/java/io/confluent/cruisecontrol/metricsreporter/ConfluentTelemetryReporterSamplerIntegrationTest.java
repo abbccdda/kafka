@@ -1,10 +1,8 @@
 package io.confluent.cruisecontrol.metricsreporter;
 
-import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUnitTestUtils;
-import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityConfigFileResolver;
 import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityConfigResolver;
+import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityResolver;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
-import com.linkedin.kafka.cruisecontrol.exception.MetricSamplingException;
 import com.linkedin.kafka.cruisecontrol.monitor.metricdefinition.KafkaMetricDef;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.MetricSampler;
 import io.confluent.metrics.reporter.integration.MetricReporterClusterTestHarness;
@@ -37,12 +35,12 @@ public class ConfluentTelemetryReporterSamplerIntegrationTest extends MetricRepo
     private ConfluentTelemetryReporterSampler sampler = new ConfluentTelemetryReporterSampler();
 
     @Test
-    public void testSampler() throws MetricSamplingException, InterruptedException {
+    public void testSampler() throws InterruptedException {
         Map<String, Object> resolverConfig = new HashMap<>();
-        String capacityConfigFile =
-                KafkaCruiseControlUnitTestUtils.class.getClassLoader().getResource("DefaultCapacityConfig.json").getFile();
-        resolverConfig.put(BrokerCapacityConfigFileResolver.CAPACITY_CONFIG_FILE, capacityConfigFile);
-        BrokerCapacityConfigResolver resolver = new BrokerCapacityConfigFileResolver();
+        resolverConfig.put(BrokerCapacityResolver.DEFAULT_NETWORK_IN_CAPACITY_CONFIG, "1000000");
+        resolverConfig.put(BrokerCapacityResolver.DEFAULT_NETWORK_OUT_CAPACITY_CONFIG, "1000000");
+        resolverConfig.put(BrokerCapacityResolver.LOG_DIRS_CONFIG, TestUtils.tempDirectory().getAbsolutePath());
+        BrokerCapacityConfigResolver resolver = new BrokerCapacityResolver();
         resolver.configure(resolverConfig);
 
         MetadataCache metadataCache = servers.get(0).metadataCache();
@@ -52,7 +50,6 @@ public class ConfluentTelemetryReporterSamplerIntegrationTest extends MetricRepo
                 600000, "Metrics topic " + KafkaExporterConfig.DEFAULT_TOPIC_NAME + " does not exist");
 
         Properties props = new Properties();
-        props.put(ConfluentMetricsSamplerBase.METRIC_REPORTER_TOPIC_PATTERN, KafkaExporterConfig.DEFAULT_TOPIC_NAME);
         props.put(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList);
         props.put(KafkaCruiseControlConfig.ZOOKEEPER_CONNECT_CONFIG, zkConnect);
         props.put(BROKER_CAPACITY_CONFIG_RESOLVER_OBJECT_CONFIG, resolver);
@@ -93,9 +90,8 @@ public class ConfluentTelemetryReporterSamplerIntegrationTest extends MetricRepo
         props.setProperty(ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME) + ExporterConfig.TYPE_CONFIG, ExporterConfig.ExporterType.kafka.name());
         props.setProperty(ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME) + ExporterConfig.ENABLED_CONFIG, "true");
         props.setProperty(ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME) + KafkaExporterConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList);
-        props.setProperty(ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME) + KafkaExporterConfig.TOPIC_REPLICAS_CONFIG, "1");
+        props.setProperty(ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME) + KafkaExporterConfig.TOPIC_REPLICAS_CONFIG, "2");
         props.setProperty(ConfluentTelemetryConfig.COLLECT_INTERVAL_CONFIG, "500");
-        props.setProperty(ConfluentTelemetryConfig.WHITELIST_CONFIG, "");
         props.setProperty(ConfluentTelemetryConfig.PREFIX_LABELS + "region", "test");
         props.setProperty(ConfluentTelemetryConfig.PREFIX_LABELS + "pkc", "pkc-bar");
         props.setProperty(ConfluentTelemetryConfig.DEBUG_ENABLED, "true");

@@ -13,6 +13,7 @@ import kafka.zk.{AdminZkClient, ClusterLinkData, KafkaZkClient}
 import org.apache.kafka.clients.admin._
 import org.apache.kafka.common.{KafkaFuture, TopicPartition}
 import org.apache.kafka.common.config.ConfigResource
+import org.apache.kafka.common.errors.ClusterLinkPausedException
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.replica.ReplicaStatus
 import org.apache.kafka.common.requests.ApiError
@@ -42,11 +43,11 @@ class ClusterLinkClientManager(val linkData: ClusterLinkData,
                                linkAdminFactory: ClusterLinkConfig => ConfluentAdmin,
                                destAdminFactory: () => Admin) extends Logging {
 
-  @volatile private var admin: Option[ConfluentAdmin] = None
+  @volatile private var admin: Option[ConfluentAdmin] = null
 
   private var clusterLinkSyncAcls: Option[ClusterLinkSyncAcls] = None
   private var clusterLinkSyncOffsets: Option[ClusterLinkSyncOffsets] = None
-  private var clusterLinkSyncTopicConfigs: ClusterLinkSyncTopicsConfigs = _
+  private var clusterLinkSyncTopicConfigs: Option[ClusterLinkSyncTopicsConfigs] = None
 
   // Protects `topics` and `config`.
   private val lock = new Object
@@ -58,18 +59,24 @@ class ClusterLinkClientManager(val linkData: ClusterLinkData,
   val adminZkClient = new AdminZkClient(zkClient)
 
   def startup(): Unit = {
+    if (isActive()) {
+      createAndSetAdmin()
+      startupTasks()
+    }
+  }
+
+  private def startupTasks(): Unit = {
     val tags = Map(
       "link-name" -> linkData.linkName,
       "link-id" -> linkData.linkId.toString)
-    setAdmin(Some(linkAdminFactory(config)))
 
     clusterLinkSyncOffsets = Some(new ClusterLinkSyncOffsets(this, linkData,
       controller, destAdminFactory, metrics, tags.asJava))
     clusterLinkSyncOffsets.get.startup()
 
-    clusterLinkSyncTopicConfigs = new ClusterLinkSyncTopicsConfigs(this,
-      config.topicConfigSyncMs, metrics, tags.asJava)
-    clusterLinkSyncTopicConfigs.startup()
+    clusterLinkSyncTopicConfigs = Some(new ClusterLinkSyncTopicsConfigs(this,
+      config.topicConfigSyncMs, metrics, tags.asJava))
+    clusterLinkSyncTopicConfigs.get.startup()
 
     if (config.aclSyncEnable) {
       authorizer.getOrElse(throw new IllegalArgumentException("ACL migration is enabled but "
@@ -84,19 +91,36 @@ class ClusterLinkClientManager(val linkData: ClusterLinkData,
   }
 
   def shutdown(): Unit = {
-    if (clusterLinkSyncTopicConfigs != null) {
-      clusterLinkSyncTopicConfigs.shutdown()
+    if (isActive()) {
+      shutdownTasks()
+      setAdmin(null)
     }
+  }
+
+  private def shutdownTasks(): Unit = {
+    clusterLinkSyncTopicConfigs.foreach(_.shutdown())
     clusterLinkSyncOffsets.foreach(_.shutdown())
     clusterLinkSyncAcls.foreach(_.shutdown())
-    setAdmin(None)
   }
 
   def reconfigure(newConfig: ClusterLinkConfig, updatedKeys: Set[String]): Unit = {
     lock synchronized {
+      val oldActive = isActive()
       config = newConfig
-      if (updatedKeys.diff(ClusterLinkConfig.ReplicationProps).nonEmpty) {
-        setAdmin(Some(linkAdminFactory(config)))
+      val newActive = isActive()
+
+      (oldActive, newActive) match {
+        case (false, false) =>
+          // Paused; do nothing.
+        case (false, true) =>
+          createAndSetAdmin()
+          startupTasks()
+        case (true, false) =>
+          shutdownTasks()
+          setAdmin(None)
+        case (true, true) =>
+          if (updatedKeys.diff(ClusterLinkConfig.ReplicationProps).nonEmpty)
+            createAndSetAdmin()
       }
     }
   }
@@ -123,17 +147,36 @@ class ClusterLinkClientManager(val linkData: ClusterLinkData,
     topics.toSet
   }
 
-  def getAdmin: ConfluentAdmin = admin.getOrElse(throw new IllegalStateException(s"Client manager for ${linkData.linkName} not initialized"))
+  /**
+    * Gets the admin client that is used to talk to the remote cluster over the cluster link.
+    *
+    * @throws ClusterLinkPausedException if the cluster link is paused
+    * @throws IllegalStateException if the client manager has not been initialized
+    * @return the admin client for the remote cluster
+    */
+  def getAdmin: ConfluentAdmin = {
+    val currentAdmin = admin
+    if (currentAdmin == null)
+      throw new IllegalStateException(s"Client manager for ${linkData.linkName} not initialized")
+    currentAdmin.getOrElse(throw new ClusterLinkPausedException(s"Cluster link for ${linkData.linkName} is paused"))
+  }
 
   def getAuthorizer: Option[Authorizer] = authorizer
 
   // for testing purposes
   def getSyncAclTask: Option[ClusterLinkSyncAcls] = clusterLinkSyncAcls
 
+  private def isActive(): Boolean = !config.clusterLinkPaused
+
+  private def createAndSetAdmin(): Unit = {
+    setAdmin(Some(linkAdminFactory(config)))
+  }
+
   private def setAdmin(newAdmin: Option[ConfluentAdmin]): Unit = {
     val oldAdmin = admin
     admin = newAdmin
-    oldAdmin.foreach(a => CoreUtils.swallow(a.close(Duration.ZERO), this))
+    if (oldAdmin != null)
+      oldAdmin.foreach(a => CoreUtils.swallow(a.close(Duration.ZERO), this))
   }
 
   /**

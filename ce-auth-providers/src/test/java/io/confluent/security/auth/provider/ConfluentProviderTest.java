@@ -5,6 +5,7 @@ package io.confluent.security.auth.provider;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -31,6 +32,7 @@ import io.confluent.security.authorizer.Scope;
 import io.confluent.security.authorizer.acl.AclRule;
 import io.confluent.security.authorizer.provider.InvalidScopeException;
 import io.confluent.security.rbac.RbacRoles;
+import io.confluent.security.store.kafka.KafkaStoreConfig;
 import io.confluent.security.test.utils.RbacTestUtils;
 import java.net.URL;
 import java.util.Arrays;
@@ -43,6 +45,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 import org.apache.kafka.clients.admin.AlterMirrorsOptions;
 import org.apache.kafka.clients.admin.AlterMirrorsResult;
 import org.apache.kafka.clients.admin.Config;
@@ -90,9 +95,12 @@ public class ConfluentProviderTest {
   private final Scope clusterA = new Scope.Builder("testOrg").withKafkaCluster("clusterA").build();
   private final Scope clusterB = new Scope.Builder("testOrg").withKafkaCluster("clusterB").build();
   private final ResourcePattern clusterResource = new ResourcePattern(new ResourceType("Cluster"), "kafka-cluster", PatternType.LITERAL);
+  private final Metrics metrics = new Metrics();
   private ConfluentProvider rbacProvider;
   private DefaultAuthCache authCache;
   private Optional<TestMdsAdminClient> aclClientOp;
+  private CompletableFuture<Void> readerFuture = CompletableFuture.completedFuture(null);
+  private CompletableFuture<Void> serviceFuture = CompletableFuture.completedFuture(null);
   private ResourcePattern topic = new ResourcePattern("Topic", "topicA", PatternType.LITERAL);
   private ResourcePattern topicB = new ResourcePattern("Topic", "topicB", PatternType.LITERAL);
 
@@ -105,6 +113,7 @@ public class ConfluentProviderTest {
   public void tearDown() {
     if (rbacProvider != null)
       rbacProvider.close();
+    metrics.close();
   }
 
   @Test
@@ -296,6 +305,76 @@ public class ConfluentProviderTest {
     assertEquals(AuthorizeResult.ALLOWED, authorizer.authorize(alice, "", actions).get(0));
   }
 
+  @Test
+  public void testProviderStartupWithMds() throws Exception {
+    CompletableFuture<?> providerFuture = startRbacProvider(true);
+    assertFalse(providerFuture.isDone());
+    readerFuture.complete(null);
+    assertFalse(providerFuture.isDone());
+    serviceFuture.complete(null);
+    assertNull(providerFuture.get(10, TimeUnit.SECONDS));
+  }
+
+  @Test
+  public void testProviderStartupWithMdsReaderFailure() throws Exception {
+    CompletableFuture<?> providerFuture = startRbacProvider(true);
+    assertFalse(providerFuture.isDone());
+    readerFuture.completeExceptionally(new RuntimeException("Reader exception"));
+    ExecutionException e = assertThrows(ExecutionException.class, () -> providerFuture.get(10, TimeUnit.SECONDS));
+    assertEquals("Reader exception", e.getCause().getMessage());
+  }
+
+  @Test
+  public void testProviderStartupWithMdsServiceFailure() throws Exception {
+    CompletableFuture<?> providerFuture = startRbacProvider(true);
+    assertFalse(providerFuture.isDone());
+    serviceFuture.completeExceptionally(new RuntimeException("Writer exception"));
+    ExecutionException e = assertThrows(ExecutionException.class, () -> providerFuture.get(10, TimeUnit.SECONDS));
+    assertEquals("Writer exception", e.getCause().getMessage());
+  }
+
+  @Test
+  public void testProviderStartupNoMds() throws Exception {
+    CompletableFuture<?> providerFuture = startRbacProvider(false);
+    assertFalse(providerFuture.isDone());
+    readerFuture.complete(null);
+    assertNull(providerFuture.get(10, TimeUnit.SECONDS));
+  }
+
+  @Test
+  public void testProviderStartupNoMdsReaderFailure() throws Exception {
+    CompletableFuture<?> providerFuture = startRbacProvider(false);
+    assertFalse(providerFuture.isDone());
+    readerFuture.completeExceptionally(new RuntimeException("Reader exception"));
+    ExecutionException e = assertThrows(ExecutionException.class, () -> providerFuture.get(10, TimeUnit.SECONDS));
+    assertEquals("Reader exception", e.getCause().getMessage());
+  }
+
+  private CompletableFuture<?> startRbacProvider(boolean enableMds) throws Exception {
+    rbacProvider.close();
+    readerFuture = new CompletableFuture<>();
+    serviceFuture = new CompletableFuture<>();
+
+    Map<String, Object> configs = new HashMap<>();
+    configs.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "CONFLUENT");
+    if (enableMds)
+      configs.put(MetadataServerConfig.METADATA_SERVER_LISTENERS_PROP, "http://somehost:8095");
+    else
+      configs.put(KafkaStoreConfig.BOOTSTRAP_SERVERS_PROP, "http://somehost:8095");
+    initializeRbacProvider("clusterA", Scope.intermediateScope("testOrg"), configs);
+    MockMetadataServer metadataServer = new MockMetadataServer() {
+      @Override
+      public boolean providerConfigured(Map<String, ?> configs) {
+        return true;
+      }
+    };
+
+    ConfluentAuthorizerServerInfo serverInfo = KafkaTestUtils.serverInfo("clusterA", metadataServer, SecurityProtocol.PLAINTEXT);
+    CompletableFuture<?> providerFuture = rbacProvider.start(serverInfo, configs).toCompletableFuture();
+    assertFalse(providerFuture.isDone());
+    return providerFuture;
+  }
+
   private void verifyResourceAccessRules(ResourcePattern roleResource) {
     KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
     KafkaPrincipal admin = new KafkaPrincipal(AccessRule.GROUP_PRINCIPAL_TYPE, "admin");
@@ -476,7 +555,7 @@ public class ConfluentProviderTest {
 
   private void initializeRbacProvider(String clusterId, Scope authStoreScope, Map<String, ?> configs) throws Exception {
     RbacRoles rbacRoles = RbacRoles.load(this.getClass().getClassLoader(), "test_rbac_roles.json");
-    MockAuthStore authStore = new MockAuthStore(rbacRoles, authStoreScope);
+    MockAuthStore authStore = new MockAuthStore(rbacRoles, authStoreScope, readerFuture, serviceFuture);
     authCache = authStore.authCache();
     aclClientOp = Optional.of(new TestMdsAdminClient(Collections.singletonList(new Node(1, "localhost", 9092))));
     rbacProvider = new ConfluentProvider() {
@@ -493,12 +572,12 @@ public class ConfluentProviderTest {
 
       @Override
       protected AuthStore createAuthStore(Scope scope, ConfluentAuthorizerServerInfo serverInfo, Map<String, ?> configs) {
-        return new MockAuthStore(RbacRoles.loadDefaultPolicy(true), scope);
+        return authStore;
       }
     };
     rbacProvider.onUpdate(new ClusterResource(clusterId));
     rbacProvider.configure(configs);
-    rbacProvider.setKafkaMetrics(new Metrics());
+    rbacProvider.setKafkaMetrics(metrics);
   }
 
   private void updateRoleBinding(KafkaPrincipal principal, String role, Scope scope, Set<ResourcePattern> resources) {

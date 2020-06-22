@@ -49,6 +49,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -95,6 +96,10 @@ public class KafkaDataBalanceManagerTest {
         MockitoAnnotations.initMocks(this);
         when(mockDataBalanceEngineFactory.getActiveDataBalanceEngine()).thenReturn(mockActiveDataBalanceEngine);
         when(mockDataBalanceEngineFactory.getInactiveDataBalanceEngine()).thenReturn(mockInactiveDataBalanceEngine);
+        setupMockDbe();
+    }
+
+    private void setupMockDbe() {
         when(mockActiveDataBalanceEngine.isActive()).thenReturn(true);
         when(mockActiveDataBalanceEngine.getDataBalanceEngineContext()).thenReturn(mockDbeContext);
         when(mockDbeContext.getPersistenceStore()).thenReturn(mockPersistenceStore);
@@ -567,7 +572,64 @@ public class KafkaDataBalanceManagerTest {
         verify(mockStateTracker3).cancel(any(BrokerRemovalCanceledException.class), eq(true));
         verify(mockActiveDataBalanceEngine).cancelBrokerRemoval(1);
         verify(mockActiveDataBalanceEngine, never()).cancelBrokerRemoval(3); // broker 3 should not be cancelled
+        verify(mockActiveDataBalanceEngine).addBrokers(eq(emptyBrokers), any(BalanceOpExecutionCompletionCallback.class), anyString());
         assertEquals(0, stateTrackers.size()); // all state trackers should have been cleaned up
+    }
+
+    /**
+     * Assert that new brokers arriving when none are empty results in a no-op addition.
+     */
+    @Test
+    public void testOnBrokersStartup_DoesntAddNonEmptyBrokers() {
+        Set<Integer> emptyBrokers = new HashSet<>();
+        Set<Integer> allNewBrokers = new HashSet<>();
+        allNewBrokers.add(1);
+        allNewBrokers.add(2);
+        allNewBrokers.add(3);
+
+        KafkaDataBalanceManager dataBalancer = new KafkaDataBalanceManager(initConfig,
+                new KafkaDataBalanceManager.DataBalanceEngineFactory(mockActiveDataBalanceEngine, mockInactiveDataBalanceEngine),
+                mockDbMetrics, time);
+        dataBalancer.onElection(Collections.emptyMap());
+
+        // act
+        dataBalancer.onBrokersStartup(emptyBrokers, allNewBrokers);
+
+        verify(mockActiveDataBalanceEngine, never()).addBrokers(any(), any(BalanceOpExecutionCompletionCallback.class), anyString());
+    }
+
+    @Test
+    public void testOnBrokersStartup_AddBroker_AddOfMultipleOnlyMergesEmpty() {
+        KafkaDataBalanceManager dataBalancer = new KafkaDataBalanceManager(initConfig,
+                new KafkaDataBalanceManager.DataBalanceEngineFactory(mockActiveDataBalanceEngine, mockInactiveDataBalanceEngine),
+                mockDbMetrics, time);
+        dataBalancer.onElection(Collections.emptyMap());
+        Set<Integer> newBrokers1 = new HashSet<>();
+        newBrokers1.add(10);
+        dataBalancer.onBrokersStartup(newBrokers1, newBrokers1);
+        assertEquals("New brokers not present in DataBalancer", newBrokers1, dataBalancer.brokersToAdd);
+        verify(mockActiveDataBalanceEngine).addBrokers(eq(newBrokers1), any(BalanceOpExecutionCompletionCallback.class), anyString());
+
+        // Now two more brokers show, but non-empty. No further calls expected to the ActiveDataBalanceEngine.
+        reset(mockActiveDataBalanceEngine);
+        setupMockDbe();
+
+        Set<Integer> newBrokers2 = Stream.of(11, 12).collect(Collectors.toSet());
+        Set<Integer> emptyBrokers2 = new HashSet<>();
+        dataBalancer.onBrokersStartup(emptyBrokers2, newBrokers2);
+        verify(mockActiveDataBalanceEngine, never()).addBrokers(any(), any(BalanceOpExecutionCompletionCallback.class), anyString());
+
+        // And some more brokers arrive, one of which is empty. We should merge.
+        Set<Integer> newBrokers3 = Stream.of(13, 14).collect(Collectors.toSet());
+        Set<Integer> emptyBrokers3 = new HashSet<>();
+        emptyBrokers3.add(14);
+        dataBalancer.onBrokersStartup(emptyBrokers3, newBrokers3);
+
+        Set<Integer> expectedBrokerList3 = new HashSet<>(newBrokers1);
+        expectedBrokerList3.addAll(emptyBrokers3);
+
+        verify(mockActiveDataBalanceEngine).addBrokers(eq(expectedBrokerList3), any(BalanceOpExecutionCompletionCallback.class), anyString());
+        assertEquals("New brokers not present in DataBalancer", expectedBrokerList3, dataBalancer.brokersToAdd);
     }
 
     @Test

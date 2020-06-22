@@ -218,7 +218,7 @@ public class RbacEndToEndAuthorizationTest {
     RbacTestUtils.verifyMetadataStoreMetrics();
   }
 
-  @Test(timeout = 30000)
+  @Test(timeout = 60000)
   public void testDuplicateMdsUrls() throws Throwable {
     config = config.addMetadataServer()
         .overrideMetadataBrokerConfig(MetadataServerConfig.METADATA_SERVER_ADVERTISED_LISTENERS_PROP,

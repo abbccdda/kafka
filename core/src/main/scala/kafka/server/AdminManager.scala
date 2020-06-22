@@ -173,8 +173,6 @@ class AdminManager(val config: KafkaConfig,
             configs.setProperty(LogConfig.TopicPlacementConstraintsProp, topicPlacement.toJson)
           }
         }
-        LogConfig.validate(configs)
-        val logConfig = LogConfig.fromProps(KafkaServer.copyKafkaConfigToLog(config), configs)
 
         if ((topic.numPartitions != NO_NUM_PARTITIONS || topic.replicationFactor != NO_REPLICATION_FACTOR)
             && !topic.assignments().isEmpty) {
@@ -187,6 +185,7 @@ class AdminManager(val config: KafkaConfig,
         val resolveClusterLink = ClusterLinkUtils.resolveCreateTopic(topic, linkId, configs,
           validateOnly, mirrorInfo.flatMap(_.get(topic.name)))
         configs = resolveClusterLink.configs
+        LogConfig.validate(configs)
 
         val resolvedNumPartitions = if (resolveClusterLink.numPartitions != NO_NUM_PARTITIONS)
           resolveClusterLink.numPartitions
@@ -197,6 +196,7 @@ class AdminManager(val config: KafkaConfig,
         val resolvedReplicationFactor = if (topic.replicationFactor == NO_REPLICATION_FACTOR)
           defaultReplicationFactor else topic.replicationFactor
 
+        val logConfig = LogConfig.fromProps(KafkaServer.copyKafkaConfigToLog(config), configs)
         val replicaPlacement: Option[TopicPlacement] = AdminManager.validateAndGetTopicPlacement(config, logConfig, topic)
         val assignments = if (topic.assignments.isEmpty) {
           Observer.getReplicaAssignment(brokers, replicaPlacement, resolvedNumPartitions, resolvedReplicationFactor)

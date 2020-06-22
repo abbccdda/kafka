@@ -35,7 +35,6 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
-import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
 
 public class ConfluentTelemetryConfig extends AbstractConfig {
@@ -58,9 +57,9 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
     public static final String WHITELIST_CONFIG = PREFIX_METRICS_COLLECTOR + "whitelist";
     public static final String WHITELIST_DOC =
         "Regex matching the converted (snake_case) metric name to be published to the "
-        + "metrics topic.\n\nBy default this includes all the metrics required by Confluent "
-        + "Control Center and Confluent Auto Data Balancer. This should typically never be "
-        + "modified unless requested by Confluent.";
+        + "metrics topic.\n\nBy default this includes all the metrics required by "
+        + "Proactive Support and Confluent Auto Data Balancer. This should typically never "
+        + "be modified unless requested by Confluent.";
     public static final String DEFAULT_WHITELIST;
 
     public static final List<String> DEFAULT_BROKER_MONITORING_METRICS = Collections.unmodifiableList(
@@ -89,7 +88,7 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
                 "request_handler_avg_idle_percent",
                 "request_queue_size",
                 "request_queue_time_ms",
-                "requests_per_sec",
+                "requests",
                 "response_queue_size",
                 "response_queue_time_ms",
                 "response_send_time_ms",
@@ -238,21 +237,7 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
                 WHITELIST_CONFIG,
                 ConfigDef.Type.STRING,
                 DEFAULT_WHITELIST,
-                new ConfigDef.Validator() {
-                    @Override
-                    public void ensureValid(String name, Object value) {
-                        String regexString = value.toString();
-                        try {
-                            Pattern.compile(regexString);
-                        } catch (PatternSyntaxException e) {
-                            throw new ConfigException(
-                                "Metrics filter for configuration "
-                                + name
-                                + " is not a valid regular expression"
-                            );
-                        }
-                    }
-                },
+                new RegexConfigDefValidator(),
                 ConfigDef.Importance.LOW,
                 WHITELIST_DOC
         ).define(
@@ -354,7 +339,7 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
         return buildMetricWhitelistFilter(getMetricsWhitelistRegex());
     }
 
-    private static Predicate<MetricKey> buildMetricWhitelistFilter(String regexString) {
+    public static Predicate<MetricKey> buildMetricWhitelistFilter(String regexString) {
         // Configure the PatternPredicate.
         regexString = regexString.trim();
 
@@ -465,7 +450,13 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
 
         // create config objects
         Map<String, ExporterConfig> exporterConfigMap = Maps.newHashMap();
+        Map<String, Object> originals = originals();
         for (Map.Entry<String,  Map<String, Object>> entry : exporters.entrySet()) {
+
+            // use global whitelist if exporter-level whitelist is not provided
+            if (!entry.getValue().containsKey(ExporterConfig.WHITELIST_CONFIG) && originals.containsKey(WHITELIST_CONFIG)) {
+                entry.getValue().put(ExporterConfig.WHITELIST_CONFIG, originals.get(WHITELIST_CONFIG));
+            }
 
             // we need to know the type in order to initialize the exporter
             ExporterType exporterType = ExporterConfig.parseType(entry.getValue().get(ExporterConfig.TYPE_CONFIG));

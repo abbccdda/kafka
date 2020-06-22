@@ -19,7 +19,6 @@ import java.util.concurrent.TimeUnit;
 
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.CRN_AUTHORITY_NAME_CONFIG;
-import static org.apache.kafka.common.config.internals.ConfluentConfigs.ENABLE_AUTHENTICATION_AUDIT_LOGS;
 
 public class ProviderBenchmarkDefaults {
 
@@ -256,7 +255,6 @@ public class ProviderBenchmarkDefaults {
       configs.put(CRN_AUTHORITY_NAME_CONFIG, "mds.example.com");
       configs.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
       configs.put(AuditLogConfig.EVENT_EXPORTER_CLASS_CONFIG, CountExporter.class.getName());
-      configs.put(ENABLE_AUTHENTICATION_AUDIT_LOGS, "true");
       provider.configure(configs);
       provider.onUpdate(new ClusterResource(CLUSTER_ID));
       provider.setMetrics(new Metrics());

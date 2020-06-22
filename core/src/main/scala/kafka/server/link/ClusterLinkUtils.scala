@@ -7,7 +7,7 @@ import java.util.{Properties, UUID}
 import java.util.concurrent.{CompletableFuture, ExecutionException}
 
 import kafka.log.LogConfig
-import kafka.server.KafkaConfig
+import kafka.server.{DynamicBrokerConfig, KafkaConfig}
 import kafka.utils.Logging
 import org.apache.kafka.clients.admin.Config
 import org.apache.kafka.common.acl.AclOperation
@@ -57,6 +57,14 @@ object ClusterLinkUtils extends Logging {
     // Always: Always mirror. This makes the config immutable on the destination.
     val Independent, NonDefault, Always = Value
   }
+
+  // Maps log config name to all of its synonyms.
+  private val allConfigs = LogConfig.configNames.map { name =>
+    val synonyms = LogConfig.TopicConfigSynonyms.get(name).map { syn =>
+      DynamicBrokerConfig.brokerConfigSynonyms(syn, matchListenerOverride = false)
+    }.getOrElse(List.empty[String])
+    name -> (List(name) ++ synonyms)
+  }.toMap
 
   private val independentConfigs = List(
     // Cluster-centric
@@ -183,27 +191,27 @@ object ClusterLinkUtils extends Logging {
     val newLocalProps = new Properties()
     val remoteEntries = remoteConfig.map(_.entries.asScala.map(e => e.name -> e).toMap).getOrElse(Map.empty)
 
-    LogConfig.configNames.foreach { name =>
-      getConfigAction(name) match {
-        case LogConfigAction.Independent =>
-          val value = localProps.get(name)
-          if (value != null)
-            newLocalProps.put(name, value)
+    allConfigs.foreach { case (commonName, synonyms) =>
+      synonyms.foreach { name =>
+        getConfigAction(commonName) match {
+          case LogConfigAction.Independent =>
+            val value = localProps.get(name)
+            if (value != null)
+              newLocalProps.put(name, value)
 
-        case LogConfigAction.NonDefault =>
-          if (localProps.containsKey(name))
-            onInvalidConfig(name)
-          remoteEntries.get(name) match {
-            case Some(remoteEntry) =>
+          case LogConfigAction.NonDefault =>
+            if (localProps.containsKey(name))
+              onInvalidConfig(name)
+            remoteEntries.get(name).foreach { remoteEntry =>
               if (!remoteEntry.isDefault)
                 newLocalProps.put(name, remoteEntry.value)
-            case None =>
-          }
+            }
 
-        case LogConfigAction.Always =>
-          if (localProps.containsKey(name))
-            onInvalidConfig(name)
-          remoteEntries.get(name).foreach(e => newLocalProps.put(e.name, e.value))
+          case LogConfigAction.Always =>
+            if (localProps.containsKey(name))
+              onInvalidConfig(name)
+            remoteEntries.get(name).foreach(e => newLocalProps.put(e.name, e.value))
+        }
       }
     }
 

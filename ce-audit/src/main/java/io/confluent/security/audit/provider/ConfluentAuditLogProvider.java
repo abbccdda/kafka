@@ -8,7 +8,6 @@ import static io.confluent.security.audit.AuditLogConfig.AUDIT_CLOUD_EVENT_ENCOD
 import static io.confluent.security.audit.AuditLogConfig.toEventLoggerConfig;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_LOGGER_ENABLE_CONFIG;
-import static org.apache.kafka.common.config.internals.ConfluentConfigs.ENABLE_AUTHENTICATION_AUDIT_LOGS;
 
 import io.cloudevents.CloudEvent;
 import io.cloudevents.v1.AttributesImpl;
@@ -95,7 +94,6 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
 
   private volatile boolean eventLoggerReady;
   private Scope scope;
-  private boolean enableAuthenticationAuditLogs;
 
   @Override
   public void onUpdate(final ClusterResource clusterResource) {
@@ -134,8 +132,6 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
     if (!auditLogConfig.getBoolean(AUDIT_LOGGER_ENABLE_CONFIG)) {
       return;
     }
-
-    enableAuthenticationAuditLogs = auditLogConfig.getBoolean(ENABLE_AUTHENTICATION_AUDIT_LOGS);
 
     this.configuredState = new ConfiguredState(
         new EventLogger<AuditLogEntry>(),
@@ -350,9 +346,6 @@ public class ConfluentAuditLogProvider implements AuditLogProvider, ClusterResou
   }
 
   private void logAuthentication(AuthenticationEvent auditEvent) {
-    // check enable authentication flag
-    if (!enableAuthenticationAuditLogs) return;
-
     try {
       ConfluentAuthenticationEvent authenticationEvent = new ConfluentAuthenticationEvent(auditEvent, scope);
       AuditLogEntry entry = AuditLogUtils.authenticationEvent(authenticationEvent, crnAuthority);

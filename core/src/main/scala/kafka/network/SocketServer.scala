@@ -818,12 +818,20 @@ private[kafka] class Processor(val id: Int,
   }
 
   private def auditLogProvider(): Optional[AuditLogProvider] = {
-    //For now disable auditlogs for interbroker listener and plaintext. We will add per listener enable config.
     // Set Optional.empty() for NoOpAuditLogProvider to avoid unnecessary object allocations
-    if (isInterBrokerListener || securityProtocol == SecurityProtocol.PLAINTEXT ||
-      !config.authenticationAuditLogEnabled || auditLogProvider == NoOpAuditLogProvider.INSTANCE)
+    if (auditLogProvider == NoOpAuditLogProvider.INSTANCE) {
       Optional.empty()
-    else Optional.of(auditLogProvider)
+    } else {
+      // check for listener override config
+      val parsedConfigs = config.valuesWithPrefixOverride(listenerName.configPrefix)
+      val authenticationAuditLogsEnabled = parsedConfigs.get(KafkaConfig.AuthenticationAuditLogEnableProp).asInstanceOf[Boolean]
+
+      // Set auditLogProvider if auditLogs enabled and authentication audits are enabled.
+      if (config.auditLogEnabled && authenticationAuditLogsEnabled)
+        Optional.of(auditLogProvider)
+      else
+        Optional.empty()
+    }
   }
 
   // Connection ids have the format `localAddr:localPort-remoteAddr:remotePort-index`. The index is a

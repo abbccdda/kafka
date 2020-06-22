@@ -3,9 +3,10 @@ package io.confluent.telemetry.exporter;
 import java.util.ArrayList;
 import java.util.List;
 
+import io.confluent.telemetry.MetricKey;
 import io.opencensus.proto.metrics.v1.Metric;
 
-public class TestExporter implements Exporter {
+public class TestExporter extends AbstractExporter {
 
     private final List<Metric> metrics = new ArrayList<>();
 
@@ -17,12 +18,12 @@ public class TestExporter implements Exporter {
     }
 
     @Override
-    public void emit(Metric metric) {
-        metrics.add(metric);
+    public void close() throws Exception {
+
     }
 
     @Override
-    public void close() throws Exception {
-
+    public void doEmit(MetricKey metricKey, Metric metric) {
+        metrics.add(metric);
     }
 }

@@ -9,7 +9,6 @@ import static io.confluent.security.audit.telemetry.exporter.NonBlockingKafkaExp
 import static io.confluent.security.test.utils.User.scramUser;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.AUDIT_EVENT_ROUTER_CONFIG;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.CRN_AUTHORITY_NAME_CONFIG;
-import static org.apache.kafka.common.config.internals.ConfluentConfigs.ENABLE_AUTHENTICATION_AUDIT_LOGS;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
@@ -574,10 +573,7 @@ public class ProviderRoutingTest {
   public void testAuthenticationEventLoggedOnDefaultTopic() throws Throwable {
     String expectedTopic = AuditLogRouterJsonConfig.TOPIC_PREFIX + "_success";
 
-    ConfluentAuditLogProvider provider = providerWithMockExporter("Test_Cluster",
-        Utils.mkMap(
-            Utils.mkEntry(ENABLE_AUTHENTICATION_AUDIT_LOGS, "true")
-        ));
+    ConfluentAuditLogProvider provider = providerWithMockExporter("Test_Cluster", Utils.mkMap());
     AuthenticationEvent authenticationEvent = createAuthenticationEvent(AuditEventStatus.SUCCESS, "user1");
 
     provider.logEvent(authenticationEvent);
@@ -599,10 +595,7 @@ public class ProviderRoutingTest {
   public void testAuthenticationEventLoggedOnRoutedTopic() throws Throwable {
     String expectedTopic = AuditLogRouterJsonConfig.TOPIC_PREFIX + "_authentication_failure";
 
-    ConfluentAuditLogProvider provider = providerWithMockExporter("63REM3VWREiYtMuVxZeplA",
-        Utils.mkMap(
-            Utils.mkEntry(ENABLE_AUTHENTICATION_AUDIT_LOGS, "true")
-        ));
+    ConfluentAuditLogProvider provider = providerWithMockExporter("63REM3VWREiYtMuVxZeplA", Utils.mkMap());
     AuthenticationEvent authenticationEvent = createAuthenticationEvent(AuditEventStatus.UNAUTHENTICATED, "user1");
 
     provider.logEvent(authenticationEvent);
@@ -622,10 +615,7 @@ public class ProviderRoutingTest {
 
   @Test
   public void testAuthenticationEventExcludedUser() throws Throwable {
-    ConfluentAuditLogProvider provider = providerWithMockExporter("63REM3VWREiYtMuVxZeplA",
-        Utils.mkMap(
-            Utils.mkEntry(ENABLE_AUTHENTICATION_AUDIT_LOGS, "true")
-        ));
+    ConfluentAuditLogProvider provider = providerWithMockExporter("63REM3VWREiYtMuVxZeplA", Utils.mkMap());
 
     AuthenticationEvent authenticationEvent = createAuthenticationEvent(AuditEventStatus.UNAUTHENTICATED, "Alice");
 

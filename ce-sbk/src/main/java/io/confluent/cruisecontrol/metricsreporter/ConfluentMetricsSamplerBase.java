@@ -8,7 +8,8 @@ import com.linkedin.kafka.cruisecontrol.exception.MetricSamplingException;
 import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.CruiseControlMetric;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.CruiseControlMetricsProcessor;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.MetricSampler;
-
+import io.confluent.databalancer.StartupCheckInterruptedException;
+import io.confluent.telemetry.exporter.kafka.KafkaExporterConfig;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRebalanceListener;
@@ -39,9 +40,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-import io.confluent.databalancer.StartupCheckInterruptedException;
-import io.confluent.metrics.reporter.ConfluentMetricsReporterConfig;
-
 import static com.linkedin.kafka.cruisecontrol.monitor.sampling.MetricFetcherManager.BROKER_CAPACITY_CONFIG_RESOLVER_OBJECT_CONFIG;
 import static com.linkedin.kafka.cruisecontrol.monitor.sampling.MetricFetcherManager.DEFAULT_BROKER_CAPACITY_CONFIG_RESOLVER_OBJECT_CONFIG;
 
@@ -51,10 +49,10 @@ public abstract class ConfluentMetricsSamplerBase implements MetricSampler {
 
   // Configurations
   public static final String METRIC_SAMPLER_BOOTSTRAP_SERVERS = "metric.reporter.sampler.bootstrap.servers";
-  public static final String METRIC_REPORTER_TOPIC_PATTERN = "confluent.metrics.reporter.topic";
+  public static final String TELEMETRY_REPORTER_TOPIC_PATTERN = "confluent.telemetry.reporter.topic";
   public static final String METRIC_SAMPLER_GROUP_ID = "metric.reporter.sampler.group.id";
   // Default configs
-  private static final String DEFAULT_METRIC_SAMPLER_GROUP_ID = "ConfluentMetricsReporterSampler";
+  private static final String DEFAULT_METRIC_SAMPLER_GROUP_ID = "ConfluentTelemetryReporterSampler";
 
   // static random token to avoid group conflict.
   private static final Random RANDOM = ThreadLocalRandom.current();
@@ -69,9 +67,9 @@ public abstract class ConfluentMetricsSamplerBase implements MetricSampler {
   private CruiseControlMetricsProcessor metricsProcessor;
 
   protected static String getMetricReporterTopic(Map<String, ?> configs) {
-      String metricReporterTopic = (String) configs.get(METRIC_REPORTER_TOPIC_PATTERN);
+      String metricReporterTopic = (String) configs.get(TELEMETRY_REPORTER_TOPIC_PATTERN);
       if (metricReporterTopic == null) {
-          metricReporterTopic = ConfluentMetricsReporterConfig.DEFAULT_TOPIC_CONFIG;
+          metricReporterTopic = KafkaExporterConfig.DEFAULT_TOPIC_NAME;
       }
       return metricReporterTopic;
   }
@@ -290,7 +288,8 @@ public abstract class ConfluentMetricsSamplerBase implements MetricSampler {
 
         Integer numSamplersString = (Integer) configs.get(KafkaCruiseControlConfig.NUM_METRIC_FETCHERS_CONFIG);
         if (numSamplersString != null && numSamplersString != 1) {
-            throw new ConfigException("ConfluentMetricsReporterSampler is not thread safe. Please change " +
+            String className = this.getClass().getSimpleName();
+            throw new ConfigException(className + " is not thread safe. Please change " +
                     KafkaCruiseControlConfig.NUM_METRIC_FETCHERS_CONFIG + " to 1");
         }
 

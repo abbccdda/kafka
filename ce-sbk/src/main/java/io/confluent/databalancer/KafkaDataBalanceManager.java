@@ -240,7 +240,7 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
 
     @Override
     public void onBrokersStartup(Set<Integer> emptyBrokers, Set<Integer> newBrokers) {
-        // No new brokers
+        // No new brokers at all
         if (newBrokers.isEmpty()) {
             return;
         }
@@ -251,11 +251,18 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
             return;
         }
 
+        // If any removals are in progress for ANY new brokers, those should be canceled.
         cancelExistingBrokerRemovals(newBrokers);
 
+        if (emptyBrokers.isEmpty()) {
+            // Nothing more to do!
+            return;
+        }
+
+        // Only empty brokers get added.
         // TODO: when operation arbitration logic is added in the DataBalanceEngine, that can decide what should be executed next, instead of doing it here. (CNKAF-757)
         Set<Integer> addingBrokers;
-        brokersToAdd.addAll(newBrokers);
+        brokersToAdd.addAll(emptyBrokers);
         addingBrokers = new HashSet<>(brokersToAdd);
         String operationUid = String.format("addBroker-%d", time.milliseconds());
 
