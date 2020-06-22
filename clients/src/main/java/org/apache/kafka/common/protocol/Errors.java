@@ -28,7 +28,6 @@ import org.apache.kafka.common.errors.ClusterAuthorizationException;
 import org.apache.kafka.common.errors.ClusterLinkExistsException;
 import org.apache.kafka.common.errors.ClusterLinkInUseException;
 import org.apache.kafka.common.errors.ClusterLinkNotFoundException;
-import org.apache.kafka.common.errors.ClusterLinkPausedException;
 import org.apache.kafka.common.errors.ConcurrentTransactionsException;
 import org.apache.kafka.common.errors.ControllerMovedException;
 import org.apache.kafka.common.errors.CoordinatorLoadInProgressException;
@@ -343,18 +342,21 @@ public enum Errors {
 
     /* ----- Begin Confluent errors: error codes must be incremented sequentially starting at 10000 ----- */
 
-    CLUSTER_LINK_NOT_FOUND(10000, "The specified cluster link was not found.", ClusterLinkNotFoundException::new),
-    CLUSTER_LINK_EXISTS(10001, "A cluster link with the specified link name already exists.", ClusterLinkExistsException::new),
-    CLUSTER_LINK_IN_USE(10002, "The specified cluster link is still in use.", ClusterLinkInUseException::new),
-    INVALID_CLUSTER_LINK(10003, "The provided cluster link name is invalid.", InvalidClusterLinkException::new),
+    CLUSTER_LINK_NOT_FOUND(10000, "The specified cluster link was not found.",
+            ClusterLinkNotFoundException::new),
+    CLUSTER_LINK_EXISTS(10001, "A cluster link with the specified link name already exists.",
+            ClusterLinkExistsException::new),
+    CLUSTER_LINK_IN_USE(10002, "The specified cluster link is still in use.",
+            ClusterLinkInUseException::new),
+    INVALID_CLUSTER_LINK(10003, "The provided cluster link name is invalid.",
+            InvalidClusterLinkException::new),
     BROKER_REMOVED(10004, "The broker is removed.", BrokerRemovedException::new),
     BROKER_REMOVAL_IN_PROGRESS(10005, "The broker is being removed.", BrokerRemovalInProgressException::new),
     PLAN_COMPUTATION_FAILED(10006, "Computing the reassignment plan for a broker drain failed.", PlanComputationException::new),
     BROKER_REMOVAL_CANCELED(10007, "The broker removal operation was canceled, likely due to the broker starting back up while it was being removed.", BrokerRemovalCanceledException::new),
     BALANCER_OFFLINE(10008, "The Confluent Balancer component is disabled or not started yet.", BalancerOfflineException::new),
     BALANCER_OPERATION_FAILED(10009, "The given Confluent Balancer operation failed for some reason. See the broker logs for more details.", BalancerOperationFailedException::new),
-    INVALID_BROKER_REMOVAL(10010, "The given broker removal operation was invalid for some reason, e.g invalid broker ids or partitions that would become unavailable as a result the removal. See the broker logs for more details.", InvalidBrokerRemovalException::new),
-    CLUSTER_LINK_PAUSED_EXCEPTION(10011, "The specified cluster link is paused.", ClusterLinkPausedException::new);
+    INVALID_BROKER_REMOVAL(10010, "The given broker removal operation was invalid for some reason, e.g invalid broker ids or partitions that would become unavailable as a result the removal. See the broker logs for more details.", InvalidBrokerRemovalException::new);
 
     private static final Logger log = LoggerFactory.getLogger(Errors.class);
 
