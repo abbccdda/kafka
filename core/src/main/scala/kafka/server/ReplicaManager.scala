@@ -120,7 +120,8 @@ sealed trait AbstractLogReadResult {
  * @param lastStableOffset Current LSO or None if the result has an exception
  * @param isReadAllowed read operation is not allowed for this partition as fetch request
  *                      maxBytes was already satisfied by previous partitions when
- *                      hardMaxBytesLimitNote in TRUE * @param preferredReadReplica the preferred read replica to be used for future fetches
+ *                      hardMaxBytesLimitNote in TRUE
+ * @param preferredReadReplica the preferred read replica to be used for future fetches
  * @param exception Exception if error encountered while reading from the log
  */
 case class LogReadResult(info: FetchDataInfo,
