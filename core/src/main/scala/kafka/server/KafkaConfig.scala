@@ -1652,10 +1652,12 @@ object KafkaConfig {
               ConfluentConfigs.BALANCER_DISK_CAPACITY_THRESHOLD_DEFAULT, between(0.0, 1.0), HIGH,
               ConfluentConfigs.BALANCER_DISK_CAPACITY_THRESHOLD_DOC)
       .define(ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_CONFIG, LONG,
-              ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_DEFAULT, atLeast(0), HIGH,
+              ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_DEFAULT,
+              atLeast(ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_MIN), HIGH,
               ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_DOC)
       .define(ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_CONFIG, LONG,
-              ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_DEFAULT, atLeast(0), HIGH,
+              ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_DEFAULT,
+              atLeast(ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_MIN), HIGH,
               ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_DOC)
       .define(ConfluentConfigs.BALANCER_BROKER_FAILURE_THRESHOLD_CONFIG, LONG,
               ConfluentConfigs.BALANCER_BROKER_FAILURE_THRESHOLD_DEFAULT, atLeast(-1), HIGH,

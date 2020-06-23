@@ -271,7 +271,8 @@ public class ConfluentConfigs {
 
     public static final String BALANCER_REPLICA_CAPACITY_BASE_CONFIG = "max.replicas";
     public static final String BALANCER_REPLICA_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_REPLICA_CAPACITY_BASE_CONFIG;
-    public static final Long BALANCER_REPLICA_CAPACITY_DEFAULT = Long.MAX_VALUE;
+    // Set a large, but not too large, default so that cluster replica capacity is still in-range
+    public static final Long BALANCER_REPLICA_CAPACITY_DEFAULT = Long.valueOf(Integer.MAX_VALUE);
     public static final String BALANCER_REPLICA_CAPACITY_DOC = "The replica capacity is the maximum number of replicas " +
             "the balancer will place on a single broker.";
 
@@ -283,15 +284,19 @@ public class ConfluentConfigs {
 
     public static final String BALANCER_NETWORK_IN_CAPACITY_BASE_CONFIG = "network.in.max.bytes.per.second";
     public static final String BALANCER_NETWORK_IN_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_NETWORK_IN_CAPACITY_BASE_CONFIG;
-    public static final Long BALANCER_NETWORK_IN_CAPACITY_DEFAULT = 0L;
-    public static final String BALANCER_NETWORK_IN_CAPACITY_DOC = "This config specifies the upper bound for network " +
-            "incoming bytes per second per broker. 0 means that no bound is enforced.";
+    public static final Long BALANCER_NETWORK_IN_CAPACITY_DEFAULT = Long.MAX_VALUE;
+    public static final Long BALANCER_NETWORK_IN_CAPACITY_MIN = 1L;
+    public static final String BALANCER_NETWORK_IN_CAPACITY_DOC = "This config specifies the upper capacity limit for network " +
+            "incoming bytes per second per broker. The Confluent DataBalancer will attempt to keep incoming data throughput below " +
+            "this limit.";
 
     public static final String BALANCER_NETWORK_OUT_CAPACITY_BASE_CONFIG = "network.out.max.bytes.per.second";
     public static final String BALANCER_NETWORK_OUT_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_NETWORK_OUT_CAPACITY_BASE_CONFIG;
-    public static final Long BALANCER_NETWORK_OUT_CAPACITY_DEFAULT = 0L;
-    public static final String BALANCER_NETWORK_OUT_CAPACITY_DOC = "This config specifies the upper bound for network " +
-            "outgoing bytes per second per broker. 0 means that no bound is enforced.";
+    public static final Long BALANCER_NETWORK_OUT_CAPACITY_DEFAULT = Long.MAX_VALUE;
+    public static final Long BALANCER_NETWORK_OUT_CAPACITY_MIN = 1L;
+    public static final String BALANCER_NETWORK_OUT_CAPACITY_DOC = "This config specifies the upper capacity limit for network " +
+            "outgoing bytes per second per broker. The Confluent DataBalancer will attempt to keep outgoing data throughput below " +
+            "this limit.";
 
     public static final String BALANCER_EXCLUDE_TOPIC_NAMES_BASE_CONFIG = "exclude.topic.names";
     public static final String BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_EXCLUDE_TOPIC_NAMES_BASE_CONFIG;

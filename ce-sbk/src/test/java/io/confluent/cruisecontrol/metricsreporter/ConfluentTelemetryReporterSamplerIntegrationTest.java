@@ -37,8 +37,9 @@ public class ConfluentTelemetryReporterSamplerIntegrationTest extends MetricRepo
     @Test
     public void testSampler() throws InterruptedException {
         Map<String, Object> resolverConfig = new HashMap<>();
-        resolverConfig.put(BrokerCapacityResolver.DEFAULT_NETWORK_IN_CAPACITY_CONFIG, "1000000");
-        resolverConfig.put(BrokerCapacityResolver.DEFAULT_NETWORK_OUT_CAPACITY_CONFIG, "1000000");
+        // Fudge up some required configurations as we're not starting from a full CruiseControlConfig.
+        resolverConfig.put(KafkaCruiseControlConfig.NETWORK_IN_CAPACITY_BYTES_CONFIG, 1000000L);
+        resolverConfig.put(KafkaCruiseControlConfig.NETWORK_OUT_CAPACITY_BYTES_CONFIG, 1000000L);
         resolverConfig.put(BrokerCapacityResolver.LOG_DIRS_CONFIG, TestUtils.tempDirectory().getAbsolutePath());
         BrokerCapacityConfigResolver resolver = new BrokerCapacityResolver();
         resolver.configure(resolverConfig);

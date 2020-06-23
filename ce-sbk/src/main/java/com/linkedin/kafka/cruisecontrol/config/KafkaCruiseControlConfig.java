@@ -244,6 +244,16 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
       + "default implementation is a file based solution.";
 
   /**
+   * Network Capacity values
+   */
+  public static final String NETWORK_IN_CAPACITY_BYTES_CONFIG = ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_BASE_CONFIG;
+  private static final String NETWORK_IN_CAPACITY_BYTES_DOC = ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_DOC;
+
+  public static final String NETWORK_OUT_CAPACITY_BYTES_CONFIG = ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_BASE_CONFIG;
+  private static final String NETWORK_OUT_CAPACITY_BYTES_DOC = ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_DOC;
+
+
+  /**
    * <code>min.valid.partition.ratio</code>
    */
   public static final String MIN_VALID_PARTITION_RATIO_CONFIG = "min.valid.partition.ratio";
@@ -1020,6 +1030,16 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 BrokerCapacityResolver.class.getName(),
                 ConfigDef.Importance.MEDIUM,
                 BROKER_CAPACITY_CONFIG_RESOLVER_CLASS_DOC)
+        .define(NETWORK_IN_CAPACITY_BYTES_CONFIG,
+                ConfigDef.Type.LONG,
+                ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_DEFAULT,
+                ConfigDef.Importance.HIGH,
+                NETWORK_IN_CAPACITY_BYTES_DOC)
+        .define(NETWORK_OUT_CAPACITY_BYTES_CONFIG,
+                ConfigDef.Type.LONG,
+                ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_DEFAULT,
+                ConfigDef.Importance.HIGH,
+                NETWORK_OUT_CAPACITY_BYTES_DOC)
         .define(GOAL_BALANCEDNESS_PRIORITY_WEIGHT_CONFIG,
                 ConfigDef.Type.DOUBLE,
                 1.1,
@@ -1179,7 +1199,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 PROPOSAL_EXPIRATION_MS_DOC)
         .define(MAX_REPLICAS_PER_BROKER_CONFIG,
                 ConfigDef.Type.LONG,
-                10000,
+                ConfluentConfigs.BALANCER_REPLICA_CAPACITY_DEFAULT,
                 atLeast(0),
                 ConfigDef.Importance.MEDIUM,
                 MAX_REPLICAS_PER_BROKER_DOC)
