@@ -88,10 +88,9 @@ public class ConfluentMetricsReporterConfig extends AbstractConfig {
 
   public static final String WHITELIST_CONFIG = METRICS_REPORTER_PREFIX + "whitelist";
 
-  public static final List<String> DEFAULT_BROKER_MONITORING_METRICS = Collections.unmodifiableList(
+  public static final List<String> DEFAULT_BROKER_YAMMER_METRICS = Collections.unmodifiableList(
       Arrays.asList(
           "ActiveControllerCount",
-          "BytesFetchedRate", // kafka.server:type=TierFetcher,name=BytesFetchedRate
           "BytesInPerSec",
           "BytesOutPerSec",
           "CaughtUpReplicasCount",
@@ -133,15 +132,36 @@ public class ConfluentMetricsReporterConfig extends AbstractConfig {
       )
   );
 
+  public static final List<String> DEFAULT_BROKER_KAFKA_METRICS = Collections.unmodifiableList(
+      Arrays.asList(
+          "BytesFetchedRate" // kafka.server:type=TierFetcher
+      )
+  );
+
   public static final String DEFAULT_WHITELIST;
 
   static {
     StringBuilder builder = new StringBuilder(
         ".*MaxLag.*|kafka.log:type=Log,name=Size.*"
     );
-    Iterator<String> it = DEFAULT_BROKER_MONITORING_METRICS.iterator();
+
+    // When matching YammerMetric MBean names to the whitelist pattern, it is ok to match with
+    // "name=" included in the pattern.
+    appendMetricsToBuilder(builder, DEFAULT_BROKER_YAMMER_METRICS, "name=");
+    // KafkaMetrics are matched according to their MetricName name field, not the MBean. So the name of the
+    // metric without the "name=" is necessary to match the whitelist pattern correctly.
+    appendMetricsToBuilder(builder, DEFAULT_BROKER_KAFKA_METRICS, "");
+
+    DEFAULT_WHITELIST = builder.toString();
+  }
+
+  private static StringBuilder appendMetricsToBuilder(StringBuilder builder, List<String> metrics, String prefix) {
+    Iterator<String> it = metrics.iterator();
     if (it.hasNext()) {
-      builder.append("|.*name=(");
+      if (builder.length() > 0) {
+        builder.append("|");
+      }
+      builder.append(".*" + prefix + "(");
       builder.append(it.next());
       while (it.hasNext()) {
         builder.append("|");
@@ -149,7 +169,7 @@ public class ConfluentMetricsReporterConfig extends AbstractConfig {
       }
       builder.append(").*");
     }
-    DEFAULT_WHITELIST = builder.toString();
+    return builder;
   }
 
   public static final String WHITELIST_DOC =
