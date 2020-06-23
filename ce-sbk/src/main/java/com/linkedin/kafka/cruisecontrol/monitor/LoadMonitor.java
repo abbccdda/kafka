@@ -75,7 +75,6 @@ public class LoadMonitor {
   // Kafka Load Monitor server log.
   private static final Logger LOG = LoggerFactory.getLogger(LoadMonitor.class);
   // Metadata TTL is set based on experience -- i.e. a short TTL with large metadata may cause excessive load on brokers.
-  private static final long METADATA_TTL = 10000L;
 
   private final int _numPartitionMetricSampleWindows;
   private final LoadMonitorTaskRunner _loadMonitorTaskRunner;
@@ -123,7 +122,7 @@ public class LoadMonitor {
                      DataBalancerMetricsRegistry metricRegistry,
                      MetricDef metricDef) {
     this(config,
-         new MetadataClient(config, METADATA_TTL, time),
+         new MetadataClient(config, config.getLong(KafkaCruiseControlConfig.METADATA_TTL_CONFIG), time),
          KafkaCruiseControlUtils.createAdmin(config.originals()),
          time,
          metricRegistry,

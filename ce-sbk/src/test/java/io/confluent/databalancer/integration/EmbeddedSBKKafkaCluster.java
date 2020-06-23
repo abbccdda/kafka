@@ -132,7 +132,7 @@ public class EmbeddedSBKKafkaCluster extends EmbeddedKafkaCluster {
     // larger concurrency limits for faster rebalances
     props.put(confluentBalancerConfig(KafkaCruiseControlConfig.NUM_CONCURRENT_PARTITION_MOVEMENTS_PER_BROKER_CONFIG), "50");
     props.put(confluentBalancerConfig(KafkaCruiseControlConfig.NUM_CONCURRENT_LEADER_MOVEMENTS_CONFIG), "50");
-
+    props.put(confluentBalancerConfig(KafkaCruiseControlConfig.METADATA_TTL_CONFIG), "0");
     injectSbkMetricCollectionProperties(props);
   }
 
