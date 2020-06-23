@@ -925,7 +925,7 @@ public class TierFetcherTest {
                                File timestampIndexData,
                                Optional<File> producerStateSnapshotData,
                                Optional<ByteBuffer> transactionIndexData,
-                               Optional<File> epochState) {
+                               Optional<ByteBuffer> epochState) {
             throw new UnsupportedOperationException();
         }
 

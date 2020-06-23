@@ -180,21 +180,20 @@ case class UploadableSegment(log: AbstractLog,
                              private val logSegment: LogSegment,
                              nextOffset: Long,
                              producerStateOpt: Option[File],
-                             leaderEpochStateOpt: Option[File],
+                             leaderEpochStateOpt: Option[ByteBuffer],
                              abortedTxnIndexOpt: Option[ByteBuffer]) {
   val logSegmentFile: File = logSegment.log.file
   val offsetIndex: File = logSegment.offsetIndex.file
   val timeIndex: File = logSegment.timeIndex.file
 
   val uploadedSize: Long = logSegment.size + Seq(producerStateOpt.map(_.length),
-                                                 leaderEpochStateOpt.map(_.length),
+                                                 leaderEpochStateOpt.map { bb => (bb.limit() - bb.position()).toLong },
                                                  abortedTxnIndexOpt.map { bb => (bb.limit() - bb.position()).toLong }
                                                ).map(_.getOrElse(0L)).sum
 
   def allFiles: List[File] = {
     var files = List(logSegmentFile, offsetIndex, timeIndex)
     producerStateOpt.foreach(files :+= _)
-    leaderEpochStateOpt.foreach(files :+= _)
     files
   }
 }
@@ -2687,14 +2686,10 @@ class Log(@volatile private var _dir: File,
       }
 
       val nextOffset = logSegment.readNextOffset
+      val endOffsetInclusive = nextOffset - 1
 
       // Get an uploadable leader epoch state file by cloning state from leader epoch cache and truncating it to the next offset
-      val leaderEpochStateOpt = leaderEpochCache.map { cache =>
-        val checkpointClone = new LeaderEpochCheckpointFile(new File(cache.file.getAbsolutePath + ".tier"))
-        val leaderEpochCacheClone = cache.clone(checkpointClone)
-        leaderEpochCacheClone.truncateFromEnd(nextOffset)
-        leaderEpochCacheClone.file
-      }
+      val leaderEpochStateOpt = leaderEpochCache.map(cache => ByteBuffer.wrap(cache.snapshotForSegment(endOffsetInclusive)))
 
       // The producer state snapshot for `logSegment` should be named with the next logSegment's base offset
       // Because we never upload the active segment, and a snapshot is created on roll, we expect that either

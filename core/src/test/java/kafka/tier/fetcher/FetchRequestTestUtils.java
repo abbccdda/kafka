@@ -43,7 +43,7 @@ class FetchRequestTestUtils {
                                    File timestampIndexData,
                                    Optional<File> producerStateSnapshotData,
                                    Optional<ByteBuffer> transactionIndexData,
-                                   Optional<File> epochState) throws IOException {
+                                   Optional<ByteBuffer> epochState) throws IOException {
                 throw new IOException("");
             }
 
@@ -119,7 +119,7 @@ class FetchRequestTestUtils {
                                    File timestampIndexData,
                                    Optional<File> producerStateSnapshotData,
                                    Optional<ByteBuffer> transactionIndexData,
-                                   Optional<File> epochState) throws IOException {
+                                   Optional<ByteBuffer> epochState) throws IOException {
                 throw new IOException("");
             }
 

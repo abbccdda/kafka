@@ -26,6 +26,7 @@ import scala.collection._
 
 trait LeaderEpochCheckpoint {
   def write(epochs: Seq[EpochEntry]): Unit
+  def toByteArray(epochs: Seq[EpochEntry]): Array[Byte]
   def read(): Seq[EpochEntry]
   def file: File
 }
@@ -61,6 +62,8 @@ class LeaderEpochCheckpointFile(val file: File, logDirFailureChannel: LogDirFail
 
   def write(epochs: Seq[EpochEntry]): Unit = checkpoint.write(epochs)
 
+  def toByteArray(epochs: Seq[EpochEntry]): Array[Byte] = checkpoint.writeToByteArray(epochs)
+
   def read(): Seq[EpochEntry] = checkpoint.read()
 }
 
@@ -72,8 +75,12 @@ class LeaderEpochCheckpointBuffer(val location: String, val reader: BufferedRead
 
   val file: File = null
 
+  def toByteArray(epochs: Seq[EpochEntry]): Array[Byte] = {
+    throw new UnsupportedOperationException("toByteArray is not supported for LeaderEpochCheckpointBuffer")
+  }
+
   def write(epochs: Seq[EpochEntry]): Unit = {
-    throw new UnsupportedOperationException("write is not supported for checkpoint input buffers.")
+    throw new UnsupportedOperationException("write is not supported for LeaderEpochCheckpointBuffer")
   }
 
   def read(): Seq[EpochEntry] =  {
