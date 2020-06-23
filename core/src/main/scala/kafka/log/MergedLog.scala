@@ -277,7 +277,8 @@ class MergedLog(private[log] val localLog: Log,
   }
 
   override def maybeForceRoll(): Unit = {
-    localLog.maybeForceRoll()
+    if (tierPartitionState.isTieringEnabled)
+      localLog.maybeForceRoll()
   }
 
   override def deleteOldSegments(maxNumSegmentsToDelete: Int): Int = {

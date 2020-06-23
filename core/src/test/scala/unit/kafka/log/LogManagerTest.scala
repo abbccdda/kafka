@@ -18,7 +18,7 @@
 package kafka.log
 
 import java.io._
-import java.util.{Collections, Optional, Properties}
+import java.util.{Collections, Optional, Properties, UUID}
 
 import kafka.server.{FetchDataInfo, FetchLogEnd, KafkaConfig}
 import kafka.server.checkpoints.OffsetCheckpointFile
@@ -207,7 +207,7 @@ class LogManagerTest {
   @Test
   def testLogDeletionMaxSegmentsPerRunAlongWithTierSegmentHotsetRollMinBytes(): Unit = {
     logManager.shutdown()
-    logManager = createLogManager()
+    logManager = createLogManager(tierLogComponents = tierEnabledLogComponents)
 
     def createRecords = TestUtils.singletonRecords(value = "test".getBytes, timestamp = time.milliseconds - maxLogAgeMs - 1)
     val recordSize = createRecords.sizeInBytes()
@@ -225,6 +225,11 @@ class LogManagerTest {
     val updatedLogConfig = LogConfig(updatedLogProps)
     val log1 = logManager.getOrCreateLog(new TopicPartition(name, 0), () => updatedLogConfig)
     val log2 = logManager.getOrCreateLog(new TopicPartition(name, 1), () => updatedLogConfig)
+
+    log1.assignTopicId(UUID.randomUUID())
+    log2.assignTopicId(UUID.randomUUID())
+    assertTrue(log1.tierPartitionState.isTieringEnabled)
+    assertTrue(log2.tierPartitionState.isTieringEnabled)
 
     // Create 3 segments in each log, and, make the active segment with 5 records
     // (i.e. such that it equals tierSegmentHotsetRollMinBytes). This is so that the active segment
@@ -674,10 +679,8 @@ class LogManagerTest {
   @Test
   def testDeleteAndTierStateFlushConcurrency(): Unit = {
     val logDir = TestUtils.tempDir()
-    val tierTopicConsumer = mock(classOf[TierTopicConsumer])
-    val tierObjectStore = mock(classOf[TierObjectStore])
-    val tierPartitionStateFactory = new TierPartitionStateFactory(true)
-    val tierLogComponents = TierLogComponents(Some(tierTopicConsumer), Some(tierObjectStore), tierPartitionStateFactory)
+    val tierLogComponents = tierEnabledLogComponents
+    val tierTopicConsumer = tierLogComponents.topicConsumerOpt.get
 
     when(tierTopicConsumer.commitPositions(any())).thenAnswer(new Answer[Unit] {
       override def answer(invocation: InvocationOnMock): Unit = {
@@ -734,5 +737,12 @@ class LogManagerTest {
     Utils.delete(logDir)
 
     exceptionOpt.foreach(throw _)
+  }
+
+  private def tierEnabledLogComponents: TierLogComponents = {
+    val tierTopicConsumer = mock(classOf[TierTopicConsumer])
+    val tierObjectStore = mock(classOf[TierObjectStore])
+    val tierPartitionStateFactory = new TierPartitionStateFactory(true)
+    TierLogComponents(Some(tierTopicConsumer), Some(tierObjectStore), tierPartitionStateFactory)
   }
 }
