@@ -251,24 +251,33 @@ public class ConfluentConfigs {
     public static final String BALANCER_AUTO_HEAL_MODE_DEFAULT = BalancerSelfHealMode.EMPTY_BROKER.toString();
     public static final String BALANCER_AUTO_HEAL_MODE_DOC = "Controls what causes the Confluent DataBalancer to start rebalance operations. "
             + "Acceptable values are " + BalancerSelfHealMode.ANY_UNEVEN_LOAD.toString() + " and " + BalancerSelfHealMode.EMPTY_BROKER.toString();
+
+    public static final String BALANCER_BROKER_FAILURE_THRESHOLD_BASE_CONFIG = "heal.broker.failure.threshold.ms";
+    public static final String BALANCER_BROKER_FAILURE_THRESHOLD_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_BROKER_FAILURE_THRESHOLD_BASE_CONFIG;
+    public static final Long BALANCER_BROKER_FAILURE_THRESHOLD_DEFAULT = Duration.ofHours(1L).toMillis();
+    public static final Long BALANCER_BROKER_FAILURE_THRESHOLD_DISABLED = -1L;
+    public static final String BALANCER_BROKER_FAILURE_THRESHOLD_DOC = "This config specifies how long the balancer will " +
+            "wait after detecting a broker failure before triggering a balancing action. -1 means that broker failures " +
+            "will not trigger balancing actions";
+
     public static final String BALANCER_THROTTLE_BASE_CONFIG = "throttle.bytes.per.second";
     public static final String BALANCER_THROTTLE_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_THROTTLE_BASE_CONFIG;
     public static final Long BALANCER_THROTTLE_NO_THROTTLE = -1L;
     public static final Long BALANCER_THROTTLE_AUTO_THROTTLE = -2L;
     public static final Long BALANCER_THROTTLE_MIN = BALANCER_THROTTLE_AUTO_THROTTLE; // This is Kafka Cruise Control AUTO_THROTTLE.
-    public static final Long BALANCER_THROTTLE_DEFAULT = BALANCER_THROTTLE_NO_THROTTLE;
+    public static final Long BALANCER_THROTTLE_DEFAULT = 10L * 1024 * 1024; // 10MB/s network measurement
     public static final String BALANCER_THROTTLE_DOC = "This config specifies the upper bound for bandwidth in bytes to " +
             "move replicas around for replica reassignment.";
 
     public static final String BALANCER_REPLICA_CAPACITY_BASE_CONFIG = "max.replicas";
     public static final String BALANCER_REPLICA_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_REPLICA_CAPACITY_BASE_CONFIG;
-    public static final Long BALANCER_REPLICA_CAPACITY_DEFAULT = 10000L;
+    public static final Long BALANCER_REPLICA_CAPACITY_DEFAULT = Long.MAX_VALUE;
     public static final String BALANCER_REPLICA_CAPACITY_DOC = "The replica capacity is the maximum number of replicas " +
             "the balancer will place on a single broker.";
 
     public static final String BALANCER_DISK_CAPACITY_THRESHOLD_BASE_CONFIG = "disk.max.load";
     public static final String BALANCER_DISK_CAPACITY_THRESHOLD_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_DISK_CAPACITY_THRESHOLD_BASE_CONFIG;
-    public static final Double BALANCER_DISK_CAPACITY_THRESHOLD_DEFAULT = 0.8;
+    public static final Double BALANCER_DISK_CAPACITY_THRESHOLD_DEFAULT = 0.85;
     public static final String BALANCER_DISK_CAPACITY_THRESHOLD_DOC = "This config specifies the maximum load for disk usage as " +
             "a proportion of disk capacity. Valid values are between 0 and 1.";
 
@@ -283,14 +292,6 @@ public class ConfluentConfigs {
     public static final Long BALANCER_NETWORK_OUT_CAPACITY_DEFAULT = 0L;
     public static final String BALANCER_NETWORK_OUT_CAPACITY_DOC = "This config specifies the upper bound for network " +
             "outgoing bytes per second per broker. 0 means that no bound is enforced.";
-
-    public static final String BALANCER_BROKER_FAILURE_THRESHOLD_BASE_CONFIG = "heal.broker.failure.threshold.ms";
-    public static final String BALANCER_BROKER_FAILURE_THRESHOLD_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_BROKER_FAILURE_THRESHOLD_BASE_CONFIG;
-    public static final Long BALANCER_BROKER_FAILURE_THRESHOLD_DEFAULT = 900000L;
-    public static final Long BALANCER_BROKER_FAILURE_THRESHOLD_DISABLED = -1L;
-    public static final String BALANCER_BROKER_FAILURE_THRESHOLD_DOC = "This config specifies how long the balancer will " +
-            "wait after detecting a broker failure before triggering a balancing action. -1 means that broker failures " +
-            "will not trigger balancing actions";
 
     public static final String BALANCER_EXCLUDE_TOPIC_NAMES_BASE_CONFIG = "exclude.topic.names";
     public static final String BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_EXCLUDE_TOPIC_NAMES_BASE_CONFIG;

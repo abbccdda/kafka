@@ -516,6 +516,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
    */
   public static final String DEFAULT_REPLICATION_THROTTLE_CONFIG = ConfluentConfigs.BALANCER_THROTTLE_BASE_CONFIG;
   public static final Long NO_THROTTLE = null;
+  public static final Long DISABLED_THROTTLE = ConfluentConfigs.BALANCER_THROTTLE_NO_THROTTLE;
   public static final long AUTO_THROTTLE = ConfluentConfigs.BALANCER_THROTTLE_AUTO_THROTTLE;
   private static final String DEFAULT_REPLICATION_THROTTLE_DOC = "The replication throttle applied to " +
           "replicas being moved, in bytes per second. A value of null means no throttle is" +
