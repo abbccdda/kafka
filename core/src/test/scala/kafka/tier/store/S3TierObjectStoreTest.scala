@@ -70,7 +70,11 @@ class S3TierObjectStoreTest {
     val producerIndexLength = 100
     val producerIndexBuf = ByteBuffer.allocate(producerIndexLength)
     producerIndexBuf.limit(producerIndexLength)
-    objectStore.putSegment(metadata, segmentData, null, null, Optional.of(segmentData), Optional.of(producerIndexBuf), Optional.of(segmentData))
+
+    val epochLength = 100
+    val epochBuf = ByteBuffer.allocate(epochLength)
+    epochBuf.limit(epochLength)
+    objectStore.putSegment(metadata, segmentData, null, null, Optional.of(segmentData), Optional.of(producerIndexBuf), Optional.of(epochBuf))
     // expect 6 `put` calls: segment, offset index, time index, transaction index, producer snapshot and epoch state
     verify(client, times(6)).putObject(captor.capture())
     assertEquals(producerIndexLength,

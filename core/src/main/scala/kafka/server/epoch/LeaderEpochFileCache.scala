@@ -377,6 +377,13 @@ class LeaderEpochFileCache(topicPartition: TopicPartition,
 
   private def latestEntry: Option[EpochEntry] = epochs.lastOption
 
+  def snapshotForSegment(endOffsetInclusive: Long): Array[Byte] = {
+    inReadLock(lock) {
+      checkpoint.toByteArray(
+        epochEntries.filter(e => e.startOffset <= endOffsetInclusive))
+    }
+  }
+
   private def flush(): Unit = {
     debug(s"Flushing leader epoch cache for partiton $topicPartition, isDirtyFromAssign is $isDirtyFromAssign")
     checkpoint.write(epochs)

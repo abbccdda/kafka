@@ -133,13 +133,13 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
       true,
       new OffsetAndEpoch(0L, Optional.empty()))
 
-    val epochStateSize = 1000000000L
+    val epochStateSize = 100
     val producerStateSize = 2000000000L
     val abortedTxnsLimit = 150
     val abortedTxnsPos = 50
     val expectedSize = logSegment.size + epochStateSize + producerStateSize + (abortedTxnsLimit - abortedTxnsPos)
 
-    val epochState = mock(classOf[File])
+    val epochState = ByteBuffer.wrap(new Array[Byte](epochStateSize))
     val producerState = mock(classOf[File])
     val abortedTxns = ByteBuffer.wrap(new Array[Byte](abortedTxnsLimit))
     abortedTxns.limit(abortedTxnsLimit)
@@ -149,9 +149,7 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
     val producerStateOpt = Some(producerState)
     val abortedTxnsOpt = Some(abortedTxns)
 
-    when(epochState.exists).thenReturn(true)
     when(producerState.exists).thenReturn(true)
-    when(epochState.length).thenReturn(epochStateSize)
     when(producerState.length).thenReturn(producerStateSize)
 
     doNothing().when(tierObjectStore).putSegment(any(), any(), any(), any(), any(), any(), any())
@@ -376,9 +374,9 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
 
     val logSegment = mockLogSegment(tmpFile)
 
+    val epochArray = new Array[Byte](100)
     val mockLeaderEpochCache = mock(classOf[LeaderEpochFileCache])
-    when(mockLeaderEpochCache.clone(ArgumentMatchers.any())).thenReturn(mockLeaderEpochCache)
-    when(mockLeaderEpochCache.file).thenReturn(tmpFile)
+    when(mockLeaderEpochCache.snapshotForSegment(ArgumentMatchers.any())).thenReturn(epochArray)
 
     val nextOffset = logSegment.readNextOffset
 
@@ -402,7 +400,7 @@ class ArchiveTaskTest extends KafkaMetricsGroup {
     when(tierTopicManager.addMetadata(any(classOf[TierSegmentUploadInitiate]))).thenReturn(CompletableFuture.completedFuture(AppendResult.ACCEPTED))
     when(tierTopicManager.addMetadata(any(classOf[TierSegmentUploadComplete]))).thenReturn(CompletableFuture.completedFuture(AppendResult.ACCEPTED))
 
-    val uploadableSegment = UploadableSegment(log, logSegment, logSegment.readNextOffset, None, Option(mockLeaderEpochCache.file), None)
+    val uploadableSegment = UploadableSegment(log, logSegment, logSegment.readNextOffset, None, Some(ByteBuffer.wrap(epochArray)), None)
     when(log.createUploadableSegment(logSegment)).thenReturn(uploadableSegment)
 
     val metadata = tierSegment(log, leaderEpoch)

@@ -9,6 +9,7 @@ import org.apache.zookeeper.server.ServerCnxnFactory;
 import org.apache.zookeeper.server.ZooKeeperServer;
 
 import java.io.File;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.concurrent.CountDownLatch;
 
@@ -27,10 +28,9 @@ public class CCEmbeddedZookeeper implements AutoCloseable {
       File logDir = CCKafkaTestUtils.newTempDir();
       _zk = new ZooKeeperServer(snapshotDir, logDir, tickTime);
       _cnxnFactory = new NIOServerCnxnFactory();
-//      InetAddress localHost = InetAddress.getLocalHost();
-//      _hostAddress = localHost.getHostAddress();
-      _hostAddress = "127.0.0.1";
-      InetSocketAddress bindAddress = new InetSocketAddress(_hostAddress, 0);
+      InetAddress localHost = InetAddress.getLocalHost();
+      _hostAddress = localHost.getHostAddress();
+      InetSocketAddress bindAddress = new InetSocketAddress(localHost, 0);
       _cnxnFactory.configure(bindAddress, 0);
       _cnxnFactory.startup(_zk);
       _port = _zk.getClientPort();

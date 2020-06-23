@@ -90,23 +90,12 @@ class CheckpointFile[T](val file: File,
   def write(entries: Iterable[T]): Unit = {
     lock synchronized {
       try {
-        // write to temp file and then swap with the existing file
         val fileOutputStream = new FileOutputStream(tempPath.toFile)
         val writer = new BufferedWriter(new OutputStreamWriter(fileOutputStream, StandardCharsets.UTF_8))
         try {
-          writer.write(version.toString)
-          writer.newLine()
-
-          writer.write(entries.size.toString)
-          writer.newLine()
-
-          entries.foreach { entry =>
-            writer.write(formatter.toLine(entry))
-            writer.newLine()
-          }
-
-          writer.flush()
-          fileOutputStream.getFD().sync()
+          // write to temp file and then swap with the existing file
+          writeToWriter(entries, writer)
+          fileOutputStream.getFD.sync()
         } finally {
           writer.close()
         }
@@ -119,6 +108,32 @@ class CheckpointFile[T](val file: File,
           throw new KafkaStorageException(msg, e)
       }
     }
+  }
+
+  def writeToByteArray(epochs: Iterable[T]): Array[Byte] = {
+    val byteArrayOutputStream = new ByteArrayOutputStream()
+    val bufferedWriter = new BufferedWriter(new OutputStreamWriter(byteArrayOutputStream, StandardCharsets.UTF_8))
+    try {
+      writeToWriter(epochs, bufferedWriter)
+      byteArrayOutputStream.toByteArray
+    } finally {
+      bufferedWriter.close()
+    }
+  }
+
+  private def writeToWriter(entries: Iterable[T], writer: BufferedWriter): Unit = {
+      writer.write(version.toString)
+      writer.newLine()
+
+      writer.write(entries.size.toString)
+      writer.newLine()
+
+      entries.foreach { entry =>
+        writer.write(formatter.toLine(entry))
+        writer.newLine()
+      }
+
+      writer.flush()
   }
 
   def read(): Seq[T] = {

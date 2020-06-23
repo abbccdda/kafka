@@ -83,7 +83,7 @@ public class MockInMemoryTierObjectStore implements TierObjectStore, AutoCloseab
                            File timestampIndexData,
                            Optional<File> producerStateSnapshotData,
                            Optional<ByteBuffer> transactionIndexData,
-                           Optional<File> epochState) {
+                           Optional<ByteBuffer> epochState) {
         writeFileToArray(keyPath(objectMetadata, FileType.SEGMENT), segmentData);
         incrementObjectCount(FileType.SEGMENT);
 
@@ -104,7 +104,7 @@ public class MockInMemoryTierObjectStore implements TierObjectStore, AutoCloseab
         });
 
         if (epochState.isPresent()) {
-            writeFileToArray(keyPath(objectMetadata, FileType.EPOCH_STATE), epochState.get());
+            writeBufToArray(keyPath(objectMetadata, FileType.EPOCH_STATE), epochState.get());
             incrementObjectCount(FileType.EPOCH_STATE);
         }
     }

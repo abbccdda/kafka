@@ -48,7 +48,7 @@ class GcsTierObjectStoreTest {
 
   @Test
   def testSinglePutProducerStateEpochState(): Unit = {
-    objectStore.putSegment(metadata, testFile, testFile, testFile, Optional.of(testFile), Optional.empty(), Optional.of(testFile))
+    objectStore.putSegment(metadata, testFile, testFile, testFile, Optional.of(testFile), Optional.empty(), Optional.of(bb))
     verify(storage, times(5)).writer(any(classOf[BlobInfo]))
   }
 

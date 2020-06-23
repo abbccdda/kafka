@@ -371,6 +371,6 @@ public class SegmentFileFetchRequestTest {
         tierObjectStore.putSegment(
                 metadata, segment.log().file(), segment.offsetIndex().file(),
                 segment.timeIndex().file(), Optional.empty(),
-                abortedTxns, Optional.of(segment.timeIndex().file()));
+                abortedTxns, Optional.empty());
     }
 }

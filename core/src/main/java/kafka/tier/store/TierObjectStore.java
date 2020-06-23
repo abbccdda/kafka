@@ -97,7 +97,8 @@ public interface TierObjectStore {
                     File timestampIndexData,
                     Optional<File> producerStateSnapshotData,
                     Optional<ByteBuffer> transactionIndexData,
-                    Optional<File> epochState) throws TierObjectStoreRetriableException, IOException;
+                    Optional<ByteBuffer> epochState) throws TierObjectStoreRetriableException,
+            IOException;
 
     void deleteSegment(ObjectMetadata objectMetadata) throws IOException;
 

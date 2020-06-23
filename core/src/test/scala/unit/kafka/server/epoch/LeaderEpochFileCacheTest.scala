@@ -17,12 +17,16 @@
 
 package kafka.server.epoch
 
+import java.io.BufferedReader
+import java.io.ByteArrayInputStream
 import java.io.File
+import java.io.InputStreamReader
 
 import scala.collection.Seq
 import scala.collection.mutable.ListBuffer
 
 import kafka.server.checkpoints.{LeaderEpochCheckpoint, LeaderEpochCheckpointFile}
+import kafka.server.checkpoints.LeaderEpochCheckpointBuffer
 import org.apache.kafka.common.requests.EpochEndOffset.{UNDEFINED_EPOCH, UNDEFINED_EPOCH_OFFSET}
 import kafka.utils.TestUtils
 import org.apache.kafka.common.TopicPartition
@@ -40,6 +44,8 @@ class LeaderEpochFileCacheTest {
     private var epochs: Seq[EpochEntry] = Seq()
     override val file = TestUtils.tempFile()
     override def write(epochs: Seq[EpochEntry]): Unit = this.epochs = epochs
+    override def toByteArray(epochs: Seq[EpochEntry]): Array[Byte] = throw new UnsupportedOperationException(
+      "toByteArray is currently unused and is not implemented for the test checkpoint implementation")
     override def read(): Seq[EpochEntry] = this.epochs
   }
   private val cache = new LeaderEpochFileCache(tp, () => logEndOffset, checkpoint)
@@ -616,6 +622,23 @@ class LeaderEpochFileCacheTest {
     cache.clearAndFlush()
     assertEquals(s"Returned wrong start offset for epoch: $requestedEpoch",
       UNDEFINED_EPOCH_OFFSET, cache.offsetForEpoch(requestedEpoch))
+  }
+
+  @Test
+  def tieredEpochCacheSnapshot(): Unit = {
+    val checkpointFile = TestUtils.tempFile()
+    val checkpoint = new LeaderEpochCheckpointFile(checkpointFile, null)
+    val newCache = new LeaderEpochFileCache(tp, () => logEndOffset, checkpoint)
+
+    newCache.assign(3, 43)
+    newCache.assign(5, 50)
+    // below epochs will be removed as they lie later than the segment end offset
+    newCache.assign(7, 70)
+    newCache.assign(8, 80)
+    val bytesOut = newCache.snapshotForSegment(70)
+    val checkPointBuffer = new LeaderEpochCheckpointBuffer("frombuffer",
+      new BufferedReader(new InputStreamReader(new ByteArrayInputStream(bytesOut))))
+    assertEquals(List(EpochEntry(3, 43), EpochEntry(5, 50), EpochEntry(7, 70)), checkPointBuffer.read().toList)
   }
 
   @Test

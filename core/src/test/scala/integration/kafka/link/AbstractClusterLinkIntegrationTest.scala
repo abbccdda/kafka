@@ -110,12 +110,12 @@ class AbstractClusterLinkIntegrationTest extends Logging {
     consumer.close()
   }
 
-  protected def commitOffsets(cluster: ClusterLinkTestHarness, topic: String, partition: Int, offset: Long, consumerGroup: String): Unit = {
+  protected def commitOffsets(cluster: ClusterLinkTestHarness, topic: String,offset: Long, consumerGroup: String): Unit = {
     val consumerProps = new Properties()
     consumerProps.setProperty(ConsumerConfig.GROUP_ID_CONFIG, consumerGroup)
     val consumer = cluster.createConsumer(configOverrides = consumerProps)
     val offsetEntries = Map[TopicPartition, OffsetAndMetadata](
-      new TopicPartition(topic, partition) -> new OffsetAndMetadata(offset, Optional.empty(), "")
+      new TopicPartition(topic,0) -> new OffsetAndMetadata(offset,Optional.empty(),"")
     )
     consumer.commitSync(offsetEntries.asJava)
     consumer.close()

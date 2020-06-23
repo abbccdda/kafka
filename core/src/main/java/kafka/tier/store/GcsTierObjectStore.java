@@ -105,7 +105,7 @@ public class GcsTierObjectStore implements TierObjectStore {
                            File offsetIndexData, File timestampIndexData,
                            Optional<File> producerStateSnapshotData,
                            Optional<ByteBuffer> transactionIndexData,
-                           Optional<File> epochState) {
+                           Optional<ByteBuffer> epochState) {
         Map<String, String> metadata = objectMetadata.objectMetadata(clusterIdOpt, brokerIdOpt);
         try {
             putFile(keyPath(objectMetadata, FileType.SEGMENT), metadata, segmentData);
@@ -117,7 +117,7 @@ public class GcsTierObjectStore implements TierObjectStore {
                 putBuf(keyPath(objectMetadata, FileType.TRANSACTION_INDEX), metadata,
                         transactionIndexData.get());
             if (epochState.isPresent())
-                putFile(keyPath(objectMetadata, FileType.EPOCH_STATE), metadata, epochState.get());
+                putBuf(keyPath(objectMetadata, FileType.EPOCH_STATE), metadata, epochState.get());
         } catch (StorageException e) {
             throw new TierObjectStoreRetriableException("Failed to upload segment: " + objectMetadata, e);
         } catch (Exception e) {

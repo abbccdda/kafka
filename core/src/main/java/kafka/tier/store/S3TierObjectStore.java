@@ -124,7 +124,7 @@ public class S3TierObjectStore implements TierObjectStore {
                            File offsetIndexData, File timestampIndexData,
                            Optional<File> producerStateSnapshotData,
                            Optional<ByteBuffer> transactionIndexData,
-                           Optional<File> epochState) {
+                           Optional<ByteBuffer> epochState) {
         Map<String, String> metadata = objectMetadata.objectMetadata(clusterIdOpt, brokerIdOpt);
 
         try {
@@ -134,7 +134,8 @@ public class S3TierObjectStore implements TierObjectStore {
             producerStateSnapshotData.ifPresent(file -> putFile(keyPath(objectMetadata, FileType.PRODUCER_STATE), metadata, file));
             transactionIndexData.ifPresent(abortedTxnsBuf -> putBuf(keyPath(objectMetadata,
                     FileType.TRANSACTION_INDEX), metadata, abortedTxnsBuf));
-            epochState.ifPresent(file -> putFile(keyPath(objectMetadata, FileType.EPOCH_STATE), metadata, file));
+            epochState.ifPresent(buf -> putBuf(keyPath(objectMetadata, FileType.EPOCH_STATE),
+                    metadata, buf));
         } catch (AmazonClientException e) {
             throw new TierObjectStoreRetriableException("Failed to upload segment: " + objectMetadata, e);
         } catch (Exception e) {
