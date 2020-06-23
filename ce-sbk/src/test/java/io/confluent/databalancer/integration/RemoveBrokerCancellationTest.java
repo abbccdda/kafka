@@ -130,7 +130,7 @@ public class RemoveBrokerCancellationTest extends DataBalancerClusterTestHarness
    */
   @Test
   public void testRemoveBroker_BrokerRestartCancelsRemoval() throws InterruptedException, ExecutionException {
-    KafkaTestUtils.createTopic(adminClient, "test-topic", 50, 3);
+    KafkaTestUtils.createTopic(adminClient, "test-topic", 50, 2);
     kafkaCluster.produceData("test-topic", 200);
     KafkaServer controllerServer = controllerKafkaServer();
     KafkaDataBalanceManager dataBalancer = (KafkaDataBalanceManager) controllerServer.kafkaController().dataBalancer().get();

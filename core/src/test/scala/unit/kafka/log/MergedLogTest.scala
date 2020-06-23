@@ -33,7 +33,7 @@ import org.apache.kafka.common.record.EndTransactionMarker
 import org.apache.kafka.common.record.FileRecords.FileTimestampAndOffset
 import org.apache.kafka.common.utils.{Time, Utils}
 import org.apache.kafka.common.utils.CloseableIterator
-import org.junit.Assert.{assertEquals, assertTrue, fail}
+import org.junit.Assert.{assertEquals, assertFalse, assertTrue, fail}
 import org.junit.{After, Before, Test}
 import org.mockito.ArgumentMatchers
 import org.mockito.Mockito._
@@ -372,6 +372,8 @@ class MergedLogTest {
 
     // Create log with just active segment.
     val log = createMergedLog(logConfig)
+    log.assignTopicId(UUID.randomUUID)
+    assertTrue(log.tierPartitionState.isTieringEnabled)
 
     // Populate few segments, to ensure the test is setup to focus on verifying roll logic on
     // active segments.
@@ -381,7 +383,7 @@ class MergedLogTest {
 
     log.appendAsLeader(createRecords, 0)
     assertEquals(s"There should be $numRolledSegments rolled segments + 1 active segment", numRolledSegments + 1, log.numberOfSegments)
-    log.maybeForceRoll
+    log.maybeForceRoll()
     assertEquals(s"There should be $numRolledSegments rolled segments + 1 active segment", numRolledSegments + 1, log.numberOfSegments)
 
     for (_ <- 1 to 2)
@@ -392,14 +394,14 @@ class MergedLogTest {
     // Before writing tierSegmentHotsetRollMinBytes, we make sure that there are 5 rolled segments + 1 active
     // segment even when tierLocalHotsetMs has elapsed.
     mockTime.sleep(tierLocalHotsetMs + 1)
-    log.maybeForceRoll
+    log.maybeForceRoll()
     assertEquals(s"There should be $numRolledSegments rolled segments + 1 active segment", numRolledSegments + 1, log.numberOfSegments)
 
     // After writing tierSegmentHotsetRollMinBytes, make sure that maybeForceRoll rolls the active segment
     // as tierLocalHotsetMs has passed since first message in active segment.
     for (_ <- 3 to 5)
       log.appendAsLeader(createRecords, leaderEpoch = 0)
-    log.maybeForceRoll
+    log.maybeForceRoll()
     assertEquals(s"There should be $numRolledSegments rolled segments + 2 active segments", 7, log.numberOfSegments)
 
     // After writing another tierSegmentHotsetRollMinBytes, make sure that roll does not automatically
@@ -412,6 +414,41 @@ class MergedLogTest {
     // Now, trigger the roll and check if it has rolled the active segment.
     log.maybeForceRoll()
     assertEquals(s"There should be $numRolledSegments rolled segments + 4 active segments", numRolledSegments + 3, log.numberOfSegments)
+  }
+
+  @Test
+  def testForceRollOnUntierableLog(): Unit = {
+    def createRecords = TestUtils.singletonRecords(key = "key".getBytes, value = "test".getBytes, timestamp = mockTime.milliseconds)
+    val recordSize = createRecords.sizeInBytes()
+
+    // create a log with compaction; this will make the log ineligible for being tiered
+    val tierLocalHotsetMs = 10 * 60 * 60L
+    val tierSegmentHotsetRollMinBytes = 5 * recordSize
+    val logConfig = LogTest.createLogConfig(
+      segmentBytes = 100 * recordSize,
+      tierEnable = true,
+      tierSegmentHotsetRollMinBytes = 5 * recordSize,
+      segmentMs = Long.MaxValue,
+      retentionBytes = Long.MaxValue,
+      tierLocalHotsetMs = tierLocalHotsetMs,
+      cleanupPolicy = LogConfig.Compact)
+    val log = createMergedLog(logConfig)
+
+    log.assignTopicId(UUID.randomUUID)
+    assertFalse(log.tierPartitionState.isTieringEnabled)
+
+    // append enough records to satisfy hotset roll min bytes
+    for (_ <- 1 to 10)
+      log.appendAsLeader(createRecords, leaderEpoch = 0)
+    assertTrue(log.activeSegment.size > tierSegmentHotsetRollMinBytes)
+
+    // allow for the configured hotset retention to pass
+    mockTime.sleep(tierLocalHotsetMs + 1)
+
+    // a force roll should be a NOOP as tiering is not enabled for this log
+    val expectedNumSegments = log.numberOfSegments
+    log.maybeForceRoll()
+    assertEquals(expectedNumSegments, log.numberOfSegments)
   }
 
   @Test

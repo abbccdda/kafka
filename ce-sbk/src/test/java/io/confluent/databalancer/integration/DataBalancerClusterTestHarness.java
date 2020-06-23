@@ -11,9 +11,11 @@ import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.BrokerRemovalDescription;
 import org.apache.kafka.clients.admin.BrokerRemovalError;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
+import org.apache.kafka.common.errors.ApiException;
 import org.apache.kafka.common.errors.PlanComputationException;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
+import org.apache.kafka.common.utils.Exit;
 import org.apache.kafka.test.IntegrationTest;
 import org.junit.After;
 import org.junit.Before;
@@ -29,6 +31,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 
 @Category(IntegrationTest.class)
@@ -44,6 +51,8 @@ public abstract class DataBalancerClusterTestHarness {
   protected String brokerList = null;
 
   private static Duration balancerStartTimeout = Duration.ofSeconds(120);
+  protected static Duration removalFinishTimeout = Duration.ofMinutes(3);
+  protected static Duration removalPollInterval = Duration.ofSeconds(2);
 
   // To be defined by the test class -- how many brokers initially in the cluster.
   protected abstract int initialBrokerCount();
@@ -107,6 +116,65 @@ public abstract class DataBalancerClusterTestHarness {
 
   public void addBroker(int newBrokerId) {
     kafkaCluster.startBroker(newBrokerId, generalProperties);
+  }
+
+  /**
+   * Attempts to remove broker from the cluster, and verifies post-removal cluster state.
+   * @param server KafkaServer to shut down
+   * @param exited AtomicBoolean indicating shutdown status of server
+   */
+  protected void removeBroker(KafkaServer server, AtomicBoolean exited) throws InterruptedException, ExecutionException {
+    int brokerToRemoveId = server.config().brokerId();
+
+    Exit.setExitProcedure((statusCode, message) -> {
+      info("Shutting down {} as part of broker removal test", server.config().brokerId());
+      server.shutdown();
+      exited.set(true);
+    });
+
+    info("Removing broker with id {}", brokerToRemoveId);
+    adminClient.removeBrokers(Collections.singletonList(brokerToRemoveId)).all().get();
+
+    AtomicReference<ApiException> failException = new AtomicReference<>();
+    // await removal completion and retry removal in case something went wrong
+    org.apache.kafka.test.TestUtils.waitForCondition(() -> {
+              Map<Integer, BrokerRemovalDescription> descriptionMap = adminClient.describeBrokerRemovals().descriptions().get();
+              if (descriptionMap.isEmpty()) {
+                return false;
+              }
+              BrokerRemovalDescription brokerRemovalDescription = descriptionMap.get(brokerToRemoveId);
+
+              if (isCompletedRemoval(brokerRemovalDescription)) {
+                return true;
+              } else if (isFailedPlanComputationInRemoval(brokerRemovalDescription)) {
+                // a common failure is not having enough metrics for plan computation - simply retry it
+                return retryRemoval(brokerRemovalDescription, brokerToRemoveId);
+              } else if (isFailedRemoval(brokerRemovalDescription)) {
+                String errMsg = String.format("Broker removal failed for an unexpected reason - description object %s", brokerRemovalDescription);
+                failException.set((ApiException) brokerRemovalDescription.removalError().get().exception());
+                info(errMsg);
+                return true;
+              } else {
+                info("Removal is still pending. PAR: {} BSS: {}",
+                        brokerRemovalDescription.partitionReassignmentsStatus(), brokerRemovalDescription.brokerShutdownStatus());
+                return false;
+              }
+            },
+            removalFinishTimeout.toMillis(),
+            removalPollInterval.toMillis(),
+            () -> "Broker removal did not complete successfully in time!"
+    );
+    if (failException.get() != null) {
+      throw failException.get();
+    }
+
+    assertTrue("Expected Exit to be called", exited.get());
+    org.apache.kafka.test.TestUtils.waitForCondition(() -> adminClient.describeCluster().nodes().get().size() == initialBrokerCount() - 1,
+            60_000L, "Cluster size did not shrink!");
+    assertEquals("Expected one broker removal to be stored in memory", 1,
+            adminClient.describeBrokerRemovals().descriptions().get().size());
+    assertEquals("Broker should have no partitions after removal",
+            Collections.emptyList(), DataBalancerIntegrationTestUtils.partitionsOnBroker(brokerToRemoveId, adminClient));
   }
 
   public void info(String msg) {

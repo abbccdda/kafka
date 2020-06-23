@@ -641,6 +641,7 @@ public class KafkaCruiseControlTest {
         kcc.addBrokers(newBrokers, null, "testOpId");
         verify(clusterModel).setBrokerState(1, Broker.State.NEW); // verify plan-computation
         verify(clusterModel).setBrokerState(2, Broker.State.NEW); // verify plan-computation
+        verify(executor).dropRecentlyRemovedBrokers(eq(newBrokers));
         verify(executor).executeProposals(eq(proposals), eq(Collections.emptySet()), eq(null), eq(loadMonitor),
                 isNull(), any(), isNull(), isNull(), any(), any(), isNull());
         verify(mockCandG, atLeast(3)).cluster();
@@ -684,6 +685,7 @@ public class KafkaCruiseControlTest {
         kcc.addBrokers(newBrokers, null, "testOpId");
         verify(clusterModel).setBrokerState(1, Broker.State.NEW); // verify plan-computation
         verify(clusterModel).setBrokerState(2, Broker.State.NEW); // verify plan-computation
+        verify(executor).dropRecentlyRemovedBrokers(eq(newBrokers));
         verify(executor).executeProposals(eq(proposals), eq(Collections.emptySet()), eq(null), eq(loadMonitor),
                 isNull(), any(), isNull(), isNull(), any(), any(), isNull());
         verify(loadMonitor, atLeast(3)).clusterModel(anyLong(), any(), any());
@@ -723,6 +725,7 @@ public class KafkaCruiseControlTest {
 
         verify(clusterModel).setBrokerState(1, Broker.State.NEW); // verify plan-computation
         verify(clusterModel).setBrokerState(2, Broker.State.NEW); // verify plan-computation
+        verify(executor).dropRecentlyRemovedBrokers(eq(newBrokers));
         verify(executor, never()).executeProposals(any(), eq(Collections.emptySet()), eq(null), eq(loadMonitor),
                 isNull(), any(), isNull(), isNull(), any(), any(), isNull());
     }

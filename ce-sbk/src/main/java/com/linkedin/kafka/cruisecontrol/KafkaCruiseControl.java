@@ -11,6 +11,7 @@ import com.linkedin.kafka.cruisecontrol.analyzer.OptimizerResult;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.Goal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.PreferredLeaderElectionGoal;
 import com.linkedin.kafka.cruisecontrol.async.progress.OperationProgress;
+import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback;
 import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalFuture;
 import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalOptions;
 import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalPhase;
@@ -40,11 +41,6 @@ import com.linkedin.kafka.cruisecontrol.server.BrokerShutdownManager;
 import com.linkedin.kafka.cruisecontrol.servlet.response.CruiseControlState;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import io.confluent.databalancer.operation.BalanceOpExecutionCompletionCallback;
-import com.linkedin.kafka.cruisecontrol.brokerremoval.BrokerRemovalCallback;
-import java.time.Duration;
-import java.util.Objects;
-import java.util.Optional;
-
 import io.confluent.databalancer.operation.BrokerRemovalStateMachine;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.utils.SystemTime;
@@ -53,12 +49,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nonnull;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -320,6 +319,7 @@ public class KafkaCruiseControl {
                 OptimizerResult plan = computeDrainBrokersPlan(
                         removalOptions.brokersToRemove, Collections.emptyList(), removalOptions.operationProgress, removalOptions.planComputationOptions
                 );
+                LOG.info("Computed broker removal plan {}", plan.getProposalSummary());
                 removalOptions.setProposals(plan.goalProposals());
                 return null;
               }
@@ -638,8 +638,9 @@ public class KafkaCruiseControl {
       KafkaCruiseControlUtils.backoff(() -> brokersAreKnown(brokerIds),
               MD_MAX_REFRESH_ATTEMPTS, mdWaitMs, mdMaxWaitMs, _time);
 
+      _executor.dropRecentlyRemovedBrokers(brokerIds);
       OptimizerResult rebalancePlan = generateAddBrokerPlan(brokerIds, goals);
-
+      LOG.info("Computed broker add plan {}", rebalancePlan.getProposalSummary());
       executeProposals(rebalancePlan.goalProposals(),
               Collections.emptySet(),
               isKafkaAssignerMode(goals),

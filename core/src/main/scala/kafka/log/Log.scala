@@ -2166,19 +2166,17 @@ class Log(@volatile private var _dir: File,
    * provisioning planning for the hotset.
    */
   def maybeForceRoll(): Unit = {
-    if (config.tierEnable) {
-      // Check for the condition under log lock and since the lock is reentrant the call to roll can happily execute.
-      lock synchronized  {
-        val currentMs = time.milliseconds()
-        // 'timeWaitedForRoll' call is not in append context hence called with current time as both params.
-        val timeElapsed = activeSegment.timeWaitedForRoll(currentMs, currentMs)
-        val reachedForcedRollMs = timeElapsed > config.tierLocalHotsetMs
-        val activeSegmentSize = activeSegment.size
+    // Check for the condition under log lock and since the lock is reentrant the call to roll can happily execute.
+    lock synchronized {
+      val currentMs = time.milliseconds()
+      // 'timeWaitedForRoll' call is not in append context hence called with current time as both params.
+      val timeElapsed = activeSegment.timeWaitedForRoll(currentMs, currentMs)
+      val reachedForcedRollMs = timeElapsed > config.tierLocalHotsetMs
+      val activeSegmentSize = activeSegment.size
 
-        if (config.tierLocalHotsetMs > 0 && reachedForcedRollMs && activeSegmentSize >= config.tierSegmentHotsetRollMinBytes) {
-          info(s"Forcing roll of new log segment at size $activeSegmentSize after $timeElapsed ms.")
-          roll()
-        }
+      if (config.tierLocalHotsetMs > 0 && reachedForcedRollMs && activeSegmentSize >= config.tierSegmentHotsetRollMinBytes) {
+        info(s"Forcing roll of new log segment at size $activeSegmentSize after $timeElapsed ms.")
+        roll()
       }
     }
   }

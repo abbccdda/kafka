@@ -98,6 +98,13 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   public static final String REQUEST_TIMEOUT_MS_CONFIG = CommonClientConfigs.REQUEST_TIMEOUT_MS_CONFIG;
   private static final String REQUEST_TIMEOUT_MS_DOC = CommonClientConfigs.REQUEST_TIMEOUT_MS_DOC;
 
+  /**
+   * <code>metadata.ttl</code>
+   */
+  public static final String METADATA_TTL_CONFIG = "metadata.ttl";
+  private static final String METADATA_TTL_DOC = "The amount of time the MetadataClient will cache cluster metadata " +
+          "before refreshing";
+  public static final Long DEFAULT_METADATA_TTL = 10_000L;
 
   /**
    * <code>default.api.timeout.ms</code>
@@ -516,6 +523,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
    */
   public static final String DEFAULT_REPLICATION_THROTTLE_CONFIG = ConfluentConfigs.BALANCER_THROTTLE_BASE_CONFIG;
   public static final Long NO_THROTTLE = null;
+  public static final Long DISABLED_THROTTLE = ConfluentConfigs.BALANCER_THROTTLE_NO_THROTTLE;
   public static final long AUTO_THROTTLE = ConfluentConfigs.BALANCER_THROTTLE_AUTO_THROTTLE;
   private static final String DEFAULT_REPLICATION_THROTTLE_DOC = "The replication throttle applied to " +
           "replicas being moved, in bytes per second. A value of null means no throttle is" +
@@ -898,6 +906,12 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 atLeast(0),
                 ConfigDef.Importance.MEDIUM,
                 DEFAULT_API_TIMEOUT_MS_DOC)
+        .define(METADATA_TTL_CONFIG,
+                ConfigDef.Type.LONG,
+                DEFAULT_METADATA_TTL,
+                atLeast(0),
+                ConfigDef.Importance.HIGH,
+                METADATA_TTL_DOC)
         .define(PARTITION_METRICS_WINDOW_MS_CONFIG,
                 ConfigDef.Type.LONG,
                 DEFAULT_PARTITION_METRICS_MS,
