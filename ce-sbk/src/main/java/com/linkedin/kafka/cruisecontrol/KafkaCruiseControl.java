@@ -319,6 +319,7 @@ public class KafkaCruiseControl {
                 OptimizerResult plan = computeDrainBrokersPlan(
                         removalOptions.brokersToRemove, Collections.emptyList(), removalOptions.operationProgress, removalOptions.planComputationOptions
                 );
+                LOG.info("Computed broker removal plan {}", plan.getProposalSummary());
                 removalOptions.setProposals(plan.goalProposals());
                 return null;
               }
@@ -639,7 +640,7 @@ public class KafkaCruiseControl {
 
       _executor.dropRecentlyRemovedBrokers(brokerIds);
       OptimizerResult rebalancePlan = generateAddBrokerPlan(brokerIds, goals);
-
+      LOG.info("Computed broker add plan {}", rebalancePlan.getProposalSummary());
       executeProposals(rebalancePlan.goalProposals(),
               Collections.emptySet(),
               isKafkaAssignerMode(goals),

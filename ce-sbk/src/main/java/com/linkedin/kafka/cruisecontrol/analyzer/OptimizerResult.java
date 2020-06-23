@@ -6,9 +6,12 @@ package com.linkedin.kafka.cruisecontrol.analyzer;
 
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.Goal;
 import com.linkedin.kafka.cruisecontrol.executor.ExecutionProposal;
+import com.linkedin.kafka.cruisecontrol.model.Broker;
 import com.linkedin.kafka.cruisecontrol.model.ClusterModelStats;
 import com.linkedin.kafka.cruisecontrol.monitor.ModelGeneration;
 import com.linkedin.kafka.cruisecontrol.servlet.response.stats.BrokerStats;
+import com.linkedin.kafka.cruisecontrol.servlet.response.stats.SingleBrokerStats;
+
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -17,6 +20,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.SortedSet;
+import java.util.TreeSet;
+import java.util.stream.Collectors;
 
 import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.MAX_BALANCEDNESS_SCORE;
 
@@ -186,17 +192,25 @@ public class OptimizerResult {
                          numLeadershipMovements);
   }
 
+  private SortedSet<Integer> brokersWithState(Broker.State state) {
+    return _brokerStatsBeforeOptimization.stats().stream().filter(broker -> broker.state() == state)
+            .mapToInt(SingleBrokerStats::id).boxed().collect(Collectors.toCollection(TreeSet::new));
+  }
+
   public String getProposalSummary() {
     List<Number> moveStats = getMovementStats();
+    SortedSet<Integer> newBrokers = brokersWithState(Broker.State.NEW);
+    SortedSet<Integer> deadOrRemovedBrokers = brokersWithState(Broker.State.DEAD);
     return String.format("%n%nOptimization has %d inter-broker replica(%d MB) moves, %d intra-broker replica(%d MB) moves"
                          + " and %d leadership moves with a cluster model of %d recent windows and %.3f%% of the partitions"
-                         + " covered.%nExcluded Topics: %s.%nExcluded Brokers For Leadership: %s.%nExcluded Brokers For "
-                         + "Replica Move: %s.%nCounts: %s%nOn-demand Balancedness Score Before (%.3f) After(%.3f).",
+                         + " covered.%nExcluded Topics: %s.%nNew Brokers: %s.%nDead or removed Brokers: %s.%nExcluded"
+                         + " Brokers For Leadership: %s.%nExcluded Brokers For Replica Move: %s.%nCounts: %s%nOn-demand"
+                         + " Balancedness Score Before (%.3f) After(%.3f).",
                          moveStats.get(0).intValue(), moveStats.get(1).longValue(), moveStats.get(2).intValue(),
                          moveStats.get(3).longValue(), moveStats.get(4).intValue(), _clusterModelStats.numSnapshotWindows(),
                          _clusterModelStats.monitoredPartitionsPercentage(), excludedTopics(),
-                         excludedBrokersForLeadership(), excludedBrokersForReplicaMove(), _clusterModelStats.toStringCounts(),
-                         _onDemandBalancednessScoreBefore, _onDemandBalancednessScoreAfter);
+                         newBrokers, deadOrRemovedBrokers, excludedBrokersForLeadership(), excludedBrokersForReplicaMove(),
+                         _clusterModelStats.toStringCounts(), _onDemandBalancednessScoreBefore, _onDemandBalancednessScoreAfter);
   }
 
   public Map<String, Object> getProposalSummaryForJson() {
