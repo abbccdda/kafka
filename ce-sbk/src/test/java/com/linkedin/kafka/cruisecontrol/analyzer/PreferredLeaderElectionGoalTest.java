@@ -10,7 +10,6 @@ import com.linkedin.kafka.cruisecontrol.common.Resource;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.PreferredLeaderElectionGoal;
 import com.linkedin.kafka.cruisecontrol.common.TestConstants;
 import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityInfo;
-import com.linkedin.kafka.cruisecontrol.exception.KafkaCruiseControlException;
 import com.linkedin.kafka.cruisecontrol.model.Broker;
 import com.linkedin.kafka.cruisecontrol.model.ClusterModel;
 import com.linkedin.kafka.cruisecontrol.model.Disk;
@@ -75,7 +74,7 @@ public class PreferredLeaderElectionGoalTest {
   }
 
   @Test
-  public void testOptimizeWithDemotedBrokers() {
+  public void testOptimizeWithDemotedBrokers() throws ClusterModel.NonExistentBrokerException {
     ClusterModel clusterModel = createClusterModel(true, false)._clusterModel;
     clusterModel.setBrokerState(0, Broker.State.DEMOTED);
 
@@ -155,7 +154,7 @@ public class PreferredLeaderElectionGoalTest {
   }
 
   @Test
-  public void testOptimizeWithDemotedBrokersAndDisks() {
+  public void testOptimizeWithDemotedBrokersAndDisks() throws ClusterModel.NonExistentBrokerException {
     ClusterModel clusterModel = createClusterModel(true, true)._clusterModel;
     clusterModel.setBrokerState(0, Broker.State.DEMOTED);
     clusterModel.broker(1).disk(LOGDIR0).setState(Disk.State.DEMOTED);
@@ -197,7 +196,7 @@ public class PreferredLeaderElectionGoalTest {
   }
 
   @Test
-  public void testOptimizeWithDemotedBrokersAndSkipUrpDemotion() throws KafkaCruiseControlException {
+  public void testOptimizeWithDemotedBrokersAndSkipUrpDemotion() throws ClusterModel.NonExistentBrokerException {
     ClusterModelAndInfo clusterModelAndInfo = createClusterModel(false, false);
     ClusterModel clusterModel = clusterModelAndInfo._clusterModel;
     Cluster cluster = clusterModelAndInfo._clusterInfo;
@@ -217,7 +216,7 @@ public class PreferredLeaderElectionGoalTest {
   }
 
   @Test
-  public void testOptimizeWithDemotedBrokersAndExcludeFollowerDemotion() {
+  public void testOptimizeWithDemotedBrokersAndExcludeFollowerDemotion() throws ClusterModel.NonExistentBrokerException {
     ClusterModel clusterModel = createClusterModel(true, false)._clusterModel;
     clusterModel.setBrokerState(2, Broker.State.DEMOTED);
 
@@ -244,7 +243,7 @@ public class PreferredLeaderElectionGoalTest {
   }
 
   @Test
-  public void testOptimizeWithDemotedBrokersAndSkipUrpDemotionAndExcludeFollowerDemotion() {
+  public void testOptimizeWithDemotedBrokersAndSkipUrpDemotionAndExcludeFollowerDemotion() throws ClusterModel.NonExistentBrokerException {
     ClusterModelAndInfo clusterModelAndInfo = createClusterModel(false, false);
     ClusterModel clusterModel = clusterModelAndInfo._clusterModel;
     Cluster cluster = clusterModelAndInfo._clusterInfo;

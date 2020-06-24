@@ -407,7 +407,14 @@ public class KafkaCruiseControl {
           operationProgress);
 
       sanityCheckBrokersHavingOfflineReplicasOnBadDisks(overriddenGoals, clusterModel);
-      removedBrokers.forEach(id -> clusterModel.setBrokerState(id, Broker.State.DEAD));
+      removedBrokers.forEach(id -> {
+        try {
+          clusterModel.setBrokerState(id, Broker.State.DEAD);
+        } catch (ClusterModel.NonExistentBrokerException exc) {
+          // it's OK to continue here because the broker has no replicas on it and is offline - as if we've removed it
+          LOG.warn("Broker {} is not present in the cluster model used for the broker drain. This can be due to the broker being offline and not having any replicas on it.", id);
+        }
+      });
       return getProposals(clusterModel,
           goalsByPriority,
           operationProgress,
@@ -681,7 +688,9 @@ public class KafkaCruiseControl {
                 modelCompletenessRequirements,
                 operationProgress);
         sanityCheckBrokersHavingOfflineReplicasOnBadDisks(goals, clusterModel);
-        brokerIds.forEach(id -> clusterModel.setBrokerState(id, Broker.State.NEW));
+        for (Integer id : brokerIds) {
+          clusterModel.setBrokerState(id, Broker.State.NEW);
+        }
 
         OptimizerResult result = getProposals(clusterModel,
                 goalsByPriority,

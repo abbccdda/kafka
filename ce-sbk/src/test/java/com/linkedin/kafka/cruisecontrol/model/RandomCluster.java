@@ -91,7 +91,7 @@ public class RandomCluster {
    */
   public static void populate(ClusterModel cluster,
                               Map<ClusterProperty, Number> properties,
-                              TestConstants.Distribution replicaDistribution) {
+                              TestConstants.Distribution replicaDistribution) throws ClusterModel.NonExistentBrokerException {
     populate(cluster, properties, replicaDistribution, false, true, Collections.emptySet());
   }
 
@@ -111,7 +111,7 @@ public class RandomCluster {
                               TestConstants.Distribution replicaDistribution,
                               boolean rackAware,
                               boolean leaderInFirstPosition,
-                              Set<String> excludedTopics) {
+                              Set<String> excludedTopics) throws ClusterModel.NonExistentBrokerException {
     // Sanity checks.
     int numBrokers = cluster.brokers().size();
     int numDeadBrokers = properties.get(ClusterProperty.NUM_DEAD_BROKERS).intValue();
@@ -343,7 +343,7 @@ public class RandomCluster {
                                         int numBrokersWithBadDisk,
                                         Set<String> excludedTopics,
                                         boolean leaderInFirstPosition,
-                                        boolean populateDisk) {
+                                        boolean populateDisk) throws ClusterModel.NonExistentBrokerException {
     // Mark dead brokers
     if (numDeadBrokers > 0) {
       int markedBrokersContainingExcludedTopicReplicas = 0;

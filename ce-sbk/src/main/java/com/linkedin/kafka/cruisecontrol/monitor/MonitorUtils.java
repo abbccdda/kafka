@@ -338,11 +338,17 @@ public class MonitorUtils {
    * @param cluster Kafka cluster.
    */
   static void setBadBrokerState(ClusterModel clusterModel, Cluster cluster) {
-    MonitorUtils.deadBrokersWithReplicas(cluster).forEach(brokerId -> clusterModel.setBrokerState(brokerId, Broker.State.DEAD));
-    for (Integer brokerId : MonitorUtils.brokersWithOfflineReplicas(cluster)) {
-      if (clusterModel.broker(brokerId).isAlive()) {
-        clusterModel.setBrokerState(brokerId, Broker.State.BAD_DISKS);
+    try {
+      for (Integer brokerId : MonitorUtils.deadBrokersWithReplicas(cluster)) {
+        clusterModel.setBrokerState(brokerId, Broker.State.DEAD);
       }
+      for (Integer brokerId : MonitorUtils.brokersWithOfflineReplicas(cluster)) {
+        if (clusterModel.broker(brokerId).isAlive()) {
+          clusterModel.setBrokerState(brokerId, Broker.State.BAD_DISKS);
+        }
+      }
+    } catch (ClusterModel.NonExistentBrokerException exception) {
+      throw new IllegalArgumentException(exception.getMessage(), exception);
     }
   }
 

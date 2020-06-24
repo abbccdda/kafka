@@ -289,7 +289,9 @@ public class ExcludedBrokersForReplicaMoveTest {
                                  ClusterModel clusterModel,
                                  Collection<Integer> deadBrokers,
                                  Boolean expectedToOptimize) throws Exception {
-    deadBrokers.forEach(id -> clusterModel.setBrokerState(id, Broker.State.DEAD));
+    for (Integer id : deadBrokers) {
+      clusterModel.setBrokerState(id, Broker.State.DEAD);
+    }
     return new Object[]{tid, goal(goalClass), excludedBrokersForReplicaMove, exceptionClass, clusterModel, expectedToOptimize};
   }
 }

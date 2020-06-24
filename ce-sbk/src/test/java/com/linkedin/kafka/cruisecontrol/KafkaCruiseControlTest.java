@@ -61,6 +61,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -419,7 +420,7 @@ public class KafkaCruiseControlTest {
     }
 
     @Test
-    public void removeBroker_planExecutionFails() throws NotEnoughValidWindowsException, KafkaCruiseControlException {
+    public void removeBroker_planExecutionFails() throws NotEnoughValidWindowsException, KafkaCruiseControlException, ClusterModel.NonExistentBrokerException {
         when(loadMonitor.clusterModel(anyLong(), any(), any())).thenReturn(clusterModel);
         // plan execution fails when the proposal has nothing to execute
         when(goalOptimizer.optimizations(
@@ -511,12 +512,21 @@ public class KafkaCruiseControlTest {
         verify(mockExecutionCompletionCb).accept(eq(true), isNull());
     }
 
+    /**
+     * If a broker is offline (shutdown) and has no replicas on it,
+     * it won't be present in the cluster model and the plan computation for its removal will be empty.
+     * In such cases, the removal should still complete
+     */
     @Test
-    public void removeBroker_emptyPlanShouldCompleteSuccessfully() throws Throwable {
+    public void removeBroker_emptyPlanAndNonExistentBrokerShouldCompleteSuccessfully() throws Throwable {
         String uuid = "uuid";
         when(loadMonitor.clusterModel(anyLong(), any(), any())).thenReturn(clusterModel);
         Set<ExecutionProposal> emptyProposals = new HashSet<>();
-        when(optimizerResult.goalProposals()).thenReturn(emptyProposals);
+        when(optimizerResult.goalProposals()).thenReturn(emptyProposals); // empty plan
+        // assume the broker is offline and has no replicas on it
+        doThrow(new ClusterModel.NonExistentBrokerException("non existent broker"))
+            .when(clusterModel).setBrokerState(BROKER_ID_TO_REMOVE, Broker.State.DEAD);
+
         when(goalOptimizer.optimizations(
             eq(clusterModel), eq(Collections.emptyList()), any(), isNull(),
             eq(Collections.emptySet()), eq(Collections.emptySet()), eq(false),
