@@ -262,6 +262,7 @@ public class ConfluentProvider implements AccessRuleProvider, GroupProvider, Met
         KafkaHttpServerBinder httpServerBinder = serverInfo.httpServerBinder();
         httpServerBinder.bindInstance(Authorizer.class, authorizer);
         httpServerBinder.bindInstance(AuthStore.class, authStore);
+        httpServerBinder.bindInstance(ConfluentAdmin.class, createMdsAdminClient(serverInfo, clientConfigs));
         httpServerBinder.bindInstance(AuthenticateCallbackHandler.class, authenticateCallbackHandler);
       }
 

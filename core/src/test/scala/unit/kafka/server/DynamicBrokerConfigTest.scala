@@ -19,7 +19,7 @@ package kafka.server
 
 import java.time.Duration
 import java.{lang, util}
-import java.util.Properties
+import java.util.{Optional, Properties}
 import java.util.concurrent.CompletionStage
 
 import io.confluent.http.server.KafkaHttpServer
@@ -417,6 +417,7 @@ class DynamicBrokerConfigTest {
       override def isFailed: Boolean = ???
       override def start(): Unit = ???
       override def stop(): Unit = ???
+      override def getError: Optional[Throwable] = ???
       override def awaitStarted(): Unit = ???
       override def awaitStarted(timeout: Duration): Boolean = ???
       override def awaitStopped(): Unit = ???

@@ -46,19 +46,20 @@ public class CrnPatternMatcherBenchmark {
 
   @Setup(Level.Trial)
   public void setUp() throws CrnSyntaxException {
-    matcher = new CrnPatternMatcher<>();
+    CrnPatternMatcher.Builder<String> builder = CrnPatternMatcher.builder();
     for (int i = 0; i < PATTERNS; i++) {
       // PATTERNS should be at least CLUSTERS * 10 so that each digit is represented in each %d
-      String patternString = String.format("crn://confluent.cloud/kafka=%d*/topic=clicks%d*",
-          i % CLUSTERS, i / CLUSTERS);
+      String patternString = String.format("crn://%s/kafka=%d*/topic=clicks%d*",
+          (i % 2 == 0) ? "confluent.cloud" : "", i % CLUSTERS, i / CLUSTERS);
       values[i] = VALUE + i;
-      matcher.setPattern(ConfluentResourceName.fromString(patternString), values[i]);
+      builder.setPattern(ConfluentResourceName.fromString(patternString), values[i]);
     }
+    matcher = builder.build();
     for (int i = 0; i < DISTINCT_KEYS; i++) {
       // we're prefix matching and each first digit is represented
       keys[i] = ConfluentResourceName
-          .fromString(String.format("crn://confluent.cloud/kafka=%d/topic=clicks%d",
-              i % CLUSTERS, i / CLUSTERS));
+          .fromString(String.format("crn://%s/kafka=%d/topic=clicks%d",
+              (i % 3 == 0) ? "confluent.cloud" : "", i % CLUSTERS, i / CLUSTERS));
     }
   }
 

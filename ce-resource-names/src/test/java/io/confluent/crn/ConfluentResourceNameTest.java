@@ -429,7 +429,8 @@ public class ConfluentResourceNameTest {
         "crn://confluent.cloud/organization=123/kafka=*/topic=clicks",
         "crn://confluent.cloud/organization=123/kafka=*/topic=*",
         "crn://confluent.cloud/organization=123/kafka=lkc-a1b2c3",
-        "crn://confluent.cloud/organization=123/kafka=lkc-a1b2c3/topic=*");
+        "crn://confluent.cloud/organization=123/kafka=lkc-a1b2c3/topic=*",
+        "crn:///kafka=a1b2c3/topic=clicks");
 
     List<String> sorted = unsorted.stream()
         .flatMap(s -> {
@@ -444,6 +445,7 @@ public class ConfluentResourceNameTest {
 
     Assert.assertEquals(
         Arrays.asList(
+            "crn:///kafka=a1b2c3/topic=clicks",
             "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=*",
             "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=cli*",
             "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks*",

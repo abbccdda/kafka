@@ -5,6 +5,7 @@
 package io.confluent.http.server;
 
 import java.time.Duration;
+import java.util.Optional;
 
 /**
  * An HTTP server that runs inside the Kafka broker.
@@ -114,6 +115,13 @@ public interface KafkaHttpServer {
    * @since 6.0.0
    */
   void stop();
+
+  /**
+   * Returns the Throwable was raised transitioning the server to state FAILED.
+   *
+   * @since 6.0.0
+   */
+  Optional<Throwable> getError();
 
   /**
    * Waits until this {@code KafkaHttpServer} reaches either state RUNNING, or a state from which

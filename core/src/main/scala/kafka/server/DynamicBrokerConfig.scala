@@ -30,7 +30,7 @@ import kafka.server.QuotaType.{Fetch, Produce, Request}
 import kafka.tier.fetcher.TierFetcher
 import kafka.utils.{CoreUtils, Logging, PasswordEncoder}
 import kafka.zk.{AdminZkClient, KafkaZkClient}
-import org.apache.kafka.common.Reconfigurable
+import org.apache.kafka.common.{DelegatingReconfigurable, Reconfigurable}
 import org.apache.kafka.common.config.{AbstractConfig, ConfigDef, ConfigException, SslConfigs}
 import org.apache.kafka.common.metrics.MetricsReporter
 import org.apache.kafka.common.config.types.Password
@@ -257,11 +257,8 @@ class DynamicBrokerConfig(private val kafkaConfig: KafkaConfig) extends Logging 
       case Some(authz: Reconfigurable) => addReconfigurable(authz)
       case _ =>
     }
-    kafkaServer.httpServer match {
-      case Some(httpServer: Reconfigurable) => addReconfigurable(httpServer)
-      case _ =>
-    }
 
+    addReconfigurable(new DelegatingReconfigurable(() => kafkaServer.httpServer.orNull))
     addReconfigurable(kafkaServer.auditLogProvider)
     addReconfigurable(kafkaServer.kafkaYammerMetrics)
     addReconfigurable(new DynamicMetricsReporters(kafkaConfig.brokerId, kafkaServer))

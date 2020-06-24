@@ -5,6 +5,7 @@
 package io.confluent.http.server;
 
 import org.eclipse.jetty.servlet.ServletContextHandler;
+import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.glassfish.jersey.server.ResourceConfig;
 
 /**
@@ -23,6 +24,15 @@ public interface KafkaHttpServlet {
    * Add any servlet filters that should be called before resource handling.
    */
   default void configurePreResourceHandling(ServletContextHandler context) {
+    configurePreResourceHandling(context, null);
+  }
+
+  /**
+   * Configure your JAX-RS resource handling components which require access to
+   * the sslContextFactory. i.e. Transparent forwarding of requests.
+   */
+  default void configurePreResourceHandling(ServletContextHandler context,
+                                            SslContextFactory sslContextFactory) {
   }
 
   /**

@@ -13,6 +13,10 @@ public class CrnPatternMatcherTest {
   @Test
   public void testMatch() throws CrnSyntaxException {
     List<String> patterns = Arrays.asList(
+        "crn:///kafka=lkc-a1b2c3/topic=clacks",
+        "crn:///kafka=lkc-b2c3a1/topic=clacks",
+        "crn:///kafka=lkc-b2c3a1/topic=*",
+        "crn:///organization=123/kafka=lkc-b2c3a1/topic=*",
         "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks",
         "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks2",
         "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clocks",
@@ -26,7 +30,7 @@ public class CrnPatternMatcherTest {
         "crn://confluent.cloud/organization=123/kafka=lkc-a1b2c3/topic=*",
         "crn://confluent.cloud/organization=123/kafka=lkc-e5g6f7/topic=*");
 
-    CrnPatternMatcher<String> matcher = new CrnPatternMatcher<>();
+    CrnPatternMatcher.Builder<String> builder = CrnPatternMatcher.builder();
     patterns.stream()
         .flatMap(s -> {
           try {
@@ -35,7 +39,8 @@ public class CrnPatternMatcherTest {
             return Stream.empty();
           }
         })
-        .forEach(p -> matcher.setPattern(p, p.toString()));
+        .forEach(p -> builder.setPattern(p, p.toString()));
+    CrnPatternMatcher<String> matcher = builder.build();
 
     Assert.assertEquals(
         "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks",
@@ -77,6 +82,26 @@ public class CrnPatternMatcherTest {
         "crn://confluent.cloud/organization=123/kafka=lkc-e5g6f7/topic=*",
         matcher.match(ConfluentResourceName.fromString(
             "crn://confluent.cloud/organization=123/kafka=lkc-e5g6f7/topic=clicks")));
+    Assert.assertEquals(
+        "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=*",
+        matcher.match(ConfluentResourceName.fromString(
+            "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clacks")));
+    Assert.assertEquals(
+        "crn:///kafka=lkc-b2c3a1/topic=clacks",
+        matcher.match(ConfluentResourceName.fromString(
+            "crn://confluent.cloud/kafka=lkc-b2c3a1/topic=clacks")));
+    Assert.assertEquals(
+        "crn:///kafka=lkc-b2c3a1/topic=*",
+        matcher.match(ConfluentResourceName.fromString(
+            "crn://confluent.cloud/kafka=lkc-b2c3a1/topic=clicks")));
+    Assert.assertEquals(
+        "crn://confluent.cloud/organization=123/kafka=*/topic=*",
+        matcher.match(ConfluentResourceName.fromString(
+            "crn://confluent.cloud/organization=123/kafka=lkc-b2c3a1/topic=clacks")));
+    Assert.assertEquals(
+        "crn:///kafka=lkc-b2c3a1/topic=*",
+        matcher.match(ConfluentResourceName.fromString(
+            "crn:///kafka=lkc-b2c3a1/topic=clicks")));
 
     Assert.assertNull(matcher.match(ConfluentResourceName.fromString(
         "crn://confluent.cloud/kafka=lkc-a1b2c3/group=clicks")));
@@ -86,10 +111,12 @@ public class CrnPatternMatcherTest {
         "crn://confluent.cloud/topic=clicks")));
     Assert.assertNull(matcher.match(ConfluentResourceName.fromString(
         "crn://confluent.cloud/organization=123/topic=clicks")));
+    Assert.assertNull(matcher.match(ConfluentResourceName.fromString(
+        "crn:///kafka=lkc-a1b2c3/topic=clocks")));
   }
 
   @Test
-  public void testCachedMatch() {
+  public void testCachedMatch() throws CrnSyntaxException {
     List<String> patterns = Arrays.asList(
         "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks",
         "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks2",
@@ -102,15 +129,13 @@ public class CrnPatternMatcherTest {
         "crn://confluent.cloud/organization=123/kafka=*/topic=*",
         "crn://confluent.cloud/organization=123/kafka=lkc-a1b2c3");
 
-    CachedCrnStringPatternMatcher<String> matcher = new CachedCrnStringPatternMatcher<>(100);
+    CachedCrnStringPatternMatcher.Builder<String> builder = CachedCrnStringPatternMatcher.builder();
+    builder.capacity(100);
     patterns
         .forEach(p -> {
-          try {
-            matcher.setPattern(p, p);
-          } catch (CrnSyntaxException e) {
-            e.printStackTrace();
-          }
+            builder.setPattern(p, p);
         });
+    CachedCrnStringPatternMatcher<String> matcher = builder.build();
 
     Assert.assertEquals("crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks",
         matcher.match("crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks"));
@@ -138,28 +163,12 @@ public class CrnPatternMatcherTest {
   }
 
   @Test
-  public void testMatchAfterCacheInvalidated() throws CrnSyntaxException {
-    CachedCrnStringPatternMatcher<String> matcher =
-        new CachedCrnStringPatternMatcher<>(100);
-    matcher.setPattern("crn://confluent.cloud/kafka=lkc-a1b2c3/topic=*",
-        "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=*");
-    Assert.assertEquals("crn://confluent.cloud/kafka=lkc-a1b2c3/topic=*",
-        matcher.match("crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks"));
-    Assert.assertEquals(1, matcher.size());
-    matcher.setPattern("crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks",
-        "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks");
-    Assert.assertEquals(0, matcher.size());
-    Assert.assertEquals("crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks",
-        matcher.match("crn://confluent.cloud/kafka=lkc-a1b2c3/topic=clicks"));
-    Assert.assertEquals(1, matcher.size());
-  }
-
-  @Test
   public void testLRU() throws CrnSyntaxException {
-    CachedCrnStringPatternMatcher<String> matcher =
-        new CachedCrnStringPatternMatcher<>(3);
-    matcher.setPattern("crn://confluent.cloud/kafka=lkc-a1b2c3/topic=*",
-        "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=*");
+    CachedCrnStringPatternMatcher<String> matcher = CachedCrnStringPatternMatcher.<String>builder()
+        .capacity(3)
+        .setPattern("crn://confluent.cloud/kafka=lkc-a1b2c3/topic=*",
+            "crn://confluent.cloud/kafka=lkc-a1b2c3/topic=*")
+        .build();
 
     for (int i = 0; i < 10; i++) {
       Assert.assertEquals("crn://confluent.cloud/kafka=lkc-a1b2c3/topic=*",
@@ -169,12 +178,14 @@ public class CrnPatternMatcherTest {
   }
 
   @Test
-  public void testNullCached() {
-    CachedCrnStringPatternMatcher<String> matcher =
-        new CachedCrnStringPatternMatcher<>(3);
+  public void testNullCached() throws CrnSyntaxException {
+    CachedCrnStringPatternMatcher<String> matcher = CachedCrnStringPatternMatcher.<String>builder()
+        .capacity(3)
+        .build();
     Assert.assertNull(matcher.match("crn://confluent.cloud/kafka=lkc-a1b2c3/topic=*"));
     Assert.assertNotNull(matcher.matchEntry("crn://confluent.cloud/kafka=lkc-a1b2c3/topic=*"));
-    Assert.assertFalse(matcher.matchEntry("crn://confluent.cloud/kafka=lkc-a1b2c3/topic=*").isPresent());
+    Assert.assertFalse(
+        matcher.matchEntry("crn://confluent.cloud/kafka=lkc-a1b2c3/topic=*").isPresent());
   }
 
   private String crnNumbered(int kafkas, int n, boolean pattern) {
@@ -188,13 +199,16 @@ public class CrnPatternMatcherTest {
    * Jenkins because they would be flaky.
    */
   private long volume(int capacity, int patterns, int trials) throws CrnSyntaxException {
-    CachedCrnStringPatternMatcher<Integer> matcher =
-        new CachedCrnStringPatternMatcher<>(capacity);
+
+    CachedCrnStringPatternMatcher.Builder<Integer> builder =
+        CachedCrnStringPatternMatcher.<Integer>builder().capacity(capacity);
 
     for (int i = 0; i < patterns; i++) {
       String crn = crnNumbered(10, i, true);
-      matcher.setPattern(crnNumbered(10, i, true), i);
+      builder.setPattern(crn, i);
     }
+
+    CachedCrnStringPatternMatcher<Integer> matcher = builder.build();
 
     Random random = new Random();
     long start = System.currentTimeMillis();

@@ -564,7 +564,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         Mx4jLoader.maybeLoad()
 
-        /* Add all reconfigurables for config change notification before starting config handlers */
+        /* Add all reconfigurable instances for config change notification before starting config handlers */
         config.dynamicConfig.addReconfigurables(this)
 
         /* start dynamic config manager */
@@ -602,6 +602,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         if (!httpServer.forall(_.awaitStarted(config.httpServerStartTimeout))) {
           throw new IllegalStateException("Kafka HTTP server failed to start up.")
         }
+        httpServer.flatMap(_.getError.asScala).foreach { t => throw t }
 
         startupComplete.set(true)
 

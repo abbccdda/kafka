@@ -48,7 +48,9 @@ public class AuditLogRouter implements Router {
       excludedPrincipals = config.excludedPrincipals.stream()
           .map(SecurityUtils::parseKafkaPrincipal)
           .collect(Collectors.toSet());
-      crnRouters = new CachedCrnStringPatternMatcher<>(cacheEntries);
+      CachedCrnStringPatternMatcher.Builder<AuditLogCategoryResultRouter> builder =
+          CachedCrnStringPatternMatcher.<AuditLogCategoryResultRouter>builder()
+          .capacity(cacheEntries);
       for (String crnString : config.routes.keySet()) {
         AuditLogCategoryResultRouter router = new AuditLogCategoryResultRouter();
         for (Entry<String, Map<String, String>> categoryResultTopic :
@@ -61,8 +63,9 @@ public class AuditLogRouter implements Router {
             router.setRoute(category, routerResult, topic);
           }
         }
-        crnRouters.setPattern(crnString, router);
+        builder.setPattern(crnString, router);
       }
+      crnRouters = builder.build();
     } catch (CrnSyntaxException e) {
       throw new ConfigException("Invalid CRN in config", e);
     }

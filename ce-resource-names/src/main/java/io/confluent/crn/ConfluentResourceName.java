@@ -24,8 +24,10 @@ import org.slf4j.LoggerFactory;
  * Path section of the URI is a sequence of type=identifier elements, separated by /. The
  * identifiers are URL Encoded, so that any unusual characters are escaped.
  *
- * If the CRN represents a pattern, it will contain a literal '*' (not URL Encoded) at the end of an
- * identifier for a PREFIX pattern, or in place of an identifier for an ANY pattern.
+ * If the CRN represents a pattern, the Path section will contain a literal '*' (not URL Encoded)
+ * at the end of an identifier for a PREFIX pattern, or in place of an identifier for an ANY
+ * pattern. A CRN pattern with an empty Authority section matches ANY Authority. (The converse is
+ * not true: A CRN pattern with a non-empty Authority will not match a CRN with an empty Authority).
  */
 public class ConfluentResourceName implements Comparable {
 
@@ -199,7 +201,7 @@ public class ConfluentResourceName implements Comparable {
    * Treating this CRN as a pattern, does the other CRN match it?
    */
   public boolean matches(ConfluentResourceName that) {
-    if (!this.authority.equals(that.authority)) {
+    if (!this.authority.isEmpty() && !this.authority.equals(that.authority)) {
       return false;
     }
     if (this.elements().size() != that.elements().size()) {
@@ -261,7 +263,7 @@ public class ConfluentResourceName implements Comparable {
    */
   public ConfluentResourceName allWildcards() {
     Builder builder = newBuilder();
-    builder.setAuthority(authority);
+    builder.setAuthority("");
     try {
       for (Element e : nameElements) {
         builder.addElementWithWildcard(e.resourceType, "");
