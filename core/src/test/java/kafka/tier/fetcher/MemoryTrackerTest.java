@@ -29,6 +29,7 @@ public class MemoryTrackerTest {
         Assert.assertEquals(pool.leased(), lease.leased());
         lease.release();
         Assert.assertEquals(pool.leased(), 0);
+        pool.close();
     }
 
     @Test
@@ -40,6 +41,7 @@ public class MemoryTrackerTest {
         Assert.assertFalse(pool.tryLease(1024).isPresent());
         lease.release();
         Assert.assertTrue(pool.tryLease(1024).isPresent());
+        pool.close();
     }
 
     @Test
@@ -51,6 +53,7 @@ public class MemoryTrackerTest {
         // the pool limit.
         pool.newLease(ctx, 1024 * 5);
         Assert.assertFalse(pool.tryLease(1).isPresent());
+        pool.close();
     }
 
     @Test
@@ -63,6 +66,7 @@ public class MemoryTrackerTest {
         Assert.assertFalse(lease.tryExtendLease(512));
         lease.release();
         Assert.assertEquals(pool.leased(), 0);
+        pool.close();
     }
 
     @Test
