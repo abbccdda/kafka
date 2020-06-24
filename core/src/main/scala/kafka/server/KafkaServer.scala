@@ -26,6 +26,7 @@ import java.util.{Collections, Optional}
 import java.util.function.Supplier
 
 import com.typesafe.scalalogging.Logger
+import io.confluent.http.server.annotations.InterBrokerListener
 import kafka.api.{KAFKA_0_9_0, KAFKA_2_2_IV0, KAFKA_2_4_IV1}
 import kafka.cluster.Broker
 import kafka.common.{GenerateBrokerIdException, InconsistentBrokerIdException, InconsistentBrokerMetadataException, InconsistentClusterIdException}
@@ -504,12 +505,20 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         metadataServer = MetadataServerFactory.create(clusterId, config.originals)
 
+        val authorizerServerInfo =
+          brokerInfo.broker.toServerInfo(
+            clusterId, config, metadataServer, httpServerBinder, auditLogProvider, metrics)
+        httpServerBinder.bindInstance(
+          classOf[Endpoint],
+          classOf[InterBrokerListener],
+          authorizerServerInfo.interBrokerEndpoint())
+
         /* Get the authorizer and initialize it if one is specified.*/
         authorizer = config.authorizer
         authorizer.foreach(_.configure(config.originals))
         val authorizerFutures: Map[Endpoint, CompletableFuture[Void]] = authorizer match {
           case Some(authZ) =>
-            authZ.start(brokerInfo.broker.toServerInfo(clusterId, config, metadataServer, httpServerBinder, auditLogProvider, metrics)).asScala.map { case (ep, cs) =>
+            authZ.start(authorizerServerInfo).asScala.map { case (ep, cs) =>
               ep -> cs.toCompletableFuture
             }
           case None =>

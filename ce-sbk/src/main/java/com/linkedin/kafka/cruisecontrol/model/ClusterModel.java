@@ -70,6 +70,15 @@ public class ClusterModel implements Serializable {
   private Map<String, TopicPlacement> _topicPlacements;
 
   /**
+   * Thrown when a broker is not found in the cluster model
+   */
+  public static class NonExistentBrokerException extends Exception {
+    public NonExistentBrokerException(String msg) {
+      super(msg);
+    }
+  }
+
+  /**
    * Constructor for the cluster class. It creates data structures to hold a list of racks, a map for partitions by
    * topic partition, topic replica collocation by topic.
    */
@@ -276,10 +285,10 @@ public class ClusterModel implements Serializable {
    * @param newState The new state of the broker.
    */
   @SuppressWarnings("fallthrough")
-  public void setBrokerState(int brokerId, Broker.State newState) {
+  public void setBrokerState(int brokerId, Broker.State newState) throws NonExistentBrokerException {
     Broker broker = broker(brokerId);
     if (broker == null) {
-      throw new IllegalArgumentException("Broker " + brokerId + " does not exist.");
+      throw new NonExistentBrokerException("Broker " + brokerId + " does not exist.");
     }
     // We need to go through rack so all the cached capacity will be updated.
     broker.rack().setBrokerState(brokerId, newState);

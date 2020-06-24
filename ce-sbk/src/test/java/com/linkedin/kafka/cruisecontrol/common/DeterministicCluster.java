@@ -388,7 +388,7 @@ public class DeterministicCluster {
    *
    * @return A test cluster containing a dead broker.
    */
-  public static ClusterModel deadBroker(Map<Resource, Double> brokerCapacity) {
+  public static ClusterModel deadBroker(Map<Resource, Double> brokerCapacity) throws ClusterModel.NonExistentBrokerException {
     Map<Integer, Integer> racksByBrokerIds = new HashMap<>();
     racksByBrokerIds.put(0, 0);
     racksByBrokerIds.put(1, 1);

@@ -72,7 +72,7 @@ public class SelfHealingWithOptimizedGoalTest {
    * @return Parameters for the {@link OptimizationVerifier}.
    */
   @Parameterized.Parameters
-  public static Collection<Object[]> data() {
+  public static Collection<Object[]> data() throws ClusterModel.NonExistentBrokerException {
     Collection<Object[]> p = new ArrayList<>();
 
     // Sorted by priority.

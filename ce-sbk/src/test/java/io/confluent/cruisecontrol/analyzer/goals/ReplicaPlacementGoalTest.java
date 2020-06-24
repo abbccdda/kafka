@@ -320,7 +320,7 @@ public class ReplicaPlacementGoalTest {
     }
 
     @Test
-    public void testReplicasMovedOffDeadBroker() throws OptimizationFailureException {
+    public void testReplicasMovedOffDeadBroker() throws OptimizationFailureException, ClusterModel.NonExistentBrokerException {
         clusterModel.setTopicPlacements(Collections.singletonMap(DeterministicCluster.T1, topic1Placement));
         clusterModel.setBrokerState(0, Broker.State.DEAD);
         OptimizationOptions options = new OptimizationOptions(Collections.emptySet());

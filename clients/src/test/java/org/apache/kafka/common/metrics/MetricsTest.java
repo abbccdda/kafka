@@ -75,7 +75,7 @@ public class MetricsTest {
 
     @Before
     public void setup() {
-        this.metrics = new Metrics(config, Arrays.asList(new JmxReporter()), time, true);
+        this.metrics = new Metrics(config, singletonList(new JmxReporter()), time, true);
     }
 
     @After
