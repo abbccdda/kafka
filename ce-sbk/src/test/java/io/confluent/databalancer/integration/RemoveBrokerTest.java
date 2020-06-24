@@ -48,7 +48,7 @@ public class RemoveBrokerTest extends DataBalancerClusterTestHarness {
   protected static final Logger log = LoggerFactory.getLogger(RemoveBrokerTest.class);
 
   @Rule
-  final public Timeout globalTimeout = Timeout.millis(Duration.ofMinutes(5).toMillis());
+  final public Timeout globalTimeout = Timeout.millis(Duration.ofMinutes(7).toMillis());
 
   protected AtomicBoolean exited = new AtomicBoolean(false);
 
@@ -107,8 +107,7 @@ public class RemoveBrokerTest extends DataBalancerClusterTestHarness {
     while (moveReplicasOffBroker(brokerToRemoveId).size() != 0) {
       info("Moving replicas off of broker {}", brokerToRemoveId);
     }
-    // TODO: this can be uncommented pending CNKAF-773
-    // removeBroker(notControllerKafkaServer(), exited);
+    removeBroker(notControllerKafkaServer(), exited);
   }
 
   /**
