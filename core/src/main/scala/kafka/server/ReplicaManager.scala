@@ -92,6 +92,7 @@ case class LogDeleteRecordsResult(requestedOffset: Long, lowWatermark: Long, exc
  * @param isReadFromLogEnd true if the request read up to the log end offset snapshot
  *                         when the read was initiated, false otherwise
  * @param error Exception if error encountered while reading from the log
+ * @param preferredReadReplica the preferred read replica to be used for future fetches
  */
 sealed trait AbstractLogReadResult {
   def info: AbstractFetchDataInfo
