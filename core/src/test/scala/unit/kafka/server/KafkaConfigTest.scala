@@ -719,8 +719,7 @@ class KafkaConfigTest {
         case KafkaConfig.TierS3RegionProp => // ignore string
         case KafkaConfig.TierS3BucketProp => // ignore string
         case KafkaConfig.TierS3PrefixProp => // ignore string
-        case KafkaConfig.TierS3AwsAccessKeyIdProp => // ignore string
-        case KafkaConfig.TierS3AwsSecretAccessKeyProp => // ignore string
+        case KafkaConfig.TierS3CredFilePathProp => // ignore string
         case KafkaConfig.TierS3EndpointOverrideProp => // ignore string
         case KafkaConfig.TierS3SignerOverrideProp => // ignore string
         case KafkaConfig.TierS3SseAlgorithmProp => assertPropertyInvalid(getBaseProperties(), name, "notanssealgorithm")

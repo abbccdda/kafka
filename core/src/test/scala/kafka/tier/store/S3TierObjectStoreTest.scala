@@ -23,8 +23,8 @@ class S3TierObjectStoreTest {
 
     val client = mock(classOf[AmazonS3])
     when(client.getBucketLocation("bucket")).thenReturn("region")
-    val config = S3TierObjectStoreConfig.createWithEmptyClusterIdBrokerId("bucket", "region", "key",
-      "id", "endpoint", "signer", "sseAlgorithm", "", 0, "", "")
+    val config = S3TierObjectStoreConfig.createWithEmptyClusterIdBrokerId("bucket", "region", "credFilePath",
+      "endpoint", "signer", "sseAlgorithm", "", 0, "", "")
     val objectStore = new S3TierObjectStore(client, config)
     val metadata = new TierObjectStore.ObjectMetadata(new TopicIdPartition("foo", UUID.randomUUID, 0), UUID.randomUUID, 0, 0, false, false, false)
     val segmentData = mock(classOf[File])
@@ -41,8 +41,8 @@ class S3TierObjectStoreTest {
 
     val client = mock(classOf[AmazonS3])
     when(client.getBucketLocation("bucket")).thenReturn("region")
-    val config = S3TierObjectStoreConfig.createWithEmptyClusterIdBrokerId("bucket", "region", "key",
-      "id", "endpoint", "signer", "sseAlgorithm", "", 0, "", "")
+    val config = S3TierObjectStoreConfig.createWithEmptyClusterIdBrokerId("bucket", "region", "credFilePath",
+      "endpoint", "signer", "sseAlgorithm", "", 0, "", "")
     val objectStore = new S3TierObjectStore(client, config)
     val metadata = new TierObjectStore.ObjectMetadata(new TopicIdPartition("foo", UUID.randomUUID, 0), UUID.randomUUID, 0, 0, true, false, false)
     val segmentData = mock(classOf[File])
@@ -59,7 +59,7 @@ class S3TierObjectStoreTest {
 
     val client = mock(classOf[AmazonS3])
     when(client.getBucketLocation("bucket")).thenReturn("region")
-    val config = S3TierObjectStoreConfig.createWithEmptyClusterIdBrokerId("bucket", "region", "key", "id", "endpoint", "signer", "sseAlgorithm", "", 0, "", "")
+    val config = S3TierObjectStoreConfig.createWithEmptyClusterIdBrokerId("bucket", "region", "credFilePath", "endpoint", "signer", "sseAlgorithm", "", 0, "", "")
     val objectStore = new S3TierObjectStore(client, config)
     val metadata = new TierObjectStore.ObjectMetadata(new TopicIdPartition("foo", UUID.randomUUID, 0), UUID.randomUUID, 0, 0, true, true, true)
     val segmentData = mock(classOf[File])

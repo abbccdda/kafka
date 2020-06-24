@@ -141,8 +141,7 @@ public class TierFetcherBenchmark {
                 Properties props = new Properties();
                 props.put(KafkaConfig.ZkConnectProp(), "IGNORED");
                 props.put(KafkaConfig.TierS3BucketProp(), "tiered-storage-s3-benchmarks-lucas");
-                props.put(KafkaConfig.TierS3AwsAccessKeyIdProp(), "FILLME");
-                props.put(KafkaConfig.TierS3AwsSecretAccessKeyProp(), "FILLME");
+                props.put(KafkaConfig.TierS3CredFilePathProp(), "FILLME");
                 props.put(KafkaConfig.TierS3RegionProp(), "us-west-2");
                 props.put(KafkaConfig.TierS3AutoAbortThresholdBytesProp(), autoAbortSize);
                 KafkaConfig kafkaConfig = new KafkaConfig(props);

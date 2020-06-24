@@ -20,8 +20,7 @@ class S3TierObjectStoreConfigTest {
     props.put(KafkaConfig.TierS3RegionProp, "region")
     val kafkaConfig = KafkaConfig.fromProps(props)
     val s3Config = new S3TierObjectStoreConfig(Optional.of("clusterid"), kafkaConfig)
-    assert(!s3Config.s3AwsAccessKeyId.isPresent)
-    assert(!s3Config.s3AwsSecretAccessKey.isPresent)
+    assert(!s3Config.s3CredFilePath.isPresent)
   }
 
   @Test
@@ -29,12 +28,10 @@ class S3TierObjectStoreConfigTest {
     val props = TestUtils.createBrokerConfig(0, "127.0.0.1:1", port = -1)
     props.put(KafkaConfig.TierS3BucketProp, "bucket")
     props.put(KafkaConfig.TierS3RegionProp, "region")
-    props.put(KafkaConfig.TierS3AwsSecretAccessKeyProp, "secret")
-    props.put(KafkaConfig.TierS3AwsAccessKeyIdProp, "keyid")
+    props.put(KafkaConfig.TierS3CredFilePathProp, "file/path")
     val kafkaConfig = KafkaConfig.fromProps(props)
     val s3Config = new S3TierObjectStoreConfig(Optional.of("clusterid"), kafkaConfig)
-    assert(s3Config.s3AwsAccessKeyId.isPresent)
-    assert(s3Config.s3AwsSecretAccessKey.isPresent)
+    assert(s3Config.s3CredFilePath.isPresent)
   }
 
   @Test
@@ -52,16 +49,6 @@ class S3TierObjectStoreConfigTest {
   def testInvalidConfigNoRegion(): Unit = {
     val props = TestUtils.createBrokerConfig(0, "127.0.0.1:1", port = -1)
     props.put(KafkaConfig.TierS3BucketProp, "bucket")
-    val kafkaConfig = KafkaConfig.fromProps(props)
-    assertThrows[IllegalArgumentException]{new S3TierObjectStoreConfig(Optional.of("clusterid"), kafkaConfig)}
-  }
-
-  @Test
-  def testInvalidConfigNoKeyID(): Unit = {
-    val props = TestUtils.createBrokerConfig(0, "127.0.0.1:1", port = -1)
-    props.put(KafkaConfig.TierS3BucketProp, "bucket")
-    props.put(KafkaConfig.TierS3RegionProp, "region")
-    props.put(KafkaConfig.TierS3AwsSecretAccessKeyProp, "secret")
     val kafkaConfig = KafkaConfig.fromProps(props)
     assertThrows[IllegalArgumentException]{new S3TierObjectStoreConfig(Optional.of("clusterid"), kafkaConfig)}
   }
