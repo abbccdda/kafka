@@ -123,8 +123,8 @@ public class VolumeMetricsCollector implements MetricsCollector {
         context = builder.context;
         metricWhitelistFilter = builder.metricWhitelistFilter;
 
-        diskTotalBytesName = MetricsUtils.fullMetricName(context.getDomain(), "volume", "disk_total_bytes");
-        diskUsableBytesName = MetricsUtils.fullMetricName(context.getDomain(), "volume", "disk_usable_bytes");
+        diskTotalBytesName = MetricsUtils.fullMetricName(JvmMetricsCollector.SYSTEM_DOMAIN, "volume", "disk_total_bytes");
+        diskUsableBytesName = MetricsUtils.fullMetricName(JvmMetricsCollector.SYSTEM_DOMAIN, "volume", "disk_usable_bytes");
     }
 
     @Override

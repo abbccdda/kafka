@@ -37,7 +37,8 @@ public class VolumeMetricsCollectorTest {
     Metric metric = Iterables.getOnlyElement(exporter.emittedMetrics());
 
     assertEquals(context.getResource(), metric.getResource());
-    assertEquals("test/volume/disk_usable_bytes", metric.getMetricDescriptor().getName());
+    assertThat(metric.getMetricDescriptor().getName()).startsWith(JvmMetricsCollector.SYSTEM_DOMAIN);
+    assertEquals("io.confluent.system/volume/disk_usable_bytes", metric.getMetricDescriptor().getName());
     assertTrue(toMap(metric.getMetricDescriptor(), metric.getTimeseries(0)).containsKey("volume"));
     assertNotNull(metric.getTimeseries(0).getStartTimestamp());
   }
@@ -55,7 +56,7 @@ public class VolumeMetricsCollectorTest {
     Metric metric = Iterables.getOnlyElement(exporter.emittedMetrics());
 
     assertEquals(context.getResource(), metric.getResource());
-    assertEquals("test/volume/disk_total_bytes", metric.getMetricDescriptor().getName());
+    assertEquals("io.confluent.system/volume/disk_total_bytes", metric.getMetricDescriptor().getName());
     assertTrue(toMap(metric.getMetricDescriptor(), metric.getTimeseries(0)).containsKey("volume"));
     assertNotNull(metric.getTimeseries(0).getStartTimestamp());
   }
@@ -76,7 +77,7 @@ public class VolumeMetricsCollectorTest {
     Metric metric = Iterables.getOnlyElement(exporter.emittedMetrics());
 
     assertEquals(context.getResource(), metric.getResource());
-    assertEquals("test/volume/disk_total_bytes", metric.getMetricDescriptor().getName());
+    assertEquals("io.confluent.system/volume/disk_total_bytes", metric.getMetricDescriptor().getName());
     assertTrue(toMap(metric.getMetricDescriptor(), metric.getTimeseries(0)).containsKey("volume"));
   }
 

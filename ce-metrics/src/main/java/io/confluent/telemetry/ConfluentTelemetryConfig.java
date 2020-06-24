@@ -61,7 +61,7 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
                 "active_controller_count",
                 "bytes_in_per_sec",
                 "bytes_out_per_sec",
-                "cpu_usage",
+                "process_cpu_load",
                 "disk_total_bytes",
                 "disk_usable_bytes",
                 "failed_fetch_requests_per_sec",
@@ -95,6 +95,14 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
                 "under_replicated_partitions",
                 "zookeeper_disconnects_per_sec",
                 "zookeeper_expires_per_sec",
+                // System level metrics for all services
+                "io.confluent.system/.*("
+                    + "|system_cpu_load"
+                    + "|system_load_average"
+                    + "|free_physical_memory_size"
+                    + "|total_physical_memory_size"
+                    + "|committed"
+                    + "|used)",
                 // Control Center metrics
                 "io.confluent.controlcenter/.*("
                     + "metrics_input_topic_progress"
@@ -104,12 +112,6 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
                     + "|broker_log_persistent_dir"
                     + "|cluster_offline"
                     + "|streams_status"
-                    + "|system_cpu_load"
-                    + "|system_load_average"
-                    + "|free_physical_memory_size"
-                    + "|total_physical_memory_size"
-                    + "|committed"
-                    + "|used"
                     + "|total_lag"
                     + "|request_latency"
                     + "|response_size"

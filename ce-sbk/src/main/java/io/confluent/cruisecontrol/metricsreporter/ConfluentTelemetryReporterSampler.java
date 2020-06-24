@@ -56,8 +56,8 @@ public class ConfluentTelemetryReporterSampler extends ConfluentMetricsSamplerBa
     static final String LOG_FLUSH_RATE = "io.confluent.kafka.server/log_flush/log_flush_rate_and_time_ms/rate/1_min";
     static final String LOG_FLUSH_TIME_MS = "io.confluent.kafka.server/log_flush/log_flush_rate_and_time_ms";
     static final String REQUEST_HANDLER_AVG_IDLE_PERCENT = "io.confluent.kafka.server/request_handler_pool/request_handler_avg_idle_percent/rate/1_min";
-    static final String CPU_USAGE = "io.confluent.kafka.server/cpu/cpu_usage";
-    static final String DISK_TOTAL_BYTES = "io.confluent.kafka.server/volume/disk_total_bytes";
+    static final String CPU_USAGE = "io.confluent.system/jvm/os/process_cpu_load";
+    static final String DISK_TOTAL_BYTES = "io.confluent.system/volume/disk_total_bytes";
 
     // Define mappings from telemetry metric names and labels to groups of Cruise Control topics
     private static final Map<String, TopicAndAllTopicMetricTypes> TOPIC_METRIC_MAP = buildTopicMetricMap();

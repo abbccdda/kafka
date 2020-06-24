@@ -25,6 +25,7 @@ import io.opencensus.proto.metrics.v1.Point;
 public class JvmMetricsCollector implements MetricsCollector {
 
     private static final Logger log = LoggerFactory.getLogger(JvmMetricsCollector.class);
+    public static final String SYSTEM_DOMAIN = "io.confluent.system";
 
     private final Context context;
     private volatile Predicate<MetricKey> metricWhitelistFilter;
@@ -44,8 +45,6 @@ public class JvmMetricsCollector implements MetricsCollector {
     @Override
     public void collect(Exporter exporter) {
         collectSystemMetrics(exporter);
-        // Special casing CPU_USAGE metric (name & group) for SBK depends on it.
-        collectCpuUsageMetric(exporter);
         collectMemoryMetrics(exporter);
     }
 
@@ -63,6 +62,7 @@ public class JvmMetricsCollector implements MetricsCollector {
             builder
                 .put("FreePhysicalMemorySize", osMXBean.getFreePhysicalMemorySize())
                 .put("TotalPhysicalMemorySize", osMXBean.getTotalPhysicalMemorySize())
+                .put("ProcessCpuLoad", osMXBean.getProcessCpuLoad())
                 .put("ProcessCpuTime", osMXBean.getProcessCpuTime())
                 .put("SystemCpuLoad", osMXBean.getSystemCpuLoad());
 
@@ -76,16 +76,6 @@ public class JvmMetricsCollector implements MetricsCollector {
 
         builder.put("SystemLoadAverage", osBean.getSystemLoadAverage());
         return builder.build();
-    }
-
-    private void collectCpuUsageMetric(Exporter exporter) {
-        final OperatingSystemMXBean osBean = ManagementFactory.getOperatingSystemMXBean();
-
-        if (osBean instanceof com.sun.management.OperatingSystemMXBean) {
-            final com.sun.management.OperatingSystemMXBean osMXBean =
-                (com.sun.management.OperatingSystemMXBean) osBean;
-            emitMetrics(exporter, ImmutableMap.of("cpu_usage", osMXBean.getProcessCpuLoad()), "cpu");
-        }
     }
 
     private void collectMemoryMetrics(Exporter exporter) {
@@ -111,7 +101,7 @@ public class JvmMetricsCollector implements MetricsCollector {
             final String metricKey = attribute.getKey();
             final Number metricValue = attribute.getValue();
             final String name =
-                MetricsUtils.fullMetricName(context.getDomain(), metricGroup, metricKey);
+                MetricsUtils.fullMetricName(SYSTEM_DOMAIN, metricGroup, metricKey);
             MetricKey key = new MetricKey(name, labels);
             if (metricWhitelistFilter.test(key)) {
                 exporter.emit(

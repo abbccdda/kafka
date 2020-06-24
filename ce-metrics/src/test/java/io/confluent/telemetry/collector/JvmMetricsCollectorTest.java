@@ -30,7 +30,7 @@ public class JvmMetricsCollectorTest {
 
   @Test
   public void collect() {
-    exporter.reconfigureWhitelist(key -> key.getName().contains("cpu_usage"));
+    exporter.reconfigureWhitelist(key -> key.getName().contains("process_cpu_load"));
     JvmMetricsCollector metrics =
         JvmMetricsCollector
           .newBuilder()
@@ -40,12 +40,14 @@ public class JvmMetricsCollectorTest {
     metrics.collect(exporter);
     Metric metric = Iterables.getOnlyElement(exporter.emittedMetrics());
     assertEquals("Resource should match", context.getResource(), metric.getResource());
+    assertThat(metric.getMetricDescriptor().getName()).startsWith(JvmMetricsCollector.SYSTEM_DOMAIN);
   }
+
   @Test
   public void collectAll() {
     List<String> metricNames = ImmutableList.of(
       "jvm/os/process_cpu_time",
-      "cpu/cpu_usage",
+      "jvm/os/process_cpu_load",
       "jvm/os/system_cpu_load",
       "jvm/os/system_load_average",
       "jvm/os/free_physical_memory_size",
@@ -102,7 +104,7 @@ public class JvmMetricsCollectorTest {
 
   @Test
   public void collectFilteredOut() {
-    exporter.reconfigureWhitelist(key -> !key.getName().contains("cpu_usage"));
+    exporter.reconfigureWhitelist(key -> !key.getName().contains("process_cpu_load"));
     JvmMetricsCollector metrics = JvmMetricsCollector.newBuilder()
         .setContext(context)
         .build();
@@ -110,7 +112,7 @@ public class JvmMetricsCollectorTest {
     List<Metric> filtered = exporter
       .emittedMetrics()
       .stream()
-      .filter(metric -> metric.getMetricDescriptor().getName().contains("cpu_usage"))
+      .filter(metric -> metric.getMetricDescriptor().getName().contains("process_cpu_load"))
       .collect(Collectors.toList());
     assertThat(exporter.emittedMetrics()).hasSizeGreaterThan(0);
   }
@@ -125,7 +127,7 @@ public class JvmMetricsCollectorTest {
     assertThat(exporter.emittedMetrics()).hasSizeGreaterThan(0);
 
     exporter.reset();
-    exporter.reconfigureWhitelist(key -> key.getName().contains("cpu_usage"));
+    exporter.reconfigureWhitelist(key -> key.getName().contains("process_cpu_load"));
     metrics.collect(exporter);
     assertThat(exporter.emittedMetrics()).hasSize(1);
 
