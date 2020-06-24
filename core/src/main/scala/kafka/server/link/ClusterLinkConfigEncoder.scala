@@ -9,6 +9,7 @@ import kafka.utils.PasswordEncoder
 import org.apache.kafka.common.config.{AbstractConfig, ConfigData, ConfigDef, ConfigException}
 import org.apache.kafka.common.config.provider.ConfigProvider
 import org.apache.kafka.common.config.types.Password
+import org.apache.kafka.common.errors.InvalidConfigurationException
 
 import scala.collection.mutable
 import scala.jdk.CollectionConverters._
@@ -31,7 +32,7 @@ class ClusterLinkConfigEncoder(brokerConfig: KafkaConfig) {
     }
     if (sensitiveProps.nonEmpty) {
       if (encoders.isEmpty)
-        throw new ConfigException(s"${KafkaConfig.PasswordEncoderSecretProp} must be configured for cluster linking with sensitive or custom configs")
+        throw new InvalidConfigurationException(s"${KafkaConfig.PasswordEncoderSecretProp} must be configured for cluster linking with sensitive or custom configs")
       encoders.foreach { encoder =>
         encoder.addEncodedProp("", encoder.secret, props)
         sensitiveProps.foreach { case (k, v) =>

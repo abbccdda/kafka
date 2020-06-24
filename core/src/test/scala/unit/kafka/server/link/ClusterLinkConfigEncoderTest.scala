@@ -11,7 +11,8 @@ import kafka.server.KafkaConfig
 import kafka.utils.TestUtils
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.config.provider.ConfigProvider
-import org.apache.kafka.common.config.{AbstractConfig, ConfigData, ConfigException, SslConfigs}
+import org.apache.kafka.common.config.{AbstractConfig, ConfigData, SslConfigs}
+import org.apache.kafka.common.errors.InvalidConfigurationException
 import org.junit.Assert._
 import org.junit.Test
 
@@ -80,7 +81,7 @@ class ClusterLinkConfigEncoderTest {
     if (sensitiveConfigs.isEmpty) {
       verifyEncoding(brokerConfig1, linkConfig, sensitiveConfigs, resolvedProps)
     } else {
-      assertThrows(classOf[ConfigException], () => encoder1.encode(props))
+      assertThrows(classOf[InvalidConfigurationException], () => encoder1.encode(props))
     }
 
     val brokerConfig2 = brokerConfig(secret = Some("secret-1234"))
