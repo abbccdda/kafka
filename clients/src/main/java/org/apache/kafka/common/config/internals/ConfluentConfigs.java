@@ -537,12 +537,30 @@ public class ConfluentConfigs {
      */
     public static Map<String, Object> interBrokerClientConfigs(AbstractConfig brokerConfig,
                                                                Endpoint interBrokerEndpoint) {
-        Map<String, Object> configs = brokerConfig.originals();
-        Map<String, Object> clientConfigs = new HashMap<>(configs);
+        return interBrokerClientConfigs(
+            brokerConfig.originals(),
+            brokerConfig.values(),
+            interBrokerEndpoint
+        );
+    }
+
+    public static Map<String, Object> interBrokerClientConfigs(Map<String, Object> originals,
+                                                               Endpoint interBrokerEndpoint) {
+        return interBrokerClientConfigs(
+            originals,
+            Collections.emptyMap(),
+            interBrokerEndpoint
+        );
+    }
+
+    public static Map<String, Object> interBrokerClientConfigs(Map<String, Object> originals,
+                                                               Map<String, ?> values,
+                                                               Endpoint interBrokerEndpoint) {
+        Map<String, Object> clientConfigs = new HashMap<>(originals);
 
         // Remove broker configs that are not client configs. Using AdminClient config names for
         // filtering since they apply to producer/consumer as well.
-        Set<String> brokerConfigNames = brokerConfig.values().keySet();
+        Set<String> brokerConfigNames = values.keySet();
         clientConfigs.keySet().removeIf(n ->
             (brokerConfigNames.contains(n) && !AdminClientConfig.configNames().contains(n)) ||
                 n.startsWith("listener.name."));
@@ -551,11 +569,11 @@ public class ConfluentConfigs {
         String listenerPrefix = listenerName.configPrefix();
         SecurityProtocol securityProtocol = interBrokerEndpoint.securityProtocol();
         if (securityProtocol == SecurityProtocol.SASL_PLAINTEXT || securityProtocol == SecurityProtocol.SASL_SSL) {
-            String saslMechanism = (String) brokerConfig.originals().get("sasl.mechanism.inter.broker.protocol");
+            String saslMechanism = (String) originals.get("sasl.mechanism.inter.broker.protocol");
             saslMechanism = saslMechanism != null ? saslMechanism : SaslConfigs.DEFAULT_SASL_MECHANISM;
             clientConfigs.put(SaslConfigs.SASL_MECHANISM, saslMechanism);
             String mechanismPrefix = listenerName.saslMechanismConfigPrefix(saslMechanism);
-            updatePrefixedConfigs(configs, clientConfigs, mechanismPrefix);
+            updatePrefixedConfigs(originals, clientConfigs, mechanismPrefix);
 
             // If broker is configured with static JAAS config, set client sasl.jaas.config
             if (!clientConfigs.containsKey(SaslConfigs.SASL_JAAS_CONFIG)) {
@@ -563,7 +581,7 @@ public class ConfluentConfigs {
                 clientConfigs.put(SaslConfigs.SASL_JAAS_CONFIG, jaasConfig);
             }
         }
-        updatePrefixedConfigs(configs, clientConfigs, listenerPrefix);
+        updatePrefixedConfigs(originals, clientConfigs, listenerPrefix);
         String ibpHost = interBrokerEndpoint.host() == null ? "" : interBrokerEndpoint.host();
         clientConfigs.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, ibpHost + ":" + interBrokerEndpoint.port());
         clientConfigs.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, securityProtocol.name);

@@ -6,8 +6,6 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
-import org.apache.kafka.clients.admin.AdminClientConfig;
-import org.apache.kafka.clients.producer.ProducerConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,20 +15,16 @@ import io.confluent.telemetry.exporter.ExporterConfig.ExporterType;
 import io.confluent.telemetry.exporter.http.HttpExporterConfig;
 import io.confluent.telemetry.exporter.kafka.KafkaExporterConfig;
 
-import kafka.server.KafkaConfig;
-
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.ConfigException;
-import org.apache.kafka.common.config.internals.ConfluentConfigs;
 
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
@@ -134,8 +128,8 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
     public static final String DEBUG_ENABLED_DOC = "Enable debug metadata for metrics collection";
     public static final boolean DEFAULT_DEBUG_ENABLED = false;
 
-    // TODO: remove the local exporter for non-broker components
     // Default local Kafka Exporter config for Self Balancing Kafka.
+    // This actually gets used inside the reporter itself
     public static final String EXPORTER_LOCAL_NAME = "_local";
     public static final Map<String, Object> EXPORTER_LOCAL_DEFAULTS =
         ImmutableMap.of(
@@ -162,7 +156,7 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
 
     public static final Map<String, Map<String, Object>> EXPORTER_DEFAULT_CONFIGS =
         ImmutableMap.of(
-            EXPORTER_LOCAL_NAME, EXPORTER_LOCAL_DEFAULTS,
+            // omit the local exporter since defaults are applied inside the reporter
             EXPORTER_CONFLUENT_NAME, EXPORTER_CONFLUENT_DEFAULTS
         );
 
@@ -318,19 +312,6 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
         return labels;
     }
 
-    public String getBrokerId() {
-        // TODO remove dependency on KafkaConfig for non-broker components
-        return (String) originals().get(KafkaConfig.BrokerIdProp());
-    }
-
-    /**
-     * Get kafka broker rack information.
-     */
-    public Optional<String> getBrokerRack() {
-        // TODO remove dependency on KafkaConfig for non-broker components
-        return Optional.ofNullable((String) originals().get(KafkaConfig.RackProp()));
-    }
-
     public String getMetricsWhitelistRegex() {
         return getString(WHITELIST_CONFIG);
     }
@@ -388,33 +369,6 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
         return tempConfig;
     }
 
-    private Map<String, Object> parseInterBrokerClientConfigs() {
-        // TODO remove dependency on ConfluentConfigs for non-broker components
-        Set<String> producerConfigs = ProducerConfig.configNames();
-        Set<String> adminConfigs = AdminClientConfig.configNames();
-        if (BrokerConfigUtils.isBrokerConfig(this)) {
-            return ConfluentConfigs.interBrokerClientConfigs(this, BrokerConfigUtils.getInterBrokerEndpoint(this))
-                    .entrySet().stream()
-                    // filter non-producer configs
-                    .filter(e -> producerConfigs.contains(e.getKey()) || adminConfigs.contains(e.getKey()))
-                    // don't start a metrics reporter inside the local producer
-                    .filter(e -> !e.getKey().equals(CommonClientConfigs.METRIC_REPORTER_CLASSES_CONFIG))
-                    // don't use default client-id
-                    .filter(e -> !e.getKey().equals(CommonClientConfigs.CLIENT_ID_CONFIG))
-                    // remove broker compression type (since it does not translate)
-                    .filter(e -> !e.getKey().equals(KafkaConfig.CompressionTypeProp()))
-                    // we don't need to pass through null values
-                    .filter(e -> e.getValue() != null)
-                    .collect(
-                            Collectors.toMap(
-                                    e -> KafkaExporterConfig.PREFIX_PRODUCER + e.getKey(),
-                                    Map.Entry::getValue
-                            )
-                    );
-        }
-        return ImmutableMap.of();
-    }
-
     private Map<String, ExporterConfig> createExporterMap(boolean doLog) {
         String configPrefix = PREFIX_EXPORTER;
         Map<String, Map<String, Object>> exporters = Maps.newHashMap();
@@ -423,13 +377,6 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
         for (Map.Entry<String, Map<String, Object>> entry : EXPORTER_DEFAULT_CONFIGS.entrySet()) {
             Map<String, Object> defaults =  Maps.newHashMap(entry.getValue());
             exporters.put(entry.getKey(), defaults);
-        }
-
-        // put our local client configs computed from originals
-        Map<String, Object> localClientConfigs = parseInterBrokerClientConfigs();
-        if (!localClientConfigs.isEmpty()) {
-            exporters.computeIfAbsent(EXPORTER_LOCAL_NAME, k -> Maps.newHashMap())
-                .putAll(parseInterBrokerClientConfigs());
         }
 
         // parse/add user-specified configs

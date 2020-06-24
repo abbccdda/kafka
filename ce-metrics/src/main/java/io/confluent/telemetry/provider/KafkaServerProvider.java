@@ -8,6 +8,7 @@ import static io.confluent.telemetry.provider.Utils.getResourceLabels;
 import static io.confluent.telemetry.provider.Utils.notEmptyString;
 
 import com.google.common.annotations.VisibleForTesting;
+import io.confluent.telemetry.BrokerConfigUtils;
 import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.confluent.telemetry.Context;
 import io.confluent.telemetry.MetricKey;
@@ -22,6 +23,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
+
 import kafka.metrics.KafkaYammerMetrics;
 import kafka.server.KafkaConfig;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
@@ -45,7 +48,17 @@ public class KafkaServerProvider implements Provider {
 
   @Override
   public synchronized void configure(Map<String, ?> configs) {
-    this.config = new ConfluentTelemetryConfig(configs);
+    // TODO figure out a better way to decouple these labels from ConfluentTelemetryConfig
+    this.config = new ConfluentTelemetryConfig(
+        // We need to filter out the local exporter configs since the defaults
+        // have not been applied at this point.
+        configs.entrySet().stream()
+            .filter(e -> !e.getKey().startsWith(
+                ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME)))
+            .filter(e -> e.getValue() != null)
+            .collect(Collectors.toMap(e -> e.getKey(), e -> e.getValue())),
+        false
+    );
   }
 
   @Override
@@ -114,7 +127,7 @@ public class KafkaServerProvider implements Provider {
         .withLabels(config.getLabels());
 
     // Do not add kafka.broker.rack if data is unavailable.
-    config.getBrokerRack()
+    BrokerConfigUtils.getBrokerRack(config.originals())
         .ifPresent(value -> resourceBuilderFacade.withNamespacedLabel(LABEL_BROKER_RACK, value));
     // ---- Legacy cloud labels
 

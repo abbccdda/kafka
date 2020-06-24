@@ -133,8 +133,6 @@ public class KafkaClientTest extends TelemetryClusterTestHarness {
     // disable the default exporters
     props.setProperty(ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_CONFLUENT_NAME)
             + ExporterConfig.ENABLED_CONFIG, "false");
-    props.setProperty(ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME)
-            + ExporterConfig.ENABLED_CONFIG, "false");
     props.setProperty(ConfluentTelemetryConfig.COLLECT_INTERVAL_CONFIG, "500");
     props.setProperty(ConfluentTelemetryConfig.WHITELIST_CONFIG, "");
     props.setProperty(ConfluentTelemetryConfig.DEBUG_ENABLED, "true");

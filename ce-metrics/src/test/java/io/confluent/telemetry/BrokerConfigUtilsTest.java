@@ -15,7 +15,7 @@ public class BrokerConfigUtilsTest {
     @Test
     public void testDefaultListener() {
         Endpoint endpoint =
-                BrokerConfigUtils.getInterBrokerEndpoint(new ConfluentTelemetryConfig(builder.build()));
+                BrokerConfigUtils.getInterBrokerEndpoint(builder.build());
         assertTrue(endpoint.listenerName().isPresent());
         assertEquals("PLAINTEXT", endpoint.listenerName().get());
         assertEquals("PLAINTEXT", endpoint.securityProtocol().name());
@@ -30,7 +30,7 @@ public class BrokerConfigUtilsTest {
         builder.put(BrokerConfigUtils.LISTENER_SECURITY_PROTOCOL_MAP_PROP, "CLIENT:PLAINTEXT,REPLICATION:SASL_SSL");
 
         Endpoint endpoint =
-                BrokerConfigUtils.getInterBrokerEndpoint(new ConfluentTelemetryConfig(builder.build()));
+                BrokerConfigUtils.getInterBrokerEndpoint(builder.build());
         assertTrue(endpoint.listenerName().isPresent());
         assertEquals("REPLICATION", endpoint.listenerName().get());
         assertEquals("SASL_SSL", endpoint.securityProtocol().name());
@@ -44,7 +44,7 @@ public class BrokerConfigUtilsTest {
         builder.put(BrokerConfigUtils.INTER_BROKER_SECURITY_PROTOCOL_PROP, "SASL_SSL");
 
         Endpoint endpoint =
-                BrokerConfigUtils.getInterBrokerEndpoint(new ConfluentTelemetryConfig(builder.build()));
+                BrokerConfigUtils.getInterBrokerEndpoint(builder.build());
         assertTrue(endpoint.listenerName().isPresent());
         assertEquals("SASL_SSL", endpoint.listenerName().get());
         assertEquals("SASL_SSL", endpoint.securityProtocol().name());

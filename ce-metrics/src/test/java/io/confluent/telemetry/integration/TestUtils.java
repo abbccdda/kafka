@@ -2,11 +2,15 @@ package io.confluent.telemetry.integration;
 
 import io.opencensus.proto.metrics.v1.LabelKey;
 import io.opencensus.proto.metrics.v1.Metric;
+
+import java.time.Duration;
+import java.util.Collections;
 import java.util.Properties;
 
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 
@@ -37,5 +41,20 @@ public class TestUtils {
     Properties properties = new Properties();
     properties.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList);
     return AdminClient.create(properties);
+  }
+
+  public static boolean newRecordsCheck(KafkaConsumer<byte[], byte[]> consumer, String topic,
+                                        long timeout, boolean expectEmpty) {
+    consumer.unsubscribe();
+    consumer.subscribe(Collections.singletonList(topic));
+    consumer.seekToEnd(Collections.emptyList());
+    long startMs = System.currentTimeMillis();
+    while (System.currentTimeMillis() - startMs < timeout) {
+      ConsumerRecords<byte[], byte[]> records = consumer.poll(Duration.ofMillis(200));
+      if (expectEmpty == records.isEmpty()) {
+        return true;
+      }
+    }
+    return false;
   }
 }
