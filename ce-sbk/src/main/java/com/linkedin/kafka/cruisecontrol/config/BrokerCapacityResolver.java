@@ -10,7 +10,6 @@ import io.confluent.metrics.reporter.VolumeMetricsProvider;
 import io.confluent.metrics.reporter.VolumeMetricsProvider.VolumeInfo;
 import kafka.server.KafkaConfig$;
 import org.apache.kafka.common.config.ConfigException;
-import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -41,8 +40,6 @@ public class BrokerCapacityResolver implements BrokerCapacityConfigResolver {
     public static final int DEFAULT_CAPACITY_BROKER_ID = -1;
 
     // Configuration parameters that users can set to override.
-    public static final String DEFAULT_NETWORK_IN_CAPACITY_CONFIG = ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_BASE_CONFIG;
-    public static final String DEFAULT_NETWORK_OUT_CAPACITY_CONFIG = ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_BASE_CONFIG;
     public static final String LOG_DIRS_CONFIG = KafkaConfig$.MODULE$.LogDirsProp();
 
     // Visible for test cases
@@ -73,8 +70,10 @@ public class BrokerCapacityResolver implements BrokerCapacityConfigResolver {
     // This tracks how config-specified resources are obtained (the config property name) and any unit conversions required
     // Config properties are specified in bytes but we store them as different units in the BrokerCapacityInfo (see above).
     private static final Map<Resource, ResourceConfig> BROKER_RESOURCE_CONFIGS = Stream.of(
-            new AbstractMap.SimpleEntry<>(Resource.NW_IN, new ResourceConfig(DEFAULT_NETWORK_IN_CAPACITY_CONFIG, bps -> bps / BYTES_PER_KB)),
-            new AbstractMap.SimpleEntry<>(Resource.NW_OUT, new ResourceConfig(DEFAULT_NETWORK_OUT_CAPACITY_CONFIG, bps -> bps / BYTES_PER_KB)))
+            new AbstractMap.SimpleEntry<>(Resource.NW_IN,
+                    new ResourceConfig(KafkaCruiseControlConfig.NETWORK_IN_CAPACITY_BYTES_CONFIG, bps -> bps / BYTES_PER_KB)),
+            new AbstractMap.SimpleEntry<>(Resource.NW_OUT,
+                    new ResourceConfig(KafkaCruiseControlConfig.NETWORK_OUT_CAPACITY_BYTES_CONFIG, bps -> bps / BYTES_PER_KB)))
     .collect(Collectors.toMap(AbstractMap.SimpleEntry::getKey, AbstractMap.SimpleEntry::getValue));
 
     private Map<Integer, BrokerCapacityInfo> capacitiesForBrokers = new HashMap<>();
@@ -102,11 +101,13 @@ public class BrokerCapacityResolver implements BrokerCapacityConfigResolver {
         LOG.info("CruiseControl: Attempting to configure Broker Capacity from config properties");
         Map<Resource, Double> defaultBrokerCapacity = new HashMap<>();
         defaultBrokerCapacity.put(Resource.CPU, DEFAULT_CPU_CAPACITY);
+
         for (Map.Entry<Resource, ResourceConfig> resource : BROKER_RESOURCE_CONFIGS.entrySet()) {
             Double parsedValue;
-            String configValue = KafkaCruiseControlUtils.getRequiredConfig(configs, resource.getValue().configName);
+            Long configValue = (Long) configs.get(resource.getValue().configName);
+
             try {
-                parsedValue = resource.getValue().convertConfigValue(Double.parseDouble(configValue));
+                parsedValue = resource.getValue().convertConfigValue(configValue.doubleValue());
             } catch (NumberFormatException e) {
                 throw new ConfigException("Invalid capacity (unparseable) " + configValue + " for capacity measure " + resource.getValue(),
                         e);

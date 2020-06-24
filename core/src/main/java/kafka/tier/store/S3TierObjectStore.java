@@ -7,9 +7,8 @@ package kafka.tier.store;
 import com.amazonaws.AmazonClientException;
 import com.amazonaws.ClientConfiguration;
 import com.amazonaws.auth.AWSCredentialsProvider;
-import com.amazonaws.auth.AWSStaticCredentialsProvider;
-import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
+import com.amazonaws.auth.PropertiesFileCredentialsProvider;
 import com.amazonaws.auth.STSAssumeRoleSessionCredentialsProvider;
 import com.amazonaws.client.builder.AwsClientBuilder;
 import com.amazonaws.regions.Regions;
@@ -36,6 +35,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 
 public class S3TierObjectStore implements TierObjectStore {
     private final static Logger log = LoggerFactory.getLogger(S3TierObjectStore.class);
@@ -233,20 +233,13 @@ public class S3TierObjectStore implements TierObjectStore {
             builder.setRegion(config.s3Region);
         }
 
-        AWSCredentialsProvider provider;
-
-        if (config.s3AwsAccessKeyId.isPresent() && config.s3AwsSecretAccessKey.isPresent()) {
-            final BasicAWSCredentials credentials = new BasicAWSCredentials(config.s3AwsAccessKeyId.get(),
-                    config.s3AwsSecretAccessKey.get());
-            provider = new AWSStaticCredentialsProvider(credentials);
-
-        } else {
-            provider = new DefaultAWSCredentialsProviderChain();
-        }
+        AWSCredentialsProvider provider = config.s3CredFilePath
+                .map((Function<String, AWSCredentialsProvider>) PropertiesFileCredentialsProvider::new)
+                .orElse(new DefaultAWSCredentialsProviderChain());
 
         if (config.assumeRoleArn.isPresent()) {
             AWSSecurityTokenService stsClient = AWSSecurityTokenServiceClient.builder()
-                    .withCredentials(new DefaultAWSCredentialsProviderChain())
+                    .withCredentials(provider)
                     .build();
             provider = new STSAssumeRoleSessionCredentialsProvider
                     .Builder(config.assumeRoleArn.get(), "tiered-storage")
@@ -255,7 +248,6 @@ public class S3TierObjectStore implements TierObjectStore {
         }
 
         builder.setCredentials(provider);
-
         return builder.build();
     }
 

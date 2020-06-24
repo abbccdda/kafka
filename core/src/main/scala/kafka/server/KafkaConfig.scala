@@ -214,8 +214,7 @@ object Defaults {
   val TierS3Prefix = ""
   val TierS3SseAlgorithm = "AES256"
   val TierS3SseCustomerEncryptionKey = null: String
-  val TierS3AwsAccessKeyId = null
-  val TierS3AwsSecretAccessKey = null
+  val TierS3CredFilePath = null
   val TierS3EndpointOverride = null
   val TierS3SignerOverride = null
   val TierS3AutoAbortThresholdBytes = 500000: Integer
@@ -587,8 +586,7 @@ object KafkaConfig {
   val TierS3PrefixProp = ConfluentPrefix + "tier.s3.prefix"
   val TierS3SseAlgorithmProp = ConfluentPrefix + "tier.s3.sse.algorithm"
   val TierS3SseCustomerEncryptionKeyProp = ConfluentPrefix + "tier.s3.sse.customer.encryption.key"
-  val TierS3AwsAccessKeyIdProp = ConfluentPrefix + "tier.s3.aws.access.key.id"
-  val TierS3AwsSecretAccessKeyProp = ConfluentPrefix + "tier.s3.aws.secret.access.key"
+  val TierS3CredFilePathProp = ConfluentPrefix + "tier.s3.cred.file.path"
   val TierS3EndpointOverrideProp = ConfluentPrefix + "tier.s3.aws.endpoint.override"
   val TierS3SignerOverrideProp = ConfluentPrefix + "tier.s3.aws.signer.override"
   val TierS3AutoAbortThresholdBytesProp = ConfluentPrefix + "tier.s3.auto.abort.threshold.bytes"
@@ -1058,9 +1056,10 @@ object KafkaConfig {
   val TierS3PrefixDoc = "This prefix will be added to tiered storage objects stored in S3."
   val TierS3SseAlgorithmDoc = "The S3 server side encryption algorithm to use to protect objects at rest. Currently supports AES256, aws:kms, and none. Defaults to AES256."
   val TierS3SseCustomerEncryptionKeyDoc = s"The SSE-KMS customer key to use. If a customer key is provided, 'aws:kms' should be set for $TierS3SseAlgorithmProp"
-  val TierS3AwsAccessKeyIdDoc = "The S3 AWS access key id directly via the Kafka configuration. If not set, the access key id will be supplied via the AWS default provider chain e.g. AWS_ACCESS_KEY_ID environment variable, ~/.aws/config, etc"
-  val TierS3AwsSecretAccessKeyDoc = "The S3 AWS secret access key directly via the Kafka configuration. If not set, the secret access key will be supplied via the AWS default provider chain e.g. AWS_SECRET_ACCESS_KEY environment variable, ~/.aws/config, etc"
   val TierS3EndpointOverrideDoc = "Override picking an S3 endpoint. Normally this is performed automatically by the client."
+  val TierS3CredFilePathDoc = "The path to the credentials file used to create the S3 client. This uses the default AWS " +
+    "configuration file format; please refer to AWS documentation on how to generate the credentials file. If not " +
+    "specified, the S3 client will use the `DefaultAWSCredentialsProviderChain` to locate the credentials."
   val TierS3SignerOverrideDoc = "Set the name of the signature algorithm used for signing S3 requests."
   val TierS3AutoAbortThresholdBytesDoc = "The S3 client closes any connection that performs GetRequests that are not fully read. To promote connection reuse, the broker will read the remainder of a request if there are fewer bytes remaining than <code>confluent.tier.s3.auto.abort.threshold.bytes</code>."
   val TierS3AssumeRoleArnDoc = "Authorize S3 requests via sts::AssumeRole by assuming the specified role after authenticating."
@@ -1080,7 +1079,9 @@ object KafkaConfig {
   val TierGcsPrefixDoc = "This prefix will be added to tiered storage objects stored in GCS."
   val TierGcsRegionDoc = "The GCS region to use for tiered storage."
   val TierGcsWriteChunkSizeDoc = "The GCS chunk size for write requests between the broker and storage. If null, then the default value from the GCS implementation is used."
-  val TierGcsCredFilePathDoc = "The path to the credentials file used to create the GCS client. If null, the GCS client will be made using the default service account available."
+  val TierGcsCredFilePathDoc = "The path to the credentials file used to create the GCS client. This uses the default GCS " +
+    "configuration file format; please refer to GCP documentation on how to generate the credentials file. If not " +
+    "specified, the GCS client will be instantiated using the default service account available."
   val TierTopicDeleteCheckIntervalMsDoc = "Frequency at which tiered objects cleanup is run for deleted topics."
   val PreferTierFetchMsDoc = ConfluentTopicConfig.PREFER_TIER_FETCH_MS_DOC
 
@@ -1422,8 +1423,7 @@ object KafkaConfig {
       .define(TierS3PrefixProp, STRING, Defaults.TierS3Prefix, HIGH, TierS3PrefixDoc)
       .defineInternal(TierS3SseAlgorithmProp, STRING, Defaults.TierS3SseAlgorithm, in("AES256", "aws:kms", TIER_S3_SSE_ALGORITHM_NONE), HIGH, TierS3SseAlgorithmDoc)
       .defineInternal(TierS3SseCustomerEncryptionKeyProp, STRING, Defaults.TierS3SseCustomerEncryptionKey, LOW, TierS3SseCustomerEncryptionKeyDoc)
-      .define(TierS3AwsAccessKeyIdProp, PASSWORD, Defaults.TierS3AwsAccessKeyId, MEDIUM, TierS3AwsAccessKeyIdDoc)
-      .define(TierS3AwsSecretAccessKeyProp, PASSWORD, Defaults.TierS3AwsSecretAccessKey, MEDIUM, TierS3AwsSecretAccessKeyDoc)
+      .define(TierS3CredFilePathProp, STRING, Defaults.TierS3CredFilePath, LOW, TierS3CredFilePathDoc)
       .defineInternal(TierS3EndpointOverrideProp, STRING, Defaults.TierS3EndpointOverride, LOW, TierS3EndpointOverrideDoc)
       .defineInternal(TierS3SignerOverrideProp, STRING, Defaults.TierS3SignerOverride, LOW, TierS3SignerOverrideDoc)
       .defineInternal(TierS3AutoAbortThresholdBytesProp, INT, Defaults.TierS3AutoAbortThresholdBytes, atLeast(0), LOW, TierS3AutoAbortThresholdBytesDoc)
@@ -1652,10 +1652,12 @@ object KafkaConfig {
               ConfluentConfigs.BALANCER_DISK_CAPACITY_THRESHOLD_DEFAULT, between(0.0, 1.0), HIGH,
               ConfluentConfigs.BALANCER_DISK_CAPACITY_THRESHOLD_DOC)
       .define(ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_CONFIG, LONG,
-              ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_DEFAULT, atLeast(0), HIGH,
+              ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_DEFAULT,
+              atLeast(ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_MIN), HIGH,
               ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_DOC)
       .define(ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_CONFIG, LONG,
-              ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_DEFAULT, atLeast(0), HIGH,
+              ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_DEFAULT,
+              atLeast(ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_MIN), HIGH,
               ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_DOC)
       .define(ConfluentConfigs.BALANCER_BROKER_FAILURE_THRESHOLD_CONFIG, LONG,
               ConfluentConfigs.BALANCER_BROKER_FAILURE_THRESHOLD_DEFAULT, atLeast(-1), HIGH,
@@ -2069,8 +2071,7 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   val tierS3Prefix = getString(KafkaConfig.TierS3PrefixProp)
   val tierS3SseAlgorithm = getString(KafkaConfig.TierS3SseAlgorithmProp)
   val s3SseCustomerEncryptionKey = getString(KafkaConfig.TierS3SseCustomerEncryptionKeyProp)
-  val tierS3AwsAccessKeyId = Option(getPassword(KafkaConfig.TierS3AwsAccessKeyIdProp))
-  val tierS3AwsSecretAccessKey = Option(getPassword(KafkaConfig.TierS3AwsSecretAccessKeyProp))
+  val tierS3CredFilePath = Option(getString(KafkaConfig.TierS3CredFilePathProp))
   val tierS3EndpointOverride = Option(getString(KafkaConfig.TierS3EndpointOverrideProp))
   val tierS3SignerOverride = Option(getString(KafkaConfig.TierS3SignerOverrideProp))
   val tierS3AutoAbortThresholdBytes = getInt(KafkaConfig.TierS3AutoAbortThresholdBytesProp)

@@ -110,8 +110,6 @@ public class KafkaStreamsTest extends TelemetryClusterTestHarness {
     // disable the default exporters
     streamsConfiguration.setProperty(ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_CONFLUENT_NAME)
             + ExporterConfig.ENABLED_CONFIG, "false");
-    streamsConfiguration.setProperty(ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME)
-            + ExporterConfig.ENABLED_CONFIG, "false");
 
     streamsConfiguration.setProperty(ConfluentTelemetryConfig.exporterPrefixForName("test") + ExporterConfig.TYPE_CONFIG, ExporterConfig.ExporterType.kafka.name());
     streamsConfiguration.setProperty(ConfluentTelemetryConfig.exporterPrefixForName("test") + ExporterConfig.ENABLED_CONFIG, "true");

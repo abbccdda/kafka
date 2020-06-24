@@ -11,7 +11,6 @@ import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AlterConfigOp;
 import org.apache.kafka.clients.admin.ConfigEntry;
-import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.test.IntegrationTest;
@@ -20,7 +19,6 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
-import java.time.Duration;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Properties;
@@ -28,14 +26,15 @@ import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 
-import static org.apache.kafka.test.TestUtils.waitForCondition;
 import static io.confluent.telemetry.integration.TestUtils.createAdminClient;
 import static io.confluent.telemetry.integration.TestUtils.createNewConsumer;
+import static io.confluent.telemetry.integration.TestUtils.newRecordsCheck;
+import static org.junit.Assert.assertTrue;
 
 @Category(IntegrationTest.class)
 public class KafkaDynamicExportersWhitelistTest extends MetricReporterClusterTestHarness {
 
-  private static long collectionIntervalMs = 2000;
+  private static final long COLLECTION_INTERVAL_MS = 2000;
 
   private KafkaConsumer<byte[], byte[]> consumer;
   private AdminClient adminClient;
@@ -73,10 +72,10 @@ public class KafkaDynamicExportersWhitelistTest extends MetricReporterClusterTes
     // exporter A -> topic 'alpha'
     buildTopicExporter("alpha", props, brokerList);
 
-    // exporter A -> topic 'alpha'
+    // exporter B -> topic 'beta'
     buildTopicExporter("beta", props, brokerList);
 
-    props.setProperty(ConfluentTelemetryConfig.COLLECT_INTERVAL_CONFIG, String.valueOf(collectionIntervalMs));
+    props.setProperty(ConfluentTelemetryConfig.COLLECT_INTERVAL_CONFIG, String.valueOf(COLLECTION_INTERVAL_MS));
     props.setProperty(ConfluentTelemetryConfig.WHITELIST_CONFIG, "");
     props.setProperty(ConfluentTelemetryConfig.PREFIX_LABELS + "region", "test");
     props.setProperty(ConfluentTelemetryConfig.PREFIX_LABELS + "pkc", "pkc-bar");
@@ -88,16 +87,14 @@ public class KafkaDynamicExportersWhitelistTest extends MetricReporterClusterTes
     props.setProperty(KafkaConfig.LogFlushIntervalMessagesProp(), "1");
   }
 
-  public void waitForMetrics(String topic) throws InterruptedException {
-    waitForCondition(() -> checkForMetrics(topic, collectionIntervalMs),
-        collectionIntervalMs * 2,
-        collectionIntervalMs, () -> "Waiting for metrics to start flowing in topic " + topic);
+  private void waitForMetrics(String topic) {
+    assertTrue("Waiting for metrics to start flowing in topic " + topic,
+        newRecordsCheck(consumer, topic, COLLECTION_INTERVAL_MS * 2, false));
   }
 
-  public void waitForNoMetrics(String topic) throws InterruptedException {
-    waitForCondition(() -> checkForNoMetrics(topic, collectionIntervalMs),
-        collectionIntervalMs * 2,
-        collectionIntervalMs, () -> "Waiting for metrics to stop flowing in topic " + topic);
+  private void waitForNoMetrics(String topic) {
+    assertTrue("Waiting for metrics to stop flowing in topic " + topic,
+        newRecordsCheck(consumer, topic, COLLECTION_INTERVAL_MS * 2, true));
   }
 
   @Test
@@ -192,33 +189,5 @@ public class KafkaDynamicExportersWhitelistTest extends MetricReporterClusterTes
             .map(e -> new AlterConfigOp(new ConfigEntry(e.getKey(), e.getValue()), AlterConfigOp.OpType.SET))
             .collect(Collectors.toList())
     )).all().get();
-  }
-
-  private boolean checkForMetrics(String topic, long timeout) {
-    consumer.unsubscribe();
-    consumer.subscribe(Collections.singletonList(topic));
-    consumer.seekToEnd(Collections.emptyList());
-    long startMs = System.currentTimeMillis();
-    while (System.currentTimeMillis() - startMs < timeout) {
-      ConsumerRecords<byte[], byte[]> records = consumer.poll(Duration.ofMillis(200));
-      if (!records.isEmpty()) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  private boolean checkForNoMetrics(String topic, long timeout) {
-    consumer.unsubscribe();
-    consumer.subscribe(Collections.singletonList(topic));
-    consumer.seekToEnd(Collections.emptyList());
-    long startMs = System.currentTimeMillis();
-    while (System.currentTimeMillis() - startMs < timeout) {
-      ConsumerRecords<byte[], byte[]> records = consumer.poll(Duration.ofMillis(200));
-      if (records.isEmpty()) {
-        return true;
-      }
-    }
-    return false;
   }
 }

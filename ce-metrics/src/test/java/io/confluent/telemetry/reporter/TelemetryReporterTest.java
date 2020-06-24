@@ -7,6 +7,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
 import io.confluent.telemetry.ConfluentTelemetryConfig;
+import io.confluent.telemetry.collector.KafkaMetricsCollector;
 import io.confluent.telemetry.exporter.ExporterConfig;
 import io.confluent.telemetry.exporter.http.HttpExporter;
 import io.confluent.telemetry.exporter.http.HttpExporterConfig;
@@ -25,7 +26,6 @@ import java.util.Set;
 import kafka.server.KafkaConfig;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.metrics.KafkaMetricsContext;
-import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.metrics.MetricsContext;
 
@@ -79,14 +79,16 @@ public class TelemetryReporterTest {
     public void testOnUpdateInvalidRegex() {
         configs.put(ConfluentTelemetryConfig.WHITELIST_CONFIG, "(.");
         configs.put(KafkaConfig.BrokerIdProp(), "1");
-        assertThatThrownBy(() -> reporter.configure(configs))
+        reporter.configure(configs);
+        assertThatThrownBy(() -> reporter.contextChange(ctxWithCluster))
             .isInstanceOf(ConfigException.class);
     }
 
     @Test
     public void testInitConfigsInvalidIntervalConfig() {
         configs.put(ConfluentTelemetryConfig.COLLECT_INTERVAL_CONFIG, "not-a-number");
-        assertThatThrownBy(() -> reporter.configure(configs)).isInstanceOf(ConfigException.class);
+        reporter.configure(configs);
+        assertThatThrownBy(() -> reporter.contextChange(ctxWithCluster)).isInstanceOf(ConfigException.class);
     }
 
 
@@ -110,8 +112,13 @@ public class TelemetryReporterTest {
             "127.0.0.1:9092"
         );
         reporter.configure(configs);
-        reporter.onUpdate(new ClusterResource(null));
-        assertThat(reporter.getCollectors()).isEmpty();
+        reporter.contextChange(ctx);
+        assertThat(reporter.getCollectors())
+            .hasSize(2)
+            // the other collector should come from the KafkaExporter
+            .filteredOn(new Condition<>(c -> c instanceof KafkaMetricsCollector,
+                "is KafkaMetricsCollector collector"))
+            .hasSize(1);
     }
 
     @Test
@@ -121,7 +128,8 @@ public class TelemetryReporterTest {
             ConfluentTelemetryConfig.exporterPrefixForName("test") + ExporterConfig.TYPE_CONFIG,
             ExporterConfig.ExporterType.kafka.name()
         );
-        assertThatThrownBy(() -> reporter.configure(configs)).isInstanceOf(ConfigException.class);
+        reporter.configure(configs);
+        assertThatThrownBy(() -> reporter.contextChange(ctxWithCluster)).isInstanceOf(ConfigException.class);
     }
 
     @Test
@@ -154,7 +162,8 @@ public class TelemetryReporterTest {
             ConfluentTelemetryConfig.exporterPrefixForName("name") + HttpExporterConfig.BUFFER_MAX_BATCH_SIZE,
             "not-a-number"
         );
-        assertThatThrownBy(() -> reporter.configure(configs)).isInstanceOf(ConfigException.class);
+        reporter.configure(configs);
+        assertThatThrownBy(() -> reporter.contextChange(ctxWithCluster)).isInstanceOf(ConfigException.class);
     }
 
     @Test
@@ -208,10 +217,10 @@ public class TelemetryReporterTest {
             new ImmutableSet.Builder<String>()
                 .addAll(httpExporters)
                 .add("kafka")
-                .add(ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME)
                 .build();
 
         reporter.configure(configs);
+        reporter.contextChange(ctxWithCluster);
 
         Set<String> expectedConfigs = new HashSet<>();
         expectedConfigs.addAll(ConfluentTelemetryConfig.RECONFIGURABLES);
@@ -240,11 +249,6 @@ public class TelemetryReporterTest {
     }
 
     private void disableDefaultExporters() {
-        configs.put(
-            ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME)
-                + ExporterConfig.ENABLED_CONFIG,
-                "false"
-        );
         configs.put(
             ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_CONFLUENT_NAME)
                 + ExporterConfig.ENABLED_CONFIG,

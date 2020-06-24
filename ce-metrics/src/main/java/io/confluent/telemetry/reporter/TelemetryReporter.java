@@ -1,7 +1,9 @@
 package io.confluent.telemetry.reporter;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import io.confluent.telemetry.BrokerConfigUtils;
 import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.confluent.telemetry.Context;
 import io.confluent.telemetry.MetricKey;
@@ -15,8 +17,10 @@ import io.confluent.telemetry.exporter.http.HttpExporter;
 import io.confluent.telemetry.exporter.http.HttpExporterConfig;
 import io.confluent.telemetry.exporter.kafka.KafkaExporter;
 import io.confluent.telemetry.exporter.kafka.KafkaExporterConfig;
+import io.confluent.telemetry.provider.KafkaServerProvider;
 import io.confluent.telemetry.provider.Provider;
 import io.confluent.telemetry.provider.ProviderRegistry;
+
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -41,6 +45,12 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
 
   private static final Logger log = LoggerFactory.getLogger(TelemetryReporter.class);
 
+  /**
+   * Note that rawOriginalConfig may be different than originalConfig.originals()
+   * if we're on the broker (since we inject local exporter configs before creating
+   * the ConfluentTelemetryConfig object).
+   */
+  private Map<String, Object> rawOriginalConfig;
   private ConfluentTelemetryConfig originalConfig;
   private ConfluentTelemetryConfig config;
   private volatile Context ctx;
@@ -55,19 +65,24 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
   private Provider activeProvider;
 
   /**
-   * Configure this class with the given key-value pairs
+   * Note: we are assuming that these methods are invoked in the following order:
+   *  1. configure() [must be called first & only once]
+   *  2. contextChange() [must be called second]
+   *  3. contextChange() / reconfigurableConfigs() / reconfigure() [each may be called multiple times]
    */
+  @SuppressWarnings("unchecked")
   @Override
   public synchronized void configure(Map<String, ?> configs) {
-    this.originalConfig = new ConfluentTelemetryConfig(configs);
-    this.config = originalConfig;
+    this.rawOriginalConfig = (Map<String, Object>) configs;
     this.kafkaMetricsStateLedger.configure(configs);
-    this.unionPredicate = createUnionPredicate(this.config);
   }
 
   /* Implementing Reconfigurable interface to make this reporter dynamically reconfigurable. */
   @Override
   public synchronized void reconfigure(Map<String, ?> configs) {
+    if (this.config == null) {
+      throw new IllegalStateException("contextChange() was not called before reconfigure()");
+    }
 
     // start with original configs from properties file
     Map<String, Object> newOriginals = new HashMap<>(this.originalConfig.originals());
@@ -187,7 +202,7 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
   @Override
   public Set<String> reconfigurableConfigs() {
     if (this.config == null) {
-      throw new IllegalStateException("configure() was not called before reconfigurableConfigs()");
+      throw new IllegalStateException("contextChange() was not called before reconfigurableConfigs()");
     }
     Set<String> reconfigurables = new HashSet<String>(ConfluentTelemetryConfig.RECONFIGURABLES);
 
@@ -223,6 +238,9 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
      * 2. If a provider is found, validated all required labels are available
      * 3. If validation succeeds: initialize the provider, start the metric collection task, set metrics labels for services/libraries that expose metrics
      */
+    if (this.rawOriginalConfig == null) {
+      throw new IllegalStateException("configure() was not called before contextChange()");
+    }
 
     log.debug("metricsContext {}", metricsContext.contextLabels());
     if (!metricsContext.contextLabels().containsKey(MetricsContext.NAMESPACE)) {
@@ -233,36 +251,49 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
     this.activeProvider = ProviderRegistry.getProvider(metricsContext.contextLabels().get(MetricsContext.NAMESPACE));
 
     if (this.activeProvider == null) {
-      log.error("No provider was detected for context {}. Available providers {}. Config {}",
+      log.error("No provider was detected for context {}. Available providers {}.",
           metricsContext.contextLabels(),
-          ProviderRegistry.providers.keySet(),
-          this.config);
+          ProviderRegistry.providers.keySet());
       return;
     }
 
     log.debug("provider {} is selected.", this.activeProvider.getClass().getCanonicalName());
 
-    if (!this.activeProvider.validate(metricsContext, this.originalConfig.originals())) {
-      log.info("Validation failed for {} context {} config {}", this.activeProvider.getClass(), metricsContext.contextLabels(), this.originalConfig.originals());
+    if (!this.activeProvider.validate(metricsContext, this.rawOriginalConfig)) {
+      log.info("Validation failed for {} context {} config {}", this.activeProvider.getClass(), metricsContext.contextLabels(), this.rawOriginalConfig);
      return;
     }
 
     if (this.collectorTask == null) {
       // Initialize the provider only once. contextChange(..) can be called more than once,
       //but once it's been initialized and all necessary labels are present then we don't re-initialize again.
-      this.activeProvider.configure(this.originalConfig.originals());
+      this.activeProvider.configure(this.rawOriginalConfig);
     }
 
     this.activeProvider.contextChange(metricsContext);
 
     if (this.collectorTask == null) {
+
+      // we need to wait for contextChange call to initialize configs (due to 'isBroker' check)
+      initConfig();
+
       startMetricCollectorTask();
     }
   }
 
+  private void initConfig() {
+    this.originalConfig = new ConfluentTelemetryConfig(
+        maybeInjectLocalExporter(this.activeProvider, this.rawOriginalConfig));
+    this.config = originalConfig;
+    this.unionPredicate = createUnionPredicate(this.config);
+  }
+
   @Override
   public void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
-    ConfluentTelemetryConfig.validateReconfiguration(configs);
+    // the original config may contain local exporter overrides so add those first
+    Map<String, Object> validateConfig = Maps.newHashMap(this.originalConfig.originals());
+    validateConfig.putAll(configs);
+    ConfluentTelemetryConfig.validateReconfiguration(validateConfig);
   }
 
 
@@ -379,5 +410,39 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
             .reduce(Predicate::or)
             // if there are no exporters, then never match metrics
             .orElse(metricKey -> false);
+  }
+
+  private static Map<String, Object> prefixedExporterConfigs(String prefix, Map<String, Object> configs) {
+    String exporterPrefix = ConfluentTelemetryConfig.exporterPrefixForName(prefix);
+    return configs.entrySet().stream()
+        .filter(e -> e.getValue() != null)
+        .collect(Collectors.toMap(
+            e -> exporterPrefix + e.getKey(),
+            e -> e.getValue()));
+  }
+
+  private static Map<String, Object> maybeInjectLocalExporter(Provider provider, Map<String, Object> originals) {
+    Map<String, Object> configs = new HashMap<>();
+    // this check is how we determine if we're inside the broker
+    if (provider instanceof KafkaServerProvider) {
+      // first add the local exporter default values
+      configs.putAll(
+          prefixedExporterConfigs(
+              ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME,
+              ConfluentTelemetryConfig.EXPORTER_LOCAL_DEFAULTS)
+      );
+
+      // then apply derived broker config
+      configs.putAll(
+          prefixedExporterConfigs(
+              ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME,
+              BrokerConfigUtils.deriveLocalProducerConfigs(originals))
+      );
+    }
+
+    // finally apply the originals
+    configs.putAll(originals);
+
+    return configs;
   }
 }

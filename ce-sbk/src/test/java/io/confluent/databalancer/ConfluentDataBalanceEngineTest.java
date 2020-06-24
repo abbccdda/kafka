@@ -279,17 +279,10 @@ public class ConfluentDataBalanceEngineTest  {
         // Not a valid ZK connect URL but to validate what gets copied over.
         brokerProps.put(KafkaConfig.ZkConnectProp(), sampleZkString);
 
-        // Add required properties to test -- network capacity is necessary
-        String nwInCapacity = ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_CONFIG;
-        String nwOutCapacity = ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_CONFIG;
-
         String metricSamplerClass = ConfluentConfigs.CONFLUENT_BALANCER_PREFIX +
                 KafkaCruiseControlConfig.METRIC_SAMPLER_CLASS_CONFIG;
         String nonBalancerPropertyKey = "confluent.non_balancer_property_key";
 
-        // Just some arbitrary values for the network capacity -- needs to be non-zero
-        brokerProps.put(nwInCapacity, "1200");
-        brokerProps.put(nwOutCapacity, "780");
         brokerProps.put(metricSamplerClass, "io.confluent.cruisecontrol.metricsreporter.ConfluentTelemetryReporterSampler");
         brokerProps.put(nonBalancerPropertyKey, "nonBalancerPropertyValue");
 
@@ -312,6 +305,12 @@ public class ConfluentDataBalanceEngineTest  {
                 ccConfig.getDouble(KafkaCruiseControlConfig.NETWORK_INBOUND_CAPACITY_THRESHOLD_CONFIG));
         assertNotNull("balancer metrics sampler class property not present",
                 ccConfig.getClass(KafkaCruiseControlConfig.METRIC_SAMPLER_CLASS_CONFIG));
+        assertEquals("network inbound capacity should be at default",
+                ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_DEFAULT,
+                ccConfig.getLong(KafkaCruiseControlConfig.NETWORK_IN_CAPACITY_BYTES_CONFIG));
+        assertEquals("network outbound capacity should be at default",
+                ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_DEFAULT,
+                ccConfig.getLong(KafkaCruiseControlConfig.NETWORK_OUT_CAPACITY_BYTES_CONFIG));
         assertThrows("nonBalancerPropertyValue present", ConfigException.class,
                 () -> ccConfig.getString(nonBalancerPropertyKey));
         List<String> actualGoalsConfig = ccConfig.getList(KafkaCruiseControlConfig.GOALS_CONFIG);
@@ -388,9 +387,10 @@ public class ConfluentDataBalanceEngineTest  {
         brokerProps.put(KafkaConfig.ZkConnectProp(), sampleZkString);
         brokerProps.put(KafkaConfig.ListenersProp(), listenerString);
 
-        // Add required properties to test
         String nwInCapacity = ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_CONFIG;
         String nwOutCapacity = ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_CONFIG;
+        Long testNwInCapacity = 1200L;
+        Long testNwOutCapacity = 780L;
 
         String  metricsTopicConfig = ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME) +
                 KafkaExporterConfig.TOPIC_NAME_CONFIG;
@@ -399,8 +399,8 @@ public class ConfluentDataBalanceEngineTest  {
                 KafkaExporterConfig.TOPIC_REPLICAS_CONFIG;
         String testMetricsRfValue = "2";
 
-        brokerProps.put(nwInCapacity, "1200");
-        brokerProps.put(nwOutCapacity, "780");
+        brokerProps.put(nwInCapacity, testNwInCapacity.toString());
+        brokerProps.put(nwOutCapacity, testNwOutCapacity.toString());
         brokerProps.put(metricsTopicConfig, testMetricsTopic);
         brokerProps.put(metricsRfConfig, testMetricsRfValue);
 
@@ -422,6 +422,13 @@ public class ConfluentDataBalanceEngineTest  {
                      ccConfig.getBoolean(KafkaCruiseControlConfig.SELF_HEALING_GOAL_VIOLATION_ENABLED_CONFIG),
                      false);
 
+        assertEquals("Network inbound capacity should have been overridden",
+                testNwInCapacity,
+                ccConfig.getLong(KafkaCruiseControlConfig.NETWORK_IN_CAPACITY_BYTES_CONFIG));
+        assertEquals("Network outbound capacity should have been overridden",
+                testNwOutCapacity,
+                ccConfig.getLong(KafkaCruiseControlConfig.NETWORK_OUT_CAPACITY_BYTES_CONFIG));
+
         // Not all properties go into the KafkaCruiseControlConfig. Extract everything for validation.
         Map<String, Object> ccOriginals = ccConfig.originals();
 
@@ -438,59 +445,6 @@ public class ConfluentDataBalanceEngineTest  {
         List<String> actualDefaultGoalsConfig = ccConfig.getList(KafkaCruiseControlConfig.DEFAULT_GOALS_CONFIG);
         assertEquals(actualDefaultGoalsConfig + " is not same as expected " + testDefaultGoalsConfig,
                 testDefaultGoalsConfig, actualDefaultGoalsConfig);
-    }
-
-    @Test
-    public void testGenerateCruiseControlConfigWithZeroNetworkCapacity() {
-        // Add required properties
-        final String sampleZkString = "zookeeper-1-internal.pzkc-ldqwz.svc.cluster.local:2181,zookeeper-2-internal.pzkc-ldqwz.svc.cluster.local:2181/testKafkaCluster";
-
-        // Goals Config should be lacking the outbound network goals initially
-        List<String> expectedGoalsConfig = new ArrayList<>(KafkaCruiseControlConfig.DEFAULT_GOALS_LIST);
-        // If this fails, NetworkOutboundCapacityGoal was not present
-        assertTrue("NetworkOutboundCapacityGoal was expected to be in DEFAULT_GOALS_LIST",
-                expectedGoalsConfig.remove(NetworkOutboundCapacityGoal.class.getName()));
-
-        List<String> expectedHardGoalsConfig = new ArrayList<>(KafkaCruiseControlConfig.DEFAULT_HARD_GOALS_LIST);
-        assertTrue("NetworkOutboundCapacityGoal expected to be in DEFAULT_HARD_GOALS_LIST",
-                expectedHardGoalsConfig.remove(NetworkOutboundCapacityGoal.class.getName()));
-
-        List<String> expectedAnomalyDetectionGoalsConfig = new ArrayList<>(KafkaCruiseControlConfig.DEFAULT_ANOMALY_DETECTION_GOALS_LIST);
-        assertTrue("NetworkOutboundCapacityGoal expected to be in DEFAULT_ANOMALY_DETECTION_GOALS",
-                expectedAnomalyDetectionGoalsConfig.remove(NetworkOutboundCapacityGoal.class.getName()));
-
-        // Not a valid ZK connect URL but to validate what gets copied over.
-        brokerProps.put(KafkaConfig.ZkConnectProp(), sampleZkString);
-
-        // Add required properties to test -- network capacity is necessary
-        // Intentionally leave out network-outbound -- this should remove the outbound goal from capacity config
-        String nwInCapacity = ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_CONFIG;
-
-        brokerProps.put(nwInCapacity, "1200");
-
-        // Outbound capacity was not set -- this should result in no NetworkOutbound goal, and
-        // all goals should be properly updated
-        KafkaConfig config = new KafkaConfig(brokerProps);
-        KafkaCruiseControlConfig ccConfig = ConfluentDataBalanceEngine.generateCruiseControlConfig(config);
-
-        assertEquals(expectedGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.GOALS_CONFIG));
-        assertEquals(Collections.emptyList(), ccConfig.getList(KafkaCruiseControlConfig.DEFAULT_GOALS_CONFIG));
-        assertEquals(expectedHardGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.HARD_GOALS_CONFIG));
-        assertEquals(expectedAnomalyDetectionGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.ANOMALY_DETECTION_GOALS_CONFIG));
-
-        // Now take out the NW-IN capacity. Both inbound and outbound capacity goals should be gone.
-        brokerProps.remove(nwInCapacity);
-        expectedGoalsConfig.remove(NetworkInboundCapacityGoal.class.getName());
-        expectedHardGoalsConfig.remove(NetworkInboundCapacityGoal.class.getName());
-        expectedAnomalyDetectionGoalsConfig.remove(NetworkInboundCapacityGoal.class.getName());
-
-        config = new KafkaConfig(brokerProps);
-        ccConfig = ConfluentDataBalanceEngine.generateCruiseControlConfig(config);
-
-        assertEquals(expectedGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.GOALS_CONFIG));
-        assertEquals(Collections.emptyList(), ccConfig.getList(KafkaCruiseControlConfig.DEFAULT_GOALS_CONFIG));
-        assertEquals(expectedHardGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.HARD_GOALS_CONFIG));
-        assertEquals(expectedAnomalyDetectionGoalsConfig, ccConfig.getList(KafkaCruiseControlConfig.ANOMALY_DETECTION_GOALS_CONFIG));
     }
 
     @Test

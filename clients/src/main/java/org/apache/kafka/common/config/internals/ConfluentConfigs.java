@@ -271,7 +271,8 @@ public class ConfluentConfigs {
 
     public static final String BALANCER_REPLICA_CAPACITY_BASE_CONFIG = "max.replicas";
     public static final String BALANCER_REPLICA_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_REPLICA_CAPACITY_BASE_CONFIG;
-    public static final Long BALANCER_REPLICA_CAPACITY_DEFAULT = Long.MAX_VALUE;
+    // Set a large, but not too large, default so that cluster replica capacity is still in-range
+    public static final Long BALANCER_REPLICA_CAPACITY_DEFAULT = Long.valueOf(Integer.MAX_VALUE);
     public static final String BALANCER_REPLICA_CAPACITY_DOC = "The replica capacity is the maximum number of replicas " +
             "the balancer will place on a single broker.";
 
@@ -283,15 +284,19 @@ public class ConfluentConfigs {
 
     public static final String BALANCER_NETWORK_IN_CAPACITY_BASE_CONFIG = "network.in.max.bytes.per.second";
     public static final String BALANCER_NETWORK_IN_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_NETWORK_IN_CAPACITY_BASE_CONFIG;
-    public static final Long BALANCER_NETWORK_IN_CAPACITY_DEFAULT = 0L;
-    public static final String BALANCER_NETWORK_IN_CAPACITY_DOC = "This config specifies the upper bound for network " +
-            "incoming bytes per second per broker. 0 means that no bound is enforced.";
+    public static final Long BALANCER_NETWORK_IN_CAPACITY_DEFAULT = Long.MAX_VALUE;
+    public static final Long BALANCER_NETWORK_IN_CAPACITY_MIN = 1L;
+    public static final String BALANCER_NETWORK_IN_CAPACITY_DOC = "This config specifies the upper capacity limit for network " +
+            "incoming bytes per second per broker. The Confluent DataBalancer will attempt to keep incoming data throughput below " +
+            "this limit.";
 
     public static final String BALANCER_NETWORK_OUT_CAPACITY_BASE_CONFIG = "network.out.max.bytes.per.second";
     public static final String BALANCER_NETWORK_OUT_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_NETWORK_OUT_CAPACITY_BASE_CONFIG;
-    public static final Long BALANCER_NETWORK_OUT_CAPACITY_DEFAULT = 0L;
-    public static final String BALANCER_NETWORK_OUT_CAPACITY_DOC = "This config specifies the upper bound for network " +
-            "outgoing bytes per second per broker. 0 means that no bound is enforced.";
+    public static final Long BALANCER_NETWORK_OUT_CAPACITY_DEFAULT = Long.MAX_VALUE;
+    public static final Long BALANCER_NETWORK_OUT_CAPACITY_MIN = 1L;
+    public static final String BALANCER_NETWORK_OUT_CAPACITY_DOC = "This config specifies the upper capacity limit for network " +
+            "outgoing bytes per second per broker. The Confluent DataBalancer will attempt to keep outgoing data throughput below " +
+            "this limit.";
 
     public static final String BALANCER_EXCLUDE_TOPIC_NAMES_BASE_CONFIG = "exclude.topic.names";
     public static final String BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_EXCLUDE_TOPIC_NAMES_BASE_CONFIG;
@@ -532,12 +537,30 @@ public class ConfluentConfigs {
      */
     public static Map<String, Object> interBrokerClientConfigs(AbstractConfig brokerConfig,
                                                                Endpoint interBrokerEndpoint) {
-        Map<String, Object> configs = brokerConfig.originals();
-        Map<String, Object> clientConfigs = new HashMap<>(configs);
+        return interBrokerClientConfigs(
+            brokerConfig.originals(),
+            brokerConfig.values(),
+            interBrokerEndpoint
+        );
+    }
+
+    public static Map<String, Object> interBrokerClientConfigs(Map<String, Object> originals,
+                                                               Endpoint interBrokerEndpoint) {
+        return interBrokerClientConfigs(
+            originals,
+            Collections.emptyMap(),
+            interBrokerEndpoint
+        );
+    }
+
+    public static Map<String, Object> interBrokerClientConfigs(Map<String, Object> originals,
+                                                               Map<String, ?> values,
+                                                               Endpoint interBrokerEndpoint) {
+        Map<String, Object> clientConfigs = new HashMap<>(originals);
 
         // Remove broker configs that are not client configs. Using AdminClient config names for
         // filtering since they apply to producer/consumer as well.
-        Set<String> brokerConfigNames = brokerConfig.values().keySet();
+        Set<String> brokerConfigNames = values.keySet();
         clientConfigs.keySet().removeIf(n ->
             (brokerConfigNames.contains(n) && !AdminClientConfig.configNames().contains(n)) ||
                 n.startsWith("listener.name."));
@@ -546,11 +569,11 @@ public class ConfluentConfigs {
         String listenerPrefix = listenerName.configPrefix();
         SecurityProtocol securityProtocol = interBrokerEndpoint.securityProtocol();
         if (securityProtocol == SecurityProtocol.SASL_PLAINTEXT || securityProtocol == SecurityProtocol.SASL_SSL) {
-            String saslMechanism = (String) brokerConfig.originals().get("sasl.mechanism.inter.broker.protocol");
+            String saslMechanism = (String) originals.get("sasl.mechanism.inter.broker.protocol");
             saslMechanism = saslMechanism != null ? saslMechanism : SaslConfigs.DEFAULT_SASL_MECHANISM;
             clientConfigs.put(SaslConfigs.SASL_MECHANISM, saslMechanism);
             String mechanismPrefix = listenerName.saslMechanismConfigPrefix(saslMechanism);
-            updatePrefixedConfigs(configs, clientConfigs, mechanismPrefix);
+            updatePrefixedConfigs(originals, clientConfigs, mechanismPrefix);
 
             // If broker is configured with static JAAS config, set client sasl.jaas.config
             if (!clientConfigs.containsKey(SaslConfigs.SASL_JAAS_CONFIG)) {
@@ -558,7 +581,7 @@ public class ConfluentConfigs {
                 clientConfigs.put(SaslConfigs.SASL_JAAS_CONFIG, jaasConfig);
             }
         }
-        updatePrefixedConfigs(configs, clientConfigs, listenerPrefix);
+        updatePrefixedConfigs(originals, clientConfigs, listenerPrefix);
         String ibpHost = interBrokerEndpoint.host() == null ? "" : interBrokerEndpoint.host();
         clientConfigs.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, ibpHost + ":" + interBrokerEndpoint.port());
         clientConfigs.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, securityProtocol.name);

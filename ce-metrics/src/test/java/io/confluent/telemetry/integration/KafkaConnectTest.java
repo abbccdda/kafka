@@ -100,8 +100,6 @@ public class KafkaConnectTest extends TelemetryClusterTestHarness {
     // disable the default exporters
     exampleWorkerProps.put(ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_CONFLUENT_NAME)
             + ExporterConfig.ENABLED_CONFIG, "false");
-    exampleWorkerProps.put(ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME)
-            + ExporterConfig.ENABLED_CONFIG, "false");
 
     addReporterProps("", exampleWorkerProps);
     addReporterProps("consumer.", exampleWorkerProps);

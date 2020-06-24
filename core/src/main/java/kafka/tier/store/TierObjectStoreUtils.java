@@ -36,8 +36,7 @@ public class TierObjectStoreUtils {
                 String s3Region = props.getProperty(KafkaConfig.TierS3RegionProp());
                 // The remaining configs will be loaded from the environment or the defaults provided in KafkaConfig
                 return S3TierObjectStoreConfig.createWithEmptyClusterIdBrokerId(s3Bucket, s3Region,
-                        props.getProperty(KafkaConfig.TierS3AwsSecretAccessKeyProp()),
-                        props.getProperty(KafkaConfig.TierS3AwsAccessKeyIdProp()),
+                        props.getProperty(KafkaConfig.TierS3CredFilePathProp()),
                         props.getProperty(KafkaConfig.TierS3EndpointOverrideProp()),
                         props.getProperty(KafkaConfig.TierS3SignerOverrideProp()),
                         props.getProperty(KafkaConfig.TierS3SseAlgorithmProp(), Defaults.TierS3SseAlgorithm()),

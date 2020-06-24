@@ -87,13 +87,9 @@ class TierCloudBackendUtils {
                 .describedAs(KafkaConfig.TierS3RegionDoc())
                 .ofType(String.class)
                 .defaultsTo("us-west-2");
-        maybeExistingParser.accepts(KafkaConfig.TierS3AwsSecretAccessKeyProp(), KafkaConfig.TierS3AwsSecretAccessKeyDoc())
+        maybeExistingParser.accepts(KafkaConfig.TierS3CredFilePathProp(), KafkaConfig.TierS3CredFilePathDoc())
                 .withRequiredArg()
-                .describedAs(KafkaConfig.TierS3AwsSecretAccessKeyDoc())
-                .ofType(String.class);
-        maybeExistingParser.accepts(KafkaConfig.TierS3AwsAccessKeyIdProp(), KafkaConfig.TierS3AwsAccessKeyIdDoc())
-                .withRequiredArg()
-                .describedAs(KafkaConfig.TierS3AwsAccessKeyIdDoc())
+                .describedAs(KafkaConfig.TierS3CredFilePathDoc())
                 .ofType(String.class);
         maybeExistingParser.accepts(KafkaConfig.TierS3EndpointOverrideProp(), KafkaConfig.TierS3EndpointOverrideDoc())
                 .withRequiredArg()
@@ -167,10 +163,8 @@ class TierCloudBackendUtils {
         if (options.has(KafkaConfig.TierS3BucketProp()))
             maybeExistingProps.put(KafkaConfig.TierS3BucketProp(), options.valueOf(KafkaConfig.TierS3BucketProp()));
         maybeExistingProps.put(KafkaConfig.TierS3RegionProp(), options.valueOf(KafkaConfig.TierS3RegionProp()));
-        if (options.has(KafkaConfig.TierS3AwsSecretAccessKeyProp()))
-            maybeExistingProps.put(KafkaConfig.TierS3AwsSecretAccessKeyProp(), options.valueOf(KafkaConfig.TierS3AwsSecretAccessKeyProp()));
-        if (options.has(KafkaConfig.TierS3AwsAccessKeyIdProp()))
-            maybeExistingProps.put(KafkaConfig.TierS3AwsAccessKeyIdProp(), options.valueOf(KafkaConfig.TierS3AwsAccessKeyIdProp()));
+        if (options.has(KafkaConfig.TierS3CredFilePathProp()))
+            maybeExistingProps.put(KafkaConfig.TierS3CredFilePathProp(), options.valueOf(KafkaConfig.TierS3CredFilePathProp()));
         if (options.has(KafkaConfig.TierS3EndpointOverrideProp()))
             maybeExistingProps.put(KafkaConfig.TierS3EndpointOverrideProp(), options.valueOf(KafkaConfig.TierS3EndpointOverrideProp()));
         if (options.has(KafkaConfig.TierS3SignerOverrideProp()))

@@ -5,6 +5,7 @@
 
 package com.linkedin.kafka.cruisecontrol.config;
 
+import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUnitTestUtils;
 import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils;
 import com.linkedin.kafka.cruisecontrol.common.Resource;
 
@@ -14,8 +15,7 @@ import java.nio.file.FileStore;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.Properties;
 
 import kafka.server.KafkaConfig$;
 import org.apache.kafka.common.config.ConfigException;
@@ -25,6 +25,8 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_DEFAULT;
+import static org.apache.kafka.common.config.internals.ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_DEFAULT;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
@@ -35,25 +37,25 @@ import static org.junit.Assert.fail;
  * Unit test for {@link BrokerCapacityResolver}
  */
 public class BrokerCapacityResolverTest {
-  private final Double DISK_TEST_CAPACITY = 10D * 1024; // 10GB in units of MB
-  private final Double NW_IN_TEST_CAPACITY = 5D * 1024 * 1024 * 1024; // 5 GB/s in units of bytes
-  private final Double NW_OUT_TEST_CAPACITY = 12D * 1024 * 1024 * 1024; // 12GB/s in units of bytes
+  private final Long DISK_TEST_CAPACITY = 10L * 1024; // 10GB in units of MB
+  private final Long NW_IN_TEST_CAPACITY = 5L * 1024 * 1024 * 1024; // 5 GB/s in units of bytes
+  private final Long NW_OUT_TEST_CAPACITY = 12L * 1024 * 1024 * 1024; // 12GB/s in units of bytes
   private final double BYTES_PER_KB = BrokerCapacityResolver.BYTES_PER_KB;
 
   private final Double CONVERTED_NW_IN_TEST_CAPACITY = NW_IN_TEST_CAPACITY / BYTES_PER_KB;
   private final Double CONVERTED_NW_OUT_TEST_CAPACITY = NW_OUT_TEST_CAPACITY / BYTES_PER_KB;
 
-  Map<String, Object> capacityConfigs;
+  Properties capacityConfigs;
   private static File tempDir;
   private static String dirPath;
   private static FileStore dirStore;
   private static double dirStoreCapacity;
 
-  private static BrokerCapacityConfigResolver getBrokerCapacityResolver(Map<String, Object> configs) {
-    BrokerCapacityConfigResolver capacityResolver = new BrokerCapacityResolver();
-    capacityResolver.configure(configs);
+  private static BrokerCapacityConfigResolver getBrokerCapacityResolver(Properties configs) {
 
-    return capacityResolver;
+    KafkaCruiseControlConfig kccConfig = new KafkaCruiseControlConfig(configs);
+    return kccConfig.getConfiguredInstance(KafkaCruiseControlConfig.BROKER_CAPACITY_CONFIG_RESOLVER_CLASS_CONFIG,
+            BrokerCapacityConfigResolver.class);
   }
 
   @BeforeClass
@@ -66,10 +68,13 @@ public class BrokerCapacityResolverTest {
 
   @Before
   public void setUp() {
-    capacityConfigs = new HashMap<>();
-    capacityConfigs.put(ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_BASE_CONFIG, NW_IN_TEST_CAPACITY.toString());
-    capacityConfigs.put(ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_BASE_CONFIG, NW_OUT_TEST_CAPACITY.toString());
-    capacityConfigs.put(KafkaConfig$.MODULE$.LogDirsProp(), dirPath);
+    capacityConfigs = KafkaCruiseControlUnitTestUtils.getKafkaCruiseControlProperties();
+    capacityConfigs.setProperty(KafkaCruiseControlConfig.BROKER_CAPACITY_CONFIG_RESOLVER_CLASS_CONFIG,
+            BrokerCapacityResolver.class.getCanonicalName());
+
+    capacityConfigs.setProperty(ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_BASE_CONFIG, NW_IN_TEST_CAPACITY.toString());
+    capacityConfigs.setProperty(ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_BASE_CONFIG, NW_OUT_TEST_CAPACITY.toString());
+    capacityConfigs.setProperty(KafkaConfig$.MODULE$.LogDirsProp(), dirPath);
   }
 
   @Test
@@ -97,6 +102,23 @@ public class BrokerCapacityResolverTest {
   }
 
   @Test
+  public void testParseMinimalConfig() {
+    Properties minimalRequiredConfigs = new Properties();
+    minimalRequiredConfigs.putAll(capacityConfigs);
+    minimalRequiredConfigs.remove(KafkaCruiseControlConfig.NETWORK_IN_CAPACITY_BYTES_CONFIG);
+    minimalRequiredConfigs.remove(KafkaCruiseControlConfig.NETWORK_OUT_CAPACITY_BYTES_CONFIG);
+
+    BrokerCapacityConfigResolver capacityResolver = getBrokerCapacityResolver(minimalRequiredConfigs);
+
+    assertEquals((double) BALANCER_NETWORK_IN_CAPACITY_DEFAULT / BYTES_PER_KB,
+            capacityResolver.capacityForBroker("", "", 0).capacity().get(Resource.NW_IN),
+            0.01);
+    assertEquals((double) BALANCER_NETWORK_OUT_CAPACITY_DEFAULT / BYTES_PER_KB,
+            capacityResolver.capacityForBroker("", "", 2).capacity().get(Resource.NW_IN),
+            0.01);
+  }
+
+  @Test
   public void testParseNonNumericConfig() {
     capacityConfigs.put(ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_BASE_CONFIG, "bar");
     assertThrows(ConfigException.class, () -> getBrokerCapacityResolver(capacityConfigs));
@@ -104,30 +126,24 @@ public class BrokerCapacityResolverTest {
 
   @Test
   public void testParseNegativeConfig() {
-    Double negativeCapacity = -NW_IN_TEST_CAPACITY;
+    Long negativeCapacity = -NW_IN_TEST_CAPACITY;
     capacityConfigs.put(ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_BASE_CONFIG, negativeCapacity.toString());
     assertThrows(ConfigException.class, () -> getBrokerCapacityResolver(capacityConfigs));
   }
 
   @Test
   public void testMissingConfigs() {
-    Map<String, Object> missingLogDirsConfig = new HashMap<>(capacityConfigs);
+    Properties missingLogDirsConfig = new Properties();
+    missingLogDirsConfig.putAll(capacityConfigs);
+
     missingLogDirsConfig.remove(KafkaConfig$.MODULE$.LogDirsProp());
     assertThrows(ConfigException.class, () -> getBrokerCapacityResolver(missingLogDirsConfig));
-
-    Map<String, Object> missingNwInConfig = new HashMap<>(capacityConfigs);
-    missingNwInConfig.remove(ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_BASE_CONFIG);
-    assertThrows(ConfigException.class, () -> getBrokerCapacityResolver(missingNwInConfig));
-
-    Map<String, Object> missingNwOutConfig = new HashMap<>(capacityConfigs);
-    missingNwOutConfig.remove(ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_BASE_CONFIG);
-    assertThrows(ConfigException.class, () -> getBrokerCapacityResolver(missingNwOutConfig));
   }
 
   @Test
   public void testInvalidLogDirsConfig() {
-    capacityConfigs.put(KafkaConfig$.MODULE$.LogDirsProp(), null);
-    assertThrows("Expected ConfigException with null LogDirsProp", ConfigException.class, () -> getBrokerCapacityResolver(capacityConfigs));
+    capacityConfigs.remove(KafkaConfig$.MODULE$.LogDirsProp());
+    assertThrows("Expected ConfigException with absent LogDirsProp", ConfigException.class, () -> getBrokerCapacityResolver(capacityConfigs));
 
     capacityConfigs.put(KafkaConfig$.MODULE$.LogDirsProp(), 1234);
     assertThrows("Expected ConfigException with invalid LogDirsProp", ConfigException.class, () -> getBrokerCapacityResolver(capacityConfigs));

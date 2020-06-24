@@ -547,23 +547,6 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         ccConfigProps.putIfAbsent(KafkaCruiseControlConfig.ZOOKEEPER_CONNECT_CONFIG, config.get(KafkaConfig.ZkConnectProp()));
         ccConfigProps.put(BrokerCapacityResolver.LOG_DIRS_CONFIG, getConfiguredLogDirs(config));
 
-        // Adjust our goals list as needed -- if network capacities are not provided, remove them from the list
-        List<String> goals = new LinkedList<>(KafkaCruiseControlConfig.DEFAULT_GOALS_LIST);
-        List<String> hardGoals = new LinkedList<>(KafkaCruiseControlConfig.DEFAULT_HARD_GOALS_LIST);
-        List<String> anomalyDetectionGoals = new LinkedList<>(KafkaCruiseControlConfig.DEFAULT_ANOMALY_DETECTION_GOALS_LIST);
-        // if network in/out are zero, we don't want to enforce network capacity goals
-        long networkInCapacity = config.getLong(ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_CONFIG);
-        if (networkInCapacity <= 0) {
-            removeGoalFromLists(NETWORK_IN_CAPACITY_GOAL, goals, hardGoals, anomalyDetectionGoals);
-        }
-        long networkOutCapacity = config.getLong(ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_CONFIG);
-        if (networkOutCapacity <= 0) {
-            removeGoalFromLists(NETWORK_OUT_CAPACITY_GOAL, goals, hardGoals, anomalyDetectionGoals);
-        }
-
-        ccConfigProps.putIfAbsent(KafkaCruiseControlConfig.GOALS_CONFIG, String.join(",", goals));
-        ccConfigProps.putIfAbsent(KafkaCruiseControlConfig.HARD_GOALS_CONFIG, String.join(",", hardGoals));
-        ccConfigProps.putIfAbsent(KafkaCruiseControlConfig.ANOMALY_DETECTION_GOALS_CONFIG, String.join(",", anomalyDetectionGoals));
         configureCruiseControlSelfHealing(config, ccConfigProps);
         // Derive bootstrap.servers from the provided KafkaConfig, instead of requiring
         // users to specify it.

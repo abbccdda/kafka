@@ -109,8 +109,6 @@ public class ConfluentTelemetryConfigTest {
     builder
       // disable the default exporters
       .put(ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_CONFLUENT_NAME)
-            + ExporterConfig.ENABLED_CONFIG, "false")
-      .put(ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME)
             + ExporterConfig.ENABLED_CONFIG, "false");
     ConfluentTelemetryConfig config = new ConfluentTelemetryConfig(builder.build());
     assertThat(config.enabledExporters()).hasSize(0);
@@ -192,15 +190,5 @@ public class ConfluentTelemetryConfigTest {
         .hasEntrySatisfying("kafka",
             new Condition<>(c -> c.getString(ExporterConfig.WHITELIST_CONFIG).equals(globalWhitelist),
                 "kafka exporter has global whitelist"));
-  }
-
-  @Test
-  public void testDefaultExporters() {
-    ConfluentTelemetryConfig config = new ConfluentTelemetryConfig(builder.build());
-
-    Map<String, ExporterConfig> exporterConfigs = config.enabledExporters();
-    assertThat(exporterConfigs)
-      .hasEntrySatisfying(ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME, new Condition<>(c -> c instanceof KafkaExporterConfig, "is KafkaExporterConfig"));
-    assertEquals(new KafkaExporterConfig(ConfluentTelemetryConfig.EXPORTER_LOCAL_DEFAULTS), (KafkaExporterConfig) exporterConfigs.get(ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME));
   }
 }
