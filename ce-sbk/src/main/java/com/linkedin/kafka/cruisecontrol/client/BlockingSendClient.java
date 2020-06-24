@@ -41,7 +41,7 @@ import java.util.Optional;
  * This class is not thread-safe! It is very similar to #{@link kafka.server.ReplicaFetcherBlockingSend}.
  */
 @NotThreadSafe
-public class BlockingSendClient implements BlockingSend {
+public class BlockingSendClient implements BlockingSend, AutoCloseable {
 
   private final KafkaConfig config;
   private final int socketTimeout;
@@ -54,14 +54,12 @@ public class BlockingSendClient implements BlockingSend {
 
     private final static String METRIC_GROUP_PREFIX = "sbk-internal-broker-client";
     private final KafkaConfig config;
-    private final Metrics metrics;
     private final Time time;
     private final String clientId;
     private final LogContext logContext;
 
-    public Builder(KafkaConfig config, Metrics metrics, Time time, String clientId, LogContext logContext) {
+    public Builder(KafkaConfig config, Time time, String clientId, LogContext logContext) {
       this.config = config;
-      this.metrics = metrics;
       this.time = time;
       this.clientId = clientId;
       this.logContext = logContext;
@@ -85,7 +83,7 @@ public class BlockingSendClient implements BlockingSend {
       metricTags.put("broker-id", Integer.toString(targetBroker.id()));
 
       Selector selector = new Selector(NetworkReceive.UNLIMITED, config.connectionsMaxIdleMs(),
-          metrics, time, METRIC_GROUP_PREFIX, metricTags, true, channelBuilder, logContext);
+          new Metrics(), time, METRIC_GROUP_PREFIX, metricTags, true, channelBuilder, logContext);
       int maxInFlightRequestsPerConnection = 1;
       KafkaClient networkClient = new NetworkClient(selector, new ManualMetadataUpdater(), clientId, maxInFlightRequestsPerConnection,
           0, 0, Selectable.USE_DEFAULT_BUFFER_SIZE,
@@ -149,12 +147,12 @@ public class BlockingSendClient implements BlockingSend {
 
   @Override
   public void initiateClose() {
-    reconfigurableChannelBuilder.ifPresent(config::removeReconfigurable);
     networkClient.initiateClose();
   }
 
   @Override
-  public void close() throws IOException {
+  public void close() throws Exception {
+    reconfigurableChannelBuilder.ifPresent(config::removeReconfigurable);
     networkClient.close();
   }
 }

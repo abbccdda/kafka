@@ -81,10 +81,11 @@ public class BrokerShutdownManager {
     }
 
     Node broker = brokerToShutDownOpt.get();
-    BlockingSendClient shutdownClient = blockingSendClientBuilder.build(
-        new BrokerEndPoint(broker.id(), broker.host(), broker.port())
-    );
-    shutdownBroker(shutdownClient, brokerId, brokerEpochOpt.get());
+    try (BlockingSendClient shutdownClient = blockingSendClientBuilder.build(
+        new BrokerEndPoint(broker.id(), broker.host(), broker.port()))) {
+      shutdownBroker(shutdownClient, brokerId, brokerEpochOpt.get());
+    }
+
     return true;
   }
 

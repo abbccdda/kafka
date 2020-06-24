@@ -10,10 +10,11 @@ import io.confluent.kafka.test.cluster.EmbeddedKafkaCluster;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicBoolean;
 import kafka.cluster.BrokerEndPoint;
-import org.apache.kafka.common.metrics.Metrics;
+import kafka.utils.MockTime;
 import org.apache.kafka.common.utils.Exit;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.SystemTime;
+import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.test.TestUtils;
 import org.junit.After;
 import org.junit.Before;
@@ -34,6 +35,7 @@ public abstract class BrokerShutdownIntegrationTestHarness {
   private EmbeddedKafka brokerToShutdown;
   private BlockingSendClient blockingSendClient;
   private AtomicBoolean exited = new AtomicBoolean(false);
+  protected Time clusterTime;
 
   @Before
   public void setUp() throws Exception {
@@ -41,13 +43,14 @@ public abstract class BrokerShutdownIntegrationTestHarness {
       exited.set(true);
       exitProcedure();
     });
-    kafkaCluster = new EmbeddedKafkaCluster();
+    clusterTime = new MockTime(System.currentTimeMillis(), System.nanoTime());
+    kafkaCluster = new EmbeddedKafkaCluster(clusterTime);
     kafkaCluster.startZooKeeper();
     kafkaCluster.startBrokers(numBrokers(), new Properties());
     brokerToShutdown = kafkaCluster.kafkas().get(brokerToShutdownId);
     EndPoint endPoint = brokerToShutdown.endPoint();
     BrokerEndPoint brokerToShutdownEndpoint = new BrokerEndPoint(brokerToShutdownId, endPoint.host(), endPoint.port());
-    blockingSendClient = new BlockingSendClient.Builder(brokerToShutdown.kafkaServer().config(), new Metrics(),
+    blockingSendClient = new BlockingSendClient.Builder(brokerToShutdown.kafkaServer().config(),
         new SystemTime(), "client-id", new LogContext())
         .build(brokerToShutdownEndpoint);
   }

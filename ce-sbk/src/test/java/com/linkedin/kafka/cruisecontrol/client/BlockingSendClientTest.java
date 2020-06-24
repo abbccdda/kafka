@@ -8,7 +8,6 @@ import kafka.server.KafkaConfig;
 import kafka.utils.TestUtils;
 import org.apache.kafka.clients.NetworkClient;
 import org.apache.kafka.common.Node;
-import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.requests.InitiateShutdownRequest;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.LogContext;
@@ -36,7 +35,6 @@ import static org.mockito.Mockito.when;
 public class BlockingSendClientTest {
   private int brokerId = 0;
   private BrokerEndPoint brokerEndpoint = new BrokerEndPoint(brokerId, "localhost", 1000);
-  private Metrics metrics = new Metrics();
   private long timeTickMs = 10000L;
   private long socketTimeoutMs = 9000L;
   private Time time = new MockTime(timeTickMs, 0L, 0L);
@@ -64,9 +62,8 @@ public class BlockingSendClientTest {
   }
 
   @Test
-  public void testBuild() throws IOException {
-    BlockingSendClient sendClient = new BlockingSendClient.Builder(config, metrics, time, clientId, logContext).build(brokerEndpoint);
-    sendClient.initiateClose();
+  public void testBuild() throws Exception {
+    BlockingSendClient sendClient = new BlockingSendClient.Builder(config, time, clientId, logContext).build(brokerEndpoint);
     sendClient.close();
   }
 

@@ -13,5 +13,5 @@ public interface BlockingSend {
 
   void initiateClose();
 
-  void close() throws IOException;
+  void close() throws Exception;
 }

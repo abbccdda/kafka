@@ -30,7 +30,6 @@ import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.errors.BalancerOfflineException;
 import org.apache.kafka.common.errors.BrokerRemovalInProgressException;
-import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.SystemTime;
 import org.slf4j.Logger;
@@ -455,7 +454,6 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
     // and test startCruiseControl method
     private KafkaCruiseControl createKafkaCruiseControl(KafkaConfig kafkaConfig) {
         BlockingSendClient.Builder blockingSendClientBuilder = new BlockingSendClient.Builder(kafkaConfig,
-                new Metrics(),
                 context.getTime(),
                 SHUTDOWN_MANAGER_CLIENT_ID,
                 new LogContext());
