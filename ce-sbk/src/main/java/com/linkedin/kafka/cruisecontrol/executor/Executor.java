@@ -109,14 +109,8 @@ public class Executor {
   private AtomicInteger _numFailedReassignmentCancellations = new AtomicInteger(0);
   private volatile boolean _isKafkaAssignerMode;
 
-  private static final String EXECUTION_STARTED = "execution-started";
-  private static final String KAFKA_ASSIGNER_MODE = "kafka_assigner";
   private static final String EXECUTION_STOPPED = "execution-stopped";
-
   private static final String GAUGE_EXECUTION_STOPPED = EXECUTION_STOPPED;
-  private static final String GAUGE_EXECUTION_STOPPED_BY_USER = EXECUTION_STOPPED + "-by-user";
-  private static final String GAUGE_EXECUTION_STARTED_IN_KAFKA_ASSIGNER_MODE = EXECUTION_STARTED + "-" + KAFKA_ASSIGNER_MODE;
-  private static final String GAUGE_EXECUTION_STARTED_IN_NON_KAFKA_ASSIGNER_MODE = EXECUTION_STARTED + "-non-" + KAFKA_ASSIGNER_MODE;
   private static final String GAUGE_CANCELLED_REASSIGNMENTS = "cancelled-reassignments";
   private static final String GAUGE_FAILED_REASSIGNMENT_CANCELLATIONS = "failed-reassignment-cancellations";
   // TODO: Execution history is currently kept in memory, but ideally we should move it to a persistent store.
@@ -622,9 +616,6 @@ public class Executor {
    */
   private void registerGaugeSensors(DataBalancerMetricsRegistry metricRegistry) {
     metricRegistry.newGauge(Executor.class, GAUGE_EXECUTION_STOPPED, this::numExecutionStopped);
-    metricRegistry.newGauge(Executor.class, GAUGE_EXECUTION_STOPPED_BY_USER, this::numExecutionStoppedByUser);
-    metricRegistry.newGauge(Executor.class, GAUGE_EXECUTION_STARTED_IN_KAFKA_ASSIGNER_MODE, this::numExecutionStartedInKafkaAssignerMode);
-    metricRegistry.newGauge(Executor.class, GAUGE_EXECUTION_STARTED_IN_NON_KAFKA_ASSIGNER_MODE, this::numExecutionStartedInNonKafkaAssignerMode);
     metricRegistry.newGauge(Executor.class, GAUGE_CANCELLED_REASSIGNMENTS, this::numCancelledReassignments);
     metricRegistry.newGauge(Executor.class, GAUGE_FAILED_REASSIGNMENT_CANCELLATIONS, this::numFailedReassignmentCancellations);
   }
@@ -654,18 +645,6 @@ public class Executor {
 
   private int numExecutionStopped() {
     return _numExecutionStopped.get();
-  }
-
-  private int numExecutionStoppedByUser() {
-    return _numExecutionStoppedByUser.get();
-  }
-
-  private int numExecutionStartedInKafkaAssignerMode() {
-    return _numExecutionStartedInKafkaAssignerMode.get();
-  }
-
-  private int numExecutionStartedInNonKafkaAssignerMode() {
-    return _numExecutionStartedInNonKafkaAssignerMode.get();
   }
 
   private int numFailedReassignmentCancellations() {

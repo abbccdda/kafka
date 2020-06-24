@@ -4,6 +4,9 @@
 
 package com.linkedin.kafka.cruisecontrol.executor;
 
+import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
+import org.apache.kafka.common.utils.Time;
+
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -11,11 +14,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
-import org.apache.kafka.common.utils.Time;
-
-import static com.linkedin.kafka.cruisecontrol.executor.ExecutionTask.TaskType;
 import static com.linkedin.kafka.cruisecontrol.executor.ExecutionTask.State;
+import static com.linkedin.kafka.cruisecontrol.executor.ExecutionTask.TaskType;
 
 /**
  * A class for tracking the (1) dead tasks, (2) aborting/aborted tasks, (3) in progress tasks, and (4) pending tasks.
@@ -43,8 +43,6 @@ public class ExecutionTaskTracker {
   private static final String ABORTED = "aborted";
   private static final String DEAD = "dead";
   private static final String COMPLETED = "completed";
-  private static final String GAUGE_ONGOING_EXECUTION_IN_KAFKA_ASSIGNER_MODE = "ongoing-execution-kafka_assigner";
-  private static final String GAUGE_ONGOING_EXECUTION_IN_NON_KAFKA_ASSIGNER_MODE = "ongoing-execution-non_kafka_assigner";
 
   ExecutionTaskTracker(DataBalancerMetricsRegistry metricRegistry, Time time) {
     List<State> states = State.cachedValues();
@@ -87,10 +85,6 @@ public class ExecutionTaskTracker {
                 () -> (state == State.PENDING && _stopRequested) ? 0 : _tasksByType.get(type).get(state).size());
       }
     }
-    metricRegistry.newGauge(Executor.class, GAUGE_ONGOING_EXECUTION_IN_KAFKA_ASSIGNER_MODE,
-            () -> _isKafkaAssignerMode && !inExecutionTasks(TaskType.cachedValues()).isEmpty() ? 1 : 0);
-    metricRegistry.newGauge(Executor.class, GAUGE_ONGOING_EXECUTION_IN_NON_KAFKA_ASSIGNER_MODE,
-            () -> !_isKafkaAssignerMode && !inExecutionTasks(TaskType.cachedValues()).isEmpty() ? 1 : 0);
   }
 
   /**

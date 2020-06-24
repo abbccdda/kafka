@@ -98,7 +98,7 @@ public class AnomalyDetector {
     _anomalyInProgress = null;
     _numCheckedWithDelay = new AtomicLong();
     _shutdownLock = new Object();
-    metricRegistry.newGauge(AnomalyDetector.class, "balancedness-score", () -> _goalViolationDetector.balancednessScore());
+    metricRegistry.newGauge(AnomalyDetector.class, "balancedness-score", _goalViolationDetector::balancednessScore);
     _anomalyDetectorState = new AnomalyDetectorState(time,
                                                      _anomalyNotifier.selfHealingEnabled(),
                                                      numCachedRecentAnomalyStates,

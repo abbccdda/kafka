@@ -4,9 +4,14 @@
 
 package com.linkedin.kafka.cruisecontrol.detector;
 
-import com.yammer.metrics.core.Meter;
 import com.linkedin.cruisecontrol.detector.Anomaly;
 import com.linkedin.kafka.cruisecontrol.detector.notifier.AnomalyType;
+import com.yammer.metrics.core.Meter;
+import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
+import org.apache.kafka.common.utils.Time;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -17,17 +22,12 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
-import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
-import org.apache.kafka.common.utils.Time;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.utcDateFor;
 import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.SEC_TO_MS;
+import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils.utcDateFor;
 import static com.linkedin.kafka.cruisecontrol.detector.AnomalyDetectorUtils.getAnomalyType;
+import static com.linkedin.kafka.cruisecontrol.detector.notifier.AnomalyType.BROKER_FAILURE;
 import static com.linkedin.kafka.cruisecontrol.detector.notifier.AnomalyType.GOAL_VIOLATION;
 import static com.linkedin.kafka.cruisecontrol.detector.notifier.AnomalyType.METRIC_ANOMALY;
-import static com.linkedin.kafka.cruisecontrol.detector.notifier.AnomalyType.BROKER_FAILURE;
 
 public class AnomalyDetectorState {
   private static final Logger LOG = LoggerFactory.getLogger(AnomalyDetectorState.class);
@@ -110,7 +110,6 @@ public class AnomalyDetectorState {
     if (metricRegistry != null) {
       metricRegistry.newGauge(AnomalyDetector.class, "mean-time-to-start-fix-ms", this::meanTimeToStartFixMs);
       metricRegistry.newGauge(AnomalyDetector.class, "number-of-self-healing-started", this::numSelfHealingStarted);
-      metricRegistry.newGauge(AnomalyDetector.class, "ongoing-anomaly-duration-ms", this::ongoingAnomalyDurationMs);
 
       _anomalyRateByType = new HashMap<>(AnomalyType.cachedValues().size());
       _anomalyRateByType.put(AnomalyType.BROKER_FAILURE,
@@ -119,12 +118,8 @@ public class AnomalyDetectorState {
       _anomalyRateByType.put(AnomalyType.GOAL_VIOLATION,
                              metricRegistry.newMeter(AnomalyDetector.class, "goal-violation-rate", "goal-violations",
                                      TimeUnit.SECONDS));
-      _anomalyRateByType.put(AnomalyType.METRIC_ANOMALY,
-                             metricRegistry.newMeter(AnomalyDetector.class, "metric-anomaly-rate", "metric-anomalies",
-                                     TimeUnit.SECONDS));
-      _anomalyRateByType.put(AnomalyType.DISK_FAILURE,
-          metricRegistry.newMeter(AnomalyDetector.class, "disk-failure-rate", "disk-failures",
-                  TimeUnit.SECONDS));
+      _anomalyRateByType.put(AnomalyType.METRIC_ANOMALY, null);
+      _anomalyRateByType.put(AnomalyType.DISK_FAILURE, null);
     } else {
       _anomalyRateByType = new HashMap<>(AnomalyType.cachedValues().size());
       AnomalyType.cachedValues().forEach(anomalyType -> _anomalyRateByType.put(anomalyType, null));
