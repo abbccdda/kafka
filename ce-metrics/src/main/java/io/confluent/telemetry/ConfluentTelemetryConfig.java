@@ -59,13 +59,13 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
     public static final List<String> DEFAULT_BROKER_MONITORING_METRICS = Collections.unmodifiableList(
             Arrays.asList(
                 "active_controller_count",
-                "bytes_in_per_sec",
-                "bytes_out_per_sec",
+                "bytes_in",
+                "bytes_out",
                 "process_cpu_load",
                 "disk_total_bytes",
                 "disk_usable_bytes",
-                "failed_fetch_requests_per_sec",
-                "failed_produce_requests_per_sec",
+                "failed_fetch_requests",
+                "failed_produce_requests",
                 "in_sync_replicas_count",
                 "leader_count",
                 "leader_election_rate_and_time_ms",
@@ -87,14 +87,14 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
                 "response_queue_time_ms",
                 "response_send_time_ms",
                 "size",
-                "total_fetch_requests_per_sec",
-                "total_produce_requests_per_sec",
+                "total_fetch_requests",
+                "total_produce_requests",
                 "total_time_ms",
-                "unclean_leader_elections_per_sec",
+                "unclean_leader_elections",
                 "under_replicated",
                 "under_replicated_partitions",
-                "zookeeper_disconnects_per_sec",
-                "zookeeper_expires_per_sec",
+                "zookeeper_disconnects",
+                "zookeeper_expires",
                 // System level metrics for all services
                 "io.confluent.system/.*("
                     + "|system_cpu_load"
@@ -133,10 +133,22 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
     // Default local Kafka Exporter config for Self Balancing Kafka.
     // This actually gets used inside the reporter itself
     public static final String EXPORTER_LOCAL_NAME = "_local";
+    // The following are the set of default metrics that are exported to local
+    // _confluent-telemetry-metrics topic onprem for Self Balancing Kafka.
+    // Reference for the same cloud specific config:
+    // https://github.com/confluentinc/cc-spec-kafka/blob/v0.205.x/plugins/kafka/templates/serverConfig.tmpl#L14
+    public static final String EXPORTER_LOCAL_WHITELIST = ".*bytes_in.*|" +
+        ".*bytes_out.*|.*process_cpu_load.*|.*local_time_ms.*|.*log_flush_rate_and_time_ms.*|" +
+        ".*messages_in.*|.*request_handler_avg_idle_percent.*|.*requests.*|" +
+        ".*request_queue_size.*|.*request_queue_time_ms.*|.*response_queue_size.*|" +
+        ".*size.*|.*total_fetch_requests.*|.*total_produce_requests.*|" +
+        ".*total_time_ms.*|.*replication_bytes_in.*|.*replication_bytes_out.*";
+
     public static final Map<String, Object> EXPORTER_LOCAL_DEFAULTS =
         ImmutableMap.of(
             ExporterConfig.TYPE_CONFIG, ExporterConfig.ExporterType.kafka.name(),
             ExporterConfig.ENABLED_CONFIG, true,
+            ExporterConfig.WHITELIST_CONFIG, EXPORTER_LOCAL_WHITELIST,
 
             // This will get overriden by getDynamicDefaults() however not defaulting
             // this makes us have to provide this config even when this reporter is explicitly disabled. 

@@ -29,7 +29,7 @@ public class ConfluentTelemetryConfigTest {
     Predicate<MetricKey> filter = config.buildMetricWhitelistFilter();
 
     assertTrue(filter.test(new MetricKey("foobar/bytes_in_per_sec/total", Collections.emptyMap())));
-    assertFalse(filter.test(new MetricKey("foobar/bytes_in_per_asdfsec/total",
+    assertFalse(filter.test(new MetricKey("foobar/bytes_asdfin_per_sec/total",
         Collections.emptyMap())));
   }
 
