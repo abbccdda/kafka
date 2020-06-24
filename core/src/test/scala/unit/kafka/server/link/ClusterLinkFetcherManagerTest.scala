@@ -154,6 +154,7 @@ class ClusterLinkFetcherManagerTest {
 
     fetcherManager.shutdown()
     assertEquals(0, fetcherManager.fetcherThreadMap.size)
+    fetcherManager = null
   }
 
   @Test
@@ -217,8 +218,7 @@ class ClusterLinkFetcherManagerTest {
     assertEquals(1, fetcherManager.fetcherThreadMap.size)
     val fetcherThread1 = fetcherManager.fetcherThreadMap.values.head
     val metadata1 = fetcherManager.currentMetadata
-    val metadataThread1: ClusterLinkMetadataThread =
-      JTestUtils.fieldValue(fetcherManager, classOf[ClusterLinkFetcherManager], "metadataRefreshThread")
+    val metadataThread1 = metadataRefreshThread
     val metadataClient1 = metadataThread1.clusterLinkClient
 
     setupFetcherThreadMock(fetcherThread1, Set(new TopicPartition(topic, 0)))
@@ -257,12 +257,48 @@ class ClusterLinkFetcherManagerTest {
     updateMetadata(topics, linkedLeaderEpoch = 2)
     assertNotSame(fetcherThread1, fetcherManager.fetcherThreadMap.values.head)
     assertFalse("Metadata client not closed", metadataClient1.networkClient.active)
-    val metadataThread2: ClusterLinkMetadataThread =
-      JTestUtils.fieldValue(fetcherManager, classOf[ClusterLinkFetcherManager], "metadataRefreshThread")
+    val metadataThread2 = metadataRefreshThread
     assertNotSame(metadataThread1, metadataThread2)
     assertNotSame(metadataClient1, metadataThread2.clusterLinkClient)
     assertTrue("Metadata client not active", metadataThread2.clusterLinkClient.networkClient.active)
     verify(fetcherClient1)
+
+    val fetcherThread2 = fetcherManager.fetcherThreadMap.values.head
+    val metadataClient2 = metadataThread2.clusterLinkClient
+
+    setupFetcherThreadMock(fetcherThread2, Set(new TopicPartition(topic, 0)))
+    val fetcherClient2 = fetcherThread2.clusterLinkClient
+    expect(fetcherClient2.reconfigure(anyObject())).times(1)
+    replay(fetcherClient2)
+
+    val pausedProps = new util.HashMap[String, String]
+    pausedProps.putAll(fetcherManager.currentConfig.originalsStrings())
+    pausedProps.put(ClusterLinkConfig.ClusterLinkPausedProp, "true")
+    reset(fetcherThread2.clusterLinkClient)
+    expect(fetcherClient2.close()).once()
+    replay(fetcherClient2)
+    fetcherManager.reconfigure(new ClusterLinkConfig(pausedProps), Set(ClusterLinkConfig.ClusterLinkPausedProp))
+    assertEquals(0, fetcherManager.fetcherThreadMap.size)
+    assertFalse("Metadata client not closed", metadataClient2.networkClient.active)
+    verify(fetcherClient2)
+
+    val newNonDynamicButPausedProps = new util.HashMap[String, String]
+    newNonDynamicButPausedProps.putAll(fetcherManager.currentConfig.originalsStrings())
+    newNonDynamicButPausedProps.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "localhost:6789")
+    fetcherManager.reconfigure(new ClusterLinkConfig(newNonDynamicButPausedProps), Set(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG))
+    assertEquals(0, fetcherManager.fetcherThreadMap.size)
+    verify(fetcherClient2)
+
+    val unpausedProps = new util.HashMap[String, String]
+    unpausedProps.putAll(fetcherManager.currentConfig.originalsStrings())
+    unpausedProps.put(ClusterLinkConfig.ClusterLinkPausedProp, "false")
+    fetcherManager.reconfigure(new ClusterLinkConfig(unpausedProps), Set(ClusterLinkConfig.ClusterLinkPausedProp))
+    assertEquals(0, fetcherManager.fetcherThreadMap.size)
+    assertEquals(Set(topic), metadataTopics)
+    val metadataThread3 = metadataRefreshThread
+    assertNotSame(metadataThread2, metadataThread3)
+    assertTrue("Metadata client not active", metadataThread3.clusterLinkClient.networkClient.active)
+    verify(fetcherClient2)
   }
 
   private def updateMetadata(topics: Map[String, Integer],
@@ -305,4 +341,7 @@ class ClusterLinkFetcherManagerTest {
   }
 
   private def metadataTopics = fetcherManager.currentMetadata.newMetadataRequestBuilder().topics().asScala.toSet
+
+  private def metadataRefreshThread: ClusterLinkMetadataThread =
+    JTestUtils.fieldValue(fetcherManager, classOf[ClusterLinkFetcherManager], "metadataRefreshThread")
 }

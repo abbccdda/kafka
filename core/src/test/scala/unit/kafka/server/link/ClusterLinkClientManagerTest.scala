@@ -11,6 +11,7 @@ import kafka.utils.Implicits._
 import kafka.zk.{ClusterLinkData, KafkaZkClient}
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.clients.admin.{Admin, ConfluentAdmin}
+import org.apache.kafka.common.errors.ClusterLinkPausedException
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.server.authorizer.Authorizer
 import org.easymock.EasyMock._
@@ -34,7 +35,7 @@ class ClusterLinkClientManagerTest {
   }
 
   @Test
-  def testAdmin(): Unit = {
+  def testReconfigure(): Unit = {
     val linkName = "test-link"
 
     var factoryCalled = 0
@@ -55,21 +56,51 @@ class ClusterLinkClientManagerTest {
       assertEquals(1, factoryCalled)
       assertTrue(factoryAdmin eq clientManager.getAdmin)
 
+      // Reconfigure with configurations affecting the admin client.
       factoryAdmin = createNiceMock(classOf[ConfluentAdmin])
       factoryConfig = newConfig(Map(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG -> "localhost:2345"))
       clientManager.reconfigure(factoryConfig, Set(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG))
       assertEquals(2, factoryCalled)
       assertTrue(factoryAdmin eq clientManager.getAdmin)
 
+      // Reconfigure with parameters that don't affect the admin client.
       factoryConfig = newConfig(Map(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG -> "localhost:2345",
         ClusterLinkConfig.NumClusterLinkFetchersProp -> "5"))
       clientManager.reconfigure(factoryConfig, Set(ClusterLinkConfig.NumClusterLinkFetchersProp))
       assertEquals(2, factoryCalled)
+
+      // Reconfigure by pausing the cluster link. Setting parameters that affect the admin client should
+      // not have any effect.
+      factoryConfig = newConfig(Map(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG -> "localhost:3456",
+        ClusterLinkConfig.ClusterLinkPausedProp -> "true"))
+      clientManager.reconfigure(factoryConfig, Set(ClusterLinkConfig.NumClusterLinkFetchersProp,
+        CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, ClusterLinkConfig.ClusterLinkPausedProp))
+      assertEquals(2, factoryCalled)
+      intercept[ClusterLinkPausedException] {
+        clientManager.getAdmin
+      }
+
+      // Reconfigure with the cluster link still paused.
+      factoryConfig = newConfig(Map(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG -> "localhost:4567",
+        ClusterLinkConfig.ClusterLinkPausedProp -> "true"))
+      clientManager.reconfigure(factoryConfig, Set(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG))
+      assertEquals(2, factoryCalled)
+      intercept[ClusterLinkPausedException] {
+        clientManager.getAdmin
+      }
+
+      // Unpause the cluster link by removing the config entry.
+      factoryAdmin = createNiceMock(classOf[ConfluentAdmin])
+      factoryConfig = newConfig(Map(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG -> "localhost:4567"))
+      clientManager.reconfigure(factoryConfig, Set(ClusterLinkConfig.ClusterLinkPausedProp))
+      assertEquals(3, factoryCalled)
+      assertTrue(factoryAdmin eq clientManager.getAdmin)
+
     } finally {
       clientManager.shutdown()
     }
 
-    assertEquals(2, factoryCalled)
+    assertEquals(3, factoryCalled)
 
     intercept[IllegalStateException] {
       clientManager.getAdmin

@@ -52,7 +52,7 @@ class ClusterLinkFetcherManager(linkName: String,
     name = s"ClusterLinkFetcherManager on broker ${brokerConfig.brokerId} for $linkName",
     clientId = "ClusterLink",
     numFetchers = initialConfig.numClusterLinkFetchers,
-    ClusterLinkFactory.linkMetricTags(linkName)) with MetadataListener  {
+    ClusterLinkFactory.linkMetricTags(linkName)) with MetadataListener {
 
   private val linkedPartitions = new ConcurrentHashMap[TopicPartition, PartitionAndState]()
   private val unassignedPartitions = mutable.Set[TopicPartition]()
@@ -116,13 +116,17 @@ class ClusterLinkFetcherManager(linkName: String,
     linkedLeaderEpochChangeSensor.add(linkedLeaderEpochChangeTotal, new CumulativeSum)
     linkedLeaderEpochChangeSensor.add(linkedLeaderEpochChangeRate, new Rate)
 
-    initializeMetadata()
+    if (isActive())
+      initializeMetadata()
   }
 
   def startup(): Unit = {
     debug("Starting fetcher manager")
-    metadataRefreshThread.start()
+    if (isActive())
+      metadataRefreshThread.start()
   }
+
+  private[link] def isActive(): Boolean = !clusterLinkConfig.clusterLinkPaused
 
   private def initializeMetadata(): Unit = {
     val config = clusterLinkConfig
@@ -146,32 +150,53 @@ class ClusterLinkFetcherManager(linkName: String,
     * At most one reconfiguration may be in progress at any time.
     */
   def reconfigure(newConfig: ClusterLinkConfig, updatedKeys: Set[String]): Unit = {
-    val restartMetadata = lock synchronized {
+    val (stopMetadata, startMetadata) = lock synchronized {
+      val oldActive = isActive()
+      this.clusterLinkConfig = newConfig
+      val newActive = isActive()
+
       info(s"Reconfiguring link $linkName with new configs updated=$updatedKeys newConfig=${newConfig.values}")
-      if (updatedKeys.diff(ClusterLinkConfig.PeriodicMigrationProps).isEmpty) {
-        debug("Not reconfiguring fetcher manager since replication configs haven't changed")
-        this.clusterLinkConfig = newConfig
-        false
-      } else if (SslConfigs.RECONFIGURABLE_CONFIGS.containsAll(updatedKeys.asJava)) {
-        debug(s"Reconfiguring cluster link fetchers with updated configs: $updatedKeys")
-        val newConfigValues = newConfig.values
-        metadataRefreshThread.clusterLinkClient.validateReconfiguration(newConfigValues)
-        metadataRefreshThread.clusterLinkClient.reconfigure(newConfigValues)
-        fetcherThreadMap.values.map(_.clusterLinkClient).foreach(_.reconfigure(newConfigValues))
-        this.clusterLinkConfig = newConfig
-        false
-      } else {
-        debug(s"Recreating cluster link fetchers with updated configs: $updatedKeys")
-        fetcherThreadMap.values.foreach(_.partitionsAndOffsets.keySet.foreach(unassignedPartitions.add))
-        this.clusterLinkConfig = newConfig
-        closeAllFetchers()
-        true
+      (oldActive, newActive) match {
+        case (false, false) =>
+          debug(s"Not reconfiguring fetcher manager since it's paused")
+          (false, false)
+
+        case (false, true) =>
+          debug(s"Unpausing fetcher manager")
+          fetcherThreadMap.values.foreach(_.partitionsAndOffsets.keySet.foreach(unassignedPartitions.add))
+          (false, true)
+
+        case (true, false) =>
+          debug(s"Pausing fetcher manager")
+          closeAllFetchers()
+          (true, false)
+
+        case (true, true) if updatedKeys.diff(ClusterLinkConfig.PeriodicMigrationProps).isEmpty =>
+          debug("Not reconfiguring fetcher manager since replication configs haven't changed")
+          (false, false)
+
+        case (true, true) if SslConfigs.RECONFIGURABLE_CONFIGS.containsAll(updatedKeys.asJava) =>
+          debug(s"Reconfiguring cluster link fetchers with updated configs: $updatedKeys")
+          val newConfigValues = newConfig.values
+          metadataRefreshThread.clusterLinkClient.validateReconfiguration(newConfigValues)
+          metadataRefreshThread.clusterLinkClient.reconfigure(newConfigValues)
+          fetcherThreadMap.values.map(_.clusterLinkClient).foreach(_.reconfigure(newConfigValues))
+          (false, false)
+
+        case (true, true) =>
+          debug(s"Recreating cluster link fetchers with updated configs: $updatedKeys")
+          fetcherThreadMap.values.foreach(_.partitionsAndOffsets.keySet.foreach(unassignedPartitions.add))
+          this.clusterLinkConfig = newConfig
+          closeAllFetchers()
+          (true, true)
       }
     }
+
     // Restart metadata thread without holding fetcher manager lock since metadata thread
     // acquires fetcher manager lock to process new metadata
-    if (restartMetadata) {
+    if (stopMetadata)
       metadataRefreshThread.shutdown()
+    if (startMetadata) {
       initializeMetadata()
       updateMetadataTopics()
       metadataRefreshThread.start()
@@ -189,9 +214,11 @@ class ClusterLinkFetcherManager(linkName: String,
 
   def shutdown(): Unit = {
     info("shutting down")
-    closeAllFetchers()
-    metadataRefreshThread.shutdown()
-    metrics.removeSensor(metadata.throttleTimeSensorName)
+    if (isActive()) {
+      closeAllFetchers()
+      metadataRefreshThread.shutdown()
+    }
+    metrics.removeSensor(ClusterLinkMetadata.throttleTimeSensorName(linkName))
     metrics.removeSensor("linked-topic-partition-addition-sensor")
     metrics.removeSensor("linked-leader-epoch-change-sensor")
     info("shutdown completed")

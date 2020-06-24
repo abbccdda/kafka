@@ -209,7 +209,7 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
     val currentConfig = adminZkClient.fetchClusterLinkConfig(linkId)
     val configProps = configEncoder.decode(currentConfig)
     if (updateCallback(configProps)) {
-      info(s"Updating cluster link '$linkName' with new configuration ${new ClusterLinkConfig(configProps)}")
+      info(s"Updating cluster link '$linkName' with new configuration ${new ClusterLinkConfig(configProps).values}")
       val persistentProps = configEncoder.encode(configProps)
       adminZkClient.changeClusterLinkConfig(linkId, persistentProps)
       reconfigureClusterLink(managers(linkId), configEncoder.clusterLinkConfig(persistentProps))
@@ -340,17 +340,18 @@ class ClusterLinkManager(brokerConfig: KafkaConfig,
         partitions.filter(_.isActiveLinkDestinationLeader).groupBy(_.getClusterLinkId)
           .foreach { case (linkId, linkPartitions) =>
             linkId.foreach { lid =>
+              val partitions = linkPartitions.map(_.topicPartition)
               managers.get(lid) match {
                 case Some(Managers(fetcherManager, clientManager)) =>
                   fetcherManager.addLinkedFetcherForPartitions(linkPartitions)
 
-                  val firstPartitionTopics = linkPartitions.filter(_.topicPartition.partition == 0).map(_.topicPartition.topic)
+                  val firstPartitionTopics = partitions.filter(_.partition == 0).map(_.topic)
                   if (firstPartitionTopics.nonEmpty) {
                     clientManager.addTopics(firstPartitionTopics)
                   }
 
                 case None =>
-                  unknownClusterLinks += lid -> linkPartitions.map(_.topicPartition)
+                  unknownClusterLinks += lid -> partitions
               }
             }
           }

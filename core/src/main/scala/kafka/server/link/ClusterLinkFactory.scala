@@ -229,7 +229,5 @@ object ClusterLinkDisabled {
     override def alterMirror(op: AlterMirrorsRequest.Op, validateOnly: Boolean): CompletableFuture[AlterMirrorsResponse.Result] = {
       throw exception()
     }
-
-    def shutdown(): Unit = {}
   }
 }
