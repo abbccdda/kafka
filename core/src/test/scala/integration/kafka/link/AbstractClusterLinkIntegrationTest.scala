@@ -25,12 +25,14 @@ import scala.jdk.CollectionConverters._
 @Category(Array(classOf[IntegrationTest]))
 class AbstractClusterLinkIntegrationTest extends Logging {
 
+  case class SourceRecord(topic: String, partition: Int, key: Array[Byte], value: Array[Byte], offset: Long)
+
   val sourceCluster = new ClusterLinkTestHarness(SecurityProtocol.SASL_SSL)
   val destCluster = new ClusterLinkTestHarness(SecurityProtocol.SASL_PLAINTEXT)
   val topic = "linkedTopic"
   var numPartitions = 4
   val linkName = "testLink"
-  val producedRecords = mutable.Buffer[ProducerRecord[Array[Byte], Array[Byte]]]()
+  val producedRecords = mutable.Buffer[SourceRecord]()
   var nextProduceIndex: Int = 0
 
   @Before
@@ -51,12 +53,15 @@ class AbstractClusterLinkIntegrationTest extends Logging {
     consume(destCluster, topic)
   }
 
+  protected def nextOffset(partition: Int): Long = {
+    val partitionRecords = producedRecords.filter(_.partition == partition)
+    if (partitionRecords.isEmpty) 0 else partitionRecords.last.offset + 1
+  }
+
   protected def waitForMirror(topic: String,
                               servers: Seq[KafkaServer] = destCluster.servers,
                               maxWaitMs: Long = JTestUtils.DEFAULT_MAX_WAIT_MS): Unit = {
-    val offsetsByPartition = (0 until numPartitions).map { i =>
-      i -> producedRecords.count(_.partition == i).toLong
-    }.toMap
+    val offsetsByPartition = (0 until numPartitions).map { i => i -> nextOffset(i) }.toMap
     partitions.foreach { tp =>
       val expectedOffset = offsetsByPartition.getOrElse(tp.partition, 0L)
       val leader = TestUtils.waitUntilLeaderIsKnown(servers, tp)
@@ -81,14 +86,18 @@ class AbstractClusterLinkIntegrationTest extends Logging {
     producer.close()
   }
 
-  protected def produceRecords(producer: KafkaProducer[Array[Byte], Array[Byte]], topic: String, numRecords: Int): Unit = {
+  protected def produceRecords(producer: KafkaProducer[Array[Byte], Array[Byte]],
+                               topic: String,
+                               numRecords: Int,
+                               keyGenerator: Int => String = i => s"key $i"): Unit = {
     val numPartitions = producer.partitionsFor(topic).size()
     assertTrue(s"Invalid partition count $numPartitions", numPartitions > 0)
     val futures = (0 until numRecords).map { _ =>
       val index = nextProduceIndex
       nextProduceIndex += 1
-      val record = new ProducerRecord(topic, index % numPartitions, null, s"key $index".getBytes, s"value $index".getBytes)
-      producedRecords += record
+      val partition = index % numPartitions
+      val record = new ProducerRecord(topic, partition, null, keyGenerator.apply(index).getBytes, s"value $index".getBytes)
+      producedRecords += SourceRecord(topic, partition, record.key, record.value, nextOffset(partition))
       producer.send(record)
     }
     futures.foreach(_.get(15, TimeUnit.SECONDS))
@@ -130,7 +139,7 @@ class AbstractClusterLinkIntegrationTest extends Logging {
       assertEquals(produced.size, consumed.size)
       produced.zipWithIndex.foreach { case (producedRecord, i) =>
         val consumedRecord = consumed(i)
-        assertEquals(i, consumedRecord.offset)
+        assertEquals(producedRecord.offset, consumedRecord.offset)
         assertEquals(topic, consumedRecord.topic)
         assertEquals(new String(producedRecord.key), new String(consumedRecord.key))
         assertEquals(new String(producedRecord.value), new String(consumedRecord.value))

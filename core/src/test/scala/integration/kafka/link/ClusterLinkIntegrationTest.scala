@@ -28,7 +28,7 @@ import org.junit.Test
 import org.scalatest.Assertions.intercept
 
 import scala.annotation.nowarn
-import scala.collection.{Map, Seq, mutable}
+import scala.collection.{Map, Seq}
 import scala.jdk.CollectionConverters._
 
 @Category(Array(classOf[IntegrationTest]))
@@ -156,7 +156,7 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
     // on the leader as well as follower in the destination cluster
     val (leader2, _) = sourceCluster.shutdownLeader(tp)
     sourceCluster.startBroker(leader1)
-    truncate(producedRecords, 2)
+    truncate(2)
     produceToSourceCluster(4)
     val (endOffset, _) = TestUtils.computeUntilTrue(logEndOffset(sourceCluster.servers(leader1), tp).get)(_ >= producedRecords.size)
     assertEquals(producedRecords.size, endOffset)
@@ -236,7 +236,7 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
     // Shutdown destination destBroker2 and trigger unclean leader election in the source cluster
     destCluster.shutdownLeader(tp)
     val (sourceBroker2, _) = sourceCluster.shutdownLeader(tp)
-    truncate(producedRecords, 100)
+    truncate(100)
     sourceCluster.startBroker(sourceBroker1)
 
     // Startup destBroker1 so that destBroker1 with no records becomes the new leader
@@ -377,7 +377,7 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
     topicProps.put(TopicConfig.MAX_MESSAGE_BYTES_CONFIG, "100000")
     sourceCluster.createTopic(topic, 1, replicationFactor = 2, topicProps)
     produceToSourceCluster(numRecords)
-    truncate(producedRecords, numRecords)
+    truncate(numRecords)
 
     // Verify that partitions and configs of new source topic are not sync'ed
     assertEquals(numPartitions, destCluster.describeTopic(topic).partitions().size())
@@ -559,8 +559,8 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
     })
   }
 
-  private def truncate(records: mutable.Buffer[ProducerRecord[Array[Byte], Array[Byte]]], numRecords: Int): Unit = {
-    records.remove(records.size - numRecords, numRecords)
+  private def truncate(numRecords: Int): Unit = {
+    producedRecords.remove(producedRecords.size - numRecords, numRecords)
   }
 
   private def verifyLinkMetrics(): Unit = {
