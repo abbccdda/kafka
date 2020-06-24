@@ -57,6 +57,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anySet;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.atLeast;
@@ -740,4 +741,45 @@ public class KafkaCruiseControlTest {
                 isNull(), any(), isNull(), isNull(), any(), any(), isNull());
     }
 
+    @Test
+    public void addBroker_noProposalsToExecute() throws Exception {
+        KafkaCruiseControl kcc = spy(kafkaCruiseControl);
+        Node mockNode1 = mock(Node.class);
+        when(mockNode1.id()).thenReturn(1);
+        Node mockNode2 = mock(Node.class);
+        when(mockNode2.id()).thenReturn(2);
+
+        List<Node> clusterNodes = Arrays.asList(mockNode1, mockNode2);
+        Cluster mockCluster = new Cluster("testCluster", clusterNodes, Collections.emptySet(), Collections.emptySet(), Collections.emptySet());
+        MetadataClient.ClusterAndGeneration mockCandG = mock(MetadataClient.ClusterAndGeneration.class);
+        when(loadMonitor.refreshClusterAndGeneration()).thenReturn(mockCandG);
+        when(mockCandG.cluster()).thenReturn(mockCluster);
+
+        when(goalOptimizer.defaultModelCompletenessRequirements()).thenReturn(STRONGER_REQUIREMENTS);
+
+        Set<Integer> newBrokers = new HashSet<>();
+        newBrokers.add(1);
+        newBrokers.add(2);
+
+        when(loadMonitor.clusterModel(anyLong(), any(), any())).thenReturn(clusterModel);
+        // Generate no proposals
+        when(optimizerResult.goalProposals()).thenReturn(Collections.emptySet());
+
+        when(goalOptimizer.optimizations(
+                eq(clusterModel), eq(Collections.emptyList()), any(), isNull(),
+                eq(Collections.emptySet()), eq(Collections.emptySet()), eq(false),
+                any(), isNull(), eq(false))).thenReturn(optimizerResult);
+        when(executor.state()).thenReturn(executorState);
+        when(executorState.recentlyDemotedBrokers()).thenReturn(Collections.emptySet());
+
+        BalanceOpExecutionCompletionCallback mockCb = mock(BalanceOpExecutionCompletionCallback.class);
+
+        kcc.addBrokers(newBrokers, mockCb, "testOpId");
+        verify(clusterModel).setBrokerState(1, Broker.State.NEW); // verify plan-computation
+        verify(clusterModel).setBrokerState(2, Broker.State.NEW); // verify plan-computation
+        verify(executor, never()).executeProposals(any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                anyString(), any());
+        // Completion callback should be invoked in this case
+        verify(mockCb).accept(eq(true), isNull());
+    }
 }

@@ -927,6 +927,11 @@ public class KafkaCruiseControl {
                                  concurrentInterBrokerPartitionMovements, concurrentIntraBrokerPartitionMovements,
                                  concurrentLeaderMovements, replicaMovementStrategy, replicationThrottle,
                                  uuid, completionCallback);
+    } else {
+      if (completionCallback != null) {
+        LOG.warn("Not executing any proposals for operation {} since none were generated.", uuid);
+        completionCallback.accept(true, null);
+      }
     }
   }
 
@@ -955,7 +960,7 @@ public class KafkaCruiseControl {
           null, null, replicationThrottle, uuid,
           completionCallback);
     } else {
-      LOG.info("Not executing any proposals for removal operation {} since none exist", uuid);
+      LOG.info("Not executing any proposals for removal operation {} since none were generated.", uuid);
       completionCallback.accept(true, null);
       return new CompletableFuture<>();
     }
