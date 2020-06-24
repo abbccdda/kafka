@@ -8,10 +8,14 @@ import kafka.server.KafkaServer;
 import kafka.utils.TestUtils;
 import kafka.zk.EmbeddedZookeeper;
 import org.apache.kafka.clients.CommonClientConfigs;
+import org.apache.kafka.clients.admin.AlterConfigOp;
 import org.apache.kafka.clients.admin.BrokerRemovalDescription;
 import org.apache.kafka.clients.admin.BrokerRemovalError;
+import org.apache.kafka.clients.admin.ConfigEntry;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.common.errors.ApiException;
+import org.apache.kafka.common.config.ConfigResource;
+import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.errors.PlanComputationException;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
@@ -25,6 +29,7 @@ import org.slf4j.LoggerFactory;
 import scala.collection.JavaConverters;
 
 import java.time.Duration;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -51,6 +56,7 @@ public abstract class DataBalancerClusterTestHarness {
   protected String brokerList = null;
 
   private static Duration balancerStartTimeout = Duration.ofSeconds(120);
+  private static Duration balancerStopTimeout = Duration.ofSeconds(120);
   protected static Duration removalFinishTimeout = Duration.ofMinutes(3);
   protected static Duration removalPollInterval = Duration.ofSeconds(2);
 
@@ -113,6 +119,16 @@ public abstract class DataBalancerClusterTestHarness {
         String.format("The databalancer did not start in %s", balancerStartTimeout)
     );
   }
+
+  private void awaitBalanceEngineDisabled() throws InterruptedException {
+    KafkaServer controllerServer = controllerKafkaServer();
+    KafkaDataBalanceManager dataBalancer = (KafkaDataBalanceManager) controllerServer.kafkaController().dataBalancer().get();
+    org.apache.kafka.test.TestUtils.waitForCondition(() -> !dataBalancer.isActive(),
+        balancerStopTimeout.toMillis(),
+        String.format("The databalancer did not stop in %s", balancerStopTimeout)
+    );
+  }
+
 
   public void addBroker(int newBrokerId) {
     kafkaCluster.startBroker(newBrokerId, generalProperties);
@@ -190,6 +206,32 @@ public abstract class DataBalancerClusterTestHarness {
     logger.info(separator);
   }
 
+  /**
+   * Disables SBK via the dynamic config and awaits until it is stopped
+   */
+  protected void disableSBK() throws InterruptedException, ExecutionException {
+    ConfigResource defaultBrokerResource = new ConfigResource(ConfigResource.Type.BROKER, "");
+    ConfigEntry entry = new ConfigEntry(ConfluentConfigs.BALANCER_ENABLE_CONFIG, "false");
+    Collection<AlterConfigOp> configs = Collections.singleton(new AlterConfigOp(entry, AlterConfigOp.OpType.SET));
+    adminClient.incrementalAlterConfigs(Collections.singletonMap(defaultBrokerResource, configs)).all().get();
+
+    awaitBalanceEngineDisabled();
+    info("SBK was disabled");
+  }
+
+  /**
+   * Enables SBK via the dynamic config and awaits until it is stopped
+   */
+  protected void enableSBK() throws InterruptedException, ExecutionException {
+    ConfigResource defaultBrokerResource = new ConfigResource(ConfigResource.Type.BROKER, "");
+    ConfigEntry entry = new ConfigEntry(ConfluentConfigs.BALANCER_ENABLE_CONFIG, "true");
+    Collection<AlterConfigOp> configs = Collections.singleton(new AlterConfigOp(entry, AlterConfigOp.OpType.SET));
+    adminClient.incrementalAlterConfigs(Collections.singletonMap(defaultBrokerResource, configs)).all().get();
+
+    awaitBalanceEngineActivation();
+    info("SBK was enabled via the dynamic config");
+  }
+
   protected boolean retryRemoval(BrokerRemovalDescription brokerRemovalDescription, int brokerToRemoveId) throws ExecutionException, InterruptedException {
     info("Broker removal failed due to", brokerRemovalDescription.removalError()
         .orElse(new BrokerRemovalError(Errors.NONE, null))
@@ -206,12 +248,16 @@ public abstract class DataBalancerClusterTestHarness {
     return removalCompleted && reassignmentCompleted;
   }
 
-  protected boolean isInProgressRemoval(BrokerRemovalDescription brokerRemovalDescription) {
-    boolean reassignmentInProgress = brokerRemovalDescription.partitionReassignmentsStatus() == BrokerRemovalDescription.PartitionReassignmentsStatus.PENDING
-        || brokerRemovalDescription.partitionReassignmentsStatus() == BrokerRemovalDescription.PartitionReassignmentsStatus.IN_PROGRESS;
-    boolean removalInProgress = brokerRemovalDescription.brokerShutdownStatus() == BrokerRemovalDescription.BrokerShutdownStatus.PENDING;
+  /**
+   * Check whether the broker removal operation is in progress,
+   * ensuring it is past the initial plan computation phase (as that is likely to fail until we get enough windows)
+   */
+  protected boolean isRemovalInProgress(BrokerRemovalDescription brokerRemovalDescription) {
+    boolean reassignmentInProgress = brokerRemovalDescription.partitionReassignmentsStatus() == BrokerRemovalDescription.PartitionReassignmentsStatus.IN_PROGRESS;
+    boolean shutdownInProgress = brokerRemovalDescription.brokerShutdownStatus() == BrokerRemovalDescription.BrokerShutdownStatus.PENDING;
+    boolean shutdownComplete = brokerRemovalDescription.brokerShutdownStatus() == BrokerRemovalDescription.BrokerShutdownStatus.COMPLETE;
 
-    return removalInProgress || reassignmentInProgress;
+    return (reassignmentInProgress && shutdownComplete) || (reassignmentInProgress && shutdownInProgress);
   }
 
   protected boolean isFailedRemoval(BrokerRemovalDescription brokerRemovalDescription) {
@@ -221,6 +267,12 @@ public abstract class DataBalancerClusterTestHarness {
         || brokerRemovalDescription.brokerShutdownStatus() == BrokerRemovalDescription.BrokerShutdownStatus.CANCELED;
 
     return removalFailed || reassignmentFailed;
+  }
+
+  protected boolean isCanceledRemoval(BrokerRemovalDescription brokerRemovalDescription) {
+    boolean reassignmentCanceled = brokerRemovalDescription.partitionReassignmentsStatus() == BrokerRemovalDescription.PartitionReassignmentsStatus.CANCELED;
+    boolean removalCanceled = brokerRemovalDescription.brokerShutdownStatus() == BrokerRemovalDescription.BrokerShutdownStatus.CANCELED;
+    return reassignmentCanceled || removalCanceled;
   }
 
   protected boolean isFailedPlanComputationInRemoval(BrokerRemovalDescription brokerRemovalDescription) {

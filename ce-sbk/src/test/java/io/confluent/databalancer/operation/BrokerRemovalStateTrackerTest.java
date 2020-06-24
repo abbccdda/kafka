@@ -220,7 +220,7 @@ public class BrokerRemovalStateTrackerTest {
     stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_SUCCESS);
     stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.PLAN_COMPUTATION_SUCCESS);
     assertState(PLAN_EXECUTION_INITIATED);
-    stateTracker.cancel(canceledException, true);
+    stateTracker.cancel(canceledException, BrokerRemovalCancellationMode.PERSISTENT_CANCELLATION);
     assertState(PLAN_EXECUTION_CANCELED, canceledException);
     assertStatesNotSeen(BROKER_SHUTDOWN_CANCELED, BROKER_SHUTDOWN_FAILED, PLAN_COMPUTATION_FAILED, INITIAL_PLAN_COMPUTATION_FAILED);
     assertFalse("Should not be able to cancel state tracker as its in a terminal state", stateTracker.canBeCanceled());
@@ -234,7 +234,7 @@ public class BrokerRemovalStateTrackerTest {
     stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS);
 
     // act
-    stateTracker.cancel(canceledException, true);
+    stateTracker.cancel(canceledException, BrokerRemovalCancellationMode.PERSISTENT_CANCELLATION);
     assertState(BROKER_SHUTDOWN_CANCELED, canceledException);
     assertThrows(IllegalStateException.class, () -> stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_FAILURE));
 
@@ -245,16 +245,15 @@ public class BrokerRemovalStateTrackerTest {
 
 
   /**
-   * Cancellation with a false registerEvent flag means we should not advance the state machine to a cancelled state
+   * Cancellation with a non-persistent cancellation mode means we should not advance the state machine to a cancelled state
    */
   @Test
   public void testCancel_NoEventRegistration() {
-    boolean toRegisterEvent = false;
     stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS);
 
     // act
     assertState(BROKER_SHUTDOWN_INITIATED);
-    stateTracker.cancel(canceledException, toRegisterEvent);
+    stateTracker.cancel(canceledException, BrokerRemovalCancellationMode.TRANSIENT_CANCELLATION);
     assertState(BROKER_SHUTDOWN_INITIATED); // state should not have moved
     // further registrations fail
     assertThrows(IllegalStateException.class, () -> stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_FAILURE));
@@ -285,7 +284,7 @@ public class BrokerRemovalStateTrackerTest {
     stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS);
     stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.BROKER_SHUTDOWN_SUCCESS);
     assertState(PLAN_COMPUTATION_INITIATED);
-    stateTracker.cancel(canceledException, true);
+    stateTracker.cancel(canceledException, BrokerRemovalCancellationMode.PERSISTENT_CANCELLATION);
     assertState(PLAN_COMPUTATION_CANCELED, canceledException);
   }
 
@@ -319,7 +318,7 @@ public class BrokerRemovalStateTrackerTest {
   public void testAdvanceStateTo_ShutdownCancellation() {
     stateTracker.registerEvent(BrokerRemovalCallback.BrokerRemovalEvent.INITIAL_PLAN_COMPUTATION_SUCCESS);
     assertState(BROKER_SHUTDOWN_INITIATED);
-    stateTracker.cancel(canceledException, true);
+    stateTracker.cancel(canceledException, BrokerRemovalCancellationMode.PERSISTENT_CANCELLATION);
     assertState(BROKER_SHUTDOWN_CANCELED, canceledException);
   }
 

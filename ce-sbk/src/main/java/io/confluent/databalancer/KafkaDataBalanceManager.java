@@ -7,6 +7,7 @@ package io.confluent.databalancer;
 import com.yammer.metrics.core.MetricName;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import io.confluent.databalancer.operation.BalanceOpExecutionCompletionCallback;
+import io.confluent.databalancer.operation.BrokerRemovalCancellationMode;
 import io.confluent.databalancer.operation.BrokerRemovalStateTracker;
 import io.confluent.databalancer.persistence.ApiStatePersistenceStore;
 import io.confluent.databalancer.persistence.BrokerRemovalStateRecord;
@@ -182,7 +183,7 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
     @Override
     public synchronized void onResignation() {
         enableBrokerIdLogging(kafkaConfig);
-        cancelAllExistingBrokerRemovals();
+        cancelAllExistingBrokerRemovals(BrokerRemovalCancellationMode.TRANSIENT_CANCELLATION);
         deactivateEngine();
         balanceEngine = dbeFactory.getInactiveDataBalanceEngine();
     }
@@ -217,7 +218,7 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
             if (kafkaConfig.getBoolean(ConfluentConfigs.BALANCER_ENABLE_CONFIG)) {
                 activateEngine(Collections.emptyMap());
             } else {
-                cancelAllExistingBrokerRemovals();
+                cancelAllExistingBrokerRemovals(BrokerRemovalCancellationMode.PERSISTENT_CANCELLATION);
                 deactivateEngine();
             }
             // All other changes are effectively applied by the startup/shutdown (CC has been started with the new config, or it's been shut down),
@@ -281,31 +282,32 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
     }
 
     /**
-     * Cancels all the existing broker removals without persisting the cancellation state.
-     * This assumes that something will pick back up the removal operations
+     * Cancels all the existing broker removals, conditionally persisting the cancellation state
+     * depending on the #{@code cancellationMode}.
      */
-    private void cancelAllExistingBrokerRemovals() {
+    private synchronized void cancelAllExistingBrokerRemovals(BrokerRemovalCancellationMode cancellationMode) {
         if (!balanceEngine.isActive()) return;
 
         Map<Integer, BrokerRemovalStateTracker> stateTrackers = balanceEngine.getDataBalanceEngineContext()
                 .getBrokerRemovalsStateTrackers();
-        cancelExistingBrokerRemovals(stateTrackers.values(), false);
+        cancelExistingBrokerRemovals(stateTrackers.values(), cancellationMode);
     }
 
     /**
      * Cancels the existing broker removal operation for #{@code newBrokers} and persists the cancellation state.
      */
-    private void cancelExistingBrokerRemovals(Set<Integer> newBrokers) {
+    private synchronized void cancelExistingBrokerRemovals(Set<Integer> newBrokers) {
         Map<Integer, BrokerRemovalStateTracker> stateTrackers = balanceEngine.getDataBalanceEngineContext()
                 .getBrokerRemovalsStateTrackers();
         Set<BrokerRemovalStateTracker> validStateTrackers = newBrokers
                 .stream()
                 .map(stateTrackers::get)
                 .filter(Objects::nonNull).collect(Collectors.toSet());
-        cancelExistingBrokerRemovals(validStateTrackers, true);
+        cancelExistingBrokerRemovals(validStateTrackers, BrokerRemovalCancellationMode.PERSISTENT_CANCELLATION);
     }
 
-    private void cancelExistingBrokerRemovals(Collection<BrokerRemovalStateTracker> stateTrackers, boolean persistStatus) {
+    private synchronized void cancelExistingBrokerRemovals(Collection<BrokerRemovalStateTracker> stateTrackers,
+                                                           BrokerRemovalCancellationMode cancellationMode) {
         Map<Integer, BrokerRemovalStateTracker> allStateTrackers = balanceEngine.getDataBalanceEngineContext()
                 .getBrokerRemovalsStateTrackers();
         Set<Integer> allBrokerIds = allStateTrackers.keySet();
@@ -313,7 +315,7 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
         List<Integer> cancelledRemovalOperations = stateTrackers.stream()
             .map(stateTracker -> {
                 Integer brokerId = null;
-                if (tryCancelBrokerRemoval(stateTracker, persistStatus)) {
+                if (tryCancelBrokerRemoval(stateTracker, cancellationMode)) {
                     brokerId = stateTracker.brokerId();
                 }
                 allStateTrackers.remove(stateTracker.brokerId());
@@ -328,17 +330,20 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
     }
 
     /**
-     * Attempts to cancel the broker removal operation by first persisting the cancellation state and then cancelling the future.
+     * Attempts to cancel the broker removal operation by first registering the cancellation state and then cancelling the future.
      * The ordering is important. For the reasoning,
      * @see <a href="https://confluentinc.atlassian.net/wiki/spaces/~518048762/pages/1325369874/Cancellation+and+Persistence+for+Broker+Removal">this page</a>
      */
-    private boolean tryCancelBrokerRemoval(BrokerRemovalStateTracker stateTracker, boolean persistStatus) {
+    private boolean tryCancelBrokerRemoval(BrokerRemovalStateTracker stateTracker,
+                                           BrokerRemovalCancellationMode cancellationMode) {
         int brokerId = stateTracker.brokerId();
         LOG.info("Setting cancelled state on broker removal operation {}", brokerId);
         String errMsg = String.format("The broker removal operation for broker %d was canceled, " +
                 "likely due to the broker starting back up while it was being removed or as part of shutdown.", brokerId);
         BrokerRemovalCanceledException cancelException = new BrokerRemovalCanceledException(errMsg);
-        boolean isInCanceledState = stateTracker.cancel(cancelException, persistStatus);
+
+        boolean isInCanceledState = stateTracker.cancel(cancelException, cancellationMode);
+
         if (isInCanceledState) {
             LOG.info("Successfully set canceled status on broker removal task for broker {}. Proceeding with cancellation of the operation", brokerId);
             boolean wasCanceled = balanceEngine.cancelBrokerRemoval(brokerId);

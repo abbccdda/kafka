@@ -111,6 +111,9 @@ public class RemoveBrokerTest extends DataBalancerClusterTestHarness {
     // removeBroker(notControllerKafkaServer(), exited);
   }
 
+  /**
+   * Test failover handling of the broker removal operation by removing the Confluent Balancer server
+   */
   @Test
   public void testRemoveController() throws InterruptedException, ExecutionException {
     KafkaTestUtils.createTopic(adminClient, "test-topic", 20, 2);

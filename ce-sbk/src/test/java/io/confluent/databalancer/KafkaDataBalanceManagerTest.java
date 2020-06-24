@@ -11,6 +11,7 @@ import com.yammer.metrics.core.MetricName;
 import com.yammer.metrics.core.MetricsRegistry;
 import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import io.confluent.databalancer.operation.BalanceOpExecutionCompletionCallback;
+import io.confluent.databalancer.operation.BrokerRemovalCancellationMode;
 import io.confluent.databalancer.operation.BrokerRemovalStateTracker;
 import io.confluent.databalancer.persistence.ApiStatePersistenceStore;
 import kafka.controller.DataBalanceManager;
@@ -549,11 +550,11 @@ public class KafkaDataBalanceManagerTest {
         allNewBrokers.add(3);
 
         BrokerRemovalStateTracker mockStateTracker1 = mock(BrokerRemovalStateTracker.class);
-        when(mockStateTracker1.cancel(any(), eq(true))).thenReturn(true);
+        when(mockStateTracker1.cancel(any(), eq(BrokerRemovalCancellationMode.PERSISTENT_CANCELLATION))).thenReturn(true);
         when(mockStateTracker1.brokerId()).thenReturn(1);
         BrokerRemovalStateTracker mockStateTracker3 = mock(BrokerRemovalStateTracker.class);
         when(mockStateTracker3.brokerId()).thenReturn(3);
-        when(mockStateTracker3.cancel(any(), eq(true))).thenReturn(false);
+        when(mockStateTracker3.cancel(any(), eq(BrokerRemovalCancellationMode.PERSISTENT_CANCELLATION))).thenReturn(false);
 
         KafkaDataBalanceManager dataBalancer = new KafkaDataBalanceManager(initConfig,
             new KafkaDataBalanceManager.DataBalanceEngineFactory(mockActiveDataBalanceEngine, mockInactiveDataBalanceEngine),
@@ -568,8 +569,8 @@ public class KafkaDataBalanceManagerTest {
         // act
         dataBalancer.onBrokersStartup(emptyBrokers, allNewBrokers);
 
-        verify(mockStateTracker1).cancel(any(BrokerRemovalCanceledException.class), eq(true));
-        verify(mockStateTracker3).cancel(any(BrokerRemovalCanceledException.class), eq(true));
+        verify(mockStateTracker1).cancel(any(BrokerRemovalCanceledException.class), eq(BrokerRemovalCancellationMode.PERSISTENT_CANCELLATION));
+        verify(mockStateTracker3).cancel(any(BrokerRemovalCanceledException.class), eq(BrokerRemovalCancellationMode.PERSISTENT_CANCELLATION));
         verify(mockActiveDataBalanceEngine).cancelBrokerRemoval(1);
         verify(mockActiveDataBalanceEngine, never()).cancelBrokerRemoval(3); // broker 3 should not be cancelled
         verify(mockActiveDataBalanceEngine).addBrokers(eq(emptyBrokers), any(BalanceOpExecutionCompletionCallback.class), anyString());

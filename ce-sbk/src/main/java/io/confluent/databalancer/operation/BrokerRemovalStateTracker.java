@@ -113,10 +113,11 @@ public class BrokerRemovalStateTracker implements BrokerRemovalCallback {
    * Cancels the broker removal state tracking by setting a terminal canceled state
    * @return a boolean indicating whether the operation was canceled
    */
-  public synchronized boolean cancel(Exception eventException, boolean registerEvent) {
+  public synchronized boolean cancel(Exception eventException, BrokerRemovalCancellationMode cancellationMode) {
     if (canBeCanceled()) {
-      if (registerEvent) {
-        processEvent(BrokerRemovalEvent.BROKER_RESTARTED, // broker restart is the only cancel event right now
+      if (cancellationMode == BrokerRemovalCancellationMode.PERSISTENT_CANCELLATION) {
+        // broker restart is the only event that causes us to persist the cancellation right now
+        processEvent(BrokerRemovalEvent.BROKER_RESTARTED,
             eventException);
       }
       cancelled = true;
