@@ -16,6 +16,7 @@ import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkInboundCapacityGoa
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkInboundUsageDistributionGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkOutboundCapacityGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.NetworkOutboundUsageDistributionGoal;
+import com.linkedin.kafka.cruisecontrol.analyzer.goals.RackAwareGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.ReplicaCapacityGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.ReplicaDistributionGoal;
 import com.linkedin.kafka.cruisecontrol.analyzer.goals.TopicReplicaDistributionGoal;
@@ -570,6 +571,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
       + "priority goals will be executed first.";
   public static final List<String> DEFAULT_GOALS_LIST = Arrays.asList(
           ReplicaPlacementGoal.class.getName(),
+          RackAwareGoal.class.getName(),
           SequentialReplicaMovementGoal.class.getName(),
           ReplicaCapacityGoal.class.getName(),
           DiskCapacityGoal.class.getName(),
@@ -600,6 +602,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
       + "if Cruise Control runs in non-kafka-assigner mode and skip_hard_goal_check parameter is not set in request.";
   public static final List<String> DEFAULT_HARD_GOALS_LIST = Arrays.asList(
           ReplicaPlacementGoal.class.getName(),
+          RackAwareGoal.class.getName(),
           SequentialReplicaMovementGoal.class.getName(),
           ReplicaCapacityGoal.class.getName(),
           DiskCapacityGoal.class.getName(),
@@ -671,6 +674,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
       + "violated.";
   public static final List<String> DEFAULT_ANOMALY_DETECTION_GOALS_LIST = Arrays.asList(
           ReplicaPlacementGoal.class.getName(),
+          RackAwareGoal.class.getName(),
           SequentialReplicaMovementGoal.class.getName(),
           ReplicaCapacityGoal.class.getName(),
           DiskCapacityGoal.class.getName(),
