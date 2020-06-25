@@ -35,6 +35,7 @@ public class ConfluentServerCrnAuthority implements CrnAuthority, Configurable {
   // These are the strings that appear in the CRN types
   public static final String ORGANIZATION_TYPE = "organization";
   public static final String ENVIRONMENT_TYPE = "environment";
+  public static final String CLOUD_CLUSTER_TYPE = "cloud-cluster"; // equivalent to deployment in cloud
   public static final String KAFKA_CLUSTER_TYPE = "kafka";
   public static final String KSQL_CLUSTER_TYPE = "ksql";
   public static final String CONNECT_CLUSTER_TYPE = "connect";
@@ -158,6 +159,7 @@ public class ConfluentServerCrnAuthority implements CrnAuthority, Configurable {
       switch (type) {
         case ORGANIZATION_TYPE:
         case ENVIRONMENT_TYPE:
+        case CLOUD_CLUSTER_TYPE:
           scopeBuilder.addPath(resolvePathElement(e));
           break;
         case KAFKA_CLUSTER_TYPE:
@@ -241,7 +243,7 @@ public class ConfluentServerCrnAuthority implements CrnAuthority, Configurable {
     return builder.build();
   }
 
-  private void addClusters(ConfluentResourceName.Builder builder, Scope scope)
+  protected void addClusters(ConfluentResourceName.Builder builder, Scope scope)
       throws CrnSyntaxException {
     Map<String, String> clusters = scope.clusters();
 

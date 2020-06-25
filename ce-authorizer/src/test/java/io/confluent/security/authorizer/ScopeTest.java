@@ -96,7 +96,8 @@ public class ScopeTest {
             .withKafkaCluster("kafka_id").build().bindingScope());
     assertEquals(Scope.CLUSTER_BINDING_SCOPE, new Scope.Builder()
             .addPath("organization=org_id")
-            .addPath("environment=org_id")
+            .addPath("environment=env_id")
+            .addPath("cloud-cluster=kafka_id")
             .withKafkaCluster("kafka_id").build().bindingScope());
 
     // Testing arbitrary nested scopes

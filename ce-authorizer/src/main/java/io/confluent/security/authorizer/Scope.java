@@ -153,7 +153,7 @@ public class Scope {
             return ROOT_BINDING_SCOPE;
         }
         String lastPathElement = this.path.get(this.path.size() - 1);
-        // scopes are `organization=org_id` or `environment=env_id`
+        // scopes are `organization=org_resource_id` or `environment=env_id` or `cloud-cluster=lkc_id`
         String[] parts = lastPathElement.split("=");
         if (parts.length != 2) {
             throw new InvalidScopeException(

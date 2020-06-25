@@ -17,13 +17,17 @@ Environment Admin:
 
 Cloud Cluster Admin:
 - Note that this is "Cloud" Cluster Admin to distinguish it from the CP ClusterAdmin role
-- Must be bound at a cluster scope or the binding will be rejected
-  eg. {"path": ["organization=123", "environment=t55"],
-       "clusters": {"kafka-cluster": "lkc-abc123"}}
+- A Cloud Cluster is equivalent to Deployment, but it's hidden from end users.
+- Since LKC is 1:1 with Deployment, we are using Lkc Id and Cloud Cluster instead of Deployment
+  eg. {"path": ["organization=123", "environment=t55", "cloud-cluster="lkc-abc123"],
+       "clusters": {}}
 - Allows administrative privileges on everything within a specific cluster
 - Also allows organization level privileges to assign roles (inviting users, describing
   users and service accounts), and get support
 
+Note: We are using "Organization", "Environment" operation "Describe" to authorize/filter
+the GET endpoints for Org and Env. Thus, these are added to CloudClusterAdmin to allow
+UI navigation and api access to these higher level resources.
 
 There is also a non-customer-facing role:
 
@@ -48,7 +52,7 @@ bindWithResource is true for any of a role's policies, that role must be bound w
 
 */
 {
-  "bindingScopes": ["cluster", "environment", "organization", "root"],
+  "bindingScopes": ["cluster", "cloud-cluster", "environment", "organization", "root"],
   "roles": [
     {
       "name": "CCloudRoleBindingAdmin",
@@ -76,31 +80,31 @@ bindWithResource is true for any of a role's policies, that role must be bound w
           "allowedOperations": [
             {
               "resourceType": "Organization",
-              "operations": [ "Alter", "CreateEnvironment", "DescribeAccess", "AlterAccess" ]
+              "operations": [ "Describe", "Alter", "CreateEnvironment", "DescribeAccess", "AlterAccess" ]
             },
             {
               "resourceType": "User",
-              "operations": [ "All" ]
+              "operations": [ "Create", "Invite", "Describe", "Delete", "DescribeAccess", "AlterAccess" ]
             },
             {
               "resourceType": "ServiceAccount",
-              "operations": [ "All" ]
+              "operations": [ "Create", "Describe", "Alter", "Delete", "DescribeAccess", "AlterAccess" ]
             },
             {
               "resourceType": "CloudApiKey",
-              "operations": [ "All" ]
+              "operations": [ "Create", "Describe", "Alter", "Delete", "DescribeAccess", "AlterAccess" ]
             },
             {
               "resourceType": "Billing",
-              "operations": [ "All" ]
+              "operations": [ "Describe", "Alter", "DescribeAccess", "AlterAccess" ]
             },
             {
               "resourceType": "SecuritySSO",
-              "operations": [ "All" ]
+              "operations": [ "Create", "Describe", "Alter", "Delete", "DescribeAccess", "AlterAccess" ]
             },
             {
               "resourceType": "SupportPlan",
-              "operations": [ "All" ]
+              "operations": [ "Describe", "Alter", "DescribeAccess", "AlterAccess" ]
             },
             {
               "resourceType": "Environment",
@@ -111,7 +115,7 @@ bindWithResource is true for any of a role's policies, that role must be bound w
               "operations": [ "All" ]
             },
             {
-              "resourceType": "Deployment",
+              "resourceType": "CloudCluster",
               "operations": [ "All" ]
             },
             {
@@ -170,8 +174,12 @@ bindWithResource is true for any of a role's policies, that role must be bound w
           "bindWithResource": false,
           "allowedOperations": [
             {
+              "resourceType": "Organization",
+              "operations": [ "Describe" ]
+            },
+            {
               "resourceType": "User",
-              "operations": [ "Invite", "Describe" ]
+              "operations": [ "Create", "Invite", "Describe" ]
             },
             {
               "resourceType": "ServiceAccount",
@@ -189,22 +197,22 @@ bindWithResource is true for any of a role's policies, that role must be bound w
           "allowedOperations": [
             {
               "resourceType": "Environment",
-              "operations": [ "Alter", "Delete", "CreateKafkaCluster", "DescribeAccess", "AlterAccess" ]
+              "operations": [ "Describe", "Alter", "Delete", "CreateCloudCluster", "CreateSRCluster", "DescribeAccess", "AlterAccess" ]
             },
             {
               "resourceType": "SchemaRegistry",
-              "operations": [ "All" ]
-            },
-            {
-              "resourceType": "Deployment",
-              "operations": [ "All" ]
+              "operations": [ "Describe", "Delete", "DescribeAccess", "AlterAccess" ]
             },
             {
               "resourceType": "NetworkRegion",
-              "operations": [ "All" ]
+              "operations": [ "Create", "Describe", "Alter", "Delete", "DescribeAccess", "AlterAccess" ]
             },
             {
               "resourceType": "NetworkConfig",
+              "operations": [ "Create", "Describe", "Alter", "Delete", "DescribeAccess", "AlterAccess" ]
+            },
+            {
+              "resourceType": "CloudCluster",
               "operations": [ "All" ]
             },
             {
@@ -255,8 +263,12 @@ bindWithResource is true for any of a role's policies, that role must be bound w
           "bindWithResource": false,
           "allowedOperations": [
             {
+              "resourceType": "Organization",
+              "operations": [ "Describe" ]
+            },
+            {
               "resourceType": "User",
-              "operations": [ "Invite", "Describe" ]
+              "operations": [ "Create", "Invite", "Describe" ]
             },
             {
               "resourceType": "ServiceAccount",
@@ -269,44 +281,58 @@ bindWithResource is true for any of a role's policies, that role must be bound w
           ]
         },
         {
-          "bindingScope": "cluster",
+          "bindingScope": "environment",
           "bindWithResource": false,
           "allowedOperations": [
             {
+              "resourceType": "Environment",
+              "operations": [ "Describe" ]
+            }
+          ]
+        },
+        {
+          "bindingScope": "cloud-cluster",
+          "bindWithResource": false,
+          "allowedOperations": [
+            {
+              "resourceType": "CloudCluster",
+              "operations": [ "Describe", "Alter", "Delete", "CreateKsqlCluster", "CreateKafkaCluster", "DescribeAccess", "AlterAccess" ]
+            },
+            {
               "resourceType": "Cluster",
-              "operations": [ "All" ]
+              "operations": [ "Create", "IdempotentWrite", "Describe", "DescribeConfigs", "Alter", "AlterConfigs", "DescribeAccess", "AlterAccess" ]
             },
             {
               "resourceType": "Topic",
-              "operations": [ "All" ]
+              "operations": [ "Create", "Delete", "Read", "Write", "Describe", "DescribeConfigs", "Alter", "AlterConfigs", "DescribeAccess", "AlterAccess" ]
             },
             {
               "resourceType": "Subject",
-              "operations": [ "All" ]
+              "operations": [ "Read", "Write", "Delete", "ReadCompatibility", "WriteCompatibility", "DescribeAccess", "AlterAccess" ]
             },
             {
               "resourceType": "Connector",
-              "operations": [ "All" ]
+              "operations": [ "Create", "ReadConfig", "ReadStatus", "ReadTasks", "Pause", "Resume", "Configure", "Delete", "DescribeMetrics", "DescribePlugins", "ValidateConfig", "DescribeAccess", "AlterAccess" ]
             },
             {
               "resourceType": "KsqlCluster",
-              "operations": [ "All" ]
+              "operations": [ "Contribute", "Describe", "Alter", "Terminate", "DescribeAccess", "AlterAccess" ]
             },
             {
               "resourceType": "NetworkAccess",
-              "operations": [ "All" ]
+              "operations": [ "Create", "Describe", "Alter", "Delete", "DescribeAccess", "AlterAccess" ]
             },
             {
               "resourceType": "ClusterApiKey",
-              "operations": [ "All" ]
+              "operations": [ "Create", "Describe", "Alter", "Delete", "DescribeAccess", "AlterAccess" ]
             },
             {
               "resourceType": "ClusterMetric",
-              "operations": [ "All" ]
+              "operations": [ "Describe", "Read", "DescribeAccess", "AlterAccess" ]
             },
             {
               "resourceType" : "SecurityMetadata",
-              "operations" : ["Describe", "Alter"]
+              "operations" : ["Describe", "Alter" ]
             }
           ]
         }

@@ -4,7 +4,10 @@ import io.confluent.crn.ConfluentResourceName.Builder;
 import io.confluent.crn.ConfluentResourceName.Element;
 import io.confluent.security.authorizer.ResourcePattern;
 import io.confluent.security.authorizer.Scope;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
 
 public class ConfluentCloudCrnAuthority extends ConfluentServerCrnAuthority {
 
@@ -20,13 +23,14 @@ public class ConfluentCloudCrnAuthority extends ConfluentServerCrnAuthority {
         switch (element.resourceType()) {
             case ORGANIZATION_TYPE:
             case ENVIRONMENT_TYPE:
+            case CLOUD_CLUSTER_TYPE:
                 // Because path elements are strings, we include the type in the string
                 // to facilitate roles that define path-based scope levels
                 return element.resourceType() + PATH_TYPE_SEPARATOR + element.encodedResourceName();
             default:
                 throw new CrnSyntaxException(element.toString(),
-                        String.format("Path element must be %s or %s",
-                                ORGANIZATION_TYPE, ENVIRONMENT_TYPE));
+                        String.format("Path element must be %s, %s or %s",
+                                ORGANIZATION_TYPE, ENVIRONMENT_TYPE, CLOUD_CLUSTER_TYPE));
         }
     }
 
@@ -45,10 +49,13 @@ public class ConfluentCloudCrnAuthority extends ConfluentServerCrnAuthority {
                 case ENVIRONMENT_TYPE:
                     builder.addElement(ENVIRONMENT_TYPE, parts[1]);
                     break;
+                case CLOUD_CLUSTER_TYPE:
+                    builder.addElement(CLOUD_CLUSTER_TYPE, parts[1]);
+                    break;
                 default:
                     throw new CrnSyntaxException(pathElement,
-                            String.format("Path element must be %s or %s",
-                                    ORGANIZATION_TYPE, ENVIRONMENT_TYPE));
+                            String.format("Path element must be %s, %s or %s",
+                                    ORGANIZATION_TYPE, ENVIRONMENT_TYPE, CLOUD_CLUSTER_TYPE));
             }
         }
     }
@@ -68,10 +75,41 @@ public class ConfluentCloudCrnAuthority extends ConfluentServerCrnAuthority {
             // Call appropriate CC service to resolve this, but for now...
             throw new CrnSyntaxException(scope.path().toString(), "Missing Environment");
         }
-        if (scope.path().size() > 2) {
+        // Cloud Clusters are optional
+        if (scope.path().size() == 3 && !scope.path().get(2).startsWith(CLOUD_CLUSTER_TYPE + PATH_TYPE_SEPARATOR)) {
+            throw new CrnSyntaxException(scope.path().toString(), "Missing Cloud Cluster");
+        }
+        if (scope.path().size() > 3) {
             throw new CrnSyntaxException(scope.path().toString(), "Extraneous path element");
         }
 
         return crn;
+    }
+
+
+    @Override
+    protected void addClusters(ConfluentResourceName.Builder builder, Scope scope)
+        throws CrnSyntaxException {
+        Map<String, String> clusters = scope.clusters();
+
+        ArrayList<CrnSyntaxException> exceptions = new ArrayList<>();
+        // should only have 1 key in cloud (SR, Ksql or Kafka)
+        clusters.entrySet().stream()
+            .sorted(Entry.comparingByKey())
+            .forEach(e -> {
+                try {
+                    String clusterType = CLUSTER_TYPE_BY_KEY.get(e.getKey());
+                    if (clusterType != null) {
+                        builder.addElement(clusterType, e.getValue());
+                    } else {
+                        exceptions.add(new CrnSyntaxException(e.getKey(), "Unknown cluster type"));
+                    }
+                } catch (CrnSyntaxException exception) {
+                    exceptions.add(exception);
+                }
+            });
+        if (!exceptions.isEmpty()) {
+            throw new CrnSyntaxException("", exceptions);
+        }
     }
 }

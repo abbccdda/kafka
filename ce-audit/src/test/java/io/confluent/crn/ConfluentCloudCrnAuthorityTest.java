@@ -15,13 +15,43 @@ public class ConfluentCloudCrnAuthorityTest {
 
     @Test
     public void testResolveScopedTopic() throws CrnSyntaxException {
-        String crnString = "crn://confluent.cloud/organization=1234/environment=t55/kafka=lkc-abc123/topic=topic_1";
+        String crnString = "crn://confluent.cloud/organization=1234/environment=t55/cloud-cluster=lkc-abc123/kafka=lkc-abc123/topic=topic_1";
         ConfluentResourceName crn = authority.canonicalCrn(crnString);
 
         ScopedResourcePattern expected = new ScopedResourcePattern(
-                new Scope(Arrays.asList("organization=1234", "environment=t55"),
+                new Scope(Arrays.asList("organization=1234", "environment=t55", "cloud-cluster=lkc-abc123"),
                         Utils.mkMap(Utils.mkEntry("kafka-cluster", "lkc-abc123"))),
                 new ResourcePattern("Topic", "topic_1", PatternType.LITERAL));
+
+        ScopedResourcePattern scopedResourcePattern = authority.resolveScopePattern(crn);
+        Assert.assertEquals(expected, scopedResourcePattern);
+        Assert.assertEquals(authority.canonicalCrn(expected.scope(), expected.resourcePattern()), crn);
+    }
+
+    @Test
+    public void testResolveCloudSRCluster() throws CrnSyntaxException {
+        String crnString = "crn://confluent.cloud/organization=1234/environment=t55/schema-registry=lsrc-abc123";
+        ConfluentResourceName crn = authority.canonicalCrn(crnString);
+
+        ScopedResourcePattern expected = new ScopedResourcePattern(
+            new Scope(Arrays.asList("organization=1234", "environment=t55"),
+                Utils.mkMap(Utils.mkEntry("schema-registry-cluster", "lsrc-abc123"))),
+            new ResourcePattern("SchemaRegistryCluster", "schema-registry-cluster", PatternType.LITERAL));
+
+        ScopedResourcePattern scopedResourcePattern = authority.resolveScopePattern(crn);
+        Assert.assertEquals(expected, scopedResourcePattern);
+        Assert.assertEquals(authority.canonicalCrn(expected.scope(), expected.resourcePattern()), crn);
+    }
+
+    @Test
+    public void testResolveCloudKsqlCluster() throws CrnSyntaxException {
+        String crnString = "crn://confluent.cloud/organization=1234/environment=t55/cloud-cluster=lkc-123/ksql=lksqlc-abc123";
+        ConfluentResourceName crn = authority.canonicalCrn(crnString);
+
+        ScopedResourcePattern expected = new ScopedResourcePattern(
+            new Scope(Arrays.asList("organization=1234", "environment=t55", "cloud-cluster=lkc-123"),
+                Utils.mkMap(Utils.mkEntry("ksql-cluster", "lksqlc-abc123"))),
+            new ResourcePattern("KsqlCluster", "ksql-cluster", PatternType.LITERAL));
 
         ScopedResourcePattern scopedResourcePattern = authority.resolveScopePattern(crn);
         Assert.assertEquals(expected, scopedResourcePattern);
@@ -45,7 +75,7 @@ public class ConfluentCloudCrnAuthorityTest {
     @Test
     public void testMissingOrg() throws CrnSyntaxException {
         String[] tests = {
-                "crn://confluent.cloud/environment=t55/kafka=lkc-abc123/topic=topic_1",
+                "crn://confluent.cloud/environment=t55/cloud-cluster=lkc-abc123/kafka=lkc-abc123/topic=topic_1",
                 "crn://confluent.cloud/user=123"
         };
 
@@ -60,8 +90,8 @@ public class ConfluentCloudCrnAuthorityTest {
     @Test
     public void testMissingEnv() throws CrnSyntaxException {
         String[] tests = {
-                "crn://confluent.cloud/organization=1234/kafka=lkc-abc123",
-                "crn://confluent.cloud/organization=1234/kafka=lkc-abc123/topic=topic_1",
+                "crn://confluent.cloud/organization=1234/cloud-cluster=lkc-abc123/kafka=lkc-abc123",
+                "crn://confluent.cloud/organization=1234/cloud-cluster=lkc-abc123/kafka=lkc-abc123/topic=topic_1",
         };
 
         for (String t: tests) {
@@ -74,8 +104,9 @@ public class ConfluentCloudCrnAuthorityTest {
     @Test
     public void testMissingName() throws CrnSyntaxException {
         String[] tests = {
-                "crn://confluent.cloud/organization=/environment=t55/kafka=lkc-abc123/topic=topic_1",
-                "crn://confluent.cloud/organization=1234/environment=/kafka=lkc-abc123/topic=topic_1",
+            "crn://confluent.cloud/organization=/environment=t55/cloud-cluster=lkc-abc123/kafka=lkc-abc123/topic=topic_1",
+            "crn://confluent.cloud/organization=1234/environment=/cloud-cluster=lkc-abc123/kafka=lkc-abc123/topic=topic_1",
+            "crn://confluent.cloud/organization=1234/environment=t55/cloud-cluster=/kafka=lkc-abc123/topic=topic_1",
         };
 
         for (String t: tests) {
@@ -85,10 +116,12 @@ public class ConfluentCloudCrnAuthorityTest {
         }
 
         Scope[] scopes = {
-                new Scope(Arrays.asList("organization=", "environment=t55"),
-                        Utils.mkMap(Utils.mkEntry("kafka-cluster", "lkc-abc123"))),
-                new Scope(Arrays.asList("organization=1234", "environment="),
-                        Utils.mkMap(Utils.mkEntry("kafka-cluster", "lkc-abc123"))),
+            new Scope(Arrays.asList("organization=", "environment=t55"),
+                Utils.mkMap(Utils.mkEntry("kafka-cluster", "lkc-abc123"))),
+            new Scope(Arrays.asList("organization=1234", "environment="),
+                Utils.mkMap(Utils.mkEntry("kafka-cluster", "lkc-abc123"))),
+            new Scope(Arrays.asList("organization=1234", "environment=t55", "cloud-cluster="),
+                Utils.mkMap(Utils.mkEntry("kafka-cluster", "lkc-abc123"))),
         };
         ResourcePattern resourcePattern = new ResourcePattern("Topic", "topic_1", PatternType.LITERAL);
 

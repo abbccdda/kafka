@@ -93,10 +93,10 @@ public class RbacRoles {
 
   void addRole(Role role) {
     for (AccessPolicy accessPolicy : role.accessPolicies().values()) {
+      if (!bindingScopes.contains(accessPolicy.bindingScope()))
+        throw new InvalidRoleDefinitionException(
+            "Unknown binding scope '" + accessPolicy.bindingScope() + "' defined for " + role);
       accessPolicy.allowedOperations().forEach(resourceOp -> {
-        if (!bindingScopes.contains(accessPolicy.bindingScope()))
-          throw new InvalidRoleDefinitionException(
-                  "Unknown binding scope '" + accessPolicy.bindingScope() + "' defined for " + role);
         if (resourceOp.resourceType() == null || resourceOp.resourceType().isEmpty())
           throw new InvalidRoleDefinitionException(
                   "Resource type not specified in role definition ops for " + role);

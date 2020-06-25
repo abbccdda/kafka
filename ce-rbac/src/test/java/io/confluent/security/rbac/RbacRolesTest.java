@@ -148,11 +148,12 @@ public class RbacRolesTest {
     assertEquals("organization", envAdmin.accessPolicies().get("organization").bindingScope());
 
     Role clusterAdmin = rbacRoles.role("CloudClusterAdmin");
-    assertEquals(Arrays.asList(Scope.CLUSTER_BINDING_SCOPE, "organization"),
+    assertEquals(Arrays.asList("cloud-cluster", "environment", "organization"),
             clusterAdmin.accessPolicies().keySet()
                     .stream().sorted().collect(Collectors.toList()));
-    assertEquals(Scope.CLUSTER_BINDING_SCOPE, clusterAdmin.accessPolicies().get(Scope.CLUSTER_BINDING_SCOPE).bindingScope());
     assertEquals("organization", clusterAdmin.accessPolicies().get("organization").bindingScope());
+    assertEquals("environment", clusterAdmin.accessPolicies().get("environment").bindingScope());
+    assertEquals("cloud-cluster", clusterAdmin.accessPolicies().get("cloud-cluster").bindingScope());
   }
 
   @Test
