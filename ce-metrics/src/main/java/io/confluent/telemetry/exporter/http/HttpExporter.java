@@ -202,7 +202,7 @@ public class HttpExporter extends AbstractExporter implements MetricsCollectorPr
         reconfigureWhitelist(config.buildMetricWhitelistFilter());
 
         String apiKey = config.getString(HttpExporterConfig.API_KEY);
-        String apiSecretKey = config.getString(HttpExporterConfig.API_SECRET);
+        String apiSecretKey = config.getApiSecretOrEmpty();
         if (config.canEmitMetrics()) {
             canEmitMetrics = true;
         } else {

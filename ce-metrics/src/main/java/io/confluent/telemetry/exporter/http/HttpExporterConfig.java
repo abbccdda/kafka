@@ -21,6 +21,7 @@ import java.util.Set;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.ConfigDef.Validator;
 import org.apache.kafka.common.config.ConfigException;
+import org.apache.kafka.common.config.types.Password;
 import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -99,7 +100,7 @@ public class HttpExporterConfig extends ExporterConfig {
             API_KEY_DOC
         ).define(
             API_SECRET,
-            ConfigDef.Type.STRING,
+            ConfigDef.Type.PASSWORD,
             null,
             ConfigDef.Importance.HIGH,
             API_SECRET_DOC
@@ -197,6 +198,11 @@ public class HttpExporterConfig extends ExporterConfig {
         super(CONFIG, originals, doLog);
     }
 
+    public String getApiSecretOrEmpty() {
+        Password apiSecret = getPassword(API_SECRET);
+        return (apiSecret == null) ? "" : apiSecret.value();
+    }
+
     /**
      * Get the compression algorithm. If the algorithm is unknown, this returns null.
      */
@@ -217,7 +223,7 @@ public class HttpExporterConfig extends ExporterConfig {
         TelemetryHttpClient.Builder<ExportMetricsServiceResponse> builder = new Builder<>();
 
         String apiKey = getString(API_KEY);
-        String apiSecretKey = getString(API_SECRET);
+        String apiSecretKey = getApiSecretOrEmpty();
         Verify.verify(
             (Strings.isNullOrEmpty(apiKey) && Strings.isNullOrEmpty(apiSecretKey)) ||
             (!Strings.isNullOrEmpty(apiKey) && !Strings.isNullOrEmpty(apiSecretKey)),
@@ -255,7 +261,7 @@ public class HttpExporterConfig extends ExporterConfig {
 
     public Boolean canEmitMetrics() {
         String apiKey = getString(API_KEY);
-        String apiSecretKey = getString(API_SECRET);
+        String apiSecretKey = getApiSecretOrEmpty();
         if (!Strings.isNullOrEmpty(apiKey) && !Strings.isNullOrEmpty(apiSecretKey)) {
             return true;
         }
