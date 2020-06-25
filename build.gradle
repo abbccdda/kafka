@@ -153,6 +153,9 @@ allprojects {
           force "com.fasterxml.jackson.module:jackson-module-jaxb-annotations:$versions.jackson"
           force "com.fasterxml.jackson.module:jackson-module-paranamer:$versions.jackson"
           force "com.fasterxml.jackson.module:jackson-module-scala_${versions.baseScala}:$versions.jackson"
+          dependencySubstitution {
+              substitute module("log4j:log4j:1.2.17") because "we use a custom version with security patches" with module("io.confluent:confluent-log4j:1.2.17-cp1")
+          }
         }
       }
     }
