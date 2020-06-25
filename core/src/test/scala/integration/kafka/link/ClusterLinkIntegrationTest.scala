@@ -77,8 +77,10 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
     destCluster.linkTopic(topic, replicationFactor = 2, linkName)
 
     produceToSourceCluster(numRecords)
-    consume(sourceCluster, topic)
+    consume(sourceCluster)
 
+    waitForMirror()
+    verifyBasicLinkMetrics()
     verifyMirror(topic)
 
     val jaasConfig = destCluster.adminZkClient.fetchClusterLinkConfig(linkId).getProperty(SaslConfigs.SASL_JAAS_CONFIG)
@@ -100,8 +102,31 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
     destCluster.createClusterLink(linkName, sourceCluster)
     destCluster.linkTopic(topic, replicationFactor = 2, linkName)
 
-    waitForMirror(topic)
-    verifyLinkMetrics()
+    waitForMirror()
+    verifyBasicLinkMetrics()
+    verifyMirror(topic)
+  }
+
+  /**
+   * Verifies topic config sync occurs when source topic configs change.
+   */
+  @Test
+  def testTopicConfigSync(): Unit = {
+    val numRecords = 20
+    sourceCluster.createTopic(topic, numPartitions, replicationFactor = 2)
+    produceToSourceCluster(numRecords)
+
+    destCluster.createClusterLink(linkName, sourceCluster)
+    destCluster.linkTopic(topic, replicationFactor = 2, linkName)
+
+    sourceCluster.alterTopic(topic, Map("delete.retention.ms" -> "80000000"))
+    TestUtils.waitUntilTrue(() =>
+      destCluster.describeTopicConfig(topic).get("delete.retention.ms").value.equals("80000000"),
+      "Topic configs did not get propagated")
+
+    waitForMirror()
+    verifyBasicLinkMetrics()
+    verifyTopicConfigChangeMetrics()
     verifyMirror(topic)
   }
 
@@ -124,25 +149,28 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
     destCluster.createClusterLink(linkName, sourceCluster)
     destCluster.linkTopic(topic, replicationFactor = 2, linkName)
     var destLeaderEpoch = destCluster.waitForLeaderEpochChange(tp, 0, sourceCluster.leaderEpoch(tp))
-    waitForMirror(topic)
+    waitForMirror()
     produceToSourceCluster(2)
-    waitForMirror(topic)
+    waitForMirror()
 
     // Shutdown leader and verify clean leader election. No truncation is expected.
     val (leader1, _) = sourceCluster.shutdownLeader(tp)
     produceToSourceCluster(2)
     destLeaderEpoch = destCluster.waitForLeaderEpochChange(tp, destLeaderEpoch, sourceCluster.leaderEpoch(tp))
-    waitForMirror(topic)
+    waitForMirror()
 
     // Trigger unclean leader election in the source cluster and ensure truncation is performed
     // on the leader as well as follower in the destination cluster
-    val (leader2, _) = sourceCluster.shutdownLeader(tp)
+    sourceCluster.shutdownLeader(tp)
     sourceCluster.startBroker(leader1)
     truncate(2)
     produceToSourceCluster(4)
     val (endOffset, _) = TestUtils.computeUntilTrue(logEndOffset(sourceCluster.servers(leader1), tp).get)(_ >= producedRecords.size)
     assertEquals(producedRecords.size, endOffset)
-    consume(sourceCluster, topic)
+    consume(sourceCluster)
+    waitForMirror()
+    verifyBasicLinkMetrics()
+    verifyLinkedLeaderChangeMetrics()
     verifyMirror(topic)
   }
 
@@ -160,19 +188,20 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
     destCluster.createClusterLink(linkName, sourceCluster)
     destCluster.linkTopic(topic, replicationFactor = 2, linkName)
     produceToSourceCluster(2)
-    waitForMirror(topic)
+    waitForMirror()
+    verifyBasicLinkMetrics()
 
     // Shutdown destination leader and verify clean leader election. No truncation is expected.
     val (leader1, _) = destCluster.shutdownLeader(tp)
     produceToSourceCluster(2)
-    waitForMirror(topic, servers = destCluster.servers.filter(_ != destCluster.servers(leader1)))
+    waitForMirror(servers = destCluster.servers.filter(_ != destCluster.servers(leader1)))
 
     // Trigger unclean leader election in the destination cluster. No truncation is expected.
     // Produce records and ensure that all records are replicated in destination leader and follower
     val (leader2, _) = destCluster.shutdownLeader(tp)
     destCluster.startBroker(leader1)
     produceToSourceCluster(2)
-    waitForMirror(topic, servers = destCluster.servers.filter(_ != destCluster.servers(leader2)))
+    waitForMirror(servers = destCluster.servers.filter(_ != destCluster.servers(leader2)))
     destCluster.servers(leader2).startup()
     produceToSourceCluster(2)
     verifyMirror(topic)
@@ -207,17 +236,18 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
     // Produce records with multiple source epochs and wait for destBroker2 to mirror them. The last
     // batch is produced with a single leader and will be truncated due to unclean leader election later.
     produceToSourceCluster(100)
-    (0 until 3).foreach { i =>
+    (0 until 3).foreach { _ =>
       sourceCluster.bounceLeader(tp)
       produceToSourceCluster(100)
     }
     val (sourceBroker1, _) = sourceCluster.shutdownLeader(tp)
     produceToSourceCluster(100)
-    waitForMirror(topic, Seq(destCluster.servers(destBroker2)))
+    waitForMirror(Seq(destCluster.servers(destBroker2)))
+    verifyBasicLinkMetrics()
 
     // Shutdown destination destBroker2 and trigger unclean leader election in the source cluster
     destCluster.shutdownLeader(tp)
-    val (sourceBroker2, _) = sourceCluster.shutdownLeader(tp)
+    sourceCluster.shutdownLeader(tp)
     truncate(100)
     sourceCluster.startBroker(sourceBroker1)
 
@@ -247,12 +277,12 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
     }
 
     def throttled(): Boolean = {
-      destCluster.servers.exists { server =>
-        kafkaMetricMaxValue(server, "fetch-throttle-time-max", "cluster-link") > 0.0
-      }
+      kafkaMetricMaxValue("fetch-throttle-time-max", "cluster-link") > 0.0
     }
 
     verifyQuota(setQuota, throttled, "Source cluster link user quota")
+    waitForMirror()
+    verifyBasicLinkMetrics()
   }
 
   @Test
@@ -271,12 +301,12 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
     }
 
     def throttled(): Boolean = {
-      destCluster.servers.exists { server =>
-        yammerMetricMaxValue(s"kafka.server:type=ReplicaManager,name=ThrottledClusterLinkReplicasPerSec", linkOpt = None) > 0.0
-      }
+      yammerMetricMaxValue(s"kafka.server:type=ReplicaManager,name=ThrottledClusterLinkReplicasPerSec", linkOpt = None) > 0.0
     }
 
     verifyQuota(setQuota, throttled, "Destination cluster link replication quota")
+    waitForMirror()
+    verifyBasicLinkMetrics()
   }
 
   @Test
@@ -288,7 +318,7 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
     destCluster.createClusterLink(linkName, sourceCluster, metadataMaxAgeMs = 1000L)
     destCluster.linkTopic(topic, replicationFactor = 2, linkName)
     produceToSourceCluster(4)
-    waitForMirror(topic)
+    waitForMirror()
 
     numPartitions = 4
     sourceCluster.createPartitions(topic, numPartitions)
@@ -300,6 +330,9 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
     assertEquals(numPartitions, numDestPartitions)
 
     produceToSourceCluster(8)
+    waitForMirror()
+    verifyBasicLinkMetrics()
+    verifyAddPartitionMetrics()
     verifyMirror(topic)
   }
 
@@ -311,13 +344,13 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
     destCluster.createClusterLink(linkName, sourceCluster, metadataMaxAgeMs = 10000L)
     destCluster.linkTopic(topic, replicationFactor = 2, linkName)
     produceToSourceCluster(8)
-    waitForMirror(topic)
+    waitForMirror()
 
     // Update non-critical non-dynamic config metadata.max.age.ms
     val metadataMaxAge = "60000"
     destCluster.alterClusterLink(linkName, Map(CommonClientConfigs.METADATA_MAX_AGE_CONFIG -> metadataMaxAge))
     produceToSourceCluster(8)
-    waitForMirror(topic)
+    waitForMirror()
 
     // Verify the update.
     assertEquals(metadataMaxAge, destCluster.describeClusterLink(linkName).get(CommonClientConfigs.METADATA_MAX_AGE_CONFIG).value)
@@ -329,7 +362,7 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
     sourceCluster.updateBootstrapServers()
     destCluster.alterClusterLink(linkName, Map(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG -> sourceCluster.brokerList))
     produceToSourceCluster(8)
-    waitForMirror(topic)
+    waitForMirror()
 
     // Update critical dynamic truststore path config
     val oldFile = new File(destCluster.describeClusterLink(linkName).get(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG).value)
@@ -337,7 +370,8 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
     Files.copy(oldFile.toPath, newFile.toPath, StandardCopyOption.REPLACE_EXISTING)
     destCluster.alterClusterLink(linkName, Map(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG -> newFile.getAbsolutePath))
     produceToSourceCluster(8)
-    waitForMirror(topic)
+    waitForMirror()
+    verifyBasicLinkMetrics()
     verifyMirror(topic)
   }
 
@@ -349,7 +383,8 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
     destCluster.linkTopic(topic, replicationFactor = 2, linkName)
 
     produceToSourceCluster(numRecords)
-    waitForMirror(topic)
+    waitForMirror()
+    verifyBasicLinkMetrics()
     assertTrue(destCluster.topicLinkState(topic).state.shouldSync)
     sourceCluster.deleteTopic(topic)
     TestUtils.waitUntilTrue(() => !destCluster.topicLinkState(topic).state.shouldSync,
@@ -418,6 +453,11 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
     verifyOffsetMigration(topic, partition = 0, finalOffset, syncPeriod * 4, consumerGroup)
     verifyOffsetMigration(topic, partition = 0, finalOffset, syncPeriod * 4, additionalConsumerGroup)
 
+    produceToSourceCluster(10)
+    waitForMirror()
+    verifyBasicLinkMetrics()
+    verifyConsumerOffsetMigrationMetrics()
+
     destCluster.unlinkTopic(topic, linkName)
     destCluster.deleteClusterLink(linkName)
   }
@@ -452,6 +492,11 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
     verifyOffsetMigration(topic, partition = 0, finalOffset, syncPeriod * 4, consumerGroup)
     verifyOffsetMigration(additionalTopic, partition = 0, finalOffset, syncPeriod * 4, consumerGroup)
 
+    produceToSourceCluster(10)
+    waitForMirror()
+    verifyBasicLinkMetrics()
+    verifyConsumerOffsetMigrationMetrics()
+
     destCluster.unlinkTopic(topic, linkName, false)
     destCluster.unlinkTopic(additionalTopic, linkName)
     destCluster.deleteClusterLink(linkName)
@@ -466,7 +511,7 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
     destCluster.createClusterLink(linkName, sourceCluster, metadataMaxAgeMs = 10000L)
     destCluster.linkTopic(topic, replicationFactor = 2, linkName)
     produceToSourceCluster(4)
-    waitForMirror(topic)
+    waitForMirror()
 
     // Attempt to produce to the mirror.
     val producer = destCluster.createProducer()
@@ -503,7 +548,7 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
         LogConfig.CleanupPolicyProp -> None,
       )
       alterations.foreach { case (name, value) =>
-        val expectSuccess = (name == LogConfig.UncleanLeaderElectionEnableProp)
+        val expectSuccess = name == LogConfig.UncleanLeaderElectionEnableProp
         val op = value match {
           case Some(v) => new AlterConfigOp(new ConfigEntry(name, v), AlterConfigOp.OpType.SET)
           case None => new AlterConfigOp(new ConfigEntry(name, null), AlterConfigOp.OpType.DELETE)
@@ -522,7 +567,8 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
 
     // Produce more records to the source and verify we see no additional records.
     produceToSourceCluster(4)
-    waitForMirror(topic)
+    waitForMirror()
+    verifyBasicLinkMetrics()
 
     destCluster.unlinkTopic(topic, linkName, false)
     destCluster.deleteClusterLink(linkName)
@@ -566,9 +612,11 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
 
     // Wait for mirroring to complete.
     produceToSourceCluster(8)
-    waitForMirror(topic)
+    waitForMirror()
+    verifyBasicLinkMetrics()
     commitOffsets(sourceCluster, topic, partition = 0, oldOffset, consumerGroup)
     verifyOffsetMigration(topic, partition = 0, oldOffset, 1000, consumerGroup)
+    verifyConsumerOffsetMigrationMetrics()
 
     // Pause the cluster link.
     destCluster.alterClusterLink(linkName, Map(ClusterLinkConfig.ClusterLinkPausedProp -> "true"))
@@ -581,6 +629,7 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
     sourceCluster.alterTopic(topic, Map(LogConfig.DeleteRetentionMsProp -> newDeleteRetentionMs))
     produceToSourceCluster(8)
     commitOffsets(sourceCluster, topic, partition = 0, newOffset, consumerGroup)
+    verifyPausedLinkMetrics()
 
     // Verify mirror topics cannot be created for the cluster link if the link is paused.
     intercept[ClusterLinkPausedException] {
@@ -619,23 +668,60 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
     producedRecords.remove(producedRecords.size - numRecords, numRecords)
   }
 
-  private def verifyLinkMetrics(): Unit = {
+  private def verifyKafkaMetric(name: String, group: String, expectNonZero: Boolean = true, controllerMetric: Boolean = false): Unit = {
+    val maxValue =
+      if (controllerMetric) {
+        kafkaControllerMetricMaxValue(
+          destCluster.servers.filter(s => s.kafkaController.isActive).head, name, group)
+      } else {
+        kafkaMetricMaxValue(name, group)
+      }
+    if (expectNonZero)
+      assertTrue(s"Metric not updated: $group:$name $maxValue", maxValue > 0.0)
+  }
 
-    def verifyKafkaMetric(name: String, group: String, expectNonZero: Boolean = true): Unit = {
-     val maxValue = kafkaMetricMaxValue(destCluster.servers.head, name, group)
-      if (expectNonZero)
-        assertTrue(s"Metric not updated: $group:$name $maxValue", maxValue > 0.0)
-    }
+  private def verifyYammerMetric(prefix: String, expectNonZero: Boolean = true): Unit = {
+    val maxValue = yammerMetricMaxValue(prefix)
+    if (expectNonZero)
+      assertTrue(s"Metric not updated: $prefix $maxValue", maxValue > 0.0)
+  }
 
-    def verifyYammerMetric(prefix: String, expectNonZero: Boolean = true): Unit = {
-      val maxValue = yammerMetricMaxValue(prefix)
-      if (expectNonZero)
-        assertTrue(s"Metric not updated: $prefix $maxValue", maxValue > 0.0)
-    }
+  private def verifyLinkedLeaderChangeMetrics(): Unit = {
+    verifyKafkaMetric("linked-leader-epoch-change-rate", "cluster-link-metrics")
+    verifyKafkaMetric("linked-leader-epoch-change-total", "cluster-link-metrics")
+  }
+
+  private def verifyAddPartitionMetrics(): Unit = {
+    verifyKafkaMetric("linked-topic-partition-addition-rate", "cluster-link-metrics")
+    verifyKafkaMetric("linked-topic-partition-addition-total", "cluster-link-metrics")
+  }
+
+  private def verifyConsumerOffsetMigrationMetrics(): Unit = {
+    verifyKafkaMetric("consumer-offset-committed-rate", "cluster-link-metrics")
+    verifyKafkaMetric("consumer-offset-committed-total", "cluster-link-metrics")
+  }
+
+  private def verifyPausedLinkMetrics(): Unit = {
+    verifyKafkaMetric("global-paused-mirror-topic-count", "cluster-link-metrics", controllerMetric = true)
+  }
+
+  private def verifyTopicConfigChangeMetrics(): Unit = {
+    verifyKafkaMetric("topic-config-update-rate", "cluster-link-metrics")
+    verifyKafkaMetric("topic-config-update-total", "cluster-link-metrics")
+  }
+
+  private def verifyBasicLinkMetrics(): Unit = {
+    verifyKafkaMetric("link-count", "cluster-link-metrics", controllerMetric = true)
+    verifyKafkaMetric("global-active-mirror-topic-count", "cluster-link-metrics", controllerMetric = true)
+    verifyKafkaMetric("global-stopped-mirror-topic-count", "cluster-link-metrics", expectNonZero = false, controllerMetric = true)
+    verifyKafkaMetric("global-failed-mirror-topic-count", "cluster-link-metrics", expectNonZero = false, controllerMetric = true)
+    verifyKafkaMetric("mirror-partition-count", "cluster-link-metrics")
+    verifyKafkaMetric("failed-mirror-partition-count", "cluster-link-metrics", expectNonZero = false)
 
     verifyKafkaMetric("incoming-byte-total", "cluster-link-metadata-metrics")
     verifyKafkaMetric("incoming-byte-total", "cluster-link-fetcher-metrics")
     verifyKafkaMetric("fetch-throttle-time-max", "cluster-link", expectNonZero = false)
+
     verifyYammerMetric("kafka.server.link:type=ClusterLinkFetcherManager,name=MaxLag", expectNonZero = false)
     verifyYammerMetric("kafka.server:type=FetcherStats,name=BytesPerSec")
     verifyYammerMetric("kafka.server:type=FetcherLagMetrics,name=ConsumerLag", expectNonZero = false)
@@ -651,6 +737,6 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
 
     setQuota(500000)
     produceRecords(producer, topic, 10)
-    waitForMirror(topic, maxWaitMs = 30000)
+    waitForMirror(maxWaitMs = 30000)
   }
 }

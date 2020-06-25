@@ -27,7 +27,7 @@ import kafka.controller.KafkaController.DescribeBrokerRemovalsResultCallback
 import kafka.log.LogConfig
 import kafka.metrics.{KafkaMetricsGroup, KafkaTimer}
 import kafka.server._
-import kafka.server.link.ClusterLinkTopicState
+import kafka.server.link.{ClusterLinkFactory, ClusterLinkTopicState}
 import kafka.server.link.ClusterLinkTopicState.{FailedMirror, Mirror, StoppedMirror}
 import kafka.tier.topic.TierTopicManager
 import kafka.utils._
@@ -39,7 +39,7 @@ import org.apache.kafka.common.ElectionType
 import org.apache.kafka.common.KafkaException
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.{BrokerNotAvailableException, ControllerMovedException, StaleBrokerEpochException}
-import org.apache.kafka.common.metrics.Metrics
+import org.apache.kafka.common.metrics.{Measurable, MetricConfig, Metrics}
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.{AbstractControlRequest, ApiError}
 import org.apache.kafka.common.utils.Time
@@ -75,7 +75,8 @@ class KafkaController(val config: KafkaConfig,
                       initialBrokerEpoch: Long,
                       tokenManager: DelegationTokenManager,
                       tierTopicManagerOpt: Option[TierTopicManager],
-                      threadNamePrefix: Option[String] = None)
+                      threadNamePrefix: Option[String] = None,
+                      clusterLinkManager: ClusterLinkFactory.LinkManager)
   extends ControllerEventProcessor with Logging with KafkaMetricsGroup {
 
   this.logIdent = s"[Controller id=${config.brokerId}] "
@@ -127,6 +128,9 @@ class KafkaController(val config: KafkaConfig,
   @volatile private var replicasToDeleteCount = 0
   @volatile private var ineligibleTopicsToDeleteCount = 0
   @volatile private var ineligibleReplicasToDeleteCount = 0
+  @volatile private var globalActiveMirrorTopicCount = 0
+  @volatile private var globalStoppedMirrorTopicCount = 0
+  @volatile private var globalFailedMirrorTopicCount = 0
 
   /* single-thread scheduler to clean expired tokens */
   private val tokenCleanScheduler = new KafkaScheduler(threads = 1, threadNamePrefix = "delegation-token-cleaner")
@@ -136,17 +140,38 @@ class KafkaController(val config: KafkaConfig,
   newGauge("PreferredReplicaImbalanceCount", () => preferredReplicaImbalanceCount)
   newGauge("ControllerState", () => state.value)
   newGauge("GlobalTopicCount", () => globalTopicCount)
-  newGauge("GlobalActiveMirrorTopicCount", () =>
-    if (isActive) controllerContext.linkedTopics.values.count(_.isInstanceOf[Mirror]) else 0)
-  newGauge("GlobalStoppedMirrorTopicCount", () =>
-    if (isActive) controllerContext.linkedTopics.values.count(_.isInstanceOf[StoppedMirror]) else 0)
-  newGauge("GlobalFailedMirrorTopicCount", () =>
-    if (isActive) controllerContext.linkedTopics.values.count(_.isInstanceOf[FailedMirror]) else 0)
   newGauge("GlobalPartitionCount", () => globalPartitionCount)
   newGauge("TopicsToDeleteCount", () => topicsToDeleteCount)
   newGauge("ReplicasToDeleteCount", () => replicasToDeleteCount)
   newGauge("TopicsIneligibleToDeleteCount", () => ineligibleTopicsToDeleteCount)
   newGauge("ReplicasIneligibleToDeleteCount", () => ineligibleReplicasToDeleteCount)
+
+  metrics.addMetric(metrics.metricName("global-active-mirror-topic-count",
+    "cluster-link-metrics",
+    "Number of actively mirrored topics for the cluster. This metric is only shown on the controller."),
+    (_: MetricConfig, _: Long) => globalActiveMirrorTopicCount)
+  metrics.addMetric(metrics.metricName("global-stopped-mirror-topic-count",
+    "cluster-link-metrics",
+    "Number of stopped mirrored topics for the cluster. This metric is only shown on the controller."),
+    (_: MetricConfig, _: Long) => globalStoppedMirrorTopicCount)
+  metrics.addMetric(metrics.metricName("global-failed-mirror-topic-count",
+    "cluster-link-metrics",
+    "Number of failed mirrored topics for the cluster. This metric is only shown on the controller."),
+    (_: MetricConfig, _: Long) => globalFailedMirrorTopicCount)
+  private val globalPausedMirrorTopicCount: Measurable = (_: MetricConfig, _: Long) => {
+    if (isActive) {
+      val pausedLinks = clusterLinkManager.listClusterLinks().filter(
+        cl => clusterLinkManager.clientManager(cl.linkId).exists(_.currentConfig.clusterLinkPaused))
+      val pausedLinkIds = pausedLinks.map(_.linkId)
+      controllerContext.linkedTopics.values.count(t => pausedLinkIds.contains(t.linkId))
+    } else {
+      0
+    }
+  }
+  metrics.addMetric(metrics.metricName("global-paused-mirror-topic-count",
+    "cluster-link-metrics",
+    "Number of paused mirrored topics for the cluster. This metric is only shown on the controller."),
+    globalPausedMirrorTopicCount)
 
   /**
    * Returns true if this broker is the current controller.
@@ -1372,6 +1397,10 @@ class KafkaController(val config: KafkaConfig,
         controllerContext.replicaState(replica) == ReplicaDeletionIneligible
       }
     }.sum
+
+    globalActiveMirrorTopicCount = if (isActive) controllerContext.linkedTopics.values.count(_.isInstanceOf[Mirror]) else 0
+    globalStoppedMirrorTopicCount = if (isActive) controllerContext.linkedTopics.values.count(_.isInstanceOf[StoppedMirror]) else 0
+    globalFailedMirrorTopicCount = if (isActive) controllerContext.linkedTopics.values.count(_.isInstanceOf[FailedMirror]) else 0
   }
 
   // visible for testing

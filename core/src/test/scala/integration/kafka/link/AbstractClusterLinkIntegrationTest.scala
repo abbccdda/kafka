@@ -48,9 +48,9 @@ class AbstractClusterLinkIntegrationTest extends Logging {
   }
 
   protected def verifyMirror(topic: String): Unit = {
-    waitForMirror(topic)
+    waitForMirror()
     destCluster.unlinkTopic(topic, linkName)
-    consume(destCluster, topic)
+    consume(destCluster)
   }
 
   protected def nextOffset(partition: Int): Long = {
@@ -58,8 +58,7 @@ class AbstractClusterLinkIntegrationTest extends Logging {
     if (partitionRecords.isEmpty) 0 else partitionRecords.last.offset + 1
   }
 
-  protected def waitForMirror(topic: String,
-                              servers: Seq[KafkaServer] = destCluster.servers,
+  protected def waitForMirror(servers: Seq[KafkaServer] = destCluster.servers,
                               maxWaitMs: Long = JTestUtils.DEFAULT_MAX_WAIT_MS): Unit = {
     val offsetsByPartition = (0 until numPartitions).map { i => i -> nextOffset(i) }.toMap
     partitions.foreach { tp =>
@@ -112,7 +111,7 @@ class AbstractClusterLinkIntegrationTest extends Logging {
     assertTrue(errorMessage, condition.apply())
   }
 
-  protected def consume(cluster: ClusterLinkTestHarness, topic: String): Unit = {
+  protected def consume(cluster: ClusterLinkTestHarness): Unit = {
     val consumer = cluster.createConsumer()
     consumer.assign(partitions.asJava)
     consumeRecords(consumer)
@@ -147,9 +146,27 @@ class AbstractClusterLinkIntegrationTest extends Logging {
     }
   }
 
-  protected def kafkaMetricMaxValue(server: KafkaServer, name: String, group: String): Double = {
-    val values = server.metrics.metrics().asScala
-      .filter { case (metricName, _) => metricName.name == name && metricName.group == group && metricName.tags.get("link-name") == linkName }
+  protected def kafkaMetricMaxValue(name: String, group: String): Double = {
+    var maxValue: Double = -1.0
+    destCluster.servers.foreach({
+      server =>
+        val values = server.metrics.metrics().asScala
+          .filter { case (metricName, _) => metricName.name == name &&
+            metricName.group == group && metricName.tags.get("link-name") == linkName }
+          .map(_._2.metricValue().asInstanceOf[Double])
+        if (values.nonEmpty && values.max > maxValue) {
+          maxValue = values.max
+        }
+    })
+    if (maxValue == -1.0) {
+      throw new AssertionError(s"Metric does not exist: $group:$name")
+    }
+    maxValue
+  }
+
+  protected def kafkaControllerMetricMaxValue(controller: KafkaServer, name: String, group: String): Double = {
+    val values = controller.metrics.metrics().asScala
+      .filter { case (metricName, _) => metricName.name == name && metricName.group == group }
       .map(_._2.metricValue().asInstanceOf[Double])
     assertTrue(s"Metric does not exist: $group:$name", values.nonEmpty)
     values.max

@@ -149,7 +149,7 @@ class ClusterLinkSyncOffsets(val clientManager: ClusterLinkClientManager,
         try {
           commitResults(group).all.get
           future.get.forEach((tp, offsetAndMetadata) => currentOffsets += (group, tp) -> offsetAndMetadata.offset)
-          consumerOffsetCommitSensor.record()
+          consumerOffsetCommitSensor.record(commitResults.size)
         } catch {
           case ex: GroupAuthorizationException =>
             warn(s"Unable to commit offsets for consumer group $group on the destination cluster, due to authorization issues." +

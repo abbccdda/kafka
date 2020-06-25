@@ -565,7 +565,7 @@ class ClusterLinkSyncOffsetsTest {
 
     expect(clientManager.scheduler).andReturn(scheduler).anyTimes()
     expect(clientManager.getAdmin).andReturn(admin).anyTimes()
-    controller=new KafkaControllerTest(testLinkedTopics = linkedTopics, testIsActive=isController)
+    controller=new KafkaControllerTest(testLinkedTopics = linkedTopics, testIsActive=isController, metrics = metrics)
   }
 
   private def verifyMock(): Unit = {
@@ -594,7 +594,8 @@ class KafkaControllerTest(override val config: KafkaConfig = new KafkaConfig(Map
     initialBrokerEpoch,
     tokenManager,
     tierTopicManagerOpt,
-    threadNamePrefix) {
+    threadNamePrefix,
+    createNiceMock(classOf[ClusterLinkFactory.LinkManager])) {
   controllerContext.linkedTopics ++= testLinkedTopics
   override def isActive: Boolean = testIsActive
 }

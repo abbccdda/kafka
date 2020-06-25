@@ -77,14 +77,14 @@ class ClusterLinkFetcherManager(linkName: String,
     throttleTimeSensor.add(throttleTimeMax, new Max)
 
     val mirrorPartitionCount: Measurable = (_: MetricConfig, _: Long) => {
-      linkedPartitions.values().asScala.count(_.failureStartMs == 0L)
+      linkedPartitions.values().asScala.count(_.failureStartMs.get() == 0L)
     }
     metrics.addMetric(metrics.metricName("mirror-partition-count",
       "cluster-link-metrics",
       "Number of actively mirrored partitions on this broker", tags),
       mirrorPartitionCount)
     val failedMirrorPartitionCount: Measurable = (_: MetricConfig, _: Long) => {
-      linkedPartitions.values().asScala.count(_.failureStartMs != 0L)
+      linkedPartitions.values().asScala.count(_.failureStartMs.get() != 0L)
     }
     metrics.addMetric(metrics.metricName("failed-mirror-partition-count",
       "cluster-link-metrics",

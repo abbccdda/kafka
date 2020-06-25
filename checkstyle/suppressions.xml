@@ -363,6 +363,9 @@
     <suppress checks="ImportControl" files="ClusterLinkAclSyncIntegrationTest.java"/>
     <suppress checks="ClassDataAbstractionCoupling" files="ClusterLinkAclSyncIntegrationTest.java"/>
 
+    <!-- ce-http-server suppressions -->
+    <suppress checks="ImportControl" files="KafkaHttpServlet.java"/>
+
     <suppress checks="ImportControl" files="TierFetcherTest.java|TierSegmentWindowTest.java"/>
 
     <!-- Suppress checks for copy of Apache Kafka class PatternType.java -->

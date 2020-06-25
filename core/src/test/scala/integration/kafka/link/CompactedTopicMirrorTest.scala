@@ -63,7 +63,7 @@ class CompactedTopicMirrorTest extends AbstractClusterLinkIntegrationTest {
 
     destCluster.createClusterLink(linkName, sourceCluster)
     destCluster.linkTopic(topic, replicationFactor = 2, linkName)
-    waitForMirror(topic)
+    waitForMirror()
 
     appendRecords(10)
     verifyMirror(topic)
@@ -79,7 +79,7 @@ class CompactedTopicMirrorTest extends AbstractClusterLinkIntegrationTest {
     produceRecords(producer, topic, 500, index => s"key ${index % 5}")
     waitForLogCleaning(sourceCluster, 400)
 
-    waitForMirror(topic)
+    waitForMirror()
     waitForLogCleaning(destCluster, 400)
   }
 

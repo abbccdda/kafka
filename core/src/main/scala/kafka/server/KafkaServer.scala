@@ -490,7 +490,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         }
 
         /* start kafka controller */
-        kafkaController = new KafkaController(config, zkClient, time, metrics, brokerInfo, brokerEpoch, tokenManager, tierTopicManagerOpt, threadNamePrefix)
+        kafkaController = new KafkaController(config, zkClient, time, metrics, brokerInfo, brokerEpoch, tokenManager, tierTopicManagerOpt, threadNamePrefix, clusterLinkManager)
         kafkaController.startup()
 
         /* start group coordinator */

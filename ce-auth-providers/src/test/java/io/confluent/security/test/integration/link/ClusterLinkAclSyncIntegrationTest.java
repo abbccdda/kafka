@@ -4,30 +4,41 @@
 
 package io.confluent.security.test.integration.link;
 
+import static java.util.stream.Collectors.toCollection;
+import static java.util.stream.Collectors.toList;
+import static java.util.stream.Collectors.toMap;
+import static org.junit.Assert.assertTrue;
+
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import io.confluent.kafka.test.utils.KafkaTestUtils.ClientBuilder;
 import io.confluent.kafka.test.utils.SecurityTestUtils;
 import io.confluent.security.authorizer.ConfluentAuthorizerConfig;
 import io.confluent.security.test.utils.RbacClusters;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Properties;
 import kafka.server.KafkaConfig$;
+import kafka.server.KafkaServer;
 import kafka.server.link.ClusterLinkConfig$;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.clients.admin.CreateClusterLinksOptions;
+import org.apache.kafka.common.MetricName;
 import org.apache.kafka.common.acl.AccessControlEntry;
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.acl.AclPermissionType;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
+import org.apache.kafka.common.metrics.KafkaMetric;
 import org.apache.kafka.common.requests.NewClusterLink;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.resource.ResourcePattern;
@@ -199,6 +210,49 @@ public class ClusterLinkAclSyncIntegrationTest {
       TestUtils.waitForCondition(() -> CollectionUtils.isEqualCollection(
           admin.describeAcls(AclBindingFilter.ANY).values().get(), expectedAcls),
           "ACLs not migrated");
+
+      // delete producer ACLs on the source
+      deleteProducerAcls(sourceCluster.clientBuilder(BROKER_USER));
+      Collection<AclBinding> newAclList = new ArrayList<>(expectedAcls);
+      newAclList.removeAll(subsetExpectedAcls);
+
+      // verify that ACL deletion was propagated to destination
+      TestUtils.waitForCondition(() -> CollectionUtils.isEqualCollection(
+          admin.describeAcls(AclBindingFilter.ANY).values().get(), newAclList),
+          "ACL deletion not propagated");
     }
+    verifyAclMetrics();
+  }
+
+  private void verifyAclMetrics() {
+    KafkaServer controller = destCluster.kafkaCluster.brokers().stream()
+        .filter(b -> b.kafkaController().isActive()).collect(toList()).get(0);
+    Map<MetricName, KafkaMetric> aclMetrics = controller.metrics().metrics().entrySet().stream()
+        .filter(entry -> isAclMetric(entry.getKey()))
+        .collect(toMap(Entry::getKey, Entry::getValue));
+    assertTrue(aclMetrics.size() > 0);
+    for (KafkaMetric metric : aclMetrics.values()) {
+      double value = (double) metric.metricValue();
+      assertTrue(value > 0);
+    }
+  }
+
+  private void deleteProducerAcls(ClientBuilder srcClientBuilder) {
+    try (ConfluentAdmin admin = (ConfluentAdmin) srcClientBuilder.buildAdminClient()) {
+      Collection<AclBindingFilter> aclsToDelete = subsetExpectedAcls.stream()
+          .map(AclBinding::toFilter).collect(toCollection(HashSet::new));
+      admin.deleteAcls(aclsToDelete);
+    }
+  }
+
+  private boolean isAclMetric(MetricName metricName) {
+    if (metricName.name().equals("acls-deleted-rate") || metricName.name().equals("acls-deleted-total")
+        || metricName.name().equals("acls-added-rate") || metricName.name().equals("acls-added-total")) {
+      if (metricName.group().equals("cluster-link-metrics")
+          && metricName.tags().get("link-name").equals("testLink")) {
+        return true;
+      }
+    }
+    return false;
   }
 }

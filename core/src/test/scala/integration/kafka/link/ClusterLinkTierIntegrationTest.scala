@@ -45,11 +45,11 @@ class ClusterLinkTierIntegrationTest extends AbstractClusterLinkIntegrationTest 
     sourceCluster.createTopic(topic, numPartitions, replicationFactor = 2, sourceTopicProps)
     val producer = sourceCluster.createProducer()
     produceAndSimulateRetention(producer)
-    consume(sourceCluster, topic) // verify that source consumers are able to consume all records
+    consume(sourceCluster) // verify that source consumers are able to consume all records
 
     destCluster.createClusterLink(linkName, sourceCluster)
     destCluster.linkTopic(topic, replicationFactor = 2, linkName, destTopicProps.asScala)
-    waitForMirror(topic)
+    waitForMirror()
 
     produceAndSimulateRetention(producer)
     verifyMirror(topic)
