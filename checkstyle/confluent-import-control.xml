@@ -266,6 +266,7 @@
       <allow pkg="io.confluent.http.server" />
       <allow pkg="org.glassfish.jersey.server" />
       <allow pkg="org.eclipse.jetty.servlet" />
+      <allow pkg="org.eclipse.jetty.util.ssl" />
     </subpackage>
   </subpackage>
 
