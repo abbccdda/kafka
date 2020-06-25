@@ -24,6 +24,7 @@ import org.easymock.EasyMock;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import scala.Option;
 
 import static org.easymock.EasyMock.anyInt;
 import static org.junit.Assert.assertEquals;
@@ -147,6 +148,7 @@ public class BrokerFailureDetectorTest extends CCKafkaIntegrationTestHarness {
     EasyMock.expect(mockKafkaCruiseControl.config()).andReturn(kafkaCruiseControlConfig).atLeastOnce();
     EasyMock.replay(mockKafkaCruiseControl);
     return new BrokerFailureDetector(kafkaCruiseControlConfig,
+                                     Option.empty(),
                                      mockLoadMonitor,
                                      anomalies,
                                      time,

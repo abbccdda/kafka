@@ -21,8 +21,10 @@ import kafka.utils.ShutdownableThread;
 import kafka.zk.KafkaZkClient;
 import kafka.zk.FailedBroker;
 import org.apache.kafka.common.utils.Time;
+import org.apache.zookeeper.client.ZKClientConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.Option;
 import scala.collection.JavaConverters;
 
 import static com.linkedin.kafka.cruisecontrol.detector.AnomalyDetectorUtils.MAX_METADATA_WAIT_MS;
@@ -50,17 +52,16 @@ public class BrokerFailureDetector extends ShutdownableThread {
   private boolean initialized;
 
   public BrokerFailureDetector(KafkaCruiseControlConfig config,
-      LoadMonitor loadMonitor,
-      Queue<Anomaly> anomalies,
-      Time time,
-      KafkaCruiseControl kafkaCruiseControl,
-      List<String> selfHealingGoals) {
+                               Option<ZKClientConfig> zkClientConfig,
+                               LoadMonitor loadMonitor,
+                               Queue<Anomaly> anomalies,
+                               Time time,
+                               KafkaCruiseControl kafkaCruiseControl,
+                               List<String> selfHealingGoals) {
     super(THREAD_NAME, true);
-    String zkUrl = config.getString(KafkaCruiseControlConfig.ZOOKEEPER_CONNECT_CONFIG);
-    boolean zkSecurityEnabled = config.getBoolean(KafkaCruiseControlConfig.ZOOKEEPER_SECURITY_ENABLED_CONFIG);
     // Do not support secure ZK at this point.
-    kafkaZkClient = KafkaCruiseControlUtils.createKafkaZkClient(zkUrl, ZK_BROKER_FAILURE_METRIC_GROUP, ZK_BROKER_FAILURE_METRIC_TYPE,
-        zkSecurityEnabled);
+    kafkaZkClient = KafkaCruiseControlUtils.createKafkaZkClient(config, ZK_BROKER_FAILURE_METRIC_GROUP,
+            ZK_BROKER_FAILURE_METRIC_TYPE, zkClientConfig);
     _failedBrokers = new HashMap<>();
     _loadMonitor = loadMonitor;
     _anomalies = anomalies;

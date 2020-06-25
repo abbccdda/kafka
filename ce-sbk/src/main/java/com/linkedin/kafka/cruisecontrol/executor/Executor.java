@@ -26,8 +26,10 @@ import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.utils.Time;
+import org.apache.zookeeper.client.ZKClientConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.Option;
 import scala.collection.JavaConverters;
 
 import java.time.Duration;
@@ -43,6 +45,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -130,16 +133,18 @@ public class Executor {
    * @param config The configurations for Cruise Control.
    */
   public Executor(KafkaCruiseControlConfig config,
+                  Option<ZKClientConfig> zkClientConfig,
                   Time time,
                   DataBalancerMetricsRegistry metricRegistry,
                   long demotionHistoryRetentionTimeMs,
                   long removalHistoryRetentionTimeMs,
                   AnomalyDetector anomalyDetector) {
-    this(config, time, metricRegistry, null, demotionHistoryRetentionTimeMs, removalHistoryRetentionTimeMs,
-         null, anomalyDetector);
+    this(config, zkClientConfig, time, metricRegistry, null, demotionHistoryRetentionTimeMs,
+            removalHistoryRetentionTimeMs, null, anomalyDetector);
   }
 
   Executor(KafkaCruiseControlConfig config,
+           Option<ZKClientConfig> zkClientConfig,
            Time time,
            DataBalancerMetricsRegistry metricRegistry,
            MetadataClient metadataClient,
@@ -147,7 +152,7 @@ public class Executor {
            long removalHistoryRetentionTimeMs,
            ExecutorNotifier executorNotifier,
            AnomalyDetector anomalyDetector) {
-    this(config, time, metricRegistry, metadataClient, demotionHistoryRetentionTimeMs,
+    this(config, zkClientConfig, time, metricRegistry, metadataClient, demotionHistoryRetentionTimeMs,
         removalHistoryRetentionTimeMs, executorNotifier, anomalyDetector,
          KafkaCruiseControlUtils.createAdmin(config.originals()), null);
   }
@@ -156,6 +161,7 @@ public class Executor {
    * Package private for unit test.
    */
   Executor(KafkaCruiseControlConfig config,
+           Option<ZKClientConfig> zkClientConfig,
            Time time,
            DataBalancerMetricsRegistry metricRegistry,
            MetadataClient metadataClient,
@@ -165,7 +171,6 @@ public class Executor {
            AnomalyDetector anomalyDetector,
            ConfluentAdmin adminClient,
            ReplicationThrottleHelper throttleHelper) {
-      String zkUrl = config.getString(KafkaCruiseControlConfig.ZOOKEEPER_CONNECT_CONFIG);
     _numExecutionStopped = new AtomicInteger(0);
     _numExecutionStoppedByUser = new AtomicInteger(0);
     _executionStoppedByUser = new AtomicBoolean(false);
@@ -177,9 +182,8 @@ public class Executor {
     registerGaugeSensors(metricRegistry);
 
     _time = time;
-    boolean zkSecurityEnabled = config.getBoolean(KafkaCruiseControlConfig.ZOOKEEPER_SECURITY_ENABLED_CONFIG);
-    _kafkaZkClient = KafkaCruiseControlUtils.createKafkaZkClient(zkUrl, ZK_EXECUTOR_METRIC_GROUP, ZK_EXECUTOR_METRIC_TYPE,
-        zkSecurityEnabled);
+    _kafkaZkClient = KafkaCruiseControlUtils.createKafkaZkClient(config, ZK_EXECUTOR_METRIC_GROUP, ZK_EXECUTOR_METRIC_TYPE,
+        zkClientConfig);
     _adminClient = adminClient;
     adminUtils = new SbkAdminUtils(_adminClient, config);
     _executionTaskManager =
@@ -220,20 +224,20 @@ public class Executor {
         config.getBoolean(KafkaCruiseControlConfig.OVERRIDE_STATIC_THROTTLES_CONFIG));
   }
 
-  @SuppressWarnings("deprecation")
-  public void startUp() {
+  public void startUp() throws ExecutionException, InterruptedException {
     // There is a possibility that one execution batch from a previous execution is still ongoing when the
     // Executor starts. Spin up a thread to monitor it and mark it done when it finishes
-    if (!_kafkaZkClient.getPartitionReassignment().isEmpty()) {
+    if (!_adminClient.listPartitionReassignments().reassignments().get().isEmpty()) {
       _hasOngoingExecution = true;
       LOG.info("Detected ongoing reassignment while starting up. Monitoring it to remove throttles once it completes.");
 
       Thread thread = new Thread(() -> {
-        while (!_kafkaZkClient.getPartitionReassignment().isEmpty()) {
+        while (true) {
           try {
+            if (_adminClient.listPartitionReassignments().reassignments().get().isEmpty()) break;
             LOG.debug("Sleeping {} ms while waiting for ongoing reassignment to complete", _statusCheckingIntervalMs);
             Thread.sleep(_statusCheckingIntervalMs);
-          } catch (InterruptedException e) {
+          } catch (InterruptedException | ExecutionException e) {
             // let it go
           }
         }

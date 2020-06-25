@@ -8,7 +8,7 @@ import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.monitor.MonitorUtils;
 import kafka.common.TopicPlacement;
-import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.Config;
 import org.apache.kafka.clients.admin.ConfigEntry;
 import org.apache.kafka.clients.admin.DescribeClusterOptions;
@@ -51,7 +51,7 @@ public class MetadataClient {
   private final AtomicInteger _metadataGeneration;
   private final Time _time;
   private final long _metadataTTLMs;
-  private final AdminClient _adminClient;
+  private final Admin _adminClient;
   private final int _refreshMetadataTimeoutMs;
 
   private long _lastSuccessfulUpdateMs;
@@ -62,14 +62,14 @@ public class MetadataClient {
   public MetadataClient(KafkaCruiseControlConfig config,
                         long metadataTTLMs,
                         Time time) {
-    this(config, metadataTTLMs, time, AdminClient.create(KafkaCruiseControlUtils.filterAdminClientConfigs(config.values())));
+    this(config, metadataTTLMs, time, KafkaCruiseControlUtils.createAdmin(config.values()));
   }
 
   // for testing
   MetadataClient(KafkaCruiseControlConfig config,
                  long metadataTTLMs,
                  Time time,
-                 AdminClient adminClient) {
+                 Admin adminClient) {
     _metadataGeneration = new AtomicInteger(0);
     _refreshMetadataTimeoutMs = config.getInt(KafkaCruiseControlConfig.METADATA_MAX_AGE_CONFIG);
     _adminClient = adminClient;

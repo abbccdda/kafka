@@ -21,7 +21,6 @@ import com.linkedin.kafka.cruisecontrol.common.Resource;
 import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityConfigResolver;
 import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityInfo;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
-import com.linkedin.kafka.cruisecontrol.config.TopicConfigProvider;
 import com.linkedin.kafka.cruisecontrol.model.ClusterModel;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.aggregator.KafkaBrokerMetricSampleAggregator;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.aggregator.KafkaPartitionMetricSampleAggregator;
@@ -86,7 +85,6 @@ public class LoadMonitor {
   private final MetadataClient _metadataClient;
   private final ConfluentAdmin _adminClient;
   private final BrokerCapacityConfigResolver _brokerCapacityConfigResolver;
-  private final TopicConfigProvider _topicConfigProvider;
   private final ScheduledExecutorService _loadMonitorExecutor;
   private final Timer _clusterModelCreationTimer;
   private final ThreadLocal<Boolean> _acquiredClusterModelSemaphore;
@@ -146,8 +144,6 @@ public class LoadMonitor {
 
     _brokerCapacityConfigResolver = config.getConfiguredInstance(KafkaCruiseControlConfig.BROKER_CAPACITY_CONFIG_RESOLVER_CLASS_CONFIG,
                                                                  BrokerCapacityConfigResolver.class);
-    _topicConfigProvider = config.getConfiguredInstance(KafkaCruiseControlConfig.TOPIC_CONFIG_PROVIDER_CLASS_CONFIG,
-                                                                 TopicConfigProvider.class);
     _numPartitionMetricSampleWindows = config.getInt(KafkaCruiseControlConfig.NUM_PARTITION_METRICS_WINDOWS_CONFIG);
 
     _partitionMetricSampleAggregator = new KafkaPartitionMetricSampleAggregator(config, metadataClient);
@@ -202,7 +198,6 @@ public class LoadMonitor {
     LOG.info("Shutting down load monitor.");
     try {
       _brokerCapacityConfigResolver.close();
-      _topicConfigProvider.close();
       _loadMonitorExecutor.shutdown();
     } catch (Exception e) {
       LOG.warn("Received exception when closing broker capacity resolver.", e);
@@ -316,7 +311,6 @@ public class LoadMonitor {
   /**
    * Acquire the semaphore for the cluster model generation.
    * @param operationProgress the progress for the job.
-   * @throws InterruptedException
    */
   public AutoCloseableSemaphore acquireForModelGeneration(OperationProgress operationProgress)
       throws InterruptedException {

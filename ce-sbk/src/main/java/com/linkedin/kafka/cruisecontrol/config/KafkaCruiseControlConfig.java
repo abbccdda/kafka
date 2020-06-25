@@ -735,12 +735,6 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
       + "persisted samples can be reloaded from the sample store to Kafka Cruise Control.";
 
   /**
-   * <code>topic.config.provider.class</code>
-   */
-  public static final String TOPIC_CONFIG_PROVIDER_CLASS_CONFIG = "topic.config.provider.class";
-  private static final String TOPIC_CONFIG_PROVIDER_CLASS_DOC = "The provider class that reports the active configuration of topics.";
-
-  /**
    * <code>demotion.history.retention.time.ms</code>
    */
   public static final String DEMOTION_HISTORY_RETENTION_TIME_MS_CONFIG = "demotion.history.retention.time.ms";
@@ -1353,11 +1347,6 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 KafkaSampleStore.class.getName(),
                 ConfigDef.Importance.LOW,
                 SAMPLE_STORE_CLASS_DOC)
-        .define(TOPIC_CONFIG_PROVIDER_CLASS_CONFIG,
-                ConfigDef.Type.CLASS,
-                KafkaTopicConfigProvider.class.getName(),
-                ConfigDef.Importance.LOW,
-                TOPIC_CONFIG_PROVIDER_CLASS_DOC)
         .define(LOGDIR_RESPONSE_TIMEOUT_MS_CONFIG,
             ConfigDef.Type.LONG,
             10000L,

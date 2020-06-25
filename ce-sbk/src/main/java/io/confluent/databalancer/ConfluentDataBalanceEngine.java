@@ -25,6 +25,7 @@ import io.confluent.databalancer.persistence.BrokerRemovalStateRecord;
 import io.confluent.telemetry.ConfluentTelemetryConfig;
 import io.confluent.telemetry.exporter.kafka.KafkaExporterConfig;
 import kafka.server.KafkaConfig;
+import kafka.server.KafkaServer;
 import org.apache.kafka.common.Endpoint;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
@@ -32,8 +33,10 @@ import org.apache.kafka.common.errors.BalancerOfflineException;
 import org.apache.kafka.common.errors.BrokerRemovalInProgressException;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.SystemTime;
+import org.apache.zookeeper.client.ZKClientConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.Option;
 import scala.collection.JavaConverters;
 
 import javax.annotation.Nonnull;
@@ -467,7 +470,8 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
 
         checkStartupComponentsReady(config);
 
-        return new KafkaCruiseControl(config, context.getDataBalancerMetricsRegistry(), blockingSendClientBuilder);
+        Option<ZKClientConfig> zkClientConfig = KafkaServer.zkClientConfigFromKafkaConfig(kafkaConfig, false);
+        return new KafkaCruiseControl(config, zkClientConfig, context.getDataBalancerMetricsRegistry(), blockingSendClientBuilder);
     }
 
     /**
@@ -543,6 +547,8 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
         Map<String, Object> ccConfigProps = new HashMap<>(config.originalsWithPrefix(ConfluentConfigs.CONFLUENT_BALANCER_PREFIX));
         // Special overrides: zookeeper.connect, etc.
         ccConfigProps.putIfAbsent(KafkaCruiseControlConfig.ZOOKEEPER_CONNECT_CONFIG, config.get(KafkaConfig.ZkConnectProp()));
+        // set zk security enabled flag. This is same logic as used by KafkaServer::initZkClient
+        ccConfigProps.putIfAbsent(KafkaCruiseControlConfig.ZOOKEEPER_SECURITY_ENABLED_CONFIG, config.zkEnableSecureAcls());
         ccConfigProps.put(BrokerCapacityResolver.LOG_DIRS_CONFIG, getConfiguredLogDirs(config));
 
         configureCruiseControlSelfHealing(config, ccConfigProps);

@@ -3,6 +3,7 @@
  */
 package io.confluent.databalancer.persistence;
 
+import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils;
 import com.linkedin.kafka.cruisecontrol.SbkTopicUtils;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import io.confluent.databalancer.StartupCheckInterruptedException;
@@ -338,11 +339,13 @@ public class ApiStatePersistenceStore implements AutoCloseable {
     }
 
     private Map<String, Object> getProducerConfig(KafkaConfig config) {
-        return getClientConfig(config, ConfluentConfigs.ClientType.PRODUCER);
+        Map<String, Object> producerConfigs = getClientConfig(config, ConfluentConfigs.ClientType.PRODUCER);
+        return KafkaCruiseControlUtils.filterProducerConfigs(producerConfigs);
     }
 
     private Map<String, Object> getConsumerConfig(KafkaConfig config) {
-        return getClientConfig(config, ConfluentConfigs.ClientType.CONSUMER);
+        Map<String, Object> consumerConfigs = getClientConfig(config, ConfluentConfigs.ClientType.CONSUMER);
+        return KafkaCruiseControlUtils.filterConsumerConfigs(consumerConfigs);
     }
 
     private Map<String, Object> getClientConfig(KafkaConfig config, ConfluentConfigs.ClientType clientType) {

@@ -116,8 +116,9 @@ public class ApiStatePersistenceStoreUnitTest {
                 producerConfigs.get(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG));
         Assert.assertEquals(API_STATE_PERSISTENCE_STORE + "-producer--1",
                 producerConfigs.get(CommonClientConfigs.CLIENT_ID_CONFIG));
-        Assert.assertEquals("baseValue",
-                producerConfigs.get("baseKey"));
+
+        // We drop any property that is not a valid producer config (i.e. not present in ProducerConfig::configNames)
+        Assert.assertNull("Found " + producerConfigs.get("baseKey"), producerConfigs.get("baseKey"));
     }
 
     @Test
@@ -156,8 +157,9 @@ public class ApiStatePersistenceStoreUnitTest {
                 consumerConfigs.get(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG));
         Assert.assertEquals(API_STATE_PERSISTENCE_STORE + "-consumer--1",
                 consumerConfigs.get(CommonClientConfigs.CLIENT_ID_CONFIG));
-        Assert.assertEquals("baseValue",
-                consumerConfigs.get("baseKey"));
+
+        // We drop any property that is not a valid consumer config (i.e. not present in ConsumerConfig::configNames)
+        Assert.assertNull("Found " + consumerConfigs.get("baseKey"), consumerConfigs.get("baseKey"));
     }
 
     @Test

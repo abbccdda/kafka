@@ -735,7 +735,7 @@ public class ConfluentDataBalanceEngineTest  {
 
     @Test
     @SuppressWarnings("deprecation") // JavaConverters is deprecated in scala 2.13
-    public void testStartCruiseControlSuccess() {
+    public void testStartCruiseControlSuccess() throws Exception {
         List<ConfluentDataBalanceEngine.StartupComponent> startupComponents = ConfluentDataBalanceEngine.STARTUP_COMPONENTS;
         try {
             ConfluentDataBalanceEngine.STARTUP_COMPONENTS.clear();
@@ -761,7 +761,7 @@ public class ConfluentDataBalanceEngineTest  {
     }
 
     @Test
-    public void testStartCruiseControlFailed() {
+    public void testStartCruiseControlFailed() throws Exception {
         List<ConfluentDataBalanceEngine.StartupComponent> startupComponents = ConfluentDataBalanceEngine.STARTUP_COMPONENTS;
         try {
             ConfluentDataBalanceEngine.STARTUP_COMPONENTS.clear();

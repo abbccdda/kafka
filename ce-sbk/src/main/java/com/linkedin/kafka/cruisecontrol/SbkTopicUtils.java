@@ -4,25 +4,25 @@
 package com.linkedin.kafka.cruisecontrol;
 
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
-import kafka.admin.BrokerMetadata;
-import kafka.admin.RackAwareMode;
-import kafka.controller.ReplicaAssignment;
 import kafka.log.LogConfig;
-import kafka.zk.AdminZkClient;
-import kafka.zk.KafkaZkClient;
+import org.apache.kafka.clients.admin.AlterConfigOp;
+import org.apache.kafka.clients.admin.ConfigEntry;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
+import org.apache.kafka.clients.admin.NewPartitions;
+import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.admin.TopicDescription;
+import org.apache.kafka.common.config.ConfigResource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import scala.Option$;
-import scala.collection.JavaConverters;
-import scala.collection.Seq;
 
+import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import java.util.stream.Collectors;
 
 /**
  * Utility class to deal with internal topics needed by cruise control/databalancer.
@@ -38,13 +38,6 @@ public final class SbkTopicUtils {
      */
     public static boolean checkTopicPropertiesMaybeCreate(SbkTopicConfig topicConfig,
                                                           Map<String, ?> config) {
-        String connectString = (String) config.get(KafkaCruiseControlConfig.ZOOKEEPER_CONNECT_CONFIG);
-        boolean zkSecurityEnabled = (Boolean) config.get(KafkaCruiseControlConfig.ZOOKEEPER_SECURITY_ENABLED_CONFIG);
-        KafkaZkClient kafkaZkClient = KafkaCruiseControlUtils.createKafkaZkClient(connectString,
-                "KafkaCruiseControlTopicCheck",
-                "EnsureTopicCreated",
-                zkSecurityEnabled);
-        AdminZkClient adminZkClient = new AdminZkClient(kafkaZkClient);
         ConfluentAdmin adminClient = KafkaCruiseControlUtils.createAdmin(KafkaCruiseControlUtils.filterAdminClientConfigs(config));
         try {
             int numberOfBrokersInCluster = adminClient.describeCluster().nodes().get().size();
@@ -59,14 +52,13 @@ public final class SbkTopicUtils {
             }
 
             Set<String> topics = adminClient.listTopics().names().get();
-            return ensureTopicCreated(kafkaZkClient, adminZkClient, adminClient, topics,
+            return ensureTopicCreated(adminClient, topics,
                     topicConfig.topic, topicConfig.cleanupPolicy, topicConfig.minRetentionTimeMs,
                     replicationFactor, topicConfig.partitionCount);
         } catch (Exception ex) {
             LOG.error(String.format("Unexpected error when checking for %s topic existence.", topicConfig.topic), ex);
             throw new RuntimeException(ex);
         } finally {
-            KafkaCruiseControlUtils.closeKafkaZkClientWithTimeout(kafkaZkClient);
             KafkaCruiseControlUtils.closeAdminClientWithTimeout(adminClient);
         }
     }
@@ -76,8 +68,6 @@ public final class SbkTopicUtils {
      * will be created. Return value indicates if the topic did exist (but NOT that the topic configuration
      * has been updated to match the desired configuration).
      *
-     * @param kafkaZkClient -- KafkaZK Client to use for topic create/update operations
-     * @param adminZkClient -- AdminZK client to use for topic create/update operations
      * @param adminClient -- for topic describe operations
      * @param allTopics -- List of topics known to the system
      * @param topic -- topic whose existence and configuration is under question
@@ -87,34 +77,42 @@ public final class SbkTopicUtils {
      * @param partitionCount -- desired partition count for the topic
      * @return true if the topic exists and false if the topic had to be created.
      */
-    private static boolean ensureTopicCreated(KafkaZkClient kafkaZkClient,
-                                              AdminZkClient adminZkClient,
-                                              ConfluentAdmin adminClient,
+    private static boolean ensureTopicCreated(ConfluentAdmin adminClient,
                                               Set<String> allTopics,
                                               String topic,
                                               String cleanupPolicy,
                                               long retentionMs,
                                               int replicationFactor,
                                               int partitionCount) {
-        Properties props = new Properties();
-        props.setProperty(LogConfig.RetentionMsProp(), Long.toString(retentionMs));
-        props.setProperty(LogConfig.CleanupPolicyProp(), cleanupPolicy);
+        Map<String, String> props = new HashMap<>(2);
+        props.put(LogConfig.RetentionMsProp(), Long.toString(retentionMs));
+        props.put(LogConfig.CleanupPolicyProp(), cleanupPolicy);
         if (!allTopics.contains(topic)) {
             LOG.info("DataBalancer: Creating topic {} ", topic);
-            adminZkClient.createTopic(topic, partitionCount, replicationFactor, props,
-                    RackAwareMode.Safe$.MODULE$, false, Option$.MODULE$.empty());
+            NewTopic newTopic = new NewTopic(topic, partitionCount, (short) replicationFactor).configs(props);
+            try {
+                adminClient.createTopics(Collections.singleton(newTopic)).all().get();
+            } catch (InterruptedException | ExecutionException e) {
+                throw new RuntimeException(e.getMessage());
+            }
             return false;
         } else {
             try {
                 LOG.info("DataBalancer: Adjusting topic {} configuration", topic);
-                adminZkClient.changeTopicConfig(topic, props);
+                ConfigResource topicResource = new ConfigResource(ConfigResource.Type.TOPIC, topic);
+                List<AlterConfigOp> alterConfigOps = props.entrySet()
+                        .stream()
+                        .map(e -> new AlterConfigOp(new ConfigEntry(e.getKey(), e.getValue()), AlterConfigOp.OpType.SET))
+                        .collect(Collectors.toList());
+                Map<ConfigResource, Collection<AlterConfigOp>> configs = Collections.singletonMap(topicResource, alterConfigOps);
                 TopicDescription topicDescription;
                 try {
+                    adminClient.incrementalAlterConfigs(configs).all().get();
                     topicDescription = adminClient.describeTopics(Collections.singleton(topic)).values().get(topic).get();
+                    maybeIncreaseTopicPartitionCount(adminClient, topic, topicDescription, partitionCount);
                 } catch (InterruptedException | ExecutionException e) {
                     throw new RuntimeException(e.getMessage());
                 }
-                maybeIncreaseTopicPartitionCount(kafkaZkClient, adminZkClient, topic, topicDescription, partitionCount);
             }  catch (RuntimeException re) {
                 LOG.error("Skip updating configuration of topic " +  topic + " due to exception.", re);
             }
@@ -125,30 +123,20 @@ public final class SbkTopicUtils {
     /**
      * Add new partitions to the Kafka topic if the topic has fewer partitions than {@code partitionCount}.
      *
-     * @param kafkaZkClient KafkaZkClient class to use to add new partitions.
-     * @param adminZkClient AdminZkClient class to use to add new partitions.
+     * @param adminClient AdminZkClient class to use to add new partitions.
      * @param topic The topic to apply the change.
      * @param topicDescription The description of the topic ot apply the change.
      * @param partitionCount The target partition count of the topic.
      */
-    @SuppressWarnings({"unchecked", "deprecation"})
-    static void maybeIncreaseTopicPartitionCount(KafkaZkClient kafkaZkClient,
-                                                 AdminZkClient adminZkClient,
+    static void maybeIncreaseTopicPartitionCount(ConfluentAdmin adminClient,
                                                  String topic,
                                                  TopicDescription topicDescription,
-                                                 int partitionCount) {
+                                                 int partitionCount) throws ExecutionException, InterruptedException {
         if (partitionCount > topicDescription.partitions().size()) {
-            scala.collection.mutable.Map<Object, ReplicaAssignment> existingAssignment = new scala.collection.mutable.HashMap<>();
-            scala.collection.immutable.Set<String> topics = (scala.collection.immutable.Set<String>)
-                    scala.collection.immutable.Set$.MODULE$.apply(
-                            JavaConverters.asScalaBufferConverter(Collections.singletonList(topic)).asScala().toSeq());
-            JavaConverters.asJavaIterable(kafkaZkClient.getFullReplicaAssignmentForTopics(topics))
-                    .forEach(e -> existingAssignment.put(e._1.partition(), e._2));
             LOG.info("DataBalancer: Adjusting topic {} partition count to {}", topic, partitionCount);
-            Seq<BrokerMetadata> brokerMetadatas = adminZkClient.getBrokerMetadatas(
-                    RackAwareMode.Safe$.MODULE$, Option$.MODULE$.empty());
-            adminZkClient.addPartitions(topic, existingAssignment, brokerMetadatas, partitionCount,
-                    Option$.MODULE$.empty(), false, Option$.MODULE$.empty(), Option$.MODULE$.empty());
+
+            Map<String, NewPartitions> newPartitions = Collections.singletonMap(topic, NewPartitions.increaseTo(partitionCount));
+            adminClient.createPartitions(newPartitions).all().get();
             LOG.info("Kafka topic " + topic + " now has " + partitionCount + " partitions.");
         }
     }

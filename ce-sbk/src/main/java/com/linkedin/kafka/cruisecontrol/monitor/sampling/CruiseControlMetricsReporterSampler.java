@@ -5,6 +5,7 @@
 package com.linkedin.kafka.cruisecontrol.monitor.sampling;
 
 import com.linkedin.cruisecontrol.metricdef.MetricDef;
+import com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUtils;
 import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityConfigResolver;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.exception.MetricSamplingException;
@@ -230,7 +231,7 @@ public class CruiseControlMetricsReporterSampler implements MetricSampler {
     _acceptableMetricRecordProduceDelayMs = ACCEPTABLE_NETWORK_DELAY_MS;
 
     Properties consumerProps = new Properties();
-    consumerProps.putAll(configs);
+    consumerProps.putAll(KafkaCruiseControlUtils.filterConsumerConfigs(configs));
     Random random = new Random();
     consumerProps.setProperty(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
     consumerProps.setProperty(ConsumerConfig.GROUP_ID_CONFIG, groupId);

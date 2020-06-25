@@ -21,8 +21,10 @@ import io.confluent.databalancer.metrics.DataBalancerMetricsRegistry;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
 import org.apache.kafka.common.utils.SystemTime;
 import org.apache.kafka.common.utils.Time;
+import org.apache.zookeeper.client.ZKClientConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.Option;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -71,6 +73,7 @@ public class AnomalyDetector {
   private final Object _shutdownLock;
 
   public AnomalyDetector(KafkaCruiseControlConfig config,
+                         Option<ZKClientConfig> zkClientConfig,
                          LoadMonitor loadMonitor,
                          KafkaCruiseControl kafkaCruiseControl,
                          Time time,
@@ -85,7 +88,7 @@ public class AnomalyDetector {
     _selfHealingGoals = getSelfHealingGoalNames(config);
     _kafkaCruiseControl.sanityCheckHardGoalPresence(_selfHealingGoals, false);
     _goalViolationDetector = new GoalViolationDetector(config, _loadMonitor, _anomalies, time, _kafkaCruiseControl, _selfHealingGoals);
-    _brokerFailureDetector = new BrokerFailureDetector(config, _loadMonitor, _anomalies, time, _kafkaCruiseControl, _selfHealingGoals);
+    _brokerFailureDetector = new BrokerFailureDetector(config, zkClientConfig, _loadMonitor, _anomalies, time, _kafkaCruiseControl, _selfHealingGoals);
     _metricAnomalyDetector = new MetricAnomalyDetector(config, _loadMonitor, _anomalies, _kafkaCruiseControl);
     _diskFailureDetector = new DiskFailureDetector(config, _loadMonitor, _adminClient, _anomalies, time, _kafkaCruiseControl, _selfHealingGoals);
     _detectorScheduler = Executors.newScheduledThreadPool(NUM_ANOMALY_DETECTION_THREADS,

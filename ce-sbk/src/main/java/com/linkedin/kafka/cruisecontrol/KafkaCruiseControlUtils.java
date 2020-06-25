@@ -4,47 +4,44 @@
 
 package com.linkedin.kafka.cruisecontrol;
 
+import com.linkedin.kafka.cruisecontrol.analyzer.goals.Goal;
+import com.linkedin.kafka.cruisecontrol.analyzer.kafkaassigner.KafkaAssignerDiskUsageDistributionGoal;
+import com.linkedin.kafka.cruisecontrol.analyzer.kafkaassigner.KafkaAssignerEvenRackAwareGoal;
 import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.model.Broker;
 import com.linkedin.kafka.cruisecontrol.model.ClusterModel;
 import com.linkedin.kafka.cruisecontrol.servlet.response.CruiseControlState;
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Arrays;
-import com.linkedin.kafka.cruisecontrol.analyzer.goals.Goal;
-import com.linkedin.kafka.cruisecontrol.analyzer.kafkaassigner.KafkaAssignerDiskUsageDistributionGoal;
-import com.linkedin.kafka.cruisecontrol.analyzer.kafkaassigner.KafkaAssignerEvenRackAwareGoal;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.TimeoutException;
-import java.util.function.Supplier;
-import java.util.regex.Pattern;
 import kafka.zk.KafkaZkClient;
+import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
-import java.util.TimeZone;
-import java.util.stream.Collectors;
-
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.Cluster;
-import org.apache.kafka.common.Node;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.utils.SystemTime;
 import org.apache.kafka.common.utils.Time;
+import org.apache.zookeeper.client.ZKClientConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.Option;
 
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TimeZone;
+import java.util.concurrent.TimeoutException;
+import java.util.function.Supplier;
 
 /**
  * Util class for convenience.
@@ -217,9 +214,29 @@ public class KafkaCruiseControlUtils {
    * @param zkSecurityEnabled True if zkSecurityEnabled, false otherwise.
    * @return A new instance of KafkaZkClient
    */
-  public static KafkaZkClient createKafkaZkClient(String connectString, String metricGroup, String metricType, boolean zkSecurityEnabled) {
+  public static KafkaZkClient createKafkaZkClient(String connectString,
+                                                  String metricGroup,
+                                                  String metricType,
+                                                  boolean zkSecurityEnabled) {
+    return createKafkaZkClient(connectString, metricGroup, metricType, zkSecurityEnabled, Option.empty());
+  }
+
+  public static KafkaZkClient createKafkaZkClient(KafkaCruiseControlConfig config,
+                                                  String metricGroup,
+                                                  String metricType,
+                                                  Option<ZKClientConfig> zkClientConfig) {
+    String zkUrl = config.getString(KafkaCruiseControlConfig.ZOOKEEPER_CONNECT_CONFIG);
+    boolean zkSecurityEnabled = config.getBoolean(KafkaCruiseControlConfig.ZOOKEEPER_SECURITY_ENABLED_CONFIG);
+    return createKafkaZkClient(zkUrl, metricGroup, metricType, zkSecurityEnabled, zkClientConfig);
+  }
+
+  public static KafkaZkClient createKafkaZkClient(String connectString,
+                                                  String metricGroup,
+                                                  String metricType,
+                                                  boolean zkSecurityEnabled,
+                                                  Option<ZKClientConfig> zkClientConfig) {
     return KafkaZkClient.apply(connectString, zkSecurityEnabled, ZK_SESSION_TIMEOUT, ZK_CONNECTION_TIMEOUT, Integer.MAX_VALUE,
-        new SystemTime(), metricGroup, metricType, Option.apply(ZK_CLIENT_NAME), Option.empty());
+        new SystemTime(), metricGroup, metricType, Option.apply(ZK_CLIENT_NAME), zkClientConfig);
   }
 
   /**
@@ -228,7 +245,7 @@ public class KafkaCruiseControlUtils {
    * @param adminClientConfigs Configurations used for the AdminClient.
    * @return A new instance of AdminClient.
    */
-  public static ConfluentAdmin createAdmin(Map<String, Object> adminClientConfigs) {
+  public static ConfluentAdmin createAdmin(Map<String, ?> adminClientConfigs) {
     return ConfluentAdmin.create(filterAdminClientConfigs(adminClientConfigs));
   }
 
@@ -237,11 +254,11 @@ public class KafkaCruiseControlUtils {
    *
    * @param adminClient AdminClient to be closed
    */
-  public static void closeAdminClientWithTimeout(ConfluentAdmin adminClient) {
+  public static void closeAdminClientWithTimeout(Admin adminClient) {
     closeAdminClientWithTimeout(adminClient, ADMIN_CLIENT_CLOSE_TIMEOUT_MS);
   }
 
-  public static void closeAdminClientWithTimeout(ConfluentAdmin adminClient, long timeoutMs) {
+  public static void closeAdminClientWithTimeout(Admin adminClient, long timeoutMs) {
     closeClientWithTimeout(adminClient::close, timeoutMs);
   }
 
@@ -270,22 +287,6 @@ public class KafkaCruiseControlUtils {
     return producerConfig;
   }
 
-  private static void setPasswordConfigIfExists(KafkaCruiseControlConfig configs, Map<String, Object> props, String name) {
-    try {
-      props.put(name, configs.getPassword(name));
-    } catch (ConfigException ce) {
-      // let it go.
-    }
-  }
-
-  private static void setStringConfigIfExists(KafkaCruiseControlConfig configs, Map<String, Object> props, String name) {
-    try {
-      props.put(name, configs.getString(name));
-    } catch (ConfigException ce) {
-      // let it go.
-    }
-  }
-
   /**
    * Check if the partition is currently under replicated.
    * @param cluster The current cluster state.
@@ -295,39 +296,6 @@ public class KafkaCruiseControlUtils {
   public static boolean isPartitionUnderReplicated(Cluster cluster, TopicPartition tp) {
     PartitionInfo partitionInfo = cluster.partition(tp);
     return partitionInfo.inSyncReplicas().length != partitionInfo.replicas().length;
-  }
-
-  /**
-   * Compare and ensure two sets are disjoint.
-   * @param set1 The first set to compare.
-   * @param set2 The second set to compare.
-   * @param message The exception's detailed message if two sets are not disjoint.
-   * @param <E> The type of elements maintained by the sets.
-   */
-  public static <E> void ensureDisJoint(Set<E> set1, Set<E> set2, String message) {
-    Set<E> interSection = new HashSet<>(set1);
-    interSection.retainAll(set2);
-    if (!interSection.isEmpty()) {
-      throw new IllegalStateException(message);
-    }
-  }
-
-
-  /**
-   * Sanity check there is no offline replica in the cluster.
-   * @param cluster The current cluster state.
-   */
-  public static void sanityCheckNoOfflineReplica(Cluster cluster) {
-    for (String topic : cluster.topics()) {
-      for (PartitionInfo partitionInfo : cluster.partitionsForTopic(topic)) {
-        if (partitionInfo.offlineReplicas().length > 0) {
-          throw new IllegalStateException(String.format("Topic partition %s-%d has offline replicas on brokers %s",
-                                                        partitionInfo.topic(), partitionInfo.partition(),
-                                                        Arrays.stream(partitionInfo.offlineReplicas()).mapToInt(Node::id)
-                                                              .boxed().collect(Collectors.toSet())));
-        }
-      }
-    }
   }
 
   /**
@@ -381,106 +349,6 @@ public class KafkaCruiseControlUtils {
    */
   public static boolean isKafkaAssignerMode(Collection<String> goals) {
     return goals.stream().anyMatch(KAFKA_ASSIGNER_GOALS::contains);
-  }
-
-  /**
-   * Check that only one target replication factor is set for each topic.
-   *
-   * @param topicsToChangeByReplicationFactor Topics to change replication factor by target replication factor.
-   */
-  private static void sanityCheckTargetReplicationFactorForTopic(Map<Short, Set<String>> topicsToChangeByReplicationFactor) {
-    Set<String> topicsToChange = new HashSet<>();
-    Set<String> topicsHavingMultipleTargetReplicationFactors = new HashSet<>();
-    for (Set<String> topics : topicsToChangeByReplicationFactor.values()) {
-      for (String topic : topics) {
-        if (!topicsToChange.add(topic)) {
-          topicsHavingMultipleTargetReplicationFactors.add(topic);
-        }
-      }
-    }
-    if (!topicsHavingMultipleTargetReplicationFactors.isEmpty()) {
-      throw new IllegalStateException(String.format("Topics %s are requested with more than one target replication factor.",
-                                                    topicsHavingMultipleTargetReplicationFactors));
-    }
-  }
-
-  /**
-   * Populate topics to change replication factor based on the request and current cluster state.
-   * @param topicPatternByReplicationFactor Requested topic patterns to change replication factor by target replication factor.
-   * @param cluster Current cluster state.
-   * @return Topics to change replication factor by target replication factor.
-   */
-  public static Map<Short, Set<String>> topicsForReplicationFactorChange(Map<Short, Pattern> topicPatternByReplicationFactor,
-                                                                         Cluster cluster) {
-    Map<Short, Set<String>> topicsToChangeByReplicationFactor = new HashMap<>(topicPatternByReplicationFactor.size());
-    for (Map.Entry<Short, Pattern> entry : topicPatternByReplicationFactor.entrySet()) {
-      short replicationFactor = entry.getKey();
-      Pattern topicPattern = entry.getValue();
-      Set<String> topics = cluster.topics().stream().filter(t -> topicPattern.matcher(t).matches()).collect(Collectors.toSet());
-      // Ensure there are topics matching the requested topic pattern.
-      if (topics.isEmpty()) {
-        throw new IllegalStateException(String.format("There is no topic in cluster matching pattern '%s'.", topicPattern));
-      }
-      Set<String> topicsToChange = topics.stream()
-                                         .filter(t -> cluster.partitionsForTopic(t).stream().anyMatch(p -> p.replicas().length != replicationFactor))
-                                         .collect(Collectors.toSet());
-      if (!topicsToChange.isEmpty()) {
-        topicsToChangeByReplicationFactor.put(replicationFactor, topicsToChange);
-      }
-    }
-
-    if (topicsToChangeByReplicationFactor.isEmpty()) {
-      throw new IllegalStateException(String.format("All topics matching given pattern already have target replication factor. Requested "
-                                                    + "topic pattern by replication factor: %s.", topicPatternByReplicationFactor));
-    }
-    // Sanity check that no topic is set with more than one target replication factor.
-    sanityCheckTargetReplicationFactorForTopic(topicsToChangeByReplicationFactor);
-    return topicsToChangeByReplicationFactor;
-  }
-
-  /**
-   * Populate cluster rack information for topics to change replication factor. In the process this method also conducts a sanity
-   * check to ensure that there are enough racks in the cluster to allocate new replicas to racks which do not host replica
-   * of the same partition.
-   *
-   * @param topicsByReplicationFactor Topics to change replication factor by target replication factor.
-   * @param cluster Current cluster state.
-   * @param excludedBrokersForReplicaMove Set of brokers which do not host new replicas.
-   * @param skipTopicRackAwarenessCheck Whether to skip the rack awareness sanity check or not.
-   * @param brokersByRack Mapping from rack to broker.
-   * @param rackByBroker Mapping from broker to rack.
-   */
-  public static void populateRackInfoForReplicationFactorChange(Map<Short, Set<String>> topicsByReplicationFactor,
-                                                                Cluster cluster,
-                                                                Set<Integer> excludedBrokersForReplicaMove,
-                                                                boolean skipTopicRackAwarenessCheck,
-                                                                Map<String, List<Integer>> brokersByRack,
-                                                                Map<Integer, String> rackByBroker) {
-    for (Node node : cluster.nodes()) {
-      // New follower replica is not assigned to brokers excluded for replica movement.
-      if (excludedBrokersForReplicaMove.contains(node.id())) {
-        continue;
-      }
-      // If the rack is not specified, we use the broker id info as rack info.
-      String rack = node.rack() == null || node.rack().isEmpty() ? String.valueOf(node.id()) : node.rack();
-      brokersByRack.putIfAbsent(rack, new ArrayList<>());
-      brokersByRack.get(rack).add(node.id());
-      rackByBroker.put(node.id(), rack);
-    }
-
-    topicsByReplicationFactor.forEach((replicationFactor, topics) -> {
-      if (replicationFactor > brokersByRack.size()) {
-        if (skipTopicRackAwarenessCheck) {
-          LOG.info("Target replication factor for topics {} is {}, which is larger than number of racks in cluster. Rack-awareness "
-                   + "property will be violated to add new replicas.", topics, replicationFactor);
-        } else {
-          throw new RuntimeException(String.format("Unable to change replication factor of topics %s to %d since there are only %d "
-                          + "racks in the cluster",
-                  topics, replicationFactor, brokersByRack.size()));
-
-        }
-      }
-    });
   }
 
   /**

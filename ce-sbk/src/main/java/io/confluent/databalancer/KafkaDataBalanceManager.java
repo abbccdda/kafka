@@ -226,17 +226,20 @@ public class KafkaDataBalanceManager implements DataBalanceManager {
             return;
         }
 
-        if (!kafkaConfig.getLong(ConfluentConfigs.BALANCER_THROTTLE_CONFIG).equals(oldConfig.getLong(ConfluentConfigs.BALANCER_THROTTLE_CONFIG))) {
-            balanceEngine.updateThrottle(kafkaConfig.getLong(ConfluentConfigs.BALANCER_THROTTLE_CONFIG));
+        Long throttle = kafkaConfig.getLong(ConfluentConfigs.BALANCER_THROTTLE_CONFIG);
+        if (!throttle.equals(oldConfig.getLong(ConfluentConfigs.BALANCER_THROTTLE_CONFIG))) {
+            LOG.info("Setting broker throttle to {}", throttle);
+            balanceEngine.updateThrottle(throttle);
         }
 
         if (!kafkaConfig.getString(ConfluentConfigs.BALANCER_AUTO_HEAL_MODE_CONFIG).equals(oldConfig.getString(ConfluentConfigs.BALANCER_AUTO_HEAL_MODE_CONFIG))) {
             // At least initially, goal-violation auto-healing is enabled with ANY_UNEVEN_LOAD and disabled with EMPTY_BROKERS.
             // KafkaConfig has already ensured that these are the only two values right now.
             boolean shouldEnableImbalanceAutoHeal = kafkaConfig.getString(ConfluentConfigs.BALANCER_AUTO_HEAL_MODE_CONFIG).equals(ConfluentConfigs.BalancerSelfHealMode.ANY_UNEVEN_LOAD.toString());
+
+            LOG.info("Setting SBK auto heal mode to {}", shouldEnableImbalanceAutoHeal);
             balanceEngine.setAutoHealMode(shouldEnableImbalanceAutoHeal);
         }
-
     }
 
     @Override

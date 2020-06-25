@@ -45,8 +45,10 @@ import io.confluent.databalancer.operation.BrokerRemovalStateMachine;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.utils.SystemTime;
 import org.apache.kafka.common.utils.Time;
+import org.apache.zookeeper.client.ZKClientConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.Option;
 
 import javax.annotation.Nonnull;
 import java.time.Duration;
@@ -60,6 +62,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -99,7 +102,9 @@ public class KafkaCruiseControl {
    *
    * @param config the configuration of Cruise Control.
    */
-  public KafkaCruiseControl(KafkaCruiseControlConfig config, DataBalancerMetricsRegistry metricRegistry,
+  public KafkaCruiseControl(KafkaCruiseControlConfig config,
+                            Option<ZKClientConfig> zkClientConfig,
+                            DataBalancerMetricsRegistry metricRegistry,
                             BlockingSendClient.Builder blockingSendClientBuilder) {
     _config = config;
     _time = new SystemTime();
@@ -114,8 +119,8 @@ public class KafkaCruiseControl {
         Executors.newSingleThreadExecutor(new KafkaCruiseControlThreadFactory("GoalOptimizerExecutor", true, null));
     long demotionHistoryRetentionTimeMs = config.getLong(KafkaCruiseControlConfig.DEMOTION_HISTORY_RETENTION_TIME_MS_CONFIG);
     long removalHistoryRetentionTimeMs = config.getLong(KafkaCruiseControlConfig.REMOVAL_HISTORY_RETENTION_TIME_MS_CONFIG);
-    _anomalyDetector = new AnomalyDetector(config, _loadMonitor, this, _time, metricRegistry);
-    _executor = new Executor(config, _time, metricRegistry, demotionHistoryRetentionTimeMs,
+    _anomalyDetector = new AnomalyDetector(config, zkClientConfig, _loadMonitor, this, _time, metricRegistry);
+    _executor = new Executor(config, zkClientConfig, _time, metricRegistry, demotionHistoryRetentionTimeMs,
         removalHistoryRetentionTimeMs, _anomalyDetector);
     _goalOptimizer = new GoalOptimizer(config, _loadMonitor, _time, metricRegistry, _executor);
     _defaultPlanComputationOptions = new PlanComputationOptions(
@@ -153,7 +158,7 @@ public class KafkaCruiseControl {
   /**
    * Start up the Cruise Control.
    */
-  public void startUp() {
+  public void startUp() throws ExecutionException, InterruptedException {
     LOG.info("Starting Kafka Cruise Control...");
     _executor.startUp();
     _loadMonitor.startUp();

@@ -7,7 +7,6 @@ import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import com.linkedin.kafka.cruisecontrol.metricsreporter.utils.CCKafkaIntegrationTestHarness;
 import io.confluent.kafka.test.utils.KafkaTestUtils;
 import kafka.log.LogConfig;
-import kafka.zk.AdminZkClient;
 import kafka.zk.KafkaZkClient;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.ConfluentAdmin;
@@ -80,11 +79,6 @@ public class SbkTopicUtilsIntegrationTest extends CCKafkaIntegrationTestHarness 
     @Test
     public void testIncreasePartitionCount() throws Exception {
         Map<String, Object> configMap = new KafkaCruiseControlConfig(getTestConfig()).mergedConfigValues();
-        KafkaZkClient kafkaZkClient = KafkaCruiseControlUtils.createKafkaZkClient(zookeeper().connectionString(),
-                "TestUtilsGroup",
-                "TestUtilsMetric",
-                false);
-        AdminZkClient adminZkClient = new AdminZkClient(kafkaZkClient);
         ConfluentAdmin adminClient = KafkaCruiseControlUtils.createAdmin(KafkaCruiseControlUtils.filterAdminClientConfigs(configMap));
         try {
             int startPartitionCount = 3;
@@ -93,8 +87,7 @@ public class SbkTopicUtilsIntegrationTest extends CCKafkaIntegrationTestHarness 
 
             Set<String> topicList = Collections.singleton(TEST_TOPIC);
             TopicDescription topicDescription = adminClient.describeTopics(topicList).values().get(TEST_TOPIC).get();
-            SbkTopicUtils.maybeIncreaseTopicPartitionCount(
-                    kafkaZkClient, adminZkClient, TEST_TOPIC, topicDescription, newPartitionCount);
+            SbkTopicUtils.maybeIncreaseTopicPartitionCount(adminClient, TEST_TOPIC, topicDescription, newPartitionCount);
 
             // Check partition count again, we should now have
             // Topic creation is not instantaneous; wait for completion.
@@ -105,7 +98,6 @@ public class SbkTopicUtilsIntegrationTest extends CCKafkaIntegrationTestHarness 
                     30_000,
                     "Check " + TEST_TOPIC + " exists.");
         } finally {
-            KafkaCruiseControlUtils.closeKafkaZkClientWithTimeout(kafkaZkClient);
             KafkaCruiseControlUtils.closeAdminClientWithTimeout(adminClient);
         }
     }
