@@ -3,6 +3,7 @@
 package io.confluent.security.auth.store.cache;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -49,6 +50,8 @@ public class DefaultAuthCacheTest {
 
   private final MockTime time = new MockTime();
   private final Scope clusterA = Scope.kafkaClusterScope("clusterA");
+  private final Scope clusterB = Scope.kafkaClusterScope("clusterB");
+  private final Scope clusterC = Scope.kafkaClusterScope("clusterC");
   private final ResourcePattern clusterResource = new ResourcePattern(new ResourceType("Cluster"), "kafka-cluster", PatternType.LITERAL);
   private RbacRoles rbacRoles;
   private KafkaAuthStore authStore;
@@ -57,7 +60,7 @@ public class DefaultAuthCacheTest {
   @Before
   public void setUp() throws Exception {
     rbacRoles = RbacRoles.load(this.getClass().getClassLoader(), "test_rbac_roles.json");
-    this.authStore = MockAuthStore.create(rbacRoles, time, clusterA, 1, 1);
+    this.authStore = MockAuthStore.create(rbacRoles, time, Scope.ROOT_SCOPE, 1, 1);
     authCache = authStore.authCache();
   }
 
@@ -68,18 +71,45 @@ public class DefaultAuthCacheTest {
   }
 
   @Test
-  public void testClusterRoleBinding() throws Exception {
+  public void testAuthCacheClusterLookupRolebindingsByScope() throws Exception {
     KafkaPrincipal alice = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
-    RbacTestUtils.updateRoleBinding(authCache, alice, "ClusterAdmin", Scope.kafkaClusterScope("clusterA"), Collections.emptySet());
+
+    // add clusterA role binding
+    RbacTestUtils.updateRoleBinding(authCache, alice, "ClusterAdmin", clusterA, Collections.emptySet());
     assertEquals(1, authCache.rbacRules(clusterA).size());
     verifyPermissions(alice, clusterResource, "DescribeConfigs", "AlterConfigs");
     assertEquals(Collections.singleton(new RoleBinding(alice, "ClusterAdmin", Scope.kafkaClusterScope("clusterA"), null)),
         authCache.rbacRoleBindings(clusterA));
-    assertEquals(Collections.emptySet(), authCache.rbacRoleBindings(Scope.kafkaClusterScope("clusterB")));
+    // extra cluster does not include anything extra
+    assertEquals(Collections.singleton(new RoleBinding(alice, "ClusterAdmin", Scope.kafkaClusterScope("clusterA"), null)),
+        authCache.rbacRoleBindings(Utils.mkSet(clusterA, clusterB)));
+    assertEquals(Collections.emptySet(), authCache.rbacRoleBindings(clusterB));
+    assertEquals(Collections.emptySet(), authCache.rbacRoleBindings(Utils.mkSet(clusterB)));
 
-    RbacTestUtils.deleteRoleBinding(authCache, alice, "ClusterAdmin", Scope.kafkaClusterScope("clusterA"));
+    // add clusterB and clusterC role bindings
+    RbacTestUtils.updateRoleBinding(authCache, alice, "ClusterAdmin", clusterB, Collections.emptySet());
+    RbacTestUtils.updateRoleBinding(authCache, alice, "ClusterAdmin", clusterC, Collections.emptySet());
+    assertEquals(Collections.singleton(new RoleBinding(alice, "ClusterAdmin", clusterB, null)),
+        authCache.rbacRoleBindings(clusterB));
+
+    // looking only in A, B should not return C
+    assertEquals(Utils.mkSet(
+        new RoleBinding(alice, "ClusterAdmin", clusterA, null),
+        new RoleBinding(alice, "ClusterAdmin", clusterB, null)),
+        authCache.rbacRoleBindings(Utils.mkSet(clusterA, clusterB)));
+
+    // delete A,B bindings
+    RbacTestUtils.deleteRoleBinding(authCache, alice, "ClusterAdmin", clusterA);
+    RbacTestUtils.deleteRoleBinding(authCache, alice, "ClusterAdmin", clusterB);
     assertTrue(authCache.rbacRules(clusterA).isEmpty());
+    assertTrue(authCache.rbacRules(clusterB).isEmpty());
+    assertEquals(Utils.mkSet(
+        new RoleBinding(alice, "ClusterAdmin", clusterC, null)),
+        authCache.rbacRoleBindings(Utils.mkSet(clusterA, clusterB, clusterC)));
+    assertFalse(authCache.rbacRules(clusterC).isEmpty());
 
+    // delete C binding
+    RbacTestUtils.deleteRoleBinding(authCache, alice, "ClusterAdmin", clusterC);
     assertEquals(rbacRoles, authCache.rbacRoles());
   }
 

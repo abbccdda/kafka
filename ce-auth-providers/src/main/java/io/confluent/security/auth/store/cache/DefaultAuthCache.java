@@ -118,6 +118,16 @@ public class DefaultAuthCache implements AuthCache, KeyValueStore<AuthKey, AuthV
   }
 
   @Override
+  public Set<RoleBinding> rbacRoleBindings(Set<Scope> scopes) {
+    ensureNotFailed();
+    Set<RoleBinding> bindings = new HashSet<>();
+    roleBindings.entrySet().stream()
+        .filter(e -> scopes.contains(e.getKey().scope()))
+        .forEach(e -> bindings.add(roleBinding(e.getKey(), e.getValue())));
+    return bindings;
+  }
+
+  @Override
   public Set<RoleBinding> rbacRoleBindings(RoleBindingFilter filter) {
     ensureNotFailed();
     Set<RoleBinding> bindings = new HashSet<>();

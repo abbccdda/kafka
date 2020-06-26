@@ -44,6 +44,15 @@ public interface AuthCache {
   Set<RoleBinding> rbacRoleBindings(Scope scope);
 
   /**
+   * Returns all the role bindings from a set of scopes. Note that roles bindings of
+   * parent scopes are not returned. The returned collection may be empty.
+   *
+   * @param scopes Scopes for which role bindings are requested.
+   * @return Set of roles currently assigned at the specified scopes
+   */
+  Set<RoleBinding> rbacRoleBindings(Set<Scope> scopes);
+
+  /**
    * Returns role bindings that match the specified filter.
    *
    * @param filter The filter used for matching role bindings
