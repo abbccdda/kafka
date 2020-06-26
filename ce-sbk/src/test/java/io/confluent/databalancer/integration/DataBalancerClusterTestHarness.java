@@ -131,7 +131,11 @@ public abstract class DataBalancerClusterTestHarness {
 
 
   public void addBroker(int newBrokerId) {
-    kafkaCluster.startBroker(newBrokerId, generalProperties);
+    Properties brokerProps = new Properties();
+    Map<String, String> brokerOverrideProps = brokerOverrideProps().getOrDefault(newBrokerId, Collections.emptyMap());
+    brokerProps.putAll(generalProperties);
+    brokerProps.putAll(brokerOverrideProps);
+    kafkaCluster.startBroker(newBrokerId, brokerProps);
   }
 
   /**

@@ -386,6 +386,17 @@ public class ReplicaPlacementGoalTest {
     }
 
     @Test
+    public void testObserverMoveToNewBroker() throws OptimizationFailureException, ClusterModel.NonExistentBrokerException {
+        String topic1ChangeLeaderToObserver = "{\"version\":1,\"replicas\":[{\"count\": 1, \"constraints\":{\"rack\":\"0\"}}]," +
+                " \"observers\": [{\"count\": 2, \"constraints\":{\"rack\":\"1\"}}," +
+                " {\"count\": 1, \"constraints\":{\"rack\":\"2\"}}]}";
+        TopicPlacement tpLeaderToObserver = TopicPlacement.parse(topic1ChangeLeaderToObserver).get();
+        observerClusterModel.setTopicPlacements(Collections.singletonMap(DeterministicCluster.T1, tpLeaderToObserver));
+        observerClusterModel.setBrokerState(4, Broker.State.NEW);
+        validateGoalOptimization(observerClusterModel, tpLeaderToObserver, new OptimizationOptions(Collections.emptySet()));
+    }
+
+    @Test
     public void testGoalOptimizeReplicationFactorChange() throws OptimizationFailureException {
         String topic1DecreaseObserversJson = "{\"version\":1,\"replicas\":[{\"count\": 2, \"constraints\":{\"rack\":\"1\"}}]," +
                 " \"observers\": [{\"count\": 1, \"constraints\":{\"rack\":\"0\"}}]}";

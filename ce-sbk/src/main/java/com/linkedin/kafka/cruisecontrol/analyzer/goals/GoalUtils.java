@@ -170,8 +170,17 @@ public class GoalUtils {
       return eligibleBrokers;
     }
 
+    // ReplicaPlacementGoal can mark replicas as observer and leader as an intermediate state, relax eligible broker
+    // criteria to allow replicas to transition out of this state
+    boolean allowLeadershipMove = replica.isObserver() &&
+                                  replica.isLeader() &&
+                                  action == ActionType.LEADERSHIP_MOVEMENT;
     // When there are new brokers, we should only allow the replicas/leadership to be moved to the new brokers.
-    return eligibleBrokers.stream().filter(b -> b.isNew() || b == replica.originalBroker()).collect(Collectors.toList());
+    return eligibleBrokers.stream()
+            .filter(b -> b.isNew()
+                    || b == replica.originalBroker()
+                    || allowLeadershipMove)
+            .collect(Collectors.toList());
   }
 
   /**

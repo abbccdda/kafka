@@ -4,6 +4,7 @@
 package io.confluent.databalancer.integration;
 
 import io.confluent.kafka.test.utils.KafkaTestUtils;
+import kafka.server.KafkaConfig;
 import kafka.server.KafkaServer;
 import org.apache.kafka.test.IntegrationTest;
 import org.junit.Rule;
@@ -12,6 +13,9 @@ import org.junit.experimental.categories.Category;
 import org.junit.rules.Timeout;
 
 import java.time.Duration;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -38,11 +42,24 @@ public class AddBrokerTest extends DataBalancerClusterTestHarness {
     return props;
   }
 
+  @Override
+  protected Map<Integer, Map<String, String>> brokerOverrideProps() {
+    Map<Integer, Map<String, String>> propsByBroker = new HashMap<>();
+    Map<String, String> rack0Props = Collections.singletonMap(KafkaConfig.RackProp(), "0");
+    Map<String, String> rack1Props = Collections.singletonMap(KafkaConfig.RackProp(), "1");
+
+    propsByBroker.put(0, rack0Props);
+    propsByBroker.put(1, rack0Props);
+    propsByBroker.put(2, rack0Props);
+    propsByBroker.put(3, rack1Props);
+    return propsByBroker;
+  }
+
   @Test
-  public void testBrokerAddition() throws Exception {
+  public void testBrokerAddition() throws InterruptedException {
     KafkaTestUtils.createTopic(adminClient, TEST_TOPIC, 20, 2);
 
-    int newBrokerId = initialBrokerCount() + 1;
+    int newBrokerId = initialBrokerCount();
     info("Adding new broker");
     addBroker(newBrokerId);
     DataBalancerIntegrationTestUtils.verifyReplicasMovedToBroker(adminClient, TEST_TOPIC, newBrokerId);
@@ -50,13 +67,25 @@ public class AddBrokerTest extends DataBalancerClusterTestHarness {
 
   @Test
   public void testRemovedBrokerCanBeAdded() throws InterruptedException, ExecutionException {
-    KafkaTestUtils.createTopic(adminClient, "test-topic", 20, 2);
+    KafkaTestUtils.createTopic(adminClient, TEST_TOPIC, 20, 2);
     KafkaServer brokerToRemove = notControllerKafkaServer();
 
     AtomicBoolean exited = new AtomicBoolean(false);
     removeBroker(brokerToRemove, exited);
     int brokerIdToAdd = brokerToRemove.config().brokerId();
     addBroker(brokerIdToAdd);
-    DataBalancerIntegrationTestUtils.verifyReplicasMovedToBroker(adminClient, "test-topic", brokerIdToAdd);
+    DataBalancerIntegrationTestUtils.verifyReplicasMovedToBroker(adminClient, TEST_TOPIC, brokerIdToAdd);
+  }
+
+  @Test
+  public void testBrokerAddCreateObservers() throws InterruptedException, ExecutionException {
+    KafkaTestUtils.createTopic(adminClient, TEST_TOPIC, 20, 3);
+    String topicPlacementString = "{\"version\":1,\"replicas\":[{\"count\": 2, \"constraints\":{\"rack\":\"0\"}}], " +
+            "\"observers\": [{\"count\": 1, \"constraints\":{\"rack\":\"1\"}}]}";
+    DataBalancerIntegrationTestUtils.alterTopicPlacementConfig(adminClient, TEST_TOPIC, topicPlacementString);
+    int newBrokerId = initialBrokerCount();
+    addBroker(newBrokerId);
+    DataBalancerIntegrationTestUtils.verifyReplicasMovedToBroker(adminClient, TEST_TOPIC, newBrokerId);
+    DataBalancerIntegrationTestUtils.verifyTopicPlacement(adminClient, TEST_TOPIC, topicPlacementString);
   }
 }
