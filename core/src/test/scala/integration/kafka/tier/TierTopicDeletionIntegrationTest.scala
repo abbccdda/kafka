@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kafka.api.IntegrationTestHarness
 import kafka.server.KafkaConfig
 import kafka.tier.store.MockInMemoryTierObjectStore
-import kafka.utils.TestUtils
+import kafka.utils.{CoreUtils, TestUtils}
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.utils.Exit
@@ -69,6 +69,7 @@ class TierTopicDeletionIntegrationTest extends IntegrationTestHarness {
     }
 
     val mockObjectStore = servers.head.tierObjectStoreOpt.get.asInstanceOf[MockInMemoryTierObjectStore]
+    var topicId: String = null
     for (i <- 0 until numPartitions) {
       val topicPartition = new TopicPartition(topic, i)
 
@@ -81,14 +82,21 @@ class TierTopicDeletionIntegrationTest extends IntegrationTestHarness {
       val tierPartitionState = log.tierPartitionState
       TestUtils.waitUntilTrue(() => tierPartitionState.totalSize > 0, "Timed out waiting for segments to be tiered")
       TestUtils.waitUntilTrue(() => tierPartitionState.committedEndOffset > 0, "Timed out waiting for tier partition state to be flushed")
+
+      topicId = CoreUtils.uuidToBase64(tierPartitionState.topicIdPartition.get.topicId)
     }
 
+    // MockInMemoryObjectStore uses a static instance to store tiered objects, and so we could see objects left over
+    // by previous tests or tests running in parallel. Here, we filter the objects based on the topic id in the
+    // object key, so we only see objects relevant for the specific topic we are interested in.
+    def numObjects: Int = mockObjectStore.getStored.keys.asScala.filter(_.contains(topicId)).size
+
     // at least one segment per partition should have been tiered
-    assertTrue(mockObjectStore.getStored.size >= numPartitions)
+    assertTrue(numObjects >= numPartitions)
 
     // delete topic
     val adminClient = createAdminClient()
     adminClient.deleteTopics(Collections.singleton(topic)).all.get
-    TestUtils.waitUntilTrue(() => mockObjectStore.getStored.size == 0, "Timed out waiting for all objects to be deleted")
+    TestUtils.waitUntilTrue(() => numObjects == 0, "Timed out waiting for all objects to be deleted")
   }
 }
