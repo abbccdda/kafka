@@ -126,6 +126,7 @@ public class EmbeddedSBKKafkaCluster extends EmbeddedKafkaCluster {
     props.put(confluentBalancerConfig(BROKER_SAMPLE_STORE_TOPIC_PARTITION_COUNT_CONFIG), "1");
     // Even though we don't use the metrics reporter, its topic replicas config is used
     String replFactor = Integer.toString(REPLICATION_FACTOR);
+    props.put(ConfluentConfigs.BALANCER_TOPICS_REPLICATION_FACTOR_CONFIG, replFactor);
     props.put(ConfluentTelemetryConfig.PREFIX_EXPORTER + ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME + "." +
             KafkaExporterConfig.TOPIC_REPLICAS_CONFIG, replFactor);
     props.put(LicenseConfig.REPLICATION_FACTOR_PROP, replFactor);

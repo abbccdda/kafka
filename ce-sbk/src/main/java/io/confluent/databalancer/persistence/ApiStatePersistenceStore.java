@@ -330,7 +330,7 @@ public class ApiStatePersistenceStore implements AutoCloseable {
     static SbkTopicUtils.SbkTopicConfig getTopicConfig(String topic, Map<String, ?> config) {
         return new SbkTopicUtils.SbkTopicConfigBuilder()
             .setTopic(topic)
-            .setReplicationFactor(config, ConfluentConfigs.BALANCER_TOPICS_REPLICATION_FACTOR_CONFIG,
+            .setReplicationFactor(config, ConfluentConfigs.BALANCER_TOPICS_REPLICATION_FACTOR_SBK_CONFIG,
                     ConfluentConfigs.BALANCER_TOPICS_REPLICATION_FACTOR_DEFAULT)
             .setCleanupPolicy(API_STATE_TOPIC_CLEANUP_POLICY)
             .setPartitionCount(API_STATE_TOPIC_PARTITION_COUNT)

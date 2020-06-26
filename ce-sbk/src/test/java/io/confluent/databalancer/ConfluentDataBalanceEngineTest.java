@@ -399,14 +399,14 @@ public class ConfluentDataBalanceEngineTest  {
         String  metricsTopicConfig = ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME) +
                 KafkaExporterConfig.TOPIC_NAME_CONFIG;
         String testMetricsTopic = "testMetricsTopic";
-        String metricsRfConfig = ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME) +
-                KafkaExporterConfig.TOPIC_REPLICAS_CONFIG;
-        String testMetricsRfValue = "2";
+
+        String testBalancerTopicsRfValue = "2";
+
+        brokerProps.put(ConfluentConfigs.BALANCER_TOPICS_REPLICATION_FACTOR_CONFIG, testBalancerTopicsRfValue.toString());
 
         brokerProps.put(nwInCapacity, testNwInCapacity.toString());
         brokerProps.put(nwOutCapacity, testNwOutCapacity.toString());
         brokerProps.put(metricsTopicConfig, testMetricsTopic);
-        brokerProps.put(metricsRfConfig, testMetricsRfValue);
 
         brokerProps.put(ConfluentConfigs.CONFLUENT_BALANCER_PREFIX + KafkaCruiseControlConfig.DEFAULT_GOALS_CONFIG,
                 defaultGoalsOverride);
@@ -439,9 +439,9 @@ public class ConfluentDataBalanceEngineTest  {
         Object actualMetricsTopic = ccOriginals.get(ConfluentMetricsSamplerBase.TELEMETRY_REPORTER_TOPIC_PATTERN);
         assertEquals(actualMetricsTopic + " is not same as expected " + testMetricsTopic,
                 testMetricsTopic, actualMetricsTopic);
-        Object actualTopicRf = ccOriginals.get(ConfluentConfigs.BALANCER_TOPICS_REPLICATION_FACTOR_CONFIG);
-        assertEquals(actualTopicRf + " is not same as expected " + testMetricsRfValue,
-                testMetricsRfValue, actualTopicRf);
+        Object actualTopicRf = ccOriginals.get(ConfluentConfigs.BALANCER_TOPICS_REPLICATION_FACTOR_SBK_CONFIG);
+        assertEquals("Balancer topic RF config of " + actualTopicRf + " is not same as expected " + testBalancerTopicsRfValue,
+                testBalancerTopicsRfValue, actualTopicRf);
 
         List<String> actualGoalsConfig = ccConfig.getList(KafkaCruiseControlConfig.GOALS_CONFIG);
         assertEquals(actualGoalsConfig + " is not same as expected " + expectedGoalsConfig,

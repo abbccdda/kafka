@@ -219,7 +219,7 @@ public class KafkaSampleStore implements SampleStore {
     return new SbkTopicUtils.SbkTopicConfigBuilder()
             .setTopic(topic)
             .setReplicationFactor(config,
-                    ConfluentConfigs.BALANCER_TOPICS_REPLICATION_FACTOR_CONFIG,
+                    ConfluentConfigs.BALANCER_TOPICS_REPLICATION_FACTOR_SBK_CONFIG,
                     ConfluentConfigs.BALANCER_TOPICS_REPLICATION_FACTOR_DEFAULT)
             .setCleanupPolicy(DEFAULT_CLEANUP_POLICY);
   }

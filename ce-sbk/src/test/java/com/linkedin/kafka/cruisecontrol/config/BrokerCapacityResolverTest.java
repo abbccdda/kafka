@@ -72,8 +72,8 @@ public class BrokerCapacityResolverTest {
     capacityConfigs.setProperty(KafkaCruiseControlConfig.BROKER_CAPACITY_CONFIG_RESOLVER_CLASS_CONFIG,
             BrokerCapacityResolver.class.getCanonicalName());
 
-    capacityConfigs.setProperty(ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_BASE_CONFIG, NW_IN_TEST_CAPACITY.toString());
-    capacityConfigs.setProperty(ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_BASE_CONFIG, NW_OUT_TEST_CAPACITY.toString());
+    capacityConfigs.setProperty(ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_SBK_CONFIG, NW_IN_TEST_CAPACITY.toString());
+    capacityConfigs.setProperty(ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_SBK_CONFIG, NW_OUT_TEST_CAPACITY.toString());
     capacityConfigs.setProperty(KafkaConfig$.MODULE$.LogDirsProp(), dirPath);
   }
 
@@ -120,14 +120,14 @@ public class BrokerCapacityResolverTest {
 
   @Test
   public void testParseNonNumericConfig() {
-    capacityConfigs.put(ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_BASE_CONFIG, "bar");
+    capacityConfigs.put(ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_SBK_CONFIG, "bar");
     assertThrows(ConfigException.class, () -> getBrokerCapacityResolver(capacityConfigs));
   }
 
   @Test
   public void testParseNegativeConfig() {
     Long negativeCapacity = -NW_IN_TEST_CAPACITY;
-    capacityConfigs.put(ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_BASE_CONFIG, negativeCapacity.toString());
+    capacityConfigs.put(ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_SBK_CONFIG, negativeCapacity.toString());
     assertThrows(ConfigException.class, () -> getBrokerCapacityResolver(capacityConfigs));
   }
 

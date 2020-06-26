@@ -237,8 +237,8 @@ public class ConfluentConfigs {
     public static final String BALANCER_CLASS_DOC = "The class providing DataBalancer services for the Kafka controller.";
     public static final String BALANCER_CLASS_DEFAULT = "io.confluent.databalancer.KafkaDataBalanceManager";
 
-    public static final String BALANCER_ENABLE_BASE_CONFIG = "enable";
-    public static final String BALANCER_ENABLE_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_ENABLE_BASE_CONFIG;
+    public static final String BALANCER_ENABLE_SBK_CONFIG = "enable";
+    public static final String BALANCER_ENABLE_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_ENABLE_SBK_CONFIG;
     public static final boolean BALANCER_ENABLE_DEFAULT = false;
     public static final String BALANCER_ENABLE_DOC = "This config controls whether the balancer is enabled";
 
@@ -246,22 +246,22 @@ public class ConfluentConfigs {
         EMPTY_BROKER,  // Self-healing only when brokers arrive
         ANY_UNEVEN_LOAD  // Self-heal on any variation
     }
-    public static final String BALANCER_AUTO_HEAL_MODE_BASE_CONFIG = "heal.uneven.load.trigger";
-    public static final String BALANCER_AUTO_HEAL_MODE_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_AUTO_HEAL_MODE_BASE_CONFIG;
+    public static final String BALANCER_AUTO_HEAL_MODE_SBK_CONFIG = "heal.uneven.load.trigger";
+    public static final String BALANCER_AUTO_HEAL_MODE_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_AUTO_HEAL_MODE_SBK_CONFIG;
     public static final String BALANCER_AUTO_HEAL_MODE_DEFAULT = BalancerSelfHealMode.EMPTY_BROKER.toString();
     public static final String BALANCER_AUTO_HEAL_MODE_DOC = "Controls what causes the Confluent DataBalancer to start rebalance operations. "
             + "Acceptable values are " + BalancerSelfHealMode.ANY_UNEVEN_LOAD.toString() + " and " + BalancerSelfHealMode.EMPTY_BROKER.toString();
 
-    public static final String BALANCER_BROKER_FAILURE_THRESHOLD_BASE_CONFIG = "heal.broker.failure.threshold.ms";
-    public static final String BALANCER_BROKER_FAILURE_THRESHOLD_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_BROKER_FAILURE_THRESHOLD_BASE_CONFIG;
+    public static final String BALANCER_BROKER_FAILURE_THRESHOLD_SBK_CONFIG = "heal.broker.failure.threshold.ms";
+    public static final String BALANCER_BROKER_FAILURE_THRESHOLD_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_BROKER_FAILURE_THRESHOLD_SBK_CONFIG;
     public static final Long BALANCER_BROKER_FAILURE_THRESHOLD_DEFAULT = Duration.ofHours(1L).toMillis();
     public static final Long BALANCER_BROKER_FAILURE_THRESHOLD_DISABLED = -1L;
     public static final String BALANCER_BROKER_FAILURE_THRESHOLD_DOC = "This config specifies how long the balancer will " +
             "wait after detecting a broker failure before triggering a balancing action. -1 means that broker failures " +
             "will not trigger balancing actions";
 
-    public static final String BALANCER_THROTTLE_BASE_CONFIG = "throttle.bytes.per.second";
-    public static final String BALANCER_THROTTLE_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_THROTTLE_BASE_CONFIG;
+    public static final String BALANCER_THROTTLE_SBK_CONFIG = "throttle.bytes.per.second";
+    public static final String BALANCER_THROTTLE_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_THROTTLE_SBK_CONFIG;
     public static final Long BALANCER_THROTTLE_NO_THROTTLE = -1L;
     public static final Long BALANCER_THROTTLE_AUTO_THROTTLE = -2L;
     public static final Long BALANCER_THROTTLE_MIN = BALANCER_THROTTLE_AUTO_THROTTLE; // This is Kafka Cruise Control AUTO_THROTTLE.
@@ -269,37 +269,37 @@ public class ConfluentConfigs {
     public static final String BALANCER_THROTTLE_DOC = "This config specifies the upper bound for bandwidth in bytes to " +
             "move replicas around for replica reassignment.";
 
-    public static final String BALANCER_REPLICA_CAPACITY_BASE_CONFIG = "max.replicas";
-    public static final String BALANCER_REPLICA_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_REPLICA_CAPACITY_BASE_CONFIG;
+    public static final String BALANCER_REPLICA_CAPACITY_SBK_CONFIG = "max.replicas";
+    public static final String BALANCER_REPLICA_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_REPLICA_CAPACITY_SBK_CONFIG;
     // Set a large, but not too large, default so that cluster replica capacity is still in-range
     public static final Long BALANCER_REPLICA_CAPACITY_DEFAULT = Long.valueOf(Integer.MAX_VALUE);
     public static final String BALANCER_REPLICA_CAPACITY_DOC = "The replica capacity is the maximum number of replicas " +
             "the balancer will place on a single broker.";
 
-    public static final String BALANCER_DISK_CAPACITY_THRESHOLD_BASE_CONFIG = "disk.max.load";
-    public static final String BALANCER_DISK_CAPACITY_THRESHOLD_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_DISK_CAPACITY_THRESHOLD_BASE_CONFIG;
+    public static final String BALANCER_DISK_CAPACITY_THRESHOLD_SBK_CONFIG = "disk.max.load";
+    public static final String BALANCER_DISK_CAPACITY_THRESHOLD_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_DISK_CAPACITY_THRESHOLD_SBK_CONFIG;
     public static final Double BALANCER_DISK_CAPACITY_THRESHOLD_DEFAULT = 0.85;
     public static final String BALANCER_DISK_CAPACITY_THRESHOLD_DOC = "This config specifies the maximum load for disk usage as " +
             "a proportion of disk capacity. Valid values are between 0 and 1.";
 
-    public static final String BALANCER_NETWORK_IN_CAPACITY_BASE_CONFIG = "network.in.max.bytes.per.second";
-    public static final String BALANCER_NETWORK_IN_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_NETWORK_IN_CAPACITY_BASE_CONFIG;
+    public static final String BALANCER_NETWORK_IN_CAPACITY_SBK_CONFIG = "network.in.max.bytes.per.second";
+    public static final String BALANCER_NETWORK_IN_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_NETWORK_IN_CAPACITY_SBK_CONFIG;
     public static final Long BALANCER_NETWORK_IN_CAPACITY_DEFAULT = Long.MAX_VALUE;
     public static final Long BALANCER_NETWORK_IN_CAPACITY_MIN = 1L;
     public static final String BALANCER_NETWORK_IN_CAPACITY_DOC = "This config specifies the upper capacity limit for network " +
             "incoming bytes per second per broker. The Confluent DataBalancer will attempt to keep incoming data throughput below " +
             "this limit.";
 
-    public static final String BALANCER_NETWORK_OUT_CAPACITY_BASE_CONFIG = "network.out.max.bytes.per.second";
-    public static final String BALANCER_NETWORK_OUT_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_NETWORK_OUT_CAPACITY_BASE_CONFIG;
+    public static final String BALANCER_NETWORK_OUT_CAPACITY_SBK_CONFIG = "network.out.max.bytes.per.second";
+    public static final String BALANCER_NETWORK_OUT_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_NETWORK_OUT_CAPACITY_SBK_CONFIG;
     public static final Long BALANCER_NETWORK_OUT_CAPACITY_DEFAULT = Long.MAX_VALUE;
     public static final Long BALANCER_NETWORK_OUT_CAPACITY_MIN = 1L;
     public static final String BALANCER_NETWORK_OUT_CAPACITY_DOC = "This config specifies the upper capacity limit for network " +
             "outgoing bytes per second per broker. The Confluent DataBalancer will attempt to keep outgoing data throughput below " +
             "this limit.";
 
-    public static final String BALANCER_EXCLUDE_TOPIC_NAMES_BASE_CONFIG = "exclude.topic.names";
-    public static final String BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_EXCLUDE_TOPIC_NAMES_BASE_CONFIG;
+    public static final String BALANCER_EXCLUDE_TOPIC_NAMES_SBK_CONFIG = "exclude.topic.names";
+    public static final String BALANCER_EXCLUDE_TOPIC_NAMES_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_EXCLUDE_TOPIC_NAMES_SBK_CONFIG;
     public static final List BALANCER_EXCLUDE_TOPIC_NAMES_DEFAULT = Collections.EMPTY_LIST;
     public static final String BALANCER_EXCLUDE_TOPIC_NAMES_DOC = "This config accepts a list of topic names that " +
             "will be excluded from rebalancing. For example, 'confluent.balancer.exclude.topic.names=[topic1, topic2]' ";
@@ -312,19 +312,19 @@ public class ConfluentConfigs {
             "exclude topics 'prefix1-suffix1', 'prefix1-suffix2', 'prefix2-suffix3', but not 'abc-prefix1-xyz'" +
             " and 'def-prefix2'";
 
-    public static final String BALANCER_API_STATE_TOPIC = "api.state.topic";
-    public static final String BALANCER_API_STATE_TOPIC_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_API_STATE_TOPIC;
+    public static final String BALANCER_API_STATE_TOPIC_SBK_CONFIG = "api.state.topic";
+    public static final String BALANCER_API_STATE_TOPIC_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_API_STATE_TOPIC_SBK_CONFIG;
     public static final String BALANCER_API_STATE_TOPIC_DEFAULT = "_confluent_balancer_api_state";
-    public static final String BALANCER_API_STATE_TOPIC_DOC = "Name of topic to use to store state of Confluent Balancer API. The " +
+    public static final String BALANCER_API_STATE_TOPIC_DOC = "Name of topic to use to store state of Confluent DataBalancer API. The " +
             "topic will be used to store progress/failure of the api and will be used in case of recovery to resume long running operations like " +
             "remove or add broker.";
 
-    public static final String BALANCER_TOPICS_REPLICATION_FACTOR = "topic.replication.factor";
+    public static final String BALANCER_TOPICS_REPLICATION_FACTOR_SBK_CONFIG = "topic.replication.factor";
     public static final String BALANCER_TOPICS_REPLICATION_FACTOR_CONFIG = CONFLUENT_BALANCER_PREFIX +
-            BALANCER_TOPICS_REPLICATION_FACTOR;
+            BALANCER_TOPICS_REPLICATION_FACTOR_SBK_CONFIG;
     public static final Short BALANCER_TOPICS_REPLICATION_FACTOR_DEFAULT = 3;
     public static final String BALANCER_TOPIC_REPLICATION_FACTOR_DOC =
-            "Replication factor for all topics that is created and need by Confluent Balancer. This includes Sample Store and API state topics.";
+            "Replication factor for all topics that are created and needed by the Confluent DataBalancer. This includes Sample Store and API state topics.";
 
     public static final String MULTITENANT_LISTENER_NAMES_CONFIG = CONFLUENT_PREFIX + "multitenant.listener.names";
     public static final String MULTITENANT_LISTENER_NAMES_DEFAULT = null;

@@ -247,10 +247,10 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   /**
    * Network Capacity values
    */
-  public static final String NETWORK_IN_CAPACITY_BYTES_CONFIG = ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_BASE_CONFIG;
+  public static final String NETWORK_IN_CAPACITY_BYTES_CONFIG = ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_SBK_CONFIG;
   private static final String NETWORK_IN_CAPACITY_BYTES_DOC = ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_DOC;
 
-  public static final String NETWORK_OUT_CAPACITY_BYTES_CONFIG = ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_BASE_CONFIG;
+  public static final String NETWORK_OUT_CAPACITY_BYTES_CONFIG = ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_SBK_CONFIG;
   private static final String NETWORK_OUT_CAPACITY_BYTES_DOC = ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_DOC;
 
 
@@ -394,7 +394,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   /**
    * Disk capacity: <code>disk.max.load</code>
    */
-  public static final String DISK_CAPACITY_THRESHOLD_CONFIG = ConfluentConfigs.BALANCER_DISK_CAPACITY_THRESHOLD_BASE_CONFIG;
+  public static final String DISK_CAPACITY_THRESHOLD_CONFIG = ConfluentConfigs.BALANCER_DISK_CAPACITY_THRESHOLD_SBK_CONFIG;
   private static final String DISK_CAPACITY_THRESHOLD_DOC = "The maximum percentage of the total broker.disk.capacity " +
       "that is allowed to be used on a broker. The analyzer will enforce a hard goal that the disk usage " +
       "of a broker cannot be higher than (broker.disk.capacity * disk.capacity.threshold).";
@@ -477,7 +477,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   /**
    * Broker replica capacity: <code>max.replicas</code>
    */
-  public static final String MAX_REPLICAS_PER_BROKER_CONFIG = ConfluentConfigs.BALANCER_REPLICA_CAPACITY_BASE_CONFIG;
+  public static final String MAX_REPLICAS_PER_BROKER_CONFIG = ConfluentConfigs.BALANCER_REPLICA_CAPACITY_SBK_CONFIG;
   private static final String MAX_REPLICAS_PER_BROKER_DOC = "The maximum number of replicas allowed to reside on a "
       + "broker. The analyzer will enforce a hard goal that the number of replica on a broker cannot be higher than "
       + "this config.";
@@ -532,7 +532,7 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   /**
    * Replication throttle: <code>throttle.bytes.per.second</code>
    */
-  public static final String DEFAULT_REPLICATION_THROTTLE_CONFIG = ConfluentConfigs.BALANCER_THROTTLE_BASE_CONFIG;
+  public static final String DEFAULT_REPLICATION_THROTTLE_CONFIG = ConfluentConfigs.BALANCER_THROTTLE_SBK_CONFIG;
   public static final Long NO_THROTTLE = null;
   public static final Long DISABLED_THROTTLE = ConfluentConfigs.BALANCER_THROTTLE_NO_THROTTLE;
   public static final long AUTO_THROTTLE = ConfluentConfigs.BALANCER_THROTTLE_AUTO_THROTTLE;

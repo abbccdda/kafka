@@ -575,16 +575,6 @@ public class ConfluentDataBalanceEngine implements DataBalanceEngine {
             ccConfigProps.putIfAbsent(ConfluentMetricsSamplerBase.TELEMETRY_REPORTER_TOPIC_PATTERN, metricsReporterTopic);
         }
 
-        String metricsReporterReplFactor = (String) kccProps.get(ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME) +
-                KafkaExporterConfig.TOPIC_REPLICAS_CONFIG);
-        // The telemetry reporter replication factor is the same RF we should use for all databalancer topics like:
-        // 1. sample store topic.
-        // 2. api state persistence topic
-        if (metricsReporterReplFactor != null && metricsReporterReplFactor.length() > 0) {
-            ccConfigProps.putIfAbsent(ConfluentConfigs.BALANCER_TOPICS_REPLICATION_FACTOR_CONFIG,
-                    metricsReporterReplFactor);
-        }
-
         ccConfigProps.put(KafkaCruiseControlConfig.TOPICS_EXCLUDED_FROM_PARTITION_MOVEMENT_CONFIG,
                 generateCcTopicExclusionRegex(config));
 
