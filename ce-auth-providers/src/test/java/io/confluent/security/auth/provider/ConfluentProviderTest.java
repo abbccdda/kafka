@@ -44,6 +44,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -68,12 +69,16 @@ import org.apache.kafka.clients.admin.ListClusterLinksResult;
 import org.apache.kafka.clients.admin.MockAdminClient;
 import org.apache.kafka.clients.admin.ReplicaStatusOptions;
 import org.apache.kafka.clients.admin.ReplicaStatusResult;
+import org.apache.kafka.clients.admin.AlterConfigOp;
+import org.apache.kafka.clients.admin.AlterConfigOp.OpType;
 import org.apache.kafka.common.ClusterResource;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.acl.AccessControlEntryFilter;
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclBindingFilter;
+import org.apache.kafka.common.config.ConfigResource;
+import org.apache.kafka.common.config.ConfigResource.Type;
 import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.requests.AlterMirrorsRequest;
@@ -470,7 +475,7 @@ public class ConfluentProviderTest {
   }
 
   @Test
-  public void testMetadataServerDynamicConfigurator() throws Exception {
+  public void testMetadataServerMdsAdminClient() throws Exception {
     Map<String, Object> configs = new HashMap<>();
     configs.put(ConfluentAuthorizerConfig.ACCESS_RULE_PROVIDERS_PROP, "CONFLUENT");
     configs.put(MetadataServerConfig.METADATA_SERVER_LISTENERS_PROP, "http://somehost:8095");
@@ -482,14 +487,22 @@ public class ConfluentProviderTest {
                 configs)
         .toCompletableFuture().get();
 
-    DynamicConfigurator configurator = metadataServer.getInjectedInstance(DynamicConfigurator.class);
-    configurator.setClusterConfig(
-        Utils.mkSet(new ConfigEntry("a.b", "1"), new ConfigEntry("c.d", "2")));
-    Config config = configurator.getClusterConfig().get();
+    ConfluentAdmin mdsAdminClient = metadataServer.getInjectedInstance(ConfluentAdmin.class);
+    mdsAdminClient.incrementalAlterConfigs(
+        Utils.mkMap(Utils.mkEntry(new ConfigResource(Type.BROKER, ""),
+            Utils.mkSet(new ConfigEntry("a.b", "1"), new ConfigEntry("c.d", "2")).stream()
+            .map(entry -> new AlterConfigOp(entry, OpType.SET))
+            .collect(Collectors.toSet()))));
+    Config config = mdsAdminClient.describeConfigs(Collections.singleton(new ConfigResource(Type.BROKER, "")))
+        .values().get(new ConfigResource(Type.BROKER, "")).get();
     assertEquals("1", config.get("a.b").value());
     assertEquals("2", config.get("c.d").value());
-    configurator.deleteClusterConfig(Utils.mkSet(new ConfigEntry("c.d", "2")));
-    config = configurator.getClusterConfig().get();
+    mdsAdminClient.incrementalAlterConfigs(Utils.mkMap(Utils.mkEntry(new ConfigResource(Type.BROKER, ""),
+        Utils.mkSet(new ConfigEntry("c.d", "2")).stream()
+            .map(entry -> new AlterConfigOp(entry, OpType.DELETE))
+            .collect(Collectors.toSet()))));
+    config = mdsAdminClient.describeConfigs(Collections.singleton(new ConfigResource(Type.BROKER, "")))
+        .values().get(new ConfigResource(Type.BROKER, "")).get();
     assertEquals("1", config.get("a.b").value());
     assertNull(config.get("c.d"));
   }
