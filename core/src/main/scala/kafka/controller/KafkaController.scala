@@ -146,32 +146,34 @@ class KafkaController(val config: KafkaConfig,
   newGauge("TopicsIneligibleToDeleteCount", () => ineligibleTopicsToDeleteCount)
   newGauge("ReplicasIneligibleToDeleteCount", () => ineligibleReplicasToDeleteCount)
 
-  metrics.addMetric(metrics.metricName("global-active-mirror-topic-count",
-    "cluster-link-metrics",
-    "Number of actively mirrored topics for the cluster. This metric is only shown on the controller."),
-    (_: MetricConfig, _: Long) => globalActiveMirrorTopicCount)
-  metrics.addMetric(metrics.metricName("global-stopped-mirror-topic-count",
-    "cluster-link-metrics",
-    "Number of stopped mirrored topics for the cluster. This metric is only shown on the controller."),
-    (_: MetricConfig, _: Long) => globalStoppedMirrorTopicCount)
-  metrics.addMetric(metrics.metricName("global-failed-mirror-topic-count",
-    "cluster-link-metrics",
-    "Number of failed mirrored topics for the cluster. This metric is only shown on the controller."),
-    (_: MetricConfig, _: Long) => globalFailedMirrorTopicCount)
-  private val globalPausedMirrorTopicCount: Measurable = (_: MetricConfig, _: Long) => {
-    if (isActive) {
-      val pausedLinks = clusterLinkManager.listClusterLinks().filter(
-        cl => clusterLinkManager.clientManager(cl.linkId).exists(_.currentConfig.clusterLinkPaused))
-      val pausedLinkIds = pausedLinks.map(_.linkId)
-      controllerContext.linkedTopics.values.count(t => pausedLinkIds.contains(t.linkId))
-    } else {
-      0
+  if (config.clusterLinkEnable) {
+    metrics.addMetric(metrics.metricName("global-active-mirror-topic-count",
+      "cluster-link-metrics",
+      "Number of actively mirrored topics for the cluster. This metric is only shown on the controller."),
+      (_: MetricConfig, _: Long) => globalActiveMirrorTopicCount)
+    metrics.addMetric(metrics.metricName("global-stopped-mirror-topic-count",
+      "cluster-link-metrics",
+      "Number of stopped mirrored topics for the cluster. This metric is only shown on the controller."),
+      (_: MetricConfig, _: Long) => globalStoppedMirrorTopicCount)
+    metrics.addMetric(metrics.metricName("global-failed-mirror-topic-count",
+      "cluster-link-metrics",
+      "Number of failed mirrored topics for the cluster. This metric is only shown on the controller."),
+      (_: MetricConfig, _: Long) => globalFailedMirrorTopicCount)
+    val globalPausedMirrorTopicCount: Measurable = (_: MetricConfig, _: Long) => {
+      if (isActive) {
+        val pausedLinks = clusterLinkManager.listClusterLinks().filter(
+          cl => clusterLinkManager.clientManager(cl.linkId).exists(_.currentConfig.clusterLinkPaused))
+        val pausedLinkIds = pausedLinks.map(_.linkId)
+        controllerContext.linkedTopics.values.count(t => pausedLinkIds.contains(t.linkId))
+      } else {
+        0
+      }
     }
+    metrics.addMetric(metrics.metricName("global-paused-mirror-topic-count",
+      "cluster-link-metrics",
+      "Number of paused mirrored topics for the cluster. This metric is only shown on the controller."),
+      globalPausedMirrorTopicCount)
   }
-  metrics.addMetric(metrics.metricName("global-paused-mirror-topic-count",
-    "cluster-link-metrics",
-    "Number of paused mirrored topics for the cluster. This metric is only shown on the controller."),
-    globalPausedMirrorTopicCount)
 
   /**
    * Returns true if this broker is the current controller.
