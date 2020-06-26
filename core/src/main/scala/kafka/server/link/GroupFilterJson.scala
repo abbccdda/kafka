@@ -16,12 +16,12 @@ import org.apache.kafka.common.utils.SecurityUtils
   {
      "name": "foo",
      "patternType": "PREFIXED",
-     "filterType": "WHITELIST"
+     "filterType": "INCLUDE"
   },
   {
      "name": "foobar",
      "patternType": "LITERAL",
-     "filterType": "BLACKLIST"
+     "filterType": "EXCLUDE"
   },
     {
      "name": "*",
@@ -34,11 +34,11 @@ import org.apache.kafka.common.utils.SecurityUtils
 object FilterType extends Enumeration {
   type FilterType = Value
 
-  final val WHITELIST_OPT = "WHITELIST"
-  final val BLACKLIST_OPT = "BLACKLIST"
+  final val INCLUDE_OPT = "INCLUDE"
+  final val EXCLUDE_OPT = "EXCLUDE"
 
-  val WHITELIST = Value(WHITELIST_OPT)
-  val BLACKLIST = Value(BLACKLIST_OPT)
+  val INCLUDE = Value(INCLUDE_OPT)
+  val EXCLUDE = Value(EXCLUDE_OPT)
 
   def fromString(s: String): Option[Value] = values.find(_.toString == s.toUpperCase)
 }
@@ -128,7 +128,7 @@ case class GroupFiltersJson(@JsonProperty ("groupFilters") groupFilters: Seq[Gro
 @JsonCreator
 case class GroupFilter(@JsonProperty ("name") name : String,
                        @JsonProperty ("patternType") patternType: String,
-                       @JsonProperty (value="filterType", required = false, defaultValue = FilterType.WHITELIST_OPT) filterType: String) {
+                       @JsonProperty (value="filterType", required = false, defaultValue = FilterType.INCLUDE_OPT) filterType: String) {
 
   override def toString: String =
     s"GroupFilter(name=$name,filterType=$filterType,patternType=$patternType)"

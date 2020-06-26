@@ -105,7 +105,7 @@ class ClusterLinkSyncOffsets(val clientManager: ClusterLinkClientManager,
         false
       } else {
         usedFilters ++= matchedFilters
-        matchedFilters.forall(_.isWhiteList)
+        matchedFilters.forall(_.isInclude)
       }
     }
 
@@ -243,7 +243,7 @@ class ClusterLinkSyncOffsets(val clientManager: ClusterLinkClientManager,
                             filterType: String,
                             configuredFilter: GroupFilter) {
     val isWildcard = name == "*" && patternType == PatternType.LITERAL
-    val isWhiteList = FilterType.fromString(filterType).contains(FilterType.WHITELIST)
+    val isInclude = FilterType.fromString(filterType).contains(FilterType.INCLUDE)
 
     def matches(group: String): Boolean = {
       isWildcard || (patternType == PatternType.PREFIXED && group.startsWith(name)) ||

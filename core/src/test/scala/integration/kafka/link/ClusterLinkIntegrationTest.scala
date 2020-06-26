@@ -41,7 +41,7 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
         |  {
         |     "name": "$consumerGroup",
         |     "patternType": "literal",
-        |     "filterType": "whitelist"
+        |     "filterType": "include"
         |  }
         |]}
         |""".stripMargin
@@ -418,12 +418,12 @@ class ClusterLinkIntegrationTest extends AbstractClusterLinkIntegrationTest {
           |  {
           |     "name": "$consumerGroup",
           |     "patternType": "literal",
-          |     "filterType": "whitelist"
+          |     "filterType": "include"
           |  },
           |  {
           |     "name": "$additionalConsumerGroup",
           |     "patternType": "literal",
-          |     "filterType": "whitelist"
+          |     "filterType": "include"
           |  }
           |]}
           |""".stripMargin

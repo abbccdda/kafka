@@ -38,7 +38,7 @@ class ClusterLinkSyncOffsetsTest {
 
   private var controller: KafkaController = null
 
-  private val allowAllFilter = offsetFilter(GroupFilter("*", "LITERAL", "WHITELIST"))
+  private val allowAllFilter = offsetFilter(GroupFilter("*", "LITERAL", "INCLUDE"))
 
   @Before
   def setUp(): Unit = {
@@ -133,7 +133,7 @@ class ClusterLinkSyncOffsetsTest {
     val validGroupName = "validGroup"
     val invalidGroupName = "invalidGroup"
 
-    val allowOneFilter = offsetFilter(GroupFilter(validGroupName, "LITERAL", "WHITELIST"))
+    val allowOneFilter = offsetFilter(GroupFilter(validGroupName, "LITERAL", "INCLUDE"))
 
     val clusterLinkConfig = linkConfig(allowOneFilter)
 
@@ -152,7 +152,7 @@ class ClusterLinkSyncOffsetsTest {
     val validGroupName1 = "validGroup1"
     val invalidGroupName = "invalidGroup"
 
-    val allowPrefixFilter = offsetFilter(GroupFilter(validGroupName, "PREFIXED", "WHITELIST"))
+    val allowPrefixFilter = offsetFilter(GroupFilter(validGroupName, "PREFIXED", "INCLUDE"))
 
     val clusterLinkConfig = linkConfig(allowPrefixFilter)
 
@@ -164,7 +164,7 @@ class ClusterLinkSyncOffsetsTest {
   }
 
   @Test
-  def testFiltersBlacklistedGroup(): Unit = {
+  def testFiltersExcludedGroup(): Unit = {
     setupMock(isController = true)
 
     val topic = "testTopic"
@@ -172,24 +172,24 @@ class ClusterLinkSyncOffsetsTest {
     val validGroupName1 = "validGroup1"
     val invalidGroupName = "invalidGroup"
 
-    val blackListFilter =
+    val excludeFilter =
       s"""
          |{
          |"groupFilters": [
          |  {
          |     "name": "*",
          |     "patternType": "LITERAL",
-         |     "filterType": "WHITELIST"
+         |     "filterType": "INCLUDE"
          |  },
          |  {
          |     "name": "$invalidGroupName",
          |     "patternType": "LITERAL",
-         |     "filterType": "BLACKLIST"
+         |     "filterType": "EXCLUDE"
          |  }
          |]}
       """.stripMargin
 
-    val clusterLinkConfig = linkConfig(blackListFilter)
+    val clusterLinkConfig = linkConfig(excludeFilter)
 
     setupMockListGroupsResponse(validGroupName, validGroupName1, invalidGroupName)
     val offsetEntries = Map(new TopicPartition(topic, 1) -> offsetAndMetadata(1))
@@ -198,7 +198,7 @@ class ClusterLinkSyncOffsetsTest {
   }
 
   @Test
-  def testFiltersMultipleBlacklistedGroupWithPrefix(): Unit = {
+  def testFiltersMultipleExcludedGroupWithPrefix(): Unit = {
     setupMock(isController = true)
 
     val topic = "testTopic"
@@ -207,24 +207,24 @@ class ClusterLinkSyncOffsetsTest {
     val invalidGroupName = "invalidGroup"
     val invalidGroupName2 = "invalidGroup2"
 
-    val blackListFilter =
+    val excludeFilter =
       s"""
          |{
          |"groupFilters": [
          |  {
          |     "name": "*",
          |     "patternType": "LITERAL",
-         |     "filterType": "WHITELIST"
+         |     "filterType": "INCLUDE"
          |  },
          |  {
          |     "name": "$invalidGroupName",
          |     "patternType": "PREFIXED",
-         |     "filterType": "BLACKLIST"
+         |     "filterType": "EXCLUDE"
          |  }
          |]}
       """.stripMargin
 
-    val clusterLinkConfig = linkConfig(blackListFilter)
+    val clusterLinkConfig = linkConfig(excludeFilter)
 
     setupMockListGroupsResponse(validGroupName, validGroupName1, invalidGroupName, invalidGroupName2)
 
@@ -248,7 +248,7 @@ class ClusterLinkSyncOffsetsTest {
          |  {
          |     "name": "validGroup",
          |     "patternType": "LITERAL",
-         |     "filterType": "WHITELIST"
+         |     "filterType": "INCLUDE"
          |  }
          |]}
       """.stripMargin
@@ -260,12 +260,12 @@ class ClusterLinkSyncOffsetsTest {
          |  {
          |     "name": "validGroup",
          |     "patternType": "LITERAL",
-         |     "filterType": "WHITELIST"
+         |     "filterType": "INCLUDE"
          |  },
          |  {
          |     "name": "$newGroupName",
          |     "patternType": "LITERAL",
-         |     "filterType": "WHITELIST"
+         |     "filterType": "INCLUDE"
          |  }
          |]}
       """.stripMargin
@@ -436,17 +436,17 @@ class ClusterLinkSyncOffsetsTest {
 
   @Test
   def testMigrateTenantOffsetsWithLiteralFilter(): Unit = {
-    verifyTenantFilter("testGroup", GroupFilter("testGroup", "LITERAL", "WHITELIST"))
+    verifyTenantFilter("testGroup", GroupFilter("testGroup", "LITERAL", "INCLUDE"))
   }
 
   @Test
   def testMigrateTenantOffsetsWithWildcardFilter(): Unit = {
-    verifyTenantFilter("testGroup", GroupFilter("*", "LITERAL", "WHITELIST"))
+    verifyTenantFilter("testGroup", GroupFilter("*", "LITERAL", "INCLUDE"))
   }
 
   @Test
   def testMigrateTenantOffsetsWithPrefixedFilter(): Unit = {
-    verifyTenantFilter("testGroup", GroupFilter("test", "PREFIXED", "WHITELIST"))
+    verifyTenantFilter("testGroup", GroupFilter("test", "PREFIXED", "INCLUDE"))
   }
 
   private def verifyTenantFilter(group: String, filter: GroupFilter): Unit = {

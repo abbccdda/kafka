@@ -12,13 +12,13 @@ class GroupFilterJsonTest {
 
   @Test
   def testValidStringParsesToGroupFiltersJson(): Unit = {
-    val groupFiltersJson = "{\n  \"groupFilters\": [ { \"name\": \"*\", \"patternType\": \"LITERAL\", \"filterType\": \"WHITELIST\" } ]}"
+    val groupFiltersJson = "{\n  \"groupFilters\": [ { \"name\": \"*\", \"patternType\": \"LITERAL\", \"filterType\": \"INCLUDE\" } ]}"
     val groupJson = GroupFilterJson.parse(groupFiltersJson)
     assertTrue(groupJson.isDefined)
     val groupFilter = groupJson.get.groupFilters.head
     assertEquals("*", groupFilter.name)
     assertEquals("LITERAL", groupFilter.patternType)
-    assertEquals("WHITELIST", groupFilter.filterType)
+    assertEquals("INCLUDE", groupFilter.filterType)
   }
 
   @Test
@@ -36,7 +36,7 @@ class GroupFilterJsonTest {
 
   @Test
   def testMissingPatternType(): Unit = {
-    val groupFiltersJson = "{\n  \"groupFilters\": [ { \"name\": \"*\", \"filterType\": \"WHITELIST\" } ]}"
+    val groupFiltersJson = "{\n  \"groupFilters\": [ { \"name\": \"*\", \"filterType\": \"INCLUDE\" } ]}"
     val thrown = assertThrows(classOf[IllegalArgumentException], () => GroupFilterJson.parse(groupFiltersJson))
     assertEquals("patternType field may not be null.", thrown.getMessage)
 
@@ -44,14 +44,14 @@ class GroupFilterJsonTest {
 
   @Test
   def testInvalidPatternType(): Unit = {
-    val groupFiltersJson = "{\n  \"groupFilters\": [ { \"name\": \"*\", \"patternType\": \"FOO\", \"filterType\": \"WHITELIST\" } ]}"
+    val groupFiltersJson = "{\n  \"groupFilters\": [ { \"name\": \"*\", \"patternType\": \"FOO\", \"filterType\": \"INCLUDE\" } ]}"
     val thrown = assertThrows(classOf[IllegalArgumentException], () => GroupFilterJson.parse(groupFiltersJson))
     assertEquals("Unknown patternType: FOO", thrown.getMessage)
   }
 
   @Test
   def testEmptyPatternType(): Unit = {
-    val groupFiltersJson = "{\n  \"groupFilters\": [ { \"name\": \"*\", \"patternType\": \"\", \"filterType\": \"WHITELIST\" } ]}"
+    val groupFiltersJson = "{\n  \"groupFilters\": [ { \"name\": \"*\", \"patternType\": \"\", \"filterType\": \"INCLUDE\" } ]}"
     val thrown = assertThrows(classOf[IllegalArgumentException], () => GroupFilterJson.parse(groupFiltersJson))
     assertEquals("patternType field may not be empty.", thrown.getMessage)
   }

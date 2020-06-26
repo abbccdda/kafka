@@ -333,7 +333,7 @@ public class MultiTenantClusterLinkTest {
       linkConfigs.put(ClusterLinkConfig$.MODULE$.AclSyncMsProp(), "2000");
 
 
-      String allGroupsFilter = "{ \"groupFilters\": [{ \"name\": \"*\", \"patternType\": \"literal\", \"filterType\": \"whitelist\" }]}";
+      String allGroupsFilter = "{ \"groupFilters\": [{ \"name\": \"*\", \"patternType\": \"literal\", \"filterType\": \"include\" }]}";
       linkConfigs.put(ClusterLinkConfig$.MODULE$.ConsumerOffsetGroupFiltersProp(), allGroupsFilter);
       linkConfigs.put(ClusterLinkConfig$.MODULE$.ConsumerOffsetSyncEnableProp(), "true");
       linkConfigs.put(ClusterLinkConfig$.MODULE$.ConsumerOffsetSyncMsProp(), "2000");

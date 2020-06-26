@@ -28,12 +28,12 @@ final class ClusterLinkCommandTest {
       |"groupFilters": [{
       |     "name": "*",
       |     "patternType": "LITERAL",
-      |     "filterType": "WHITELIST"
+      |     "filterType": "INCLUDE"
       |  },
       |  {
-      |     "name": "blackListed",
+      |     "name": "excluded",
       |     "patternType": "PREFIXED",
-      |     "filterType": "BLACKLIST"
+      |     "filterType": "EXCLUDE"
       |  }]
       | }""".stripMargin
 
