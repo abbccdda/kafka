@@ -3,7 +3,6 @@
  */
 package com.linkedin.kafka.cruisecontrol;
 
-import com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig;
 import kafka.log.LogConfig;
 import org.apache.kafka.clients.admin.AlterConfigOp;
 import org.apache.kafka.clients.admin.ConfigEntry;
@@ -38,29 +37,27 @@ public final class SbkTopicUtils {
      */
     public static boolean checkTopicPropertiesMaybeCreate(SbkTopicConfig topicConfig,
                                                           Map<String, ?> config) {
+        boolean topicExists = false;
         ConfluentAdmin adminClient = KafkaCruiseControlUtils.createAdmin(KafkaCruiseControlUtils.filterAdminClientConfigs(config));
         try {
             int numberOfBrokersInCluster = adminClient.describeCluster().nodes().get().size();
 
             int replicationFactor = topicConfig.replicationFactor;
             if (numberOfBrokersInCluster < replicationFactor) {
-                throw new IllegalStateException(
-                        String.format("Kafka cluster has %d brokers but the requested replication factor is %d " +
-                                        "(brokers in cluster=%d, zookeeper.connect=%s)", numberOfBrokersInCluster,
-                                replicationFactor, numberOfBrokersInCluster,
-                                config.get(KafkaCruiseControlConfig.ZOOKEEPER_CONNECT_CONFIG)));
+                LOG.warn("Kafka cluster has {} brokers but the requested replication factor is {} for topic {}.",
+                        numberOfBrokersInCluster, replicationFactor, topicConfig.topic);
+            } else {
+                Set<String> topics = adminClient.listTopics().names().get();
+                topicExists = ensureTopicCreated(adminClient, topics,
+                        topicConfig.topic, topicConfig.cleanupPolicy, topicConfig.minRetentionTimeMs,
+                        replicationFactor, topicConfig.partitionCount);
             }
-
-            Set<String> topics = adminClient.listTopics().names().get();
-            return ensureTopicCreated(adminClient, topics,
-                    topicConfig.topic, topicConfig.cleanupPolicy, topicConfig.minRetentionTimeMs,
-                    replicationFactor, topicConfig.partitionCount);
-        } catch (Exception ex) {
-            LOG.error(String.format("Unexpected error when checking for %s topic existence.", topicConfig.topic), ex);
-            throw new RuntimeException(ex);
+        } catch (InterruptedException | ExecutionException ex) {
+            LOG.error("Error while checking topic {} exsistence", topicConfig.topic, ex);
         } finally {
             KafkaCruiseControlUtils.closeAdminClientWithTimeout(adminClient);
         }
+        return topicExists;
     }
 
     /**

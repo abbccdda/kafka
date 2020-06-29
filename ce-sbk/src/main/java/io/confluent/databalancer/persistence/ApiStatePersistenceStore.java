@@ -321,8 +321,7 @@ public class ApiStatePersistenceStore implements AutoCloseable {
         try {
             return SbkTopicUtils.checkTopicPropertiesMaybeCreate(topicConfig, config);
         } catch (Exception ex) {
-            LOG.error("Error when checking for api state topic: {}", ex.getMessage());
-            LOG.error("Error: ", ex);
+            LOG.error("Error when checking for api state topics.", ex);
             return false;
         }
     }

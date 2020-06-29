@@ -287,8 +287,7 @@ public class KafkaSampleStore implements SampleStore {
       boolean brokerMetricTopicExists = SbkTopicUtils.checkTopicPropertiesMaybeCreate(brokerMetricTopicConfig, config);
       return partitionMetricTopicExists && brokerMetricTopicExists;
     } catch (Exception ex) {
-      LOG.error("Error when checking for sample store topics: {}", ex.getMessage());
-      LOG.error("Error: ", ex);
+      LOG.error("Error when checking for sample store topics.", ex);
       return false;
     }
   }
