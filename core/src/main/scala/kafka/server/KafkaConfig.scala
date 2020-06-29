@@ -1953,7 +1953,7 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
 
   /** ********* Log Configuration ***********/
   def autoCreateTopicsEnable = getBoolean(KafkaConfig.AutoCreateTopicsEnableProp)
-  val numPartitions = getInt(KafkaConfig.NumPartitionsProp)
+  def numPartitions = getInt(KafkaConfig.NumPartitionsProp)
   val logDirs = CoreUtils.parseCsvList(Option(getString(KafkaConfig.LogDirsProp)).getOrElse(getString(KafkaConfig.LogDirProp)))
   def logSegmentBytes = getInt(KafkaConfig.LogSegmentBytesProp)
   def logFlushIntervalMessages = getLong(KafkaConfig.LogFlushIntervalMessagesProp)

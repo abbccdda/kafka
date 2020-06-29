@@ -95,7 +95,7 @@ object DynamicBrokerConfig {
     DynamicBalancerConfig.ReconfigurableConfigs ++
     LogManager.ReconfigurableConfigs ++
     ReplicationQuotaManagerConfig.ReconfigurableConfigs ++
-    Set(KafkaConfig.AutoCreateTopicsEnableProp) ++
+    Set(KafkaConfig.AutoCreateTopicsEnableProp, KafkaConfig.NumPartitionsProp) ++
     Set(ConfluentConfigs.AUTO_ENABLE_TELEMETRY_REPORTER_CONFIG)
 
   private val ClusterLevelListenerConfigs = Set(KafkaConfig.MaxConnectionsProp, KafkaConfig.SslCipherSuitesProp)

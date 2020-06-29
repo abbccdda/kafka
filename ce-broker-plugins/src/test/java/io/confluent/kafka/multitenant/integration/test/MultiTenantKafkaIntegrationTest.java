@@ -321,9 +321,12 @@ public class MultiTenantKafkaIntegrationTest {
     String sslCipherSuitesConfig2 = "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384";
 
     long retentionMs1 = 3_600_001;
+    int numPartitions = 2;
     Map<ConfigResource, Collection<AlterConfigOp>> newConfigs2 = Collections.singletonMap(
         configResource, asList(
             new AlterConfigOp(new ConfigEntry(KafkaConfig.LogRetentionTimeMillisProp(), String.valueOf(retentionMs1)),
+                AlterConfigOp.OpType.SET),
+            new AlterConfigOp(new ConfigEntry(KafkaConfig.NumPartitionsProp(), String.valueOf(numPartitions)),
                 AlterConfigOp.OpType.SET),
             new AlterConfigOp(new ConfigEntry(KafkaConfig.AutoCreateTopicsEnableProp(), "false"),
                 AlterConfigOp.OpType.SET),
@@ -333,6 +336,8 @@ public class MultiTenantKafkaIntegrationTest {
 
     tenantAdminClient.incrementalAlterConfigs(newConfigs2).all().get();
     TestUtils.waitForCondition(() -> broker0.config().logRetentionTimeMillis() == retentionMs1,
+        "Dynamic config not updated");
+    TestUtils.waitForCondition(() -> broker0.config().numPartitions() == numPartitions,
         "Dynamic config not updated");
     TestUtils.waitForCondition(() -> !broker0.config().autoCreateTopicsEnable(),
         "Dynamic config not updated");
