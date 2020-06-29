@@ -763,6 +763,30 @@ class DynamicMetricsReporters(brokerId: Int, server: KafkaServer) extends Reconf
   private[server] val legacyTelemetryReporterClass = "io.confluent.telemetry.reporter.KafkaServerMetricsReporter"
   private val isTelemetryOnClasspath = checkForTelemetryReporterClass()
 
+  // since we use the 'listeners' config downstream, let's provide the actual port
+  // if we notice that there's a port 0 being used
+  def overridePortZeroListeners(configs: util.Map[String, _]): Unit = {
+    var requiresOverride = false
+    val listeners = server.config.listeners.map((endpoint) => {
+      var e = endpoint
+      if (endpoint.port == 0) {
+        requiresOverride = true
+        e = new EndPoint(
+          e.host,
+          server.socketServer.boundPort(e.listenerName),
+          e.listenerName,
+          e.securityProtocol
+        )
+      }
+      e.connectionString
+    }).mkString(",")
+
+    // only override if we notice a port 0 listener
+    if (requiresOverride) {
+      configs.asInstanceOf[util.Map[String, Object]].put(KafkaConfig.ListenersProp, listeners)
+    }
+  }
+
   createReporters(metricsReporterClasses(dynamicConfig.currentKafkaConfig.values()).asJava,
     Collections.emptyMap[String, Object])
 
@@ -816,6 +840,7 @@ class DynamicMetricsReporters(brokerId: Int, server: KafkaServer) extends Reconf
     val props = new util.HashMap[String, AnyRef]
     updatedConfigs.forEach { (k, v) => props.put(k, v.asInstanceOf[AnyRef]) }
     propsOverride.foreach { case (k, v) => props.put(k, v) }
+    overridePortZeroListeners(props)
     val reporters = dynamicConfig.currentKafkaConfig.getConfiguredInstances(reporterClasses, classOf[MetricsReporter], props)
     reporters.forEach { reporter =>
       metrics.addReporter(reporter)

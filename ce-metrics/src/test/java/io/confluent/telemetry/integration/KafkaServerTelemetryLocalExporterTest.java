@@ -44,10 +44,6 @@ public class KafkaServerTelemetryLocalExporterTest extends MetricReporterCluster
     props.setProperty(ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_CONFLUENT_NAME)
         + ExporterConfig.ENABLED_CONFIG, "false");
 
-    // we need to set the bootstrap.servers because this test uses port 0 to bind
-    props.setProperty(ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME)
-        + KafkaExporterConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList);
-
     // we need to explicitly lower the replicas
     props.setProperty(ConfluentTelemetryConfig.exporterPrefixForName(ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME)
         + KafkaExporterConfig.TOPIC_REPLICAS_CONFIG, "1");
