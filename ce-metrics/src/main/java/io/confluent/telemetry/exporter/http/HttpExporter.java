@@ -66,7 +66,7 @@ public class HttpExporter extends AbstractExporter implements MetricsCollectorPr
             .setCreateRequestFn(REQUEST_CONVERTER)
             .build());
         this.canEmitMetrics = config.canEmitMetrics();
-        reconfigureWhitelist(config.buildMetricWhitelistFilter());
+        reconfigurePredicate(config.buildMetricsPredicate());
     }
 
     @VisibleForTesting
@@ -109,10 +109,10 @@ public class HttpExporter extends AbstractExporter implements MetricsCollectorPr
 
     @Override
     public MetricsCollector collector(
-        Predicate<MetricKey> whitelistPredicate, Context context) {
+        Predicate<MetricKey> initialMetricsPredicate, Context context) {
         return new MetricsCollector() {
 
-            private volatile Predicate<MetricKey> metricWhitelistFilter = whitelistPredicate;
+            private volatile Predicate<MetricKey> metricsPredicate = initialMetricsPredicate;
 
             @Override
             public void collect(Exporter exporter) {
@@ -137,7 +137,7 @@ public class HttpExporter extends AbstractExporter implements MetricsCollectorPr
                 statusToBatchValue.forEach((status, value) -> {
                     Map<String, String> statusLabels = ImmutableMap.<String, String>builder()
                         .putAll(labels).put("status", status).build();
-                    if (!metricWhitelistFilter.test(new MetricKey(batchName, statusLabels))) {
+                    if (!metricsPredicate.test(new MetricKey(batchName, statusLabels))) {
                         return;
                     }
                     exporter.emit(
@@ -159,7 +159,7 @@ public class HttpExporter extends AbstractExporter implements MetricsCollectorPr
                 statusToItemValue.forEach((status, value) -> {
                     Map<String, String> statusLabels = ImmutableMap.<String, String>builder()
                         .putAll(labels).put("status", status).build();
-                    if (!metricWhitelistFilter.test(new MetricKey(itemName, statusLabels))) {
+                    if (!metricsPredicate.test(new MetricKey(itemName, statusLabels))) {
                         return;
                     }
                     exporter.emit(
@@ -176,7 +176,7 @@ public class HttpExporter extends AbstractExporter implements MetricsCollectorPr
                 // Timing metric. This is converted to seconds and sent as a Cumulative Double
                 String timingName = MetricsUtils
                     .fullMetricName(context.getDomain(), GROUP, "send_time_seconds");
-                if (metricWhitelistFilter.test(new MetricKey(timingName, labels))) {
+                if (metricsPredicate.test(new MetricKey(timingName, labels))) {
                     exporter.emit(
                         new MetricKey(timingName, labels), context.metricWithSinglePointTimeseries(
                             timingName,
@@ -192,14 +192,14 @@ public class HttpExporter extends AbstractExporter implements MetricsCollectorPr
             }
 
             @Override
-            public void reconfigureWhitelist(Predicate<MetricKey> whitelistPredicate) {
-                this.metricWhitelistFilter = whitelistPredicate;
+            public void reconfigurePredicate(Predicate<MetricKey> metricsPredicate) {
+                this.metricsPredicate = metricsPredicate;
             }
         };
     }
 
     public void reconfigure(HttpExporterConfig config) {
-        reconfigureWhitelist(config.buildMetricWhitelistFilter());
+        reconfigurePredicate(config.buildMetricsPredicate());
 
         String apiKey = config.getString(HttpExporterConfig.API_KEY);
         String apiSecretKey = config.getApiSecretOrEmpty();

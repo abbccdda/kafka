@@ -72,7 +72,7 @@ public class KafkaServerDynamicReporterTest extends MetricReporterClusterTestHar
     props.setProperty(ConfluentTelemetryConfig.exporterPrefixForName("test") + KafkaExporterConfig.TOPIC_REPLICAS_CONFIG, "1");
 
     props.setProperty(ConfluentTelemetryConfig.COLLECT_INTERVAL_CONFIG, String.valueOf(collectionIntervalMs));
-    props.setProperty(ConfluentTelemetryConfig.WHITELIST_CONFIG, "");
+    props.setProperty(ConfluentTelemetryConfig.METRICS_INCLUDE_CONFIG, "");
     props.setProperty(ConfluentTelemetryConfig.PREFIX_LABELS + "region", "test");
     props.setProperty(ConfluentTelemetryConfig.PREFIX_LABELS + "pkc", "pkc-bar");
     props.setProperty(CommonClientConfigs.METRICS_CONTEXT_PREFIX + "region", "test");

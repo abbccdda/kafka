@@ -30,7 +30,7 @@ public class JvmMetricsCollectorTest {
 
   @Test
   public void collect() {
-    exporter.reconfigureWhitelist(key -> key.getName().contains("process_cpu_load"));
+    exporter.reconfigurePredicate(key -> key.getName().contains("process_cpu_load"));
     JvmMetricsCollector metrics =
         JvmMetricsCollector
           .newBuilder()
@@ -64,7 +64,7 @@ public class JvmMetricsCollectorTest {
     AtomicInteger count = new AtomicInteger(metricNames.size());
 
     exporter
-        .reconfigureWhitelist(key -> metricNames.stream().anyMatch(s -> {
+        .reconfigurePredicate(key -> metricNames.stream().anyMatch(s -> {
           if (key.getName().contains(s)) {
             count.decrementAndGet();
             return true;
@@ -104,7 +104,7 @@ public class JvmMetricsCollectorTest {
 
   @Test
   public void collectFilteredOut() {
-    exporter.reconfigureWhitelist(key -> !key.getName().contains("process_cpu_load"));
+    exporter.reconfigurePredicate(key -> !key.getName().contains("process_cpu_load"));
     JvmMetricsCollector metrics = JvmMetricsCollector.newBuilder()
         .setContext(context)
         .build();
@@ -118,7 +118,7 @@ public class JvmMetricsCollectorTest {
   }
 
   @Test
-  public void collectFilteredOutDynamicWhitelist() {
+  public void collectFilteredOutDynamicConfig() {
     JvmMetricsCollector metrics = JvmMetricsCollector.newBuilder()
         .setContext(context)
         .build();
@@ -127,12 +127,12 @@ public class JvmMetricsCollectorTest {
     assertThat(exporter.emittedMetrics()).hasSizeGreaterThan(0);
 
     exporter.reset();
-    exporter.reconfigureWhitelist(key -> key.getName().contains("process_cpu_load"));
+    exporter.reconfigurePredicate(key -> key.getName().contains("process_cpu_load"));
     metrics.collect(exporter);
     assertThat(exporter.emittedMetrics()).hasSize(1);
 
     exporter.reset();
-    exporter.reconfigureWhitelist(key -> true);
+    exporter.reconfigurePredicate(key -> true);
     metrics.collect(exporter);
     assertThat(exporter.emittedMetrics()).hasSizeGreaterThan(0);
   }

@@ -112,7 +112,7 @@ public class MetricReporterClusterTestHarness {
         props.setProperty(ConfluentMetricsReporterConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList);
         props.setProperty(ConfluentMetricsReporterConfig.TOPIC_REPLICAS_CONFIG, "1");
         props.setProperty(ConfluentMetricsReporterConfig.PUBLISH_PERIOD_CONFIG, "500");
-        props.setProperty(ConfluentMetricsReporterConfig.WHITELIST_CONFIG, "");
+        props.setProperty(ConfluentMetricsReporterConfig.METRICS_INCLUDE_CONFIG, "");
 
         // force flush every message so that we can generate some Yammer timer metrics
         props.setProperty(KafkaConfig.LogFlushIntervalMessagesProp(), "1");

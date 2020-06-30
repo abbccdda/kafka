@@ -77,7 +77,7 @@ public class KafkaExporter extends AbstractExporter implements MetricsCollectorP
     private volatile boolean isClosed = false;
 
     public KafkaExporter(Builder builder) {
-        reconfigureWhitelist(builder.whitelistPredicate);
+        reconfigurePredicate(builder.metricsPredicate);
         this.adminClientProperties = Objects.requireNonNull(builder.adminClientProperties);
         this.topicName = Objects.requireNonNull(builder.topicName);
         this.topicConfig = Objects.requireNonNull(builder.topicConfig);
@@ -88,7 +88,7 @@ public class KafkaExporter extends AbstractExporter implements MetricsCollectorP
     }
 
     public void reconfigure(KafkaExporterConfig exporterConfig) {
-        reconfigureWhitelist(exporterConfig.buildMetricWhitelistFilter());
+        reconfigurePredicate(exporterConfig.buildMetricsPredicate());
     }
 
     private boolean ensureTopic() {
@@ -193,9 +193,9 @@ public class KafkaExporter extends AbstractExporter implements MetricsCollectorP
     }
 
     @Override
-    public MetricsCollector collector(Predicate<MetricKey> whitelistPredicate, Context context) {
+    public MetricsCollector collector(Predicate<MetricKey> initialMetricsPredicate, Context context) {
         return new MetricsCollector() {
-            private volatile Predicate<MetricKey> metricsWhitelistFilter = whitelistPredicate;
+            private volatile Predicate<MetricKey> metricsPredicate = initialMetricsPredicate;
             long lastDroppedEventCount = 0;
             @Override
             public void collect(Exporter exporter) {
@@ -206,7 +206,7 @@ public class KafkaExporter extends AbstractExporter implements MetricsCollectorP
                 String metricName = "io.confluent.telemetry/exporter/kafka/dropped/delta";
                 Map<String, String> metricLabels = Collections.emptyMap();
                 MetricKey metricKey = new MetricKey(metricName, metricLabels);
-                if (metricsWhitelistFilter.test(metricKey)) {
+                if (metricsPredicate.test(metricKey)) {
                     exporter.emit(
                         new MetricKey(metricName, metricLabels), context.metricWithSinglePointTimeseries(
                             metricName,
@@ -219,8 +219,8 @@ public class KafkaExporter extends AbstractExporter implements MetricsCollectorP
             }
 
             @Override
-            public void reconfigureWhitelist(Predicate<MetricKey> whitelistPredicate) {
-                this.metricsWhitelistFilter = whitelistPredicate;
+            public void reconfigurePredicate(Predicate<MetricKey> metricsPredicate) {
+                this.metricsPredicate = metricsPredicate;
             }
         };
     }
@@ -234,7 +234,7 @@ public class KafkaExporter extends AbstractExporter implements MetricsCollectorP
    */
     public static Builder newBuilder(KafkaExporterConfig config) {
         return new Builder()
-            .setWhitelistPredicate(config.buildMetricWhitelistFilter())
+            .setMetricsPredicate(config.buildMetricsPredicate())
             .setCreateTopic(config.isCreateTopic())
             .setTopicConfig(config.getTopicConfig())
             .setTopicName(config.getTopicName())
@@ -245,7 +245,7 @@ public class KafkaExporter extends AbstractExporter implements MetricsCollectorP
     }
 
     public static final class Builder {
-        private Predicate<MetricKey> whitelistPredicate;
+        private Predicate<MetricKey> metricsPredicate;
         private Properties adminClientProperties;
         private String topicName;
         private boolean createTopic;
@@ -257,8 +257,8 @@ public class KafkaExporter extends AbstractExporter implements MetricsCollectorP
         private Builder() {
         }
 
-        public Builder setWhitelistPredicate(Predicate<MetricKey> whitelistPredicate) {
-            this.whitelistPredicate = whitelistPredicate;
+        public Builder setMetricsPredicate(Predicate<MetricKey> metricsPredicate) {
+            this.metricsPredicate = metricsPredicate;
             return this;
         }
 

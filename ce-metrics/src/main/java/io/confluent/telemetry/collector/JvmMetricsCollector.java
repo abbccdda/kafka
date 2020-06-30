@@ -28,18 +28,18 @@ public class JvmMetricsCollector implements MetricsCollector {
     public static final String SYSTEM_DOMAIN = "io.confluent.system";
 
     private final Context context;
-    private volatile Predicate<MetricKey> metricWhitelistFilter;
+    private volatile Predicate<MetricKey> metricsPredicate;
     private final Map<String, String> labels;
 
-    public JvmMetricsCollector(Context ctx, Predicate<MetricKey> metricWhitelistFilter) {
+    public JvmMetricsCollector(Context ctx, Predicate<MetricKey> metricsPredicate) {
         this.context = ctx;
-        this.metricWhitelistFilter = metricWhitelistFilter;
+        this.metricsPredicate = metricsPredicate;
         this.labels = createLabels(context);
     }
 
     @Override
-    public void reconfigureWhitelist(Predicate<MetricKey> whitelistPredicate) {
-        this.metricWhitelistFilter = whitelistPredicate;
+    public void reconfigurePredicate(Predicate<MetricKey> metricsPredicate) {
+        this.metricsPredicate = metricsPredicate;
     }
 
     @Override
@@ -103,7 +103,7 @@ public class JvmMetricsCollector implements MetricsCollector {
             final String name =
                 MetricsUtils.fullMetricName(SYSTEM_DOMAIN, metricGroup, metricKey);
             MetricKey key = new MetricKey(name, labels);
-            if (metricWhitelistFilter.test(key)) {
+            if (metricsPredicate.test(key)) {
                 exporter.emit(
                     key, context.metricWithSinglePointTimeseries(
                         name,
@@ -164,7 +164,7 @@ public class JvmMetricsCollector implements MetricsCollector {
 
     public static class Builder {
         private Context context;
-        private Predicate<MetricKey> metricWhitelistFilter = s -> true;
+        private Predicate<MetricKey> metricsPredicate = s -> true;
 
         private Builder() {
         }
@@ -173,14 +173,14 @@ public class JvmMetricsCollector implements MetricsCollector {
             this.context = context;
             return this;
         }
-        public Builder setMetricWhitelistFilter(Predicate<MetricKey> metricWhitelistFilter) {
-            this.metricWhitelistFilter = metricWhitelistFilter;
+        public Builder setMetricsPredicate(Predicate<MetricKey> metricsPredicate) {
+            this.metricsPredicate = metricsPredicate;
             return this;
         }
 
         public JvmMetricsCollector build() {
             Objects.requireNonNull(this.context);
-            return new JvmMetricsCollector(context, metricWhitelistFilter);
+            return new JvmMetricsCollector(context, metricsPredicate);
         }
     }
 }

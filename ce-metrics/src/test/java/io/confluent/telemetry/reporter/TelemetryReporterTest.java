@@ -77,7 +77,7 @@ public class TelemetryReporterTest {
 
     @Test
     public void testOnUpdateInvalidRegex() {
-        configs.put(ConfluentTelemetryConfig.WHITELIST_CONFIG, "(.");
+        configs.put(ConfluentTelemetryConfig.METRICS_INCLUDE_CONFIG, "(.");
         configs.put(KafkaConfig.BrokerIdProp(), "1");
         reporter.configure(configs);
         assertThatThrownBy(() -> reporter.contextChange(ctxWithCluster))

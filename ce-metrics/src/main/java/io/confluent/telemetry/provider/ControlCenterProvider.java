@@ -71,15 +71,15 @@ public class  ControlCenterProvider implements Provider {
 
   @Override
   public List<MetricsCollector> extraCollectors(
-      Context ctx, Predicate<MetricKey> whitelistPredicate) {
+      Context ctx, Predicate<MetricKey> metricsPredicate) {
     return ImmutableList.of(
         JvmMetricsCollector.newBuilder()
             .setContext(ctx)
-            .setMetricWhitelistFilter(whitelistPredicate)
+            .setMetricsPredicate(metricsPredicate)
             .build(),
         VolumeMetricsCollector.newBuilder(config)
             .setContext(ctx)
-            .setMetricWhitelistFilter(whitelistPredicate)
+            .setMetricsPredicate(metricsPredicate)
             .build());
   }
 }

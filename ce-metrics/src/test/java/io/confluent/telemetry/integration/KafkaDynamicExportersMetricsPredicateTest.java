@@ -32,7 +32,7 @@ import static io.confluent.telemetry.integration.TestUtils.newRecordsCheck;
 import static org.junit.Assert.assertTrue;
 
 @Category(IntegrationTest.class)
-public class KafkaDynamicExportersWhitelistTest extends MetricReporterClusterTestHarness {
+public class KafkaDynamicExportersMetricsPredicateTest extends MetricReporterClusterTestHarness {
 
   private static final long COLLECTION_INTERVAL_MS = 2000;
 
@@ -76,7 +76,7 @@ public class KafkaDynamicExportersWhitelistTest extends MetricReporterClusterTes
     buildTopicExporter("beta", props, brokerList);
 
     props.setProperty(ConfluentTelemetryConfig.COLLECT_INTERVAL_CONFIG, String.valueOf(COLLECTION_INTERVAL_MS));
-    props.setProperty(ConfluentTelemetryConfig.WHITELIST_CONFIG, "");
+    props.setProperty(ConfluentTelemetryConfig.METRICS_INCLUDE_CONFIG, "");
     props.setProperty(ConfluentTelemetryConfig.PREFIX_LABELS + "region", "test");
     props.setProperty(ConfluentTelemetryConfig.PREFIX_LABELS + "pkc", "pkc-bar");
     props.setProperty(CommonClientConfigs.METRICS_CONTEXT_PREFIX + "region", "test");
@@ -99,75 +99,75 @@ public class KafkaDynamicExportersWhitelistTest extends MetricReporterClusterTes
 
   @Test
   public void testMetricsReporterDynamicConfig() throws Exception {
-    String alphaWhitelistConfig = ConfluentTelemetryConfig.exporterPrefixForName("alpha") + ExporterConfig.WHITELIST_CONFIG;
-    String betaWhitelistConfig = ConfluentTelemetryConfig.exporterPrefixForName("beta") + ExporterConfig.WHITELIST_CONFIG;
+    String alphaMetricsIncludeeConfig = ConfluentTelemetryConfig.exporterPrefixForName("alpha") + ExporterConfig.METRICS_INCLUDE_CONFIG;
+    String betaMetricsIncludeConfig = ConfluentTelemetryConfig.exporterPrefixForName("beta") + ExporterConfig.METRICS_INCLUDE_CONFIG;
 
-    // enable with default whitelists
+    // enable with default metrics list
     waitForMetrics("alpha");
     waitForMetrics("beta");
 
-    // modify alpha whitelist (to match nothing)
+    // modify alpha metrics list (to match nothing)
     setBrokerConfigs(ImmutableMap.of(
-        alphaWhitelistConfig, ".*nothing_to_match_here.*"));
+        alphaMetricsIncludeeConfig, ".*nothing_to_match_here.*"));
     waitForNoMetrics("alpha");
     waitForMetrics("beta");
 
     // modify both (to match nothing)
     setBrokerConfigs(ImmutableMap.of(
-        alphaWhitelistConfig, ".*nothing_to_match_here.*",
-        betaWhitelistConfig, ".*nothing_to_match_here.*"));
+        alphaMetricsIncludeeConfig, ".*nothing_to_match_here.*",
+        betaMetricsIncludeConfig, ".*nothing_to_match_here.*"));
     waitForNoMetrics("alpha");
     waitForNoMetrics("beta");
 
     // remove alpha override
     deleteBrokerConfigs(ImmutableSet.of(
-        alphaWhitelistConfig
+        alphaMetricsIncludeeConfig
     ));
     waitForMetrics("alpha");
     waitForNoMetrics("beta");
 
     // remove both overrides
     deleteBrokerConfigs(ImmutableSet.of(
-        betaWhitelistConfig
+        betaMetricsIncludeConfig
     ));
     waitForMetrics("alpha");
     waitForMetrics("beta");
 
-    // apply top-level whitelist
+    // apply top-level metrics list
     setBrokerConfigs(ImmutableMap.of(
-        ConfluentTelemetryConfig.WHITELIST_CONFIG, ".*nothing_to_match_here.*"
+        ConfluentTelemetryConfig.METRICS_INCLUDE_CONFIG, ".*nothing_to_match_here.*"
     ));
     waitForNoMetrics("alpha");
     waitForNoMetrics("beta");
 
     // apply exporter level override on alpha
     setBrokerConfigs(ImmutableMap.of(
-        ConfluentTelemetryConfig.WHITELIST_CONFIG, ".*nothing_to_match_here.*",
-        alphaWhitelistConfig, ".*"
+        ConfluentTelemetryConfig.METRICS_INCLUDE_CONFIG, ".*nothing_to_match_here.*",
+        alphaMetricsIncludeeConfig, ".*"
     ));
     waitForMetrics("alpha");
     waitForNoMetrics("beta");
 
     // apply exporter level override to both
     setBrokerConfigs(ImmutableMap.of(
-        ConfluentTelemetryConfig.WHITELIST_CONFIG, ".*nothing_to_match_here.*",
-        alphaWhitelistConfig, ".*",
-        betaWhitelistConfig, ".*"
+        ConfluentTelemetryConfig.METRICS_INCLUDE_CONFIG, ".*nothing_to_match_here.*",
+        alphaMetricsIncludeeConfig, ".*",
+        betaMetricsIncludeConfig, ".*"
     ));
     waitForMetrics("alpha");
     waitForMetrics("beta");
 
     // remove exporter-level overrides
     deleteBrokerConfigs(ImmutableSet.of(
-        alphaWhitelistConfig, betaWhitelistConfig
+        alphaMetricsIncludeeConfig, betaMetricsIncludeConfig
     ));
     waitForNoMetrics("alpha");
     waitForNoMetrics("beta");
 
     // remove all overrides
     deleteBrokerConfigs(ImmutableSet.of(
-        ConfluentTelemetryConfig.WHITELIST_CONFIG,
-        alphaWhitelistConfig, betaWhitelistConfig
+        ConfluentTelemetryConfig.METRICS_INCLUDE_CONFIG,
+        alphaMetricsIncludeeConfig, betaMetricsIncludeConfig
     ));
     waitForMetrics("alpha");
     waitForMetrics("beta");

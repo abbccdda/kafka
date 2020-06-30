@@ -135,7 +135,7 @@ public class KafkaConnectTest extends TelemetryClusterTestHarness {
     props.put(prefix + KafkaConfig.MetricReporterClassesProp(),
         "io.confluent.telemetry.reporter.TelemetryReporter");
     props.put(prefix + ConfluentTelemetryConfig.COLLECT_INTERVAL_CONFIG, "500");
-    props.put(prefix + ConfluentTelemetryConfig.WHITELIST_CONFIG, "");
+    props.put(prefix + ConfluentTelemetryConfig.METRICS_INCLUDE_CONFIG, "");
 
     props.put(prefix + ConfluentTelemetryConfig.DEBUG_ENABLED, "true");
 

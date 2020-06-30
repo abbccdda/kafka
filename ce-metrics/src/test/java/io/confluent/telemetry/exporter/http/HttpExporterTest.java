@@ -76,7 +76,7 @@ public class HttpExporterTest {
             ExporterConfig.TYPE_CONFIG, ExporterConfig.ExporterType.http.name(),
             HttpExporterConfig.API_KEY, "apikey",
             HttpExporterConfig.API_SECRET, "apisecretkey",
-            ConfluentTelemetryConfig.WHITELIST_CONFIG, ".*");
+            ConfluentTelemetryConfig.METRICS_INCLUDE_CONFIG, ".*");
 
         HttpExporter exporter = new HttpExporter(new HttpExporterConfig(minimalConfig));
 

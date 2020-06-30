@@ -527,7 +527,7 @@ public class YammerMetricsCollectorTest {
     assertEquals("Should get exactly 2 metrics", 2, result.size());
 
     exporter.reset();
-    exporter.reconfigureWhitelist(key -> !key.getName().contains("test_do_not_include"));
+    exporter.reconfigurePredicate(key -> !key.getName().contains("test_do_not_include"));
     collector = collectorBuilder.build();
     collector.collect(exporter);
     result = exporter.emittedMetrics();
@@ -567,7 +567,7 @@ public class YammerMetricsCollectorTest {
     assertThat(result).hasSize(12);
 
     exporter.reset();
-    exporter.reconfigureWhitelist(key -> !key.getName().contains("/gauge_type"));
+    exporter.reconfigurePredicate(key -> !key.getName().contains("/gauge_type"));
     collector = collectorBuilder.build();
     collector.collect(exporter);
     result = exporter.emittedMetrics();
@@ -575,7 +575,7 @@ public class YammerMetricsCollectorTest {
     assertThat(result).hasSize(11);
 
     exporter.reset();
-    exporter.reconfigureWhitelist(key -> !key.getName().contains("/counter_type"));
+    exporter.reconfigurePredicate(key -> !key.getName().contains("/counter_type"));
     collector = collectorBuilder.build();
     collector.collect(exporter);
     result = exporter.emittedMetrics();
@@ -583,7 +583,7 @@ public class YammerMetricsCollectorTest {
     assertThat(result).hasSize(10);
 
     exporter.reset();
-    exporter.reconfigureWhitelist(key -> !key.getName().contains("/meter_type"));
+    exporter.reconfigurePredicate(key -> !key.getName().contains("/meter_type"));
     collector = collectorBuilder.build();
     collector.collect(exporter);
     result = exporter.emittedMetrics();
@@ -591,7 +591,7 @@ public class YammerMetricsCollectorTest {
     assertThat(result).hasSize(9);
 
     exporter.reset();
-    exporter.reconfigureWhitelist(key -> !key.getName().contains("/timer_type"));
+    exporter.reconfigurePredicate(key -> !key.getName().contains("/timer_type"));
     collector = collectorBuilder.build();
     collector.collect(exporter);
     result = exporter.emittedMetrics();
@@ -599,7 +599,7 @@ public class YammerMetricsCollectorTest {
     assertThat(result).hasSize(9);
 
     exporter.reset();
-    exporter.reconfigureWhitelist(key -> !key.getName().contains("/histogram_type"));
+    exporter.reconfigurePredicate(key -> !key.getName().contains("/histogram_type"));
     collector = collectorBuilder.build();
     collector.collect(exporter);
     result = exporter.emittedMetrics();
@@ -607,7 +607,7 @@ public class YammerMetricsCollectorTest {
     assertThat(result).hasSize(9);
 
     exporter.reset();
-    exporter.reconfigureWhitelist(key -> !key.getName().endsWith("/delta"));
+    exporter.reconfigurePredicate(key -> !key.getName().endsWith("/delta"));
     collector = collectorBuilder.build();
     collector.collect(exporter);
     result = exporter.emittedMetrics();
@@ -615,7 +615,7 @@ public class YammerMetricsCollectorTest {
     assertThat(result).hasSize(6);
 
     exporter.reset();
-    exporter.reconfigureWhitelist(key -> !key.getName().endsWith("/total"));
+    exporter.reconfigurePredicate(key -> !key.getName().endsWith("/total"));
     collector = collectorBuilder.build();
     collector.collect(exporter);
     result = exporter.emittedMetrics();
@@ -623,7 +623,7 @@ public class YammerMetricsCollectorTest {
     assertThat(result).hasSize(11);
 
     exporter.reset();
-    exporter.reconfigureWhitelist(key -> !key.getName().contains("/total/delta"));
+    exporter.reconfigurePredicate(key -> !key.getName().contains("/total/delta"));
     collector = collectorBuilder.build();
     collector.collect(exporter);
     result = exporter.emittedMetrics();
@@ -631,7 +631,7 @@ public class YammerMetricsCollectorTest {
     assertThat(result).hasSize(9);
 
     exporter.reset();
-    exporter.reconfigureWhitelist(key -> !key.getName().contains("/time/delta"));
+    exporter.reconfigurePredicate(key -> !key.getName().contains("/time/delta"));
     collector = collectorBuilder.build();
     collector.collect(exporter);
     result = exporter.emittedMetrics();
@@ -640,7 +640,7 @@ public class YammerMetricsCollectorTest {
   }
 
   @Test
-  public void testCollectFilterDynamicWhitelist() {
+  public void testCollectFilterDynamicConfig() {
     metricsRegistry.newGauge(metricName,
         new Gauge<Integer>() {
           @Override
@@ -669,14 +669,14 @@ public class YammerMetricsCollectorTest {
 
     // reconfigure to exclude
     exporter.reset();
-    exporter.reconfigureWhitelist(key -> !key.getName().contains("test_do_not_include"));
+    exporter.reconfigurePredicate(key -> !key.getName().contains("test_do_not_include"));
     collector.collect(exporter);
     result = exporter.emittedMetrics();
     assertThat(result).hasSize(1);
 
     // reconfigure back to everything
     exporter.reset();
-    exporter.reconfigureWhitelist(key -> true);
+    exporter.reconfigurePredicate(key -> true);
     collector.collect(exporter);
     result = exporter.emittedMetrics();
     assertThat(result).hasSize(2);

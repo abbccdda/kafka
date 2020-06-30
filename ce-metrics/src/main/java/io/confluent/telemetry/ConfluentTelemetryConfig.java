@@ -9,6 +9,7 @@ import com.google.common.collect.Maps;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import io.confluent.telemetry.common.config.ConfigUtils;
 import io.confluent.telemetry.collector.VolumeMetricsCollector.VolumeMetricsCollectorConfig;
 import io.confluent.telemetry.exporter.ExporterConfig;
 import io.confluent.telemetry.exporter.ExporterConfig.ExporterType;
@@ -48,13 +49,15 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
             + "based on broker data that is stale by this duration. The default is a reasonable value "
             + "for production environments and it typically does not need to be changed.";
 
-    public static final String WHITELIST_CONFIG = PREFIX_METRICS_COLLECTOR + "whitelist";
-    public static final String WHITELIST_DOC =
+    public static final String METRICS_INCLUDE_CONFIG = PREFIX_METRICS_COLLECTOR + "include";
+    public static final String METRICS_INCLUDE_CONFIG_ALIAS = PREFIX_METRICS_COLLECTOR + "whitelist";
+
+    public static final String METRICS_INCLUDE_DOC =
         "Regex matching the converted (snake_case) metric name to be published to the "
         + "metrics topic.\n\nBy default this includes all the metrics required by "
         + "Proactive Support and Confluent Auto Data Balancer. This should typically never "
         + "be modified unless requested by Confluent.";
-    public static final String DEFAULT_WHITELIST;
+    public static final String DEFAULT_METRICS_INCLUDE;
 
     public static final List<String> DEFAULT_BROKER_MONITORING_METRICS = Collections.unmodifiableList(
             Arrays.asList(
@@ -123,7 +126,7 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
         StringBuilder builder = new StringBuilder(".*");
         Joiner.on(".*|.*").appendTo(builder, DEFAULT_BROKER_MONITORING_METRICS);
         builder.append(".*");
-        DEFAULT_WHITELIST = builder.toString();
+        DEFAULT_METRICS_INCLUDE = builder.toString();
     }
 
     public static final String DEBUG_ENABLED = PREFIX + "debug.enabled";
@@ -137,7 +140,7 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
     // _confluent-telemetry-metrics topic onprem for Self Balancing Kafka.
     // Reference for the same cloud specific config:
     // https://github.com/confluentinc/cc-spec-kafka/blob/v0.205.x/plugins/kafka/templates/serverConfig.tmpl#L14
-    public static final String EXPORTER_LOCAL_WHITELIST = ".*bytes_in.*|" +
+    public static final String EXPORTER_LOCAL_METRICS_INCLUDE = ".*bytes_in.*|" +
         ".*bytes_out.*|.*process_cpu_load.*|.*local_time_ms.*|.*log_flush_rate_and_time_ms.*|" +
         ".*messages_in.*|.*request_handler_avg_idle_percent.*|.*requests.*|" +
         ".*request_queue_size.*|.*request_queue_time_ms.*|.*response_queue_size.*|" +
@@ -148,7 +151,7 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
         ImmutableMap.of(
             ExporterConfig.TYPE_CONFIG, ExporterConfig.ExporterType.kafka.name(),
             ExporterConfig.ENABLED_CONFIG, true,
-            ExporterConfig.WHITELIST_CONFIG, EXPORTER_LOCAL_WHITELIST,
+            ExporterConfig.METRICS_INCLUDE_CONFIG, EXPORTER_LOCAL_METRICS_INCLUDE,
 
             // This will get overriden by getDynamicDefaults() however not defaulting
             // this makes us have to provide this config even when this reporter is explicitly disabled. 
@@ -203,7 +206,9 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
 
     public static final Set<String> RECONFIGURABLES =
         ImmutableSet.of(
-            WHITELIST_CONFIG,
+            // not including METRICS_INCLUDE_CONFIG_ALIAS in dynamic configs,
+            // since we have never set those configs dynamically anywhere
+            METRICS_INCLUDE_CONFIG,
             TELEMETRY_ENABLED_CONFIG,
             TELEMETRY_API_KEY,
             TELEMETRY_API_SECRET,
@@ -242,12 +247,12 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
                 ConfigDef.Importance.LOW,
                 COLLECT_INTERVAL_DOC
         ).define(
-                WHITELIST_CONFIG,
+            METRICS_INCLUDE_CONFIG,
                 ConfigDef.Type.STRING,
-                DEFAULT_WHITELIST,
+            DEFAULT_METRICS_INCLUDE,
                 new RegexConfigDefValidator(),
                 ConfigDef.Importance.LOW,
-                WHITELIST_DOC
+            METRICS_INCLUDE_DOC
         ).define(
                 DEBUG_ENABLED,
                 ConfigDef.Type.BOOLEAN,
@@ -304,7 +309,8 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
     }
 
     public ConfluentTelemetryConfig(Map<String, ?> originals, boolean doLog) {
-        super(CONFIG, reconcileConfigs(originals), doLog);
+        super(CONFIG, reconcileConfigs(ConfigUtils.translateDeprecated(originals, new String[][]{
+            {METRICS_INCLUDE_CONFIG, METRICS_INCLUDE_CONFIG_ALIAS}})), doLog);
         this.volumeMetricsCollectorConfig = new VolumeMetricsCollectorConfig(originals, doLog);
         this.exporterConfigMap = createExporterMap(doLog);
         if (this.enabledExporters().isEmpty()) {
@@ -326,15 +332,11 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
         return labels;
     }
 
-    public String getMetricsWhitelistRegex() {
-        return getString(WHITELIST_CONFIG);
+    public Predicate<MetricKey> buildMetricsPredicate() {
+        return buildMetricsPredicate(getString(METRICS_INCLUDE_CONFIG));
     }
 
-    public Predicate<MetricKey> buildMetricWhitelistFilter() {
-        return buildMetricWhitelistFilter(getMetricsWhitelistRegex());
-    }
-
-    public static Predicate<MetricKey> buildMetricWhitelistFilter(String regexString) {
+    public static Predicate<MetricKey> buildMetricsPredicate(String regexString) {
         // Configure the PatternPredicate.
         regexString = regexString.trim();
 
@@ -345,7 +347,7 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
         // using `asMatchPredicate` method of `Predicate` class.
         Pattern pattern = Pattern.compile(regexString);
 
-        // TODO We eventually plan to also support configuration of blacklist via label values.
+        // TODO We eventually plan to also support configuration of exclude via label values.
         // Presumably we need a Map<String, Map<String, String>> of:
         // metric name -> label key -> label value
 
@@ -414,9 +416,10 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
         Map<String, Object> originals = originals();
         for (Map.Entry<String,  Map<String, Object>> entry : exporters.entrySet()) {
 
-            // use global whitelist if exporter-level whitelist is not provided
-            if (!entry.getValue().containsKey(ExporterConfig.WHITELIST_CONFIG) && originals.containsKey(WHITELIST_CONFIG)) {
-                entry.getValue().put(ExporterConfig.WHITELIST_CONFIG, originals.get(WHITELIST_CONFIG));
+            // use global metrics include config if exporter-level config is not provided
+            if (!entry.getValue().containsKey(ExporterConfig.METRICS_INCLUDE_CONFIG) && originals.containsKey(
+                METRICS_INCLUDE_CONFIG)) {
+                entry.getValue().put(ExporterConfig.METRICS_INCLUDE_CONFIG, originals.get(METRICS_INCLUDE_CONFIG));
             }
 
             // we need to know the type in order to initialize the exporter

@@ -45,7 +45,7 @@ public class YammerMetricsCollector implements MetricsCollector {
     static final String NS_UNIT = "ns";
 
     private MetricsRegistry metricsRegistry;
-    private volatile Predicate<MetricKey> metricWhitelistFilter;
+    private volatile Predicate<MetricKey> metricsPredicate;
     private Context context;
     private final Clock clock;
     private final LastValueTracker<Long> longDeltas;
@@ -53,9 +53,9 @@ public class YammerMetricsCollector implements MetricsCollector {
 
     private final Map<MetricKey, Instant> metricAdded = new ConcurrentHashMap<>();
 
-    public YammerMetricsCollector(MetricsRegistry metricsRegistry, Predicate<MetricKey> metricWhitelistFilter, Context context, LastValueTracker<Long> longDeltas, LastValueTracker<Double> doubleDeltas, Clock clock) {
+    public YammerMetricsCollector(MetricsRegistry metricsRegistry, Predicate<MetricKey> metricsPredicate, Context context, LastValueTracker<Long> longDeltas, LastValueTracker<Double> doubleDeltas, Clock clock) {
         this.metricsRegistry = metricsRegistry;
-        this.metricWhitelistFilter = metricWhitelistFilter;
+        this.metricsPredicate = metricsPredicate;
         this.context = context;
         this.clock = clock;
         this.longDeltas = longDeltas;
@@ -65,8 +65,8 @@ public class YammerMetricsCollector implements MetricsCollector {
     }
 
     @Override
-    public void reconfigureWhitelist(Predicate<MetricKey> whitelistPredicate) {
-        this.metricWhitelistFilter = whitelistPredicate;
+    public void reconfigurePredicate(Predicate<MetricKey> metricsPredicate) {
+        this.metricsPredicate = metricsPredicate;
     }
 
     private void setupMetricListener() {
@@ -178,7 +178,8 @@ public class YammerMetricsCollector implements MetricsCollector {
     private void collectGauge(String metricName, Map<String, String> labels, Object gaugeValue,
                               BiConsumer<MetricKey, Metric> emit) {
         MetricKey metricKey = new MetricKey(metricName, labels);
-        if (!isWhitelist(metricKey)) {
+        // Do not process the metric if metricKey does not match the metrics predicate.
+        if (!metricsPredicate.test(metricKey)) {
             return;
         }
 
@@ -219,7 +220,8 @@ public class YammerMetricsCollector implements MetricsCollector {
     private void collectCounter(String metricName, Map<String, String> labels, long counterValue,
                                 BiConsumer<MetricKey, Metric> emit) {
         MetricKey metricKey = new MetricKey(metricName, labels);
-        if (!isWhitelist(metricKey)) {
+        // Do not process the metric if metricKey does not match the metrics predicate.
+        if (!metricsPredicate.test(metricKey)) {
             return;
         }
 
@@ -238,7 +240,8 @@ public class YammerMetricsCollector implements MetricsCollector {
                               BiConsumer<MetricKey, Metric> emit) {
         String deltaMetricName = metricName + "/delta";
         MetricKey metricKey = new MetricKey(deltaMetricName, labels);
-        if (!isWhitelist(metricKey)) {
+        // Do not process the metric if metricKey does not match the metrics predicate.
+        if (!metricsPredicate.test(metricKey)) {
             return;
         }
 
@@ -272,7 +275,8 @@ public class YammerMetricsCollector implements MetricsCollector {
 
         String deltaMetricName = metricName + "/delta";
         MetricKey metricKey = new MetricKey(deltaMetricName, labels);
-        if (!isWhitelist(metricKey)) {
+        // Do not process the metric if metricKey does not match the metrics predicate.
+        if (!metricsPredicate.test(metricKey)) {
             return;
         }
 
@@ -303,7 +307,8 @@ public class YammerMetricsCollector implements MetricsCollector {
     private void collectMeter(String metricName, Map<String, String> labels, long meterCount,
                               BiConsumer<MetricKey, Metric> emit) {
         MetricKey metricKey = new MetricKey(metricName, labels);
-        if (!isWhitelist(metricKey)) {
+        // Do not process the metric if metricKey does not match the metrics predicate.
+        if (!metricsPredicate.test(metricKey)) {
             return;
         }
 
@@ -320,7 +325,8 @@ public class YammerMetricsCollector implements MetricsCollector {
     private void collectHistogram(String metricName, Map<String, String> labels, Histogram histogram,
                                   BiConsumer<MetricKey, Metric> emit) {
         MetricKey metricKey = new MetricKey(metricName, labels);
-        if (!isWhitelist(metricKey)) {
+        // Do not process the metric if metricKey does not match the metrics predicate.
+        if (!metricsPredicate.test(metricKey)) {
             return;
         }
 
@@ -334,7 +340,8 @@ public class YammerMetricsCollector implements MetricsCollector {
     private void collectTimer(String metricName, Map<String, String> labels, Timer timer,
                               BiConsumer<MetricKey, Metric> emit) {
         MetricKey metricKey = new MetricKey(metricName, labels);
-        if (!isWhitelist(metricKey)) {
+        // Do not process the metric if metricKey does not match the metrics predicate.
+        if (!metricsPredicate.test(metricKey)) {
             return;
         }
 
@@ -399,18 +406,13 @@ public class YammerMetricsCollector implements MetricsCollector {
             .metricWithSinglePointTimeseries(metricName, MetricDescriptor.Type.SUMMARY, labels, point);
     }
 
-    private boolean isWhitelist(MetricKey metricKey) {
-        // Do not process the metric if metricKey does not match whitelist predicate.
-        return metricWhitelistFilter.test(metricKey);
-    }
-
     public static Builder newBuilder() {
         return new Builder();
     }
 
     public static class Builder {
         private MetricsRegistry metricsRegistry;
-        private Predicate<MetricKey> metricWhitelistFilter = s -> true;
+        private Predicate<MetricKey> metricsPredicate = s -> true;
         private Context context;
         private Clock clock = Clock.systemUTC();
         private LastValueTracker<Long> longDeltas = new LastValueTracker<>();
@@ -424,8 +426,8 @@ public class YammerMetricsCollector implements MetricsCollector {
             return this;
         }
 
-        public Builder setMetricWhitelistFilter(Predicate<MetricKey> metricWhitelistFilter) {
-            this.metricWhitelistFilter = metricWhitelistFilter;
+        public Builder setMetricsPredicate(Predicate<MetricKey> metricsPredicate) {
+            this.metricsPredicate = metricsPredicate;
             return this;
         }
 
@@ -444,7 +446,7 @@ public class YammerMetricsCollector implements MetricsCollector {
             Objects.requireNonNull(this.context.getDomain());
             Objects.requireNonNull(this.metricsRegistry);
 
-            return new YammerMetricsCollector(this.metricsRegistry, this.metricWhitelistFilter, this.context, this.longDeltas, this.doubleDeltas, this.clock);
+            return new YammerMetricsCollector(this.metricsRegistry, this.metricsPredicate, this.context, this.longDeltas, this.doubleDeltas, this.clock);
         }
 
         public Builder setLongDeltas(LastValueTracker<Long> longDeltas) {

@@ -339,7 +339,7 @@ public class KafkaMetricsCollectorTest {
         .setLedger(ledger)
         .build();
 
-    exporter.reconfigureWhitelist(metric -> !metric.getName().endsWith("/count"));
+    exporter.reconfigurePredicate(metric -> !metric.getName().endsWith("/count"));
     collector.collect(exporter);
     List<Metric> result = exporter.emittedMetrics();
 
@@ -354,7 +354,7 @@ public class KafkaMetricsCollectorTest {
   }
 
   @Test
-  public void testCollectFilterDynamicWhitelist() {
+  public void testCollectFilterDynamicPredicate() {
     metrics.addMetric(metricName, new Measurable() {
       public double measure(MetricConfig config, long now) {
         return 100.0;
@@ -377,19 +377,19 @@ public class KafkaMetricsCollectorTest {
     assertThat(result).hasSize(3);  // name1, name2, count
 
     exporter.reset();
-    exporter.reconfigureWhitelist(key -> key.getName().endsWith("/count"));
+    exporter.reconfigurePredicate(key -> key.getName().endsWith("/count"));
     collector.collect(exporter);
     result = exporter.emittedMetrics();
     assertThat(result).hasSize(1);  // count
 
     exporter.reset();
-    exporter.reconfigureWhitelist(key -> key.getName().contains("name"));
+    exporter.reconfigurePredicate(key -> key.getName().contains("name"));
     collector.collect(exporter);
     result = exporter.emittedMetrics();
     assertThat(result).hasSize(2);  // name1, name2
 
     exporter.reset();
-    exporter.reconfigureWhitelist(key -> true);
+    exporter.reconfigurePredicate(key -> true);
     collector.collect(exporter);
     result = exporter.emittedMetrics();
     assertThat(result).hasSize(3);  // name1, name2, count
@@ -423,7 +423,7 @@ public class KafkaMetricsCollectorTest {
     assertThat(result).hasSize(6);
 
     exporter.reset();
-    exporter.reconfigureWhitelist(metric -> !metric.getName().endsWith("/count"));
+    exporter.reconfigurePredicate(metric -> !metric.getName().endsWith("/count"));
     collector = KafkaMetricsCollector.newBuilder()
         .setContext(context)
         .setLedger(ledger)
@@ -435,7 +435,7 @@ public class KafkaMetricsCollectorTest {
     assertThat(result).hasSize(5);
 
     exporter.reset();
-    exporter.reconfigureWhitelist(metric -> !metric.getName().endsWith("/non_measurable"));
+    exporter.reconfigurePredicate(metric -> !metric.getName().endsWith("/non_measurable"));
     collector = KafkaMetricsCollector.newBuilder()
         .setContext(context)
         .setLedger(ledger)
@@ -447,7 +447,7 @@ public class KafkaMetricsCollectorTest {
     assertThat(result).hasSize(5);
 
     exporter.reset();
-    exporter.reconfigureWhitelist(metric -> !metric.getName().endsWith("/delta"));
+    exporter.reconfigurePredicate(metric -> !metric.getName().endsWith("/delta"));
     collector = KafkaMetricsCollector.newBuilder()
         .setContext(context)
         .setLedger(ledger)

@@ -32,11 +32,11 @@ public class MetricsCollectorTask implements MetricsCollector {
     private final Supplier<Collection<Exporter>> exportersSupplier;
     private final Collection<MetricsCollector> collectors;
     private final long collectIntervalMs;
-    private volatile Predicate<MetricKey> whitelistPredicate;
+    private volatile Predicate<MetricKey> metricsPredicate;
 
     public MetricsCollectorTask(
         Context ctx, Supplier<Collection<Exporter>> exportersSupplier, Collection<MetricsCollector> collectors,
-        long collectIntervalMs, Predicate<MetricKey> whitelistPredicate
+        long collectIntervalMs, Predicate<MetricKey> metricsPredicate
     ) {
         Verify.verify(collectIntervalMs > 0, "collection interval cannot be less than 1");
 
@@ -45,7 +45,7 @@ public class MetricsCollectorTask implements MetricsCollector {
         this.collectors = Objects.requireNonNull(collectors);
         this.context = Objects.requireNonNull(ctx);
         this.collectIntervalMs = collectIntervalMs;
-        this.whitelistPredicate = whitelistPredicate;
+        this.metricsPredicate = metricsPredicate;
 
         executor.setContinueExistingPeriodicTasksAfterShutdownPolicy(false);
         executor.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
@@ -109,7 +109,7 @@ public class MetricsCollectorTask implements MetricsCollector {
             labels.put(MetricsCollector.LABEL_LIBRARY, MetricsCollector.LIBRARY_NONE);
         }
         MetricKey metricKey = new MetricKey(metricName, labels);
-        if (this.whitelistPredicate.test(metricKey)) {
+        if (this.metricsPredicate.test(metricKey)) {
             emit.accept(
                 metricKey,
                 context.metricWithSinglePointTimeseries(
@@ -128,8 +128,8 @@ public class MetricsCollectorTask implements MetricsCollector {
     }
 
     @Override
-    public void reconfigureWhitelist(Predicate<MetricKey> whitelistPredicate) {
-        this.whitelistPredicate = whitelistPredicate;
+    public void reconfigurePredicate(Predicate<MetricKey> metricsPredicate) {
+        this.metricsPredicate = metricsPredicate;
     }
 
     private static class CompositeExporter extends AbstractExporter {
@@ -146,8 +146,8 @@ public class MetricsCollectorTask implements MetricsCollector {
         }
 
         @Override
-        public void reconfigureWhitelist(Predicate<MetricKey> whitelistPredicate) {
-            // we never want to update the whitelist for this exporter
+        public void reconfigurePredicate(Predicate<MetricKey> metricsPredicate) {
+            // we never want to update the metrics predicate for this exporter
         }
 
         @Override

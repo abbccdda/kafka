@@ -95,7 +95,8 @@ public class ConfluentMetricsReporter
   private long reportIntervalMs;
   private String publishTopic;
   private boolean createTopic;
-  private Pattern pattern = null;
+  // visible for testing
+  Pattern pattern = null;
   private volatile String clusterId = null;
   private volatile boolean started;
   private int brokerId;
@@ -154,7 +155,7 @@ public class ConfluentMetricsReporter
         metricsReporterConfig.getBoolean(ConfluentMetricsReporterConfig.TOPIC_CREATE_CONFIG);
 
     String regexString =
-        metricsReporterConfig.getString(ConfluentMetricsReporterConfig.WHITELIST_CONFIG).trim();
+        metricsReporterConfig.getString(ConfluentMetricsReporterConfig.METRICS_INCLUDE_CONFIG).trim();
     pattern = regexString.isEmpty() ? null : Pattern.compile(regexString);
 
     if (configs.containsKey(KafkaConfig.BrokerIdProp())) {

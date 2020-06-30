@@ -20,13 +20,13 @@ import org.junit.Test;
 
 public class ConfluentTelemetryConfigTest {
 
-  private final ImmutableMap.Builder<String, Object> builder = ImmutableMap.<String, Object>builder();
+  private final ImmutableMap.Builder<String, Object> builder = ImmutableMap.builder();
 
   @Test
   public void metricFilterDefaults() {
     ConfluentTelemetryConfig config = new ConfluentTelemetryConfig(builder.build());
 
-    Predicate<MetricKey> filter = config.buildMetricWhitelistFilter();
+    Predicate<MetricKey> filter = config.buildMetricsPredicate();
 
     assertTrue(filter.test(new MetricKey("foobar/bytes_in_per_sec/total", Collections.emptyMap())));
     assertFalse(filter.test(new MetricKey("foobar/bytes_asdfin_per_sec/total",
@@ -37,7 +37,7 @@ public class ConfluentTelemetryConfigTest {
   public void metricFilterDefaultsForC3Metrics() {
     ConfluentTelemetryConfig config = new ConfluentTelemetryConfig(builder.build());
 
-    Predicate<MetricKey> filter = config.buildMetricWhitelistFilter();
+    Predicate<MetricKey> filter = config.buildMetricsPredicate();
 
     assertTrue(
         filter.test(
@@ -58,11 +58,11 @@ public class ConfluentTelemetryConfigTest {
 
   @Test
   public void metricFilterOverride() {
-    builder.put(ConfluentTelemetryConfig.WHITELIST_CONFIG, ".*only_match_me.*");
+    builder.put(ConfluentTelemetryConfig.METRICS_INCLUDE_CONFIG, ".*only_match_me.*");
 
     ConfluentTelemetryConfig config = new ConfluentTelemetryConfig(builder.build());
 
-    Predicate<MetricKey> filter = config.buildMetricWhitelistFilter();
+    Predicate<MetricKey> filter = config.buildMetricsPredicate();
 
     assertFalse(filter.test(new MetricKey("foobar/bytes_in_per_sec/total", Collections.emptyMap())));
     assertTrue(filter.test(new MetricKey("foobar/only_match_me/total",
@@ -70,23 +70,36 @@ public class ConfluentTelemetryConfigTest {
   }
 
   @Test
-  public void metricFilterOverrideEmpty() {
-    builder.put(ConfluentTelemetryConfig.WHITELIST_CONFIG, "");
+  public void metricFilterBackwardsCompatibility() {
+    builder.put(ConfluentTelemetryConfig.METRICS_INCLUDE_CONFIG_ALIAS, ".*only_match_me.*");
 
     ConfluentTelemetryConfig config = new ConfluentTelemetryConfig(builder.build());
 
-    Predicate<MetricKey> filter = config.buildMetricWhitelistFilter();
+    Predicate<MetricKey> filter = config.buildMetricsPredicate();
+
+    assertFalse(filter.test(new MetricKey("foobar/bytes_in_per_sec/total", Collections.emptyMap())));
+    assertTrue(filter.test(new MetricKey("foobar/only_match_me/total",
+                                         Collections.emptyMap())));
+  }
+
+  @Test
+  public void metricFilterOverrideEmpty() {
+    builder.put(ConfluentTelemetryConfig.METRICS_INCLUDE_CONFIG, "");
+
+    ConfluentTelemetryConfig config = new ConfluentTelemetryConfig(builder.build());
+
+    Predicate<MetricKey> filter = config.buildMetricsPredicate();
 
     assertEquals(ConfluentTelemetryConfig.ALWAYS_TRUE, filter);
   }
 
   @Test
   public void metricFilterTestCompleteStringMatch() {
-    builder.put(ConfluentTelemetryConfig.WHITELIST_CONFIG, ".*match_complete_string");
+    builder.put(ConfluentTelemetryConfig.METRICS_INCLUDE_CONFIG, ".*match_complete_string");
 
     ConfluentTelemetryConfig config = new ConfluentTelemetryConfig(builder.build());
 
-    Predicate<MetricKey> filter = config.buildMetricWhitelistFilter();
+    Predicate<MetricKey> filter = config.buildMetricsPredicate();
 
     // Below metric shall not be included as its not matching the given regex. Hence use `Matches`
     // method of `Pattern` class instead of `Find` method. Always check for complete string match
@@ -161,22 +174,22 @@ public class ConfluentTelemetryConfigTest {
   }
 
   @Test
-  public void testGlobalExporterWhitelist() {
-    String globalWhitelist = ".*blah.*";
-    String exporterLevelWhitelist = ".*blahblahblah.*";
+  public void testGlobalExporterMetricsIncludeConfig() {
+    String globalIncludeConfig = ".*blah.*";
+    String exporterLevelIncludeConfig = ".*blahblahblah.*";
 
     String httpExporterPrefix = ConfluentTelemetryConfig.exporterPrefixForName("http");
     String kafkaExporterPrefix = ConfluentTelemetryConfig.exporterPrefixForName("kafka");
     builder
-        .put(ConfluentTelemetryConfig.WHITELIST_CONFIG, globalWhitelist)
+        .put(ConfluentTelemetryConfig.METRICS_INCLUDE_CONFIG, globalIncludeConfig)
 
-        // override the global whitelist for this exporter
+        // override the global metrics include config for this exporter
         .put(httpExporterPrefix + ExporterConfig.TYPE_CONFIG, ExporterConfig.ExporterType.http.name())
         .put(httpExporterPrefix + HttpExporterConfig.CLIENT_BASE_URL, "https://api.telemetry.confluent.cloud")
         .put(httpExporterPrefix + HttpExporterConfig.CLIENT_COMPRESSION, "gzip")
-        .put(httpExporterPrefix + ExporterConfig.WHITELIST_CONFIG, exporterLevelWhitelist)
+        .put(httpExporterPrefix + ExporterConfig.METRICS_INCLUDE_CONFIG, exporterLevelIncludeConfig)
 
-        // this exporter should inherit the global whitelist
+        // this exporter should inherit the global metrics include config
         .put(kafkaExporterPrefix + ExporterConfig.TYPE_CONFIG, ExporterConfig.ExporterType.kafka.name())
         .put(kafkaExporterPrefix + KafkaExporterConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:1234")
         .put(kafkaExporterPrefix + KafkaExporterConfig.TOPIC_NAME_CONFIG, "topicName");
@@ -185,10 +198,10 @@ public class ConfluentTelemetryConfigTest {
     Map<String, ExporterConfig> exporterConfigs = config.enabledExporters();
     assertThat(exporterConfigs)
         .hasEntrySatisfying("http",
-            new Condition<>(c -> c.getString(ExporterConfig.WHITELIST_CONFIG).equals(exporterLevelWhitelist),
-                "http exporter has exporter-level whitelist"))
+            new Condition<>(c -> c.getString(ExporterConfig.METRICS_INCLUDE_CONFIG).equals(exporterLevelIncludeConfig),
+                "http exporter has exporter-level metrics include config"))
         .hasEntrySatisfying("kafka",
-            new Condition<>(c -> c.getString(ExporterConfig.WHITELIST_CONFIG).equals(globalWhitelist),
-                "kafka exporter has global whitelist"));
+            new Condition<>(c -> c.getString(ExporterConfig.METRICS_INCLUDE_CONFIG).equals(globalIncludeConfig),
+                "kafka exporter has global metrics include config"));
   }
 }

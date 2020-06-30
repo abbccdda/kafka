@@ -79,21 +79,21 @@ public class KafkaServerProvider implements Provider {
   }
 
   public List<MetricsCollector> extraCollectors(Context ctx,
-      Predicate<MetricKey> whitelistPredicate) {
+      Predicate<MetricKey> metricsPredicate) {
 
     List<MetricsCollector> collectors = new ArrayList<>();
 
     collectors.add(
         JvmMetricsCollector.newBuilder()
             .setContext(ctx)
-            .setMetricWhitelistFilter(whitelistPredicate)
+            .setMetricsPredicate(metricsPredicate)
             .build()
     );
 
     collectors.add(
         VolumeMetricsCollector.newBuilder(config)
             .setContext(ctx)
-            .setMetricWhitelistFilter(whitelistPredicate)
+            .setMetricsPredicate(metricsPredicate)
             .build()
     );
 
@@ -101,7 +101,7 @@ public class KafkaServerProvider implements Provider {
         YammerMetricsCollector.newBuilder()
             .setContext(ctx)
             .setMetricsRegistry(KafkaYammerMetrics.defaultRegistry())
-            .setMetricWhitelistFilter(whitelistPredicate)
+            .setMetricsPredicate(metricsPredicate)
             .build()
     );
 

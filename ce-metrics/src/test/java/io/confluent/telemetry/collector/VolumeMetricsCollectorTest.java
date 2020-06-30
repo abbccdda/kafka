@@ -32,7 +32,7 @@ public class VolumeMetricsCollectorTest {
         .setLogDirs(new String[] {System.getProperties().get("java.io.tmpdir").toString()})
         .build();
 
-    exporter.reconfigureWhitelist(key -> !key.getName().contains("disk_total_bytes"));
+    exporter.reconfigurePredicate(key -> !key.getName().contains("disk_total_bytes"));
     metrics.collect(exporter);
     Metric metric = Iterables.getOnlyElement(exporter.emittedMetrics());
 
@@ -51,7 +51,7 @@ public class VolumeMetricsCollectorTest {
         .setLogDirs(new String[] {System.getProperties().get("java.io.tmpdir").toString()})
         .build();
 
-    exporter.reconfigureWhitelist(key -> !key.getName().contains("disk_usable_bytes"));
+    exporter.reconfigurePredicate(key -> !key.getName().contains("disk_usable_bytes"));
     metrics.collect(exporter);
     Metric metric = Iterables.getOnlyElement(exporter.emittedMetrics());
 
@@ -70,7 +70,7 @@ public class VolumeMetricsCollectorTest {
         .build();
 
     // collect twice so that we have a cached set of labels.
-    exporter.reconfigureWhitelist(key -> !key.getName().contains("disk_usable_bytes"));
+    exporter.reconfigurePredicate(key -> !key.getName().contains("disk_usable_bytes"));
     metrics.collect(exporter);
     exporter.reset();
     metrics.collect(exporter);
@@ -82,7 +82,7 @@ public class VolumeMetricsCollectorTest {
   }
 
   @Test
-  public void collectFilterDynamicWhitelist() {
+  public void collectFilterDynamicConfig() {
     VolumeMetricsCollector metrics = VolumeMetricsCollector.newBuilder()
         .setContext(context)
         .setUpdatePeriodMs(100L)
@@ -93,12 +93,12 @@ public class VolumeMetricsCollectorTest {
     assertThat(exporter.emittedMetrics()).hasSize(2); // disk_total_bytes, disk_usable_bytes
 
     exporter.reset();
-    exporter.reconfigureWhitelist(key -> key.getName().endsWith("/disk_total_bytes"));
+    exporter.reconfigurePredicate(key -> key.getName().endsWith("/disk_total_bytes"));
     metrics.collect(exporter);
     assertThat(exporter.emittedMetrics()).hasSize(1); // disk_total_bytes
 
     exporter.reset();
-    exporter.reconfigureWhitelist(key -> true);
+    exporter.reconfigurePredicate(key -> true);
     metrics.collect(exporter);
     assertThat(exporter.emittedMetrics()).hasSize(2); // disk_total_bytes, disk_usable_bytes
   }

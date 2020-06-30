@@ -57,8 +57,7 @@ public interface Provider extends Configurable {
    * @param ctx {@link Context}
    * @return List of extra collectors
    */
-  default List<MetricsCollector> extraCollectors(Context ctx,
-      Predicate<MetricKey> whitelistPredicate) {
+  default List<MetricsCollector> extraCollectors(Context ctx, Predicate<MetricKey> metricsPredicate) {
     return Collections.emptyList();
   }
 }

@@ -86,7 +86,7 @@ public class VolumeMetricsCollector implements MetricsCollector {
 
     public static final String VOLUME_LABEL = "volume";
     private static final Logger log = LoggerFactory.getLogger(VolumeMetricsCollector.class);
-    private volatile Predicate<MetricKey> metricWhitelistFilter;
+    private volatile Predicate<MetricKey> metricsPredicate;
 
     /**
      * The last update time in monotonic nanoseconds.
@@ -121,15 +121,15 @@ public class VolumeMetricsCollector implements MetricsCollector {
         updatePeriodMs = builder.updatePeriodMs;
         logDirs = builder.logDirs;
         context = builder.context;
-        metricWhitelistFilter = builder.metricWhitelistFilter;
+        metricsPredicate = builder.metricsPredicate;
 
         diskTotalBytesName = MetricsUtils.fullMetricName(JvmMetricsCollector.SYSTEM_DOMAIN, "volume", "disk_total_bytes");
         diskUsableBytesName = MetricsUtils.fullMetricName(JvmMetricsCollector.SYSTEM_DOMAIN, "volume", "disk_usable_bytes");
     }
 
     @Override
-    public void reconfigureWhitelist(Predicate<MetricKey> whitelistPredicate) {
-        this.metricWhitelistFilter = whitelistPredicate;
+    public void reconfigurePredicate(Predicate<MetricKey> metricsPredicate) {
+        this.metricsPredicate = metricsPredicate;
     }
 
     private synchronized Map<String, String> labelsFor(String volumeName) {
@@ -151,7 +151,7 @@ public class VolumeMetricsCollector implements MetricsCollector {
 
             Map<String, String> labels = labelsFor(volumeInfo.name());
             MetricKey metricKeyTotal = new MetricKey(diskTotalBytesName, labels);
-            if (metricWhitelistFilter.test(metricKeyTotal)) {
+            if (metricsPredicate.test(metricKeyTotal)) {
                 exporter.emit(metricKeyTotal, context.metricWithSinglePointTimeseries(
                     diskTotalBytesName,
                     MetricDescriptor.Type.GAUGE_INT64,
@@ -165,7 +165,7 @@ public class VolumeMetricsCollector implements MetricsCollector {
             }
 
             MetricKey metricKeyUsable = new MetricKey(diskUsableBytesName, labels);
-            if (metricWhitelistFilter.test(metricKeyUsable)) {
+            if (metricsPredicate.test(metricKeyUsable)) {
                 exporter.emit(metricKeyUsable, context.metricWithSinglePointTimeseries(
                     diskUsableBytesName,
                     MetricDescriptor.Type.GAUGE_INT64,
@@ -297,7 +297,7 @@ public class VolumeMetricsCollector implements MetricsCollector {
         private long updatePeriodMs;
         private String[] logDirs;
         private Context context;
-        private Predicate<MetricKey> metricWhitelistFilter = s -> true;
+        private Predicate<MetricKey> metricsPredicate = s -> true;
 
         private Builder() {
         }
@@ -316,8 +316,8 @@ public class VolumeMetricsCollector implements MetricsCollector {
             this.context = context;
             return this;
         }
-        public Builder setMetricWhitelistFilter(Predicate<MetricKey> metricWhitelistFilter) {
-            this.metricWhitelistFilter = metricWhitelistFilter;
+        public Builder setMetricsPredicate(Predicate<MetricKey> metricsPredicate) {
+            this.metricsPredicate = metricsPredicate;
             return this;
         }
 

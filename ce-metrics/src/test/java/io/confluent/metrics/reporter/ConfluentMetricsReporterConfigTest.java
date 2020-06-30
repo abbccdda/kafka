@@ -9,12 +9,15 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Properties;
+import java.util.function.Predicate;
 
 import io.confluent.monitoring.common.MonitoringProducerDefaults;
 
 import static org.apache.kafka.clients.producer.ProducerConfig.CLIENT_ID_CONFIG;
 import static org.apache.kafka.clients.producer.ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG;
 import static org.apache.kafka.clients.producer.ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 public class ConfluentMetricsReporterConfigTest {
 
@@ -81,5 +84,35 @@ public class ConfluentMetricsReporterConfigTest {
     // test pass-through of unknown configs
     Assert.assertTrue(clientProperties.containsKey(CommonClientConfigs.RETRY_BACKOFF_MS_CONFIG));
     Assert.assertEquals("987", clientProperties.get(CommonClientConfigs.RETRY_BACKOFF_MS_CONFIG));
+  }
+
+  @Test
+  public void testMetricFilter() {
+    Map<String, Object> props = new HashMap<>();
+    props.put(ConfluentMetricsReporterConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+    props.put(ConfluentMetricsReporterConfig.METRICS_INCLUDE_CONFIG, ".*only_match_me.*");
+
+    ConfluentMetricsReporter reporter = new ConfluentMetricsReporter();
+    reporter.configure(props);
+
+    Predicate<String> filter = reporter.pattern.asPredicate();
+
+    assertFalse(filter.test("foobar/bytes_in_per_sec/total"));
+    assertTrue(filter.test("foobar/only_match_me/total"));
+  }
+
+  @Test
+  public void testMetricFilterBackwardsCompatibility() {
+    Map<String, Object> props = new HashMap<>();
+    props.put(ConfluentMetricsReporterConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+    props.put(ConfluentMetricsReporterConfig.METRICS_INCLUDE_CONFIG_ALIAS, ".*only_match_me.*");
+
+    ConfluentMetricsReporter reporter = new ConfluentMetricsReporter();
+    reporter.configure(props);
+
+    Predicate<String> filter = reporter.pattern.asPredicate();
+
+    assertFalse(filter.test("foobar/bytes_in_per_sec/total"));
+    assertTrue(filter.test("foobar/only_match_me/total"));
   }
 }

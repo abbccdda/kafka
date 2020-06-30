@@ -33,8 +33,8 @@ public interface MetricsCollector {
     void collect(Exporter exporter);
 
     /**
-     * Reconfigure the metrics whitelist predicate.
-     * @param whitelistPredicate whitelist predicate to switch to
+     * Reconfigure the metrics predicate.
+     * @param metricsPredicate predicate to switch to
      */
-    void reconfigureWhitelist(Predicate<MetricKey> whitelistPredicate);
+    void reconfigurePredicate(Predicate<MetricKey> metricsPredicate);
 }

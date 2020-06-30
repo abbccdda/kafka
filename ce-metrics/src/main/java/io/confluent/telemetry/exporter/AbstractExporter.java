@@ -7,14 +7,14 @@ import java.util.function.Predicate;
 
 public abstract class AbstractExporter implements Exporter {
 
-  private volatile Predicate<MetricKey> whitelistPredicate = metricKey -> true;
+  private volatile Predicate<MetricKey> metricsPredicate = metricKey -> true;
 
   /**
-   * Reconfigure the metrics whitelist predicate.
-   * @param whitelistPredicate whitelist predicate to switch to
+   * Reconfigure the metrics predicate.
+   * @param metricsPredicate predicate to switch to
    */
-  public void reconfigureWhitelist(Predicate<MetricKey> whitelistPredicate) {
-    this.whitelistPredicate = whitelistPredicate;
+  public void reconfigurePredicate(Predicate<MetricKey> metricsPredicate) {
+    this.metricsPredicate = metricsPredicate;
   }
 
   /*
@@ -24,7 +24,7 @@ public abstract class AbstractExporter implements Exporter {
   public abstract void doEmit(MetricKey metricKey, Metric metric);
 
   public final boolean emit(MetricKey metricKey, Metric metric) {
-    if (whitelistPredicate.test(metricKey)) {
+    if (metricsPredicate.test(metricKey)) {
       doEmit(metricKey, metric);
       return true;
     }

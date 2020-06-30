@@ -117,7 +117,7 @@ public class KafkaStreamsTest extends TelemetryClusterTestHarness {
     streamsConfiguration.setProperty(ConfluentTelemetryConfig.exporterPrefixForName("test") + KafkaExporterConfig.TOPIC_REPLICAS_CONFIG, "1");
 
     streamsConfiguration.setProperty(ConfluentTelemetryConfig.COLLECT_INTERVAL_CONFIG, "500");
-    streamsConfiguration.setProperty(ConfluentTelemetryConfig.WHITELIST_CONFIG, "");
+    streamsConfiguration.setProperty(ConfluentTelemetryConfig.METRICS_INCLUDE_CONFIG, "");
     streamsConfiguration.setProperty(ConfluentTelemetryConfig.DEBUG_ENABLED, "true");
 
     streamsConfiguration

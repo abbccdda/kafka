@@ -9,10 +9,10 @@ import java.util.function.Predicate;
 public interface Exporter extends AutoCloseable {
 
   /**
-   * Reconfigure the metrics whitelist predicate.
-   * @param whitelistPredicate whitelist predicate to switch to
+   * Reconfigure the metrics predicate.
+   * @param metricsPredicate metrics predicate to switch to
    */
-  void reconfigureWhitelist(Predicate<MetricKey> whitelistPredicate);
+  void reconfigurePredicate(Predicate<MetricKey> metricsPredicate);
 
   /*
    * Export the metric to the destination. This method takes care

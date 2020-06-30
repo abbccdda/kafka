@@ -29,15 +29,15 @@ public abstract class ExporterConfig extends AbstractConfig {
   public static final String TYPE_CONFIG_DOC =
       "The type of the exporter. Value must be on of " + Arrays.asList(ExporterType.values());
 
-  public static final String WHITELIST_CONFIG = "whitelist";
-  public static final String WHITELIST_DOC =
+  public static final String METRICS_INCLUDE_CONFIG = "metrics.include";
+  public static final String METRICS_INCLUDE_CONFIG_DOC =
       "Regex matching the converted (snake_case) metric name to be published from this "
           + "particular exporter.\n\nBy default this includes all the metrics required by "
           + "Proactive Support and Confluent Auto Data Balancer. This should typically never "
           + "be modified unless requested by Confluent.";
-  public static final String DEFAULT_WHITELIST = ConfluentTelemetryConfig.DEFAULT_WHITELIST;
+  public static final String DEFAULT_METRICS_INCLUDE = ConfluentTelemetryConfig.DEFAULT_METRICS_INCLUDE;
 
-  public static final Set<String> RECONFIGURABLES = ImmutableSet.of(ENABLED_CONFIG, WHITELIST_CONFIG);
+  public static final Set<String> RECONFIGURABLES = ImmutableSet.of(ENABLED_CONFIG, METRICS_INCLUDE_CONFIG);
 
   private static ConfigDef defineExporterConfigs(ConfigDef def) {
     return new ConfigDef(def)
@@ -58,12 +58,12 @@ public abstract class ExporterConfig extends AbstractConfig {
           ConfigDef.Importance.LOW,
           TYPE_CONFIG_DOC
       ).define(
-          WHITELIST_CONFIG,
+            METRICS_INCLUDE_CONFIG,
           ConfigDef.Type.STRING,
-          DEFAULT_WHITELIST,
+            DEFAULT_METRICS_INCLUDE,
           new RegexConfigDefValidator(),
           ConfigDef.Importance.LOW,
-          WHITELIST_DOC
+            METRICS_INCLUDE_CONFIG_DOC
       );
   }
 
@@ -95,8 +95,8 @@ public abstract class ExporterConfig extends AbstractConfig {
     super(defineExporterConfigs(definition), originals, doLog);
   }
 
-  public Predicate<MetricKey> buildMetricWhitelistFilter() {
-    return ConfluentTelemetryConfig.buildMetricWhitelistFilter(getMetricsWhitelistRegex());
+  public Predicate<MetricKey> buildMetricsPredicate() {
+    return ConfluentTelemetryConfig.buildMetricsPredicate(getString(METRICS_INCLUDE_CONFIG));
   }
 
   public ExporterType getType() {
@@ -107,7 +107,4 @@ public abstract class ExporterConfig extends AbstractConfig {
     return getBoolean(ENABLED_CONFIG);
   }
 
-  public String getMetricsWhitelistRegex() {
-    return getString(WHITELIST_CONFIG);
-  }
 }

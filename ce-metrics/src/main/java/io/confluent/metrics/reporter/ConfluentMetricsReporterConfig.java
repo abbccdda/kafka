@@ -19,6 +19,7 @@ import java.util.concurrent.TimeUnit;
 
 import io.confluent.monitoring.common.MonitoringProducerDefaults;
 import io.confluent.monitoring.common.TimeBucket;
+import io.confluent.telemetry.common.config.ConfigUtils;
 
 public class ConfluentMetricsReporterConfig extends AbstractConfig {
 
@@ -86,7 +87,9 @@ public class ConfluentMetricsReporterConfig extends AbstractConfig {
         + "based on broker data that is stale by this duration. The default is a reasonable value "
         + "for production environments and it typically does not need to be changed.";
 
-  public static final String WHITELIST_CONFIG = METRICS_REPORTER_PREFIX + "whitelist";
+  public static final String METRICS_INCLUDE_CONFIG = METRICS_REPORTER_PREFIX + "include";
+  public static final String METRICS_INCLUDE_CONFIG_ALIAS = METRICS_REPORTER_PREFIX + "whitelist";
+
 
   public static final List<String> DEFAULT_BROKER_YAMMER_METRICS = Collections.unmodifiableList(
       Arrays.asList(
@@ -138,21 +141,21 @@ public class ConfluentMetricsReporterConfig extends AbstractConfig {
       )
   );
 
-  public static final String DEFAULT_WHITELIST;
+  public static final String DEFAULT_METRICS_INCLUDE;
 
   static {
     StringBuilder builder = new StringBuilder(
         ".*MaxLag.*|kafka.log:type=Log,name=Size.*"
     );
 
-    // When matching YammerMetric MBean names to the whitelist pattern, it is ok to match with
+    // When matching YammerMetric MBean names to the include pattern, it is ok to match with
     // "name=" included in the pattern.
     appendMetricsToBuilder(builder, DEFAULT_BROKER_YAMMER_METRICS, "name=");
     // KafkaMetrics are matched according to their MetricName name field, not the MBean. So the name of the
-    // metric without the "name=" is necessary to match the whitelist pattern correctly.
+    // metric without the "name=" is necessary to match the include pattern correctly.
     appendMetricsToBuilder(builder, DEFAULT_BROKER_KAFKA_METRICS, "");
 
-    DEFAULT_WHITELIST = builder.toString();
+    DEFAULT_METRICS_INCLUDE = builder.toString();
   }
 
   private static StringBuilder appendMetricsToBuilder(StringBuilder builder, List<String> metrics, String prefix) {
@@ -172,7 +175,7 @@ public class ConfluentMetricsReporterConfig extends AbstractConfig {
     return builder;
   }
 
-  public static final String WHITELIST_DOC =
+  public static final String METRICS_INCLUDE_DOC =
       "Regex matching the yammer metric mbean name or Kafka metric name to be published to the "
       + "metrics topic.\n\nBy default this includes all the metrics required by Confluent "
       + "Control Center and Confluent Auto Data Balancer. This should typically never be "
@@ -248,11 +251,17 @@ public class ConfluentMetricsReporterConfig extends AbstractConfig {
             ConfigDef.Importance.LOW,
             PUBLISH_PERIOD_DOC
         ).define(
-            WHITELIST_CONFIG,
+            METRICS_INCLUDE_CONFIG,
             ConfigDef.Type.STRING,
-            DEFAULT_WHITELIST,
+            DEFAULT_METRICS_INCLUDE,
             ConfigDef.Importance.LOW,
-            WHITELIST_DOC
+            METRICS_INCLUDE_DOC
+        ).define(
+            METRICS_INCLUDE_CONFIG_ALIAS,
+            ConfigDef.Type.STRING,
+            null,
+            ConfigDef.Importance.LOW,
+            "Deprecated, use " + METRICS_INCLUDE_CONFIG + " instead."
         ).define(
             VOLUME_METRICS_REFRESH_PERIOD_MS,
             ConfigDef.Type.LONG,
@@ -262,12 +271,9 @@ public class ConfluentMetricsReporterConfig extends AbstractConfig {
         );
   }
 
-  public ConfluentMetricsReporterConfig(Properties props) {
-    super(CONFIG, props);
-  }
-
   public ConfluentMetricsReporterConfig(Map<String, ?> clientConfigs) {
-    super(CONFIG, clientConfigs);
+    super(CONFIG, ConfigUtils.translateDeprecated(clientConfigs,
+          new String[][]{{METRICS_INCLUDE_CONFIG, METRICS_INCLUDE_CONFIG_ALIAS}}));
   }
 
   public static void main(String[] args) {

@@ -41,7 +41,7 @@ public class KafkaMetricsCollector implements MetricsCollector {
     public static final String KAFKA_METRICS_LIB = "kafka";
     private static final Logger log = LoggerFactory.getLogger(KafkaMetricsCollector.class);
     private final StateLedger ledger;
-    private volatile Predicate<MetricKey> metricWhitelistFilter;
+    private volatile Predicate<MetricKey> metricsPredicate;
     private final Context context;
 
     private final Clock clock;
@@ -58,16 +58,16 @@ public class KafkaMetricsCollector implements MetricsCollector {
         }
     }
 
-    public KafkaMetricsCollector(Predicate<MetricKey> metricWhitelistFilter, Context context, StateLedger ledger, Clock clock) {
-        this.metricWhitelistFilter = metricWhitelistFilter;
+    public KafkaMetricsCollector(Predicate<MetricKey> metricsPredicate, Context context, StateLedger ledger, Clock clock) {
+        this.metricsPredicate = metricsPredicate;
         this.context = context;
         this.clock = clock;
         this.ledger = ledger;
     }
 
     @Override
-    public void reconfigureWhitelist(Predicate<MetricKey> whitelistPredicate) {
-        this.metricWhitelistFilter = whitelistPredicate;
+    public void reconfigurePredicate(Predicate<MetricKey> metricsPredicate) {
+        this.metricsPredicate = metricsPredicate;
     }
 
     @Override
@@ -169,7 +169,7 @@ public class KafkaMetricsCollector implements MetricsCollector {
                                           Double value, BiConsumer<MetricKey, Metric> emit) {
         String deltaName = metricName + "/delta";
         MetricKey metricKey = new MetricKey(deltaName, labels);
-        if (!metricWhitelistFilter.test(metricKey)) {
+        if (!metricsPredicate.test(metricKey)) {
             return;
         }
 
@@ -191,7 +191,7 @@ public class KafkaMetricsCollector implements MetricsCollector {
     private void collectMetric(String metricName, Map<String, String> labels, MetricDescriptor.Type type,
                                            double value, BiConsumer<MetricKey, Metric> emit) {
         MetricKey metricKey = new MetricKey(metricName, labels);
-        if (!metricWhitelistFilter.test(metricKey)) {
+        if (!metricsPredicate.test(metricKey)) {
             return;
         }
 
@@ -207,7 +207,7 @@ public class KafkaMetricsCollector implements MetricsCollector {
     private void collectMetric(String metricName, Map<String, String> labels, MetricDescriptor.Type type,
                                            long value, BiConsumer<MetricKey, Metric> emit) {
         MetricKey metricKey = new MetricKey(metricName, labels);
-        if (!metricWhitelistFilter.test(metricKey)) {
+        if (!metricsPredicate.test(metricKey)) {
             return;
         }
 
@@ -263,7 +263,7 @@ public class KafkaMetricsCollector implements MetricsCollector {
     }
 
     public static class Builder {
-        private Predicate<MetricKey> metricWhitelistFilter = s -> true;
+        private Predicate<MetricKey> metricsPredicate = s -> true;
         private Context context;
         private Clock clock = Clock.systemUTC();
         private StateLedger ledger = new StateLedger();
@@ -271,8 +271,8 @@ public class KafkaMetricsCollector implements MetricsCollector {
         private Builder() {
         }
 
-        public Builder setMetricWhitelistFilter(Predicate<MetricKey> metricWhitelistFilter) {
-            this.metricWhitelistFilter = Objects.requireNonNull(metricWhitelistFilter);
+        public Builder setMetricsPredicate(Predicate<MetricKey> metricsPredicate) {
+            this.metricsPredicate = Objects.requireNonNull(metricsPredicate);
             return this;
         }
 
@@ -294,7 +294,7 @@ public class KafkaMetricsCollector implements MetricsCollector {
         public KafkaMetricsCollector build() {
             Objects.requireNonNull(this.context.getDomain());
 
-            return new KafkaMetricsCollector(this.metricWhitelistFilter, this.context, this.ledger, this.clock);
+            return new KafkaMetricsCollector(this.metricsPredicate, this.context, this.ledger, this.clock);
         }
     }
 

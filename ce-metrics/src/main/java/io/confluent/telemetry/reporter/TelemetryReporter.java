@@ -197,7 +197,7 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
 
   private void reconfigureCollectors() {
     Stream.concat(collectors.stream(), Stream.of(this.collectorTask))
-        .forEach(collector -> collector.reconfigureWhitelist(this.unionPredicate));
+        .forEach(collector -> collector.reconfigurePredicate(this.unionPredicate));
   }
 
   @Override
@@ -322,7 +322,7 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
     collectors.add(
       KafkaMetricsCollector.newBuilder()
         .setContext(ctx)
-        .setMetricWhitelistFilter(unionPredicate)
+        .setMetricsPredicate(unionPredicate)
         .setLedger(kafkaMetricsStateLedger)
         .build()
     );
@@ -398,15 +398,15 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
   }
 
   private static Predicate<MetricKey> createUnionPredicate(ConfluentTelemetryConfig config) {
-    List<Predicate<MetricKey>> enabledWhitelists =
+    List<Predicate<MetricKey>> enabledPredicates =
         config.enabledExporters()
             .values().stream()
-            .map(e -> e.buildMetricWhitelistFilter())
+            .map(ExporterConfig::buildMetricsPredicate)
             .collect(Collectors.toList());
 
     // combine all the predicates with ORs
     return
-        enabledWhitelists
+        enabledPredicates
             .stream()
             .reduce(Predicate::or)
             // if there are no exporters, then never match metrics
