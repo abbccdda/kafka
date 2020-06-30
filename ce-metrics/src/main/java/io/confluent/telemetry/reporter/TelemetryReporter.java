@@ -1,6 +1,7 @@
 package io.confluent.telemetry.reporter;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import io.confluent.telemetry.BrokerConfigUtils;
@@ -438,6 +439,20 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
               ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME,
               BrokerConfigUtils.deriveLocalProducerConfigs(originals))
       );
+
+      // use 'confluent.balancer.topic.replication.factor' if set, otherwise use our default
+      final String balanceReplicationFactor = BrokerConfigUtils.getBalanceReplicationFactor(originals);
+      if (balanceReplicationFactor != null) {
+        configs.putAll(
+            prefixedExporterConfigs(
+                ConfluentTelemetryConfig.EXPORTER_LOCAL_NAME,
+                ImmutableMap.of(
+                    KafkaExporterConfig.TOPIC_REPLICAS_CONFIG,
+                    balanceReplicationFactor
+                )
+            )
+        );
+      }
     }
 
     // finally apply the originals

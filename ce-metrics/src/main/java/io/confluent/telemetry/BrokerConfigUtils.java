@@ -4,9 +4,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
-import io.confluent.telemetry.exporter.kafka.KafkaExporterConfig;
-import kafka.server.KafkaConfig;
-import kafka.server.Defaults;
+
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
@@ -29,6 +27,10 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+
+import io.confluent.telemetry.exporter.kafka.KafkaExporterConfig;
+import kafka.server.Defaults;
+import kafka.server.KafkaConfig;
 
 /**
  * This class was created to extract the interbroker client configs from the broker at runtime.
@@ -67,6 +69,23 @@ public class BrokerConfigUtils {
   protected static final String INTER_BROKER_LISTENER_NAME_DEFAULT = null;
 
   protected static final String URI_PARSE_REGEX_STRING = "^(.*)://\\[?([0-9a-zA-Z\\-%._:]*)\\]?:(-?[0-9]+)";
+
+  /**
+   * return the config value for ConfluentConfigs.BALANCER_TOPICS_REPLICATION_FACTOR_CONFIG
+   * @param config
+   * @return the value of the config if defined, otherwise null
+   */
+  public static String getBalanceReplicationFactor(Map<String, Object> config) {
+    if (CONFLUENT_CONFIGS_CLASS == null) {
+      throw new RuntimeException("unable to locate ConfluentConfigs class", INTER_BROKER_CLIENT_CONFIGS_EXCEPTION);
+    }
+    try {
+      String configName = (String) CONFLUENT_CONFIGS_CLASS.getDeclaredField("BALANCER_TOPICS_REPLICATION_FACTOR_CONFIG").get(null);
+      return getStringOrDefault(config, configName, null);
+    } catch (Exception e) {
+      throw new RuntimeException("unable look up balancer replication factor config name", e);
+    }
+  }
 
   private static String getHostName(Map<String, Object> config) {
     return getStringOrDefault(config, HOST_NAME_PROP, HOST_NAME_DEFAULT);
@@ -185,16 +204,19 @@ public class BrokerConfigUtils {
     return endpoint;
   }
 
+  private static final Class<?> CONFLUENT_CONFIGS_CLASS;
   private static final MethodHandle INTER_BROKER_CLIENT_CONFIGS_METHOD;
   private static final Exception INTER_BROKER_CLIENT_CONFIGS_EXCEPTION;
 
   static {
+    Class<?> confluentConfigsClass = null;
     MethodHandle method = null;
     Exception exception = null;
     try {
+      confluentConfigsClass = Class.forName("org.apache.kafka.common.config.internals.ConfluentConfigs");
       method =
           MethodHandles.publicLookup().findStatic(
-              Class.forName("org.apache.kafka.common.config.internals.ConfluentConfigs"),
+              confluentConfigsClass,
               "interBrokerClientConfigs",
               // note: first parameter is return-type
               MethodType.methodType(Map.class, Map.class, Endpoint.class)
@@ -203,9 +225,11 @@ public class BrokerConfigUtils {
       exception = e;
     }
     if (method != null) {
+      CONFLUENT_CONFIGS_CLASS = confluentConfigsClass;
       INTER_BROKER_CLIENT_CONFIGS_METHOD = method;
       INTER_BROKER_CLIENT_CONFIGS_EXCEPTION = null;
     } else {
+      CONFLUENT_CONFIGS_CLASS = null;
       INTER_BROKER_CLIENT_CONFIGS_METHOD = null;
       INTER_BROKER_CLIENT_CONFIGS_EXCEPTION = exception;
     }
