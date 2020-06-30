@@ -2,12 +2,7 @@
 
 package io.confluent.kafka.multitenant;
 
-import io.confluent.kafka.multitenant.quota.TenantPartitionAssignor;
 import io.confluent.kafka.multitenant.metrics.TenantMetrics;
-
-import io.confluent.kafka.multitenant.quota.TenantQuotaCallback;
-import kafka.server.KafkaConfig$;
-import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.network.ClientInformation;
 import org.apache.kafka.common.network.ListenerName;
@@ -22,12 +17,10 @@ import java.net.InetAddress;
 import java.util.Map;
 
 public class MultiTenantInterceptor implements BrokerInterceptor {
-
   private final Time time;
   private final TenantMetrics tenantMetrics;
-  private TenantPartitionAssignor partitionAssignor;
-  private short defaultReplicationFactor;
-  private int defaultNumPartitions;
+
+  private MultiTenantInterceptorConfig multiTenantInterceptorConfig;
 
   public MultiTenantInterceptor() {
     this.time = Time.SYSTEM;
@@ -52,11 +45,7 @@ public class MultiTenantInterceptor implements BrokerInterceptor {
 
   @Override
   public void configure(Map<String, ?> configs) {
-    this.partitionAssignor = TenantQuotaCallback.partitionAssignor(configs);
-    this.defaultReplicationFactor = (short) intConfig(configs,
-        KafkaConfig$.MODULE$.DefaultReplicationFactorProp());
-    this.defaultNumPartitions = intConfig(configs,
-        KafkaConfig$.MODULE$.NumPartitionsProp());
+    multiTenantInterceptorConfig = new MultiTenantInterceptorConfig(configs);
   }
 
   @Override
@@ -68,16 +57,9 @@ public class MultiTenantInterceptor implements BrokerInterceptor {
                                    SecurityProtocol securityProtocol,
                                    ClientInformation clientInformation,
                                    Metrics metrics) {
-    return new MultiTenantRequestContext(header, connectionId, clientAddress, principal,
-        listenerName, securityProtocol, clientInformation, time, metrics, tenantMetrics,
-        partitionAssignor, defaultReplicationFactor, defaultNumPartitions);
+    return new MultiTenantRequestContext(
+            header, connectionId, clientAddress, principal, listenerName,
+            securityProtocol, clientInformation, time, metrics, tenantMetrics, multiTenantInterceptorConfig);
   }
 
-  private static int intConfig(Map<String, ?> configs, String configName) {
-    Object configValue = configs.get(configName);
-    if (configValue == null) {
-      throw new ConfigException(configName + " is not set");
-    }
-    return Integer.parseInt(configValue.toString());
-  }
 }

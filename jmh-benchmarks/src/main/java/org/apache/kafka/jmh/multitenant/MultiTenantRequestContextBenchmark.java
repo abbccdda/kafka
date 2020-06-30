@@ -4,10 +4,15 @@
 
 package org.apache.kafka.jmh.multitenant;
 
+import io.confluent.kafka.multitenant.MultiTenantInterceptorConfig;
 import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 import io.confluent.kafka.multitenant.MultiTenantRequestContext;
 import io.confluent.kafka.multitenant.TenantMetadata;
 import io.confluent.kafka.multitenant.metrics.TenantMetrics;
+import java.util.HashMap;
+import java.util.Map;
+import kafka.server.KafkaConfig;
+import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.message.MetadataResponseData;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.network.ClientInformation;
@@ -51,9 +56,13 @@ import java.util.stream.IntStream;
 
 public class MultiTenantRequestContextBenchmark {
     @Param({"500", "1000", "2000", "5000"})
-    public static Integer topicCount;
+    public static int topicCount;
     @Param({"5", "10", "50"})
-    public static Integer partitionCount;
+    public static int partitionCount;
+    @Param({"10", "50", "100"})
+    public static int brokerCount;
+    @Param({"false", "true"})
+    public static boolean isHostNamePrefixEnabled;
 
     private MultiTenantPrincipal principal = new MultiTenantPrincipal("user",
         new TenantMetadata("tenant", "tenant_cluster_id"));
@@ -67,10 +76,18 @@ public class MultiTenantRequestContextBenchmark {
     }
 
     private MultiTenantRequestContext createRequestContext() {
+        Map<String, Object> configMap  = new HashMap<String, Object>() {{
+            put(KafkaConfig.BrokerIdProp(), 1);
+            put(KafkaConfig.DefaultReplicationFactorProp(), (short) 1);
+            put(KafkaConfig.NumPartitionsProp(), 1);
+            put(ConfluentConfigs.MULTITENANT_LISTENER_PREFIX_ENABLE, isHostNamePrefixEnabled);
+        }};
+        MultiTenantInterceptorConfig config = new MultiTenantInterceptorConfig(configMap);
         RequestHeader header = new RequestHeader(ApiKeys.METADATA, ApiKeys.METADATA.latestVersion(), "clientId", 23);
-        MultiTenantRequestContext context = new MultiTenantRequestContext(header, "1", null, principal,
-            ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT), SecurityProtocol.PLAINTEXT, ClientInformation.EMPTY,
-            new SystemTime(), metrics, tenantMetrics, null, (short) 1, 1);
+        MultiTenantRequestContext context = new MultiTenantRequestContext(
+                header, "1", null, principal,
+                ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT), SecurityProtocol.PLAINTEXT, ClientInformation.EMPTY,
+                new SystemTime(), metrics, tenantMetrics, config);
 
         // to set MultiTenantRequestContext.isMetadataFetchForAllTopics flag
         MetadataRequest metadataRequest = MetadataRequest.Builder.allTopics().build();
@@ -92,7 +109,7 @@ public class MultiTenantRequestContextBenchmark {
         MetadataResponseData responseData = new MetadataResponseData();
         responseData.setThrottleTimeMs(0);
 
-        IntStream.range(0, 5).forEach(brokerId -> {
+        IntStream.range(0, brokerCount).forEach(brokerId -> {
             responseData.brokers().add(new MetadataResponseData.MetadataResponseBroker()
                 .setNodeId(brokerId)
                 .setHost("host_" + brokerId)

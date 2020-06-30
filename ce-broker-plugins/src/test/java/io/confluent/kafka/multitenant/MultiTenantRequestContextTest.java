@@ -222,6 +222,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
+import org.mockito.Mockito;
 
 import static java.util.Arrays.asList;
 import static java.util.Collections.singletonList;
@@ -240,19 +241,26 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.when;
 
 public class MultiTenantRequestContextTest {
 
   private final static Locale LOCALE = Locale.ENGLISH;
   private final static short DEFAULT_REPLICATION_FACTOR = 2;
   private final static int DEFAULT_NUM_PARTITIONS = 3;
-  private MultiTenantPrincipal principal = new MultiTenantPrincipal("user",
-      new TenantMetadata("tenant", "tenant_cluster_id"));
-  private ListenerName listenerName = new ListenerName("listener");
-  private SecurityProtocol securityProtocol = SecurityProtocol.SASL_PLAINTEXT;
-  private Time time = new MockTime();
-  private Metrics metrics = new Metrics(new MetricConfig(), Collections.emptyList(), time, true);
-  private TenantMetrics tenantMetrics = new TenantMetrics();
+  public static final String USERNAME = "user";
+  public static final String TENANT_CLUSTER_ID = "tenant_cluster_id";
+  public static final String TENANT_NAME = "tenant";
+  public static final String CLUSTER_ID = "231412341";
+  public static final int KAFKA_PORT = 9092;
+  public static final String LOCALHOST = "localhost";
+  private final MultiTenantPrincipal principal = new MultiTenantPrincipal(
+          USERNAME, new TenantMetadata(TENANT_NAME, TENANT_CLUSTER_ID));
+  private final ListenerName listenerName = new ListenerName("listener");
+  private final SecurityProtocol securityProtocol = SecurityProtocol.SASL_PLAINTEXT;
+  private final Time time = new MockTime();
+  private final Metrics metrics = new Metrics(new MetricConfig(), Collections.emptyList(), time, true);
+  private final TenantMetrics tenantMetrics = new TenantMetrics();
   private TenantPartitionAssignor partitionAssignor;
   private TestCluster testCluster;
   private ClusterLinkClient clusterLinkClient;
@@ -275,7 +283,7 @@ public class MultiTenantRequestContextTest {
 
   @Test
   public void testProduceRequest() {
-    MultiTenantRequestContext context = newRequestContext(ApiKeys.PRODUCE, ApiKeys.PRODUCE.latestVersion());
+    MultiTenantRequestContext context = newRequestContext(ApiKeys.PRODUCE, ApiKeys.PRODUCE.latestVersion(), false);
 
     String transactionalId = "tr";
     Map<TopicPartition, MemoryRecords> records = new HashMap<>();
@@ -302,7 +310,7 @@ public class MultiTenantRequestContextTest {
    */
   @Test
   public void testRequestSizeMetrics() {
-    MultiTenantRequestContext context = newRequestContext(ApiKeys.PRODUCE, ApiKeys.PRODUCE.latestVersion());
+    MultiTenantRequestContext context = newRequestContext(ApiKeys.PRODUCE, ApiKeys.PRODUCE.latestVersion(), false);
     List<Integer> requestSizes = new ArrayList<>();
     Map<TopicPartition, Integer> partitionCounts = new HashMap<>();
     for (int recordCount : asList(1, 5, 10)) {
@@ -346,7 +354,7 @@ public class MultiTenantRequestContextTest {
 
   @Test
   public void testProduceResponse() throws IOException {
-    MultiTenantRequestContext context = newRequestContext(ApiKeys.PRODUCE, ApiKeys.PRODUCE.latestVersion());
+    MultiTenantRequestContext context = newRequestContext(ApiKeys.PRODUCE, ApiKeys.PRODUCE.latestVersion(), false);
     Map<TopicPartition, ProduceResponse.PartitionResponse> partitionResponses = new HashMap<>();
     partitionResponses.put(new TopicPartition("tenant_foo", 0),
         new ProduceResponse.PartitionResponse(Errors.INVALID_RECORD));
@@ -373,7 +381,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testFetchRequest() {
     for (short ver = ApiKeys.FETCH.oldestVersion(); ver <= ApiKeys.FETCH.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.FETCH, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.FETCH, ver, false);
       LinkedHashMap<TopicPartition, FetchRequest.PartitionData> partitions = new LinkedHashMap<>();
       partitions.put(new TopicPartition("foo", 0), new FetchRequest.PartitionData(0L, -1, 1, Optional.empty()));
       partitions.put(new TopicPartition("bar", 0), new FetchRequest.PartitionData(0L, -1, 1, Optional.empty()));
@@ -393,7 +401,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testFetchResponse() throws IOException {
     for (short ver = ApiKeys.FETCH.oldestVersion(); ver <= ApiKeys.FETCH.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.FETCH, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.FETCH, ver, false);
 
       LinkedHashMap<TopicPartition, FetchResponse.PartitionData<MemoryRecords>> responsePartitions =
           new LinkedHashMap<>();
@@ -432,7 +440,7 @@ public class MultiTenantRequestContextTest {
   @SuppressWarnings("deprecation")
   public void testListOffsetsRequest() {
     for (short ver = ApiKeys.LIST_OFFSETS.oldestVersion(); ver <= ApiKeys.LIST_OFFSETS.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.LIST_OFFSETS, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.LIST_OFFSETS, ver, false);
       ListOffsetRequest.Builder bldr = ListOffsetRequest.Builder.forConsumer(false, IsolationLevel.READ_UNCOMMITTED);
       Map<TopicPartition, ListOffsetRequest.PartitionData> offsetData = new HashMap<>();
       offsetData.put(new TopicPartition("foo", 0), new ListOffsetRequest.PartitionData(0L, 1));
@@ -455,7 +463,7 @@ public class MultiTenantRequestContextTest {
   @SuppressWarnings("deprecation")
   public void testListOffsetsResponse() throws IOException {
     for (short ver = ApiKeys.LIST_OFFSETS.oldestVersion(); ver <= ApiKeys.LIST_OFFSETS.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.LIST_OFFSETS, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.LIST_OFFSETS, ver, false);
 
       Map<TopicPartition, ListOffsetResponse.PartitionData> responsePartitions = new HashMap<>();
       if (ver == 0) {
@@ -482,7 +490,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testMetadataRequest() {
     for (short ver = 0; ver <= ApiKeys.METADATA.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.METADATA, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.METADATA, ver, false);
       MetadataRequestData data = new MetadataRequestData();
       data.setAllowAutoTopicCreation(true);
       data.setTopics(Stream.of("foo", "bar").map(t -> new MetadataRequestTopic().setName(t))
@@ -500,8 +508,8 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testMetadataResponseNoController() throws IOException {
     for (short ver = ApiKeys.METADATA.oldestVersion(); ver <= ApiKeys.METADATA.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.METADATA, ver);
-      Node node = new Node(1, "localhost", 9092);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.METADATA, ver, false);
+      Node node = new Node(1, LOCALHOST, KAFKA_PORT);
 
       MetadataRequestData data = new MetadataRequestData().
               setAllowAutoTopicCreation(true)
@@ -512,7 +520,7 @@ public class MultiTenantRequestContextTest {
       assertTrue(clusterLinkClient.intercept(interceptedInbound, context.header).isAllTopics());
 
       MetadataResponse outbound = MetadataResponse.prepareResponse(0, singletonList(node),
-              "231412341", MetadataResponse.NO_CONTROLLER_ID,
+              CLUSTER_ID, MetadataResponse.NO_CONTROLLER_ID,
               new ArrayList<>());
       assertNull(outbound.controller());
 
@@ -525,11 +533,43 @@ public class MultiTenantRequestContextTest {
   }
 
   @Test
+  public void testTenantSpecificMetadataResponse() throws IOException {
+    for (short ver = 0; ver <= ApiKeys.METADATA.latestVersion(); ver++) {
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.METADATA, ver, true);
+
+      Node node = new Node(1, "-" + LOCALHOST, KAFKA_PORT);
+      TopicPartition tp0 = new TopicPartition("topic", 0);
+      List<MetadataResponse.TopicMetadata> topicMetadata = new ArrayList<>();
+      topicMetadata.add(new MetadataResponse.TopicMetadata(Errors.NONE, "tenant_foo", false,
+              singletonList(new MetadataResponse.PartitionMetadata(Errors.NONE, tp0, Optional.of(node.id()),
+                      Optional.empty(), singletonList(node.id()), singletonList(node.id()),
+                      Collections.emptyList()))));
+      topicMetadata.add(new MetadataResponse.TopicMetadata(Errors.NONE, "tenant_bar", false,
+              singletonList(new MetadataResponse.PartitionMetadata(Errors.NONE, tp0, Optional.of(node.id()),
+                      Optional.empty(), singletonList(node.id()), singletonList(node.id()),
+                      Collections.emptyList()))));
+
+      MetadataResponse outbound = MetadataResponse.prepareResponse(0, singletonList(node),
+              CLUSTER_ID, 1, topicMetadata);
+      Struct struct = parseResponse(ApiKeys.METADATA, ver, context.buildResponse(outbound));
+      MetadataResponse intercepted = new MetadataResponse(struct, ver);
+      Collection<Node> brokers = intercepted.brokers();
+      assertEquals(1, brokers.size());
+      Node broker = brokers.iterator().next();
+      final String tenantSpecificBrokerHost = TENANT_CLUSTER_ID + "-localhost";
+      assertEquals(tenantSpecificBrokerHost, broker.host());
+
+      verifyMetadataResponse(intercepted, ver, "foo", "bar");
+      verifyResponseMetrics(ApiKeys.METADATA, Errors.NONE);
+    }
+  }
+
+  @Test
   public void testMetadataResponse() throws IOException {
     for (short ver = ApiKeys.METADATA.oldestVersion(); ver <= ApiKeys.METADATA.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.METADATA, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.METADATA, ver, false);
 
-      Node node = new Node(1, "localhost", 9092);
+      Node node = new Node(1, LOCALHOST, KAFKA_PORT);
       TopicPartition tp0 = new TopicPartition("topic", 0);
       List<MetadataResponse.TopicMetadata> topicMetadata = new ArrayList<>();
       topicMetadata.add(new MetadataResponse.TopicMetadata(Errors.NONE, "tenant_foo", false,
@@ -542,7 +582,7 @@ public class MultiTenantRequestContextTest {
               Collections.emptyList()))));
 
       MetadataResponse outbound = MetadataResponse.prepareResponse(0, singletonList(node),
-              "231412341", 1, topicMetadata);
+              CLUSTER_ID, 1, topicMetadata);
       Struct struct = parseResponse(ApiKeys.METADATA, ver, context.buildResponse(outbound));
       MetadataResponse intercepted = new MetadataResponse(struct, ver);
       verifyMetadataResponse(intercepted, ver, "foo", "bar");
@@ -559,7 +599,7 @@ public class MultiTenantRequestContextTest {
     if (ver < 2)
       assertNull(intercepted.clusterId());
     else
-      assertEquals("tenant_cluster_id", intercepted.clusterId());
+      assertEquals(TENANT_CLUSTER_ID, intercepted.clusterId());
 
     Iterator<MetadataResponse.TopicMetadata> iterator = intercepted.topicMetadata().iterator();
     assertTrue(iterator.hasNext());
@@ -572,7 +612,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testMetadataFetchAllTopics() throws IOException {
     for (short ver = 0; ver <= ApiKeys.METADATA.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.METADATA, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.METADATA, ver, false);
 
       MetadataRequestData data = new MetadataRequestData().setAllowAutoTopicCreation(true)
           .setTopics(ver == 0 ? Collections.emptyList() : null);
@@ -581,7 +621,7 @@ public class MultiTenantRequestContextTest {
       MetadataRequest interceptedInbound = (MetadataRequest) parseRequest(context, inbound);
       assertTrue(interceptedInbound.isAllTopics());
 
-      Node node = new Node(1, "localhost", 9092);
+      Node node = new Node(1, LOCALHOST, KAFKA_PORT);
       List<MetadataResponse.TopicMetadata> topicMetadata = new ArrayList<>();
       topicMetadata.add(new MetadataResponse.TopicMetadata(Errors.NONE, "tenant_foo", false,
           singletonList(new MetadataResponse.PartitionMetadata(Errors.NONE, tp0, Optional.of(node.id()),
@@ -613,7 +653,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testOffsetCommitRequest() {
     for (short ver = ApiKeys.OFFSET_COMMIT.oldestVersion(); ver <= ApiKeys.OFFSET_COMMIT.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.OFFSET_COMMIT, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.OFFSET_COMMIT, ver, false);
       String groupId = "group";
       OffsetCommitRequest inbound = new OffsetCommitRequest.Builder(
               new OffsetCommitRequestData()
@@ -652,7 +692,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testOffsetCommitResponse() throws IOException {
     for (short ver = ApiKeys.OFFSET_COMMIT.oldestVersion(); ver <= ApiKeys.OFFSET_COMMIT.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.OFFSET_COMMIT, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.OFFSET_COMMIT, ver, false);
       Map<TopicPartition, Errors> partitionErrors = new HashMap<>();
       partitionErrors.put(new TopicPartition("tenant_foo", 0), Errors.NONE);
       partitionErrors.put(new TopicPartition("tenant_bar", 0), Errors.NONE);
@@ -674,7 +714,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testOffsetFetchRequest() {
     for (short ver = ApiKeys.OFFSET_FETCH.oldestVersion(); ver <= ApiKeys.OFFSET_FETCH.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.OFFSET_FETCH, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.OFFSET_FETCH, ver, false);
       String groupId = "group";
       OffsetFetchRequest inbound = new OffsetFetchRequest.Builder(groupId, true,
           asList(new TopicPartition("foo", 0), new TopicPartition("bar", 0)),
@@ -695,7 +735,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testOffsetFetchResponse() throws IOException {
     for (short ver = ApiKeys.OFFSET_FETCH.oldestVersion(); ver <= ApiKeys.OFFSET_FETCH.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.OFFSET_FETCH, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.OFFSET_FETCH, ver, false);
       Map<TopicPartition, OffsetFetchResponse.PartitionData> responsePartitions = new HashMap<>();
       responsePartitions.put(new TopicPartition("tenant_foo", 0), new OffsetFetchResponse.PartitionData(0L, Optional.empty(), "", Errors.NONE));
       responsePartitions.put(new TopicPartition("tenant_bar", 0), new OffsetFetchResponse.PartitionData(0L, Optional.empty(), "", Errors.NONE));
@@ -714,7 +754,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testFindGroupCoordinatorRequest() {
     for (short ver = ApiKeys.FIND_COORDINATOR.oldestVersion(); ver <= ApiKeys.FIND_COORDINATOR.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.FIND_COORDINATOR, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.FIND_COORDINATOR, ver, false);
       FindCoordinatorRequest inbound =
               new FindCoordinatorRequest.Builder(new FindCoordinatorRequestData()
                       .setKeyType(FindCoordinatorRequest.CoordinatorType.GROUP.id())
@@ -732,7 +772,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testFindTxnCoordinatorRequest() {
     for (short ver = 1; ver <= ApiKeys.FIND_COORDINATOR.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.FIND_COORDINATOR, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.FIND_COORDINATOR, ver, false);
       FindCoordinatorRequest inbound =
               new FindCoordinatorRequest.Builder(new FindCoordinatorRequestData()
                       .setKeyType(FindCoordinatorRequest.CoordinatorType.TRANSACTION.id())
@@ -788,7 +828,7 @@ public class MultiTenantRequestContextTest {
   private void testJoinGroupRequest(String group, String protocolType, String protocolName,
       byte[] protocolMetadata, Consumer<byte[]> verifySubscription) {
     for (short ver = ApiKeys.JOIN_GROUP.oldestVersion(); ver <= ApiKeys.JOIN_GROUP.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.JOIN_GROUP, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.JOIN_GROUP, ver, false);
 
       JoinGroupRequest inbound = buildJoinGroupRequest(group, protocolType, protocolName,
           protocolMetadata, ver);
@@ -834,7 +874,7 @@ public class MultiTenantRequestContextTest {
       byte[] protocolMetadata, boolean leader) throws IOException {
 
     for (short ver = ApiKeys.JOIN_GROUP.oldestVersion(); ver <= ApiKeys.JOIN_GROUP.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.JOIN_GROUP, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.JOIN_GROUP, ver, false);
 
       JoinGroupRequest inbound = buildJoinGroupRequest(group, protocolType,
           protocolName, protocolMetadata, ver);
@@ -910,7 +950,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testSyncGroupRequest() {
     for (short ver = ApiKeys.SYNC_GROUP.oldestVersion(); ver <= ApiKeys.SYNC_GROUP.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.SYNC_GROUP, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.SYNC_GROUP, ver, false);
       SyncGroupRequest inbound = new SyncGroupRequest.Builder(new SyncGroupRequestData()
           .setGroupId("group").setGenerationId(1).setMemberId("memberId")).build(ver);
       SyncGroupRequest intercepted = (SyncGroupRequest) parseRequest(context, inbound);
@@ -924,7 +964,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testHeartbeatRequest() {
     for (short ver = ApiKeys.HEARTBEAT.oldestVersion(); ver <= ApiKeys.HEARTBEAT.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.HEARTBEAT, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.HEARTBEAT, ver, false);
       HeartbeatRequest inbound = new HeartbeatRequest.Builder(new HeartbeatRequestData()
           .setGroupId("group")
           .setGenerationId(1)
@@ -940,7 +980,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testLeaveGroupRequest() {
     for (short ver = ApiKeys.LEAVE_GROUP.oldestVersion(); ver <= ApiKeys.LEAVE_GROUP.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.LEAVE_GROUP, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.LEAVE_GROUP, ver, false);
       LeaveGroupRequest inbound = new LeaveGroupRequest.Builder("group",
               singletonList(new LeaveGroupRequestData.MemberIdentity().setMemberId("memberId")))
               .build(ver);
@@ -955,7 +995,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testDescribeGroupsRequest() {
     for (short ver = ApiKeys.DESCRIBE_GROUPS.oldestVersion(); ver <= ApiKeys.DESCRIBE_GROUPS.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.DESCRIBE_GROUPS, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.DESCRIBE_GROUPS, ver, false);
       DescribeGroupsRequestData describeGroupsRequestData = new DescribeGroupsRequestData();
       describeGroupsRequestData.setGroups(asList("foo", "bar"));
       DescribeGroupsRequest inbound = new DescribeGroupsRequest.Builder(describeGroupsRequestData).build(ver);
@@ -1018,7 +1058,7 @@ public class MultiTenantRequestContextTest {
       byte[] outboundProtocolMetadata, byte[] interceptedProtocolMetadata) throws IOException {
 
     for (short ver = ApiKeys.DESCRIBE_GROUPS.oldestVersion(); ver <= ApiKeys.DESCRIBE_GROUPS.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.DESCRIBE_GROUPS, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.DESCRIBE_GROUPS, ver, false);
 
       DescribeGroupsResponse outbound = buildDescribeGroupsResponse(outboundGroups, protocolType, "range",
         outboundProtocolMetadata);
@@ -1080,7 +1120,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testListGroupsResponse() throws IOException {
     for (short ver = ApiKeys.LIST_GROUPS.oldestVersion(); ver <= ApiKeys.LIST_GROUPS.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.LIST_GROUPS, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.LIST_GROUPS, ver, false);
 
       ListGroupsResponseData.ListedGroup fooTenant = new ListGroupsResponseData.ListedGroup();
       fooTenant.setGroupId("tenant_foo");
@@ -1117,7 +1157,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testDeleteGroupsRequest() {
     for (short ver = ApiKeys.DELETE_GROUPS.oldestVersion(); ver <= ApiKeys.DELETE_GROUPS.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.DELETE_GROUPS, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.DELETE_GROUPS, ver, false);
       DeleteGroupsRequestData requestData = new DeleteGroupsRequestData().setGroupsNames(asList("foo", "bar"));
       DeleteGroupsRequest inbound = new DeleteGroupsRequest.Builder(requestData).build(ver);
       DeleteGroupsRequest intercepted = (DeleteGroupsRequest) parseRequest(context, inbound);
@@ -1131,7 +1171,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testDeleteGroupsResponse() throws IOException {
     for (short ver = ApiKeys.DELETE_GROUPS.oldestVersion(); ver <= ApiKeys.DELETE_GROUPS.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.DELETE_GROUPS, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.DELETE_GROUPS, ver, false);
       DeleteGroupsResponseData responseData = new DeleteGroupsResponseData()
               .setResults(new DeleteGroupsResponseData.DeletableGroupResultCollection(Arrays.asList(
                       new DeleteGroupsResponseData.DeletableGroupResult()
@@ -1156,7 +1196,7 @@ public class MultiTenantRequestContextTest {
     String tenantPrefix = principal.tenantMetadata().tenantPrefix();
 
     for (short ver = ApiKeys.OFFSET_DELETE.oldestVersion(); ver <= ApiKeys.OFFSET_DELETE.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.OFFSET_DELETE, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.OFFSET_DELETE, ver, false);
 
       OffsetDeleteRequestTopicCollection topics = new OffsetDeleteRequestTopicCollection();
       topics.add(new OffsetDeleteRequestTopic().setName("foo").setPartitions(Arrays.asList(
@@ -1194,7 +1234,7 @@ public class MultiTenantRequestContextTest {
     String tenantPrefix = principal.tenantMetadata().tenantPrefix();
 
     for (short ver = ApiKeys.OFFSET_DELETE.oldestVersion(); ver <= ApiKeys.OFFSET_DELETE.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.OFFSET_DELETE, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.OFFSET_DELETE, ver, false);
 
       OffsetDeleteResponseTopicCollection topics = new OffsetDeleteResponseTopicCollection();
       topics.add(new OffsetDeleteResponseTopic()
@@ -1255,7 +1295,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testCreateTopicsRequest() {
     for (short ver = ApiKeys.CREATE_TOPICS.oldestVersion(); ver <= ApiKeys.CREATE_TOPICS.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_TOPICS, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_TOPICS, ver, false);
       CreatableTopicCollection requestTopics =
               new CreateTopicsRequestData.CreatableTopicCollection();
 
@@ -1358,7 +1398,7 @@ public class MultiTenantRequestContextTest {
   public void testCreateTopicsRequestWithoutPartitionAssignor() {
     partitionAssignor = null;
     for (short ver = ApiKeys.CREATE_TOPICS.oldestVersion(); ver <= ApiKeys.CREATE_TOPICS.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_TOPICS, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_TOPICS, ver, false);
 
        CreateTopicsRequestData.CreatableTopicCollection requestTopics =
               new CreateTopicsRequestData.CreatableTopicCollection();
@@ -1460,7 +1500,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testCreateTopicsResponse() throws IOException {
     for (short ver = ApiKeys.CREATE_TOPICS.oldestVersion(); ver <= ApiKeys.CREATE_TOPICS.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_TOPICS, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_TOPICS, ver, false);
       List<CreatableTopicConfigs> configs = Arrays.asList(
           new CreatableTopicConfigs().setConfigName("confluent.tier.enable").setValue("true"),
           new CreatableTopicConfigs().setConfigName(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG).setValue("{}"),
@@ -1503,7 +1543,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testCreateTopicsResponsePolicyFailure() throws IOException {
     for (short ver = ApiKeys.CREATE_TOPICS.oldestVersion(); ver <= ApiKeys.CREATE_TOPICS.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_TOPICS, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_TOPICS, ver, false);
       Collection<CreatableTopicResult> results = asList(
               new CreatableTopicResult()
                       .setErrorCode(Errors.POLICY_VIOLATION.code())
@@ -1533,7 +1573,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testDeleteTopicsRequest() {
     for (short ver = ApiKeys.DELETE_TOPICS.oldestVersion(); ver <= ApiKeys.DELETE_TOPICS.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.DELETE_TOPICS, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.DELETE_TOPICS, ver, false);
       DeleteTopicsRequest inbound = new DeleteTopicsRequest.Builder(
               new DeleteTopicsRequestData()
                       .setTopicNames(asList("foo", "bar")))
@@ -1549,7 +1589,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testDeleteTopicsResponse() throws IOException {
     for (short ver = ApiKeys.DELETE_TOPICS.oldestVersion(); ver <= ApiKeys.DELETE_TOPICS.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.DELETE_TOPICS, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.DELETE_TOPICS, ver, false);
       DeletableTopicResultCollection deleted = new DeletableTopicResultCollection();
       deleted.add(new DeletableTopicResult().setName("tenant_foo").setErrorCode(Errors.NONE.code()));
       deleted.add(new DeletableTopicResult().setName("tenant_bar").setErrorCode(Errors.NONE.code()));
@@ -1569,7 +1609,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testInitProducerIdRequest() {
     for (short ver = ApiKeys.INIT_PRODUCER_ID.oldestVersion(); ver <= ApiKeys.INIT_PRODUCER_ID.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.INIT_PRODUCER_ID, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.INIT_PRODUCER_ID, ver, false);
       InitProducerIdRequest inbound = new InitProducerIdRequest.Builder(new InitProducerIdRequestData().
           setTransactionalId("tr").setTransactionTimeoutMs(30000)).build(ver);
       InitProducerIdRequest intercepted = (InitProducerIdRequest) parseRequest(context, inbound);
@@ -1583,7 +1623,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testInitProducerIdRequestNullTransactionalId() {
     for (short ver = ApiKeys.INIT_PRODUCER_ID.oldestVersion(); ver <= ApiKeys.INIT_PRODUCER_ID.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.INIT_PRODUCER_ID, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.INIT_PRODUCER_ID, ver, false);
       InitProducerIdRequest inbound = new InitProducerIdRequest.Builder(new InitProducerIdRequestData().
           setTransactionalId(null).setTransactionTimeoutMs(1000)).build(ver);
       InitProducerIdRequest intercepted = (InitProducerIdRequest) parseRequest(context, inbound);
@@ -1597,7 +1637,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testControlledShutdownNotAllowed() throws Exception {
     for (short ver = ApiKeys.CONTROLLED_SHUTDOWN.oldestVersion(); ver <= ApiKeys.CONTROLLED_SHUTDOWN.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.CONTROLLED_SHUTDOWN, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.CONTROLLED_SHUTDOWN, ver, false);
       ControlledShutdownRequest inbound = new ControlledShutdownRequest.Builder(
           new ControlledShutdownRequestData()
               .setBrokerId(1)
@@ -1619,7 +1659,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testStopReplicaNotAllowed() throws Exception {
     for (short ver = ApiKeys.STOP_REPLICA.oldestVersion(); ver <= ApiKeys.STOP_REPLICA.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.STOP_REPLICA, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.STOP_REPLICA, ver, false);
       TopicPartition partition = new TopicPartition("foo", 0);
       StopReplicaRequestData.StopReplicaTopicState topicState = new StopReplicaRequestData.StopReplicaTopicState()
           .setTopicName("foo")
@@ -1652,7 +1692,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testLeaderAndIsrNotAllowed() throws Exception {
     for (short ver = ApiKeys.LEADER_AND_ISR.oldestVersion(); ver <= ApiKeys.LEADER_AND_ISR.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.LEADER_AND_ISR, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.LEADER_AND_ISR, ver, false);
       String topic = "foo";
       int partition = 0;
       LeaderAndIsrRequest inbound = new LeaderAndIsrRequest.Builder(ver, 1, 1, 0,
@@ -1688,7 +1728,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testUpdateMetadataNotAllowed() throws Exception {
     for (short ver = ApiKeys.UPDATE_METADATA.oldestVersion(); ver <= ApiKeys.UPDATE_METADATA.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.UPDATE_METADATA, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.UPDATE_METADATA, ver, false);
       String topic = "foo";
       int partition = 0;
       UpdateMetadataRequest inbound = new UpdateMetadataRequest.Builder(ver, 1, 1, 0,
@@ -1718,7 +1758,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testOffsetForLeaderEpochRequest() {
     for (short ver = ApiKeys.OFFSET_FOR_LEADER_EPOCH.oldestVersion(); ver <= ApiKeys.OFFSET_FOR_LEADER_EPOCH.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.OFFSET_FOR_LEADER_EPOCH, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.OFFSET_FOR_LEADER_EPOCH, ver, false);
       TopicPartition partition = new TopicPartition("foo", 0);
       OffsetsForLeaderEpochRequest inbound = OffsetsForLeaderEpochRequest.Builder.forFollower(
               ver, Collections.singletonMap(partition, new OffsetsForLeaderEpochRequest.PartitionData(Optional.empty(), 0)), 1).build(ver);
@@ -1736,7 +1776,7 @@ public class MultiTenantRequestContextTest {
   public void testOffsetForLeaderEpochResponse() throws Exception {
     for (short ver = ApiKeys.OFFSET_FOR_LEADER_EPOCH.oldestVersion(); ver <= ApiKeys.OFFSET_FOR_LEADER_EPOCH.latestVersion(); ver++) {
       TopicPartition partition = new TopicPartition("foo", 0);
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.OFFSET_FOR_LEADER_EPOCH, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.OFFSET_FOR_LEADER_EPOCH, ver, false);
       OffsetsForLeaderEpochResponse outbound = new OffsetsForLeaderEpochResponse(Collections.singletonMap(
               new TopicPartition("tenant_foo", 0), new EpochEndOffset(5, 37L)));
       Struct struct = parseResponse(ApiKeys.OFFSET_FOR_LEADER_EPOCH, ver, context.buildResponse(outbound));
@@ -1754,7 +1794,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testWriteTxnMarkersNotAllowed() throws Exception {
     for (short ver = ApiKeys.WRITE_TXN_MARKERS.oldestVersion(); ver <= ApiKeys.WRITE_TXN_MARKERS.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.WRITE_TXN_MARKERS, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.WRITE_TXN_MARKERS, ver, false);
       TopicPartition partition = new TopicPartition("foo", 0);
       WriteTxnMarkersRequest inbound = new WriteTxnMarkersRequest.Builder(
           singletonList(new WriteTxnMarkersRequest.TxnMarkerEntry(233L, (short) 5, 37,
@@ -1921,7 +1961,7 @@ public class MultiTenantRequestContextTest {
   }
 
   private void verifyCreateAclsRequest(AclTestParams params, short version) throws Exception {
-    MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_ACLS, version);
+    MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_ACLS, version, false);
     List<CreateAclsRequestData.AclCreation> aclCreations = AclTestParams.RESOURCE_TYPES.stream().map(resourceType ->
             new AclCreation().setHost("*").setOperation(AclOperation.CREATE.code())
                     .setPermissionType(AclPermissionType.ALLOW.code()).setPrincipal(params.principal())
@@ -1954,7 +1994,7 @@ public class MultiTenantRequestContextTest {
     CreateAclsRequest inbound = new CreateAclsRequest.Builder(
             new CreateAclsRequestData().setCreations(singletonList(aclCreation))
     ).build(version);
-    MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_ACLS, version);
+    MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_ACLS, version, false);
     parseRequest(context, inbound);
     assertTrue(context.shouldIntercept());
     assertEquals(Collections.singleton(Errors.INVALID_REQUEST), context.intercept(inbound, 0).errorCounts().keySet());
@@ -1965,7 +2005,7 @@ public class MultiTenantRequestContextTest {
   public void testCreateAclsResponse() throws Exception {
     for (short ver = ApiKeys.CREATE_ACLS.oldestVersion();
         ver <= ApiKeys.CREATE_ACLS.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_ACLS, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_ACLS, ver, false);
       List<CreateAclsResponseData.AclCreationResult> aclCreationResults =
               singletonList(new CreateAclsResponseData.AclCreationResult().setErrorCode(ApiError.NONE.error().code()));
       CreateAclsResponse outbound = new CreateAclsResponse(new CreateAclsResponseData()
@@ -1996,7 +2036,7 @@ public class MultiTenantRequestContextTest {
   }
 
   private void verifyDeleteAclsRequest(AclTestParams params, short version) {
-    MultiTenantRequestContext context = newRequestContext(ApiKeys.DELETE_ACLS, version);
+    MultiTenantRequestContext context = newRequestContext(ApiKeys.DELETE_ACLS, version, false);
     AccessControlEntryFilter ace =
         new AccessControlEntryFilter(params.principal(), "*", AclOperation.CREATE, AclPermissionType.ALLOW);
     List<AclBindingFilter> aclBindingFilters = AclTestParams.RESOURCE_TYPES.stream().map(resourceType ->
@@ -2036,7 +2076,7 @@ public class MultiTenantRequestContextTest {
   }
 
   private void verifyDeleteAclsResponse(AclTestParams params, short version) throws Exception {
-    MultiTenantRequestContext context = newRequestContext(ApiKeys.DELETE_ACLS, version);
+    MultiTenantRequestContext context = newRequestContext(ApiKeys.DELETE_ACLS, version, false);
     List<DeleteAclsResponseData.DeleteAclsMatchingAcl> deletionMatchingAcls0 = asList(
             new DeleteAclsResponseData.DeleteAclsMatchingAcl().setErrorCode(ApiError.NONE.error().code())
                     .setHost("*")
@@ -2128,7 +2168,7 @@ public class MultiTenantRequestContextTest {
   }
 
   private void verifyDescribeAclsRequest(ResourceType resourceType, AclTestParams params, short version) throws Exception {
-    MultiTenantRequestContext context = newRequestContext(ApiKeys.DESCRIBE_ACLS, version);
+    MultiTenantRequestContext context = newRequestContext(ApiKeys.DESCRIBE_ACLS, version, false);
     DescribeAclsRequest inbound = new DescribeAclsRequest.Builder(new AclBindingFilter(
         new ResourcePatternFilter(resourceType, params.resourceName(resourceType), params.patternType),
         new AccessControlEntryFilter(params.principal(), "*", AclOperation.CREATE, AclPermissionType.ALLOW)))
@@ -2159,7 +2199,7 @@ public class MultiTenantRequestContextTest {
   }
 
   private void verifyDescribeAclsResponse(AclTestParams params, short version) throws Exception {
-    MultiTenantRequestContext context = newRequestContext(ApiKeys.DESCRIBE_ACLS, version);
+    MultiTenantRequestContext context = newRequestContext(ApiKeys.DESCRIBE_ACLS, version, false);
     DescribeAclsResponse outbound = new DescribeAclsResponse(
             new DescribeAclsResponseData()
                     .setThrottleTimeMs(12)
@@ -2204,7 +2244,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testAddPartitionsToTxnRequest() {
     for (short ver = ApiKeys.ADD_PARTITIONS_TO_TXN.oldestVersion(); ver <= ApiKeys.ADD_PARTITIONS_TO_TXN.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.ADD_PARTITIONS_TO_TXN, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.ADD_PARTITIONS_TO_TXN, ver, false);
       AddPartitionsToTxnRequest inbound = new AddPartitionsToTxnRequest.Builder("tr", 23L, (short) 15,
           asList(new TopicPartition("foo", 0), new TopicPartition("bar", 0))).build(ver);
       AddPartitionsToTxnRequest intercepted = (AddPartitionsToTxnRequest) parseRequest(context, inbound);
@@ -2220,7 +2260,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testAddPartitionsToTxnResponse() throws IOException {
     for (short ver = ApiKeys.ADD_PARTITIONS_TO_TXN.oldestVersion(); ver <= ApiKeys.ADD_PARTITIONS_TO_TXN.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.ADD_PARTITIONS_TO_TXN, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.ADD_PARTITIONS_TO_TXN, ver, false);
       Map<TopicPartition, Errors> partitionErrors = new HashMap<>();
       partitionErrors.put(new TopicPartition("tenant_foo", 0), Errors.NONE);
       partitionErrors.put(new TopicPartition("tenant_bar", 0), Errors.NONE);
@@ -2238,7 +2278,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testAddOffsetsToTxnRequest() {
     for (short ver = ApiKeys.ADD_OFFSETS_TO_TXN.oldestVersion(); ver <= ApiKeys.ADD_OFFSETS_TO_TXN.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.ADD_OFFSETS_TO_TXN, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.ADD_OFFSETS_TO_TXN, ver, false);
       AddOffsetsToTxnRequestData data = new AddOffsetsToTxnRequestData()
               .setTransactionalId("tr")
               .setProducerId(23L)
@@ -2257,7 +2297,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testEndTxnRequest() {
     for (short ver = ApiKeys.END_TXN.oldestVersion(); ver <= ApiKeys.END_TXN.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.END_TXN, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.END_TXN, ver, false);
       EndTxnRequest inbound = new EndTxnRequest.Builder(
               new EndTxnRequestData()
                       .setTransactionalId("tr")
@@ -2276,7 +2316,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testTxnOffsetCommitRequest() {
     for (short ver = ApiKeys.TXN_OFFSET_COMMIT.oldestVersion(); ver <= ApiKeys.TXN_OFFSET_COMMIT.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.TXN_OFFSET_COMMIT, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.TXN_OFFSET_COMMIT, ver, false);
       final Map<TopicPartition, TxnOffsetCommitRequest.CommittedOffset> offsets = new HashMap<>();
       offsets.put(new TopicPartition("foo", 0),
           new TxnOffsetCommitRequest.CommittedOffset(0, "", Optional.of(-1)));
@@ -2304,7 +2344,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testTxnOffsetCommitResponse() throws IOException {
     for (short ver = ApiKeys.TXN_OFFSET_COMMIT.oldestVersion(); ver <= ApiKeys.TXN_OFFSET_COMMIT.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.TXN_OFFSET_COMMIT, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.TXN_OFFSET_COMMIT, ver, false);
       Map<TopicPartition, Errors> partitionErrors = new HashMap<>();
       partitionErrors.put(new TopicPartition("tenant_foo", 0), Errors.NONE);
       partitionErrors.put(new TopicPartition("tenant_bar", 0), Errors.NONE);
@@ -2322,7 +2362,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testDeleteRecordsRequest() {
     for (short ver = ApiKeys.DELETE_RECORDS.oldestVersion(); ver <= ApiKeys.DELETE_RECORDS.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.DELETE_RECORDS, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.DELETE_RECORDS, ver, false);
 
       DeleteRecordsRequestData.DeleteRecordsTopic foo = new DeleteRecordsRequestData.DeleteRecordsTopic()
           .setName("foo")
@@ -2358,7 +2398,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testDeleteRecordsResponse() throws IOException {
     for (short ver = ApiKeys.DELETE_RECORDS.oldestVersion(); ver <= ApiKeys.DELETE_RECORDS.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.DELETE_RECORDS, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.DELETE_RECORDS, ver, false);
 
       DeleteRecordsResponseData.DeleteRecordsTopicResultCollection topics =
           new DeleteRecordsResponseData.DeleteRecordsTopicResultCollection();
@@ -2401,7 +2441,7 @@ public class MultiTenantRequestContextTest {
     testCluster.setPartitionLeaders("tenant_bar", 0, 2, 1);
     partitionAssignor.updateClusterMetadata(testCluster.cluster());
     for (short ver = ApiKeys.CREATE_PARTITIONS.oldestVersion(); ver <= ApiKeys.CREATE_PARTITIONS.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_PARTITIONS, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_PARTITIONS, ver, false);
       List<CreatePartitionsTopic> requestTopics = new ArrayList<>();
       requestTopics.add(new CreatePartitionsTopic().setName("foo").setCount(4));
       List<CreatePartitionsAssignment> unbalancedAssignment = asList(
@@ -2441,7 +2481,7 @@ public class MultiTenantRequestContextTest {
   public void testCreatePartitionsRequestWithoutPartitionAssignor() throws Exception {
     partitionAssignor = null;
     for (short ver = ApiKeys.CREATE_PARTITIONS.oldestVersion(); ver <= ApiKeys.CREATE_PARTITIONS.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_PARTITIONS, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_PARTITIONS, ver, false);
 
       List<CreatePartitionsTopic> requestTopics = new ArrayList<>();
       requestTopics.add(new CreatePartitionsTopic().setName("foo").setCount(4));
@@ -2480,7 +2520,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testCreatePartitionsPolicyFailure() throws Exception {
     for (short ver = ApiKeys.CREATE_PARTITIONS.oldestVersion(); ver <= ApiKeys.CREATE_PARTITIONS.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_PARTITIONS, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.CREATE_PARTITIONS, ver, false);
       CreatePartitionsResponseData responseData =
               new CreatePartitionsResponseData()
                       .setResults(asList(
@@ -2513,7 +2553,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testDescribeConfigsRequest() {
     for (short ver = ApiKeys.DESCRIBE_CONFIGS.oldestVersion(); ver <= ApiKeys.DESCRIBE_CONFIGS.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.DESCRIBE_CONFIGS, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.DESCRIBE_CONFIGS, ver, false);
       ConfigResource clusterResource = new ConfigResource(Type.BROKER, "");
       Map<ConfigResource, Collection<String>> requestedResources = new HashMap<>();
       requestedResources.put(new ConfigResource(ConfigResource.Type.TOPIC, "foo"), Collections.emptyList());
@@ -2560,7 +2600,7 @@ public class MultiTenantRequestContextTest {
     );
 
     for (short ver = ApiKeys.DESCRIBE_CONFIGS.oldestVersion(); ver <= ApiKeys.DESCRIBE_CONFIGS.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.DESCRIBE_CONFIGS, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.DESCRIBE_CONFIGS, ver, false);
       Map<ConfigResource, DescribeConfigsResponse.Config> resourceErrors = new HashMap<>();
       resourceErrors.put(new ConfigResource(ConfigResource.Type.TOPIC, "tenant_foo"), new DescribeConfigsResponse.Config(new ApiError(Errors.NONE, ""),
           topicConfigEntries));
@@ -2613,7 +2653,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testAlterConfigsRequest() {
     for (short ver = ApiKeys.ALTER_CONFIGS.oldestVersion(); ver <= ApiKeys.ALTER_CONFIGS.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.ALTER_CONFIGS, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.ALTER_CONFIGS, ver, false);
       Map<ConfigResource, AlterConfigsRequest.Config> resourceConfigs = new HashMap<>();
 
       HashSet<AlterConfigsRequest.ConfigEntry> configEntries = new HashSet<>();
@@ -2662,7 +2702,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testAlterConfigsResponse() throws IOException {
     for (short ver = ApiKeys.ALTER_CONFIGS.oldestVersion(); ver <= ApiKeys.ALTER_CONFIGS.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.ALTER_CONFIGS, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.ALTER_CONFIGS, ver, false);
       List<AlterConfigsResponseData.AlterConfigsResourceResponse> resourceErrors = new ArrayList<>();
       resourceErrors.add(
           new AlterConfigsResponseData.AlterConfigsResourceResponse()
@@ -2724,7 +2764,7 @@ public class MultiTenantRequestContextTest {
     int maxSleepTimeMs = 3;
     for (int i = 0; i < 2; i++) {
       short ver = ApiKeys.FETCH.latestVersion();
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.FETCH, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.FETCH, ver, false);
       LinkedHashMap<TopicPartition, FetchRequest.PartitionData> partitions = new LinkedHashMap<>();
       partitions.put(new TopicPartition("foo", 0), new FetchRequest.PartitionData(0L, -1, 1, Optional.empty()));
 
@@ -2748,7 +2788,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testIncrementalAlterConfigsRequest() {
     for (short ver = ApiKeys.INCREMENTAL_ALTER_CONFIGS.oldestVersion(); ver <= ApiKeys.INCREMENTAL_ALTER_CONFIGS.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.INCREMENTAL_ALTER_CONFIGS, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.INCREMENTAL_ALTER_CONFIGS, ver, false);
       IncrementalAlterConfigsRequestData.AlterConfigsResourceCollection resourceConfigs =
               new IncrementalAlterConfigsRequestData.AlterConfigsResourceCollection();
 
@@ -2845,7 +2885,7 @@ public class MultiTenantRequestContextTest {
   @Test
   public void testIncrementalAlterConfigsResponse() throws IOException {
     for (short ver = ApiKeys.INCREMENTAL_ALTER_CONFIGS.oldestVersion(); ver <= ApiKeys.INCREMENTAL_ALTER_CONFIGS.latestVersion(); ver++) {
-      MultiTenantRequestContext context = newRequestContext(ApiKeys.INCREMENTAL_ALTER_CONFIGS, ver);
+      MultiTenantRequestContext context = newRequestContext(ApiKeys.INCREMENTAL_ALTER_CONFIGS, ver, false);
 
       List<IncrementalAlterConfigsResponseData.AlterConfigsResourceResponse> responses =
               new ArrayList<>();
@@ -2909,11 +2949,15 @@ public class MultiTenantRequestContextTest {
     return parsed;
   }
 
-  private MultiTenantRequestContext newRequestContext(ApiKeys api, short version) {
+  private MultiTenantRequestContext newRequestContext(ApiKeys api, short version, boolean isListenerPrefixEnabled) {
     RequestHeader header = new RequestHeader(api, version, "clientId", 23);
+    MultiTenantInterceptorConfig config = Mockito.mock(MultiTenantInterceptorConfig.class);
+    when(config.defaultNumPartitions()).thenReturn(DEFAULT_NUM_PARTITIONS);
+    when(config.defaultReplicationFactor()).thenReturn(DEFAULT_REPLICATION_FACTOR);
+    when(config.isClusterPrefixForHostnameEnabled()).thenReturn(isListenerPrefixEnabled);
+    when(config.partitionAssignor()).thenReturn(partitionAssignor);
     return new MultiTenantRequestContext(header, "1", null, principal, listenerName,
-        securityProtocol, ClientInformation.EMPTY, time, metrics, tenantMetrics, partitionAssignor,
-        DEFAULT_REPLICATION_FACTOR, DEFAULT_NUM_PARTITIONS);
+        securityProtocol, ClientInformation.EMPTY, time, metrics, tenantMetrics, config);
   }
 
   private ByteBuffer toByteBuffer(AbstractRequest request) {
@@ -2970,7 +3014,8 @@ public class MultiTenantRequestContextTest {
    * @return A map of KafkaMetric instances accessible by their name. e.g { "produced-bytes": KafkaMetric(...) }.
    *         Only contains the metrics in the expectedMetrics argument
    */
-  private Map<String, KafkaMetric> verifyTenantMetrics(ApiKeys apiKey, Errors error, boolean hasRequests, boolean hasResponses, String... expectedMetrics) {
+  private Map<String, KafkaMetric> verifyTenantMetrics(
+          ApiKeys apiKey, Errors error, boolean hasRequests, boolean hasResponses, String... expectedMetrics) {
     Set<String> tenantMetrics = new HashSet<>();
     Map<String, KafkaMetric> metricsByName = new HashMap<>();
     List<String> expectedMetricsList = asList(expectedMetrics);

@@ -60,7 +60,7 @@ public class MultiTenantPrincipal extends KafkaPrincipal {
         + "user=" + user + ")";
   }
 
-  public static final boolean isTenantPrincipal(KafkaPrincipal principal) {
+  public static boolean isTenantPrincipal(KafkaPrincipal principal) {
     return principal.getPrincipalType().startsWith(TENANT_USER_TYPE);
   }
 

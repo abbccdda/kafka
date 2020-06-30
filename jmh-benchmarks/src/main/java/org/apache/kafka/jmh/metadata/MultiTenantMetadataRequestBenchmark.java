@@ -4,10 +4,13 @@
 
 package org.apache.kafka.jmh.metadata;
 
+import io.confluent.kafka.multitenant.MultiTenantInterceptorConfig;
 import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 import io.confluent.kafka.multitenant.MultiTenantRequestContext;
 import io.confluent.kafka.multitenant.TenantMetadata;
 import io.confluent.kafka.multitenant.metrics.TenantMetrics;
+import java.util.HashMap;
+import java.util.Map;
 import kafka.controller.KafkaController;
 import kafka.coordinator.group.GroupCoordinator;
 import kafka.coordinator.transaction.TransactionCoordinator;
@@ -19,13 +22,13 @@ import kafka.server.ClientRequestQuotaManager;
 import kafka.server.FetchManager;
 import kafka.server.KafkaApis;
 import kafka.server.KafkaConfig;
-import kafka.server.KafkaConfig$;
 import kafka.server.MetadataCache;
 import kafka.server.QuotaFactory;
 import kafka.server.ReplicaManager;
 import kafka.server.ReplicationQuotaManager;
 import kafka.server.link.ClusterLinkAdminManager;
 import kafka.zk.KafkaZkClient;
+import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.memory.MemoryPool;
 import org.apache.kafka.common.message.UpdateMetadataRequestData.UpdateMetadataBroker;
 import org.apache.kafka.common.message.UpdateMetadataRequestData.UpdateMetadataEndpoint;
@@ -35,7 +38,6 @@ import org.apache.kafka.common.network.ClientInformation;
 import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.requests.MetadataRequest;
-import org.apache.kafka.common.requests.RequestContext;
 import org.apache.kafka.common.requests.RequestHeader;
 import org.apache.kafka.common.requests.UpdateMetadataRequest;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
@@ -164,8 +166,8 @@ public class MultiTenantMetadataRequestBenchmark {
 
     private KafkaApis createKafkaApis() {
         Properties kafkaProps =  new Properties();
-        kafkaProps.put(KafkaConfig$.MODULE$.ZkConnectProp(), "zk");
-        kafkaProps.put(KafkaConfig$.MODULE$.BrokerIdProp(), brokerId + "");
+        kafkaProps.put(KafkaConfig.ZkConnectProp(), "zk");
+        kafkaProps.put(KafkaConfig.BrokerIdProp(), brokerId + "");
         return new KafkaApis(requestChannel,
             replicaManager,
             adminManager,
@@ -199,10 +201,17 @@ public class MultiTenantMetadataRequestBenchmark {
         ByteBuffer buffer = metadataRequest.serialize(new RequestHeader(metadataRequest.api,
             metadataRequest.version(), "", 0));
         RequestHeader header = RequestHeader.parse(buffer);
-
-        RequestContext context = new MultiTenantRequestContext(header, "1", null, principal,
-            ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT), SecurityProtocol.PLAINTEXT, ClientInformation.EMPTY,
-            new SystemTime(), metrics, tenantMetrics, null, (short) 1, 1);
+        Map<String, Object> configMap  = new HashMap<String, Object>() {{
+            put(KafkaConfig.BrokerIdProp(), 1);
+            put(KafkaConfig.DefaultReplicationFactorProp(), (short) 1);
+            put(KafkaConfig.NumPartitionsProp(), 1);
+            put(ConfluentConfigs.MULTITENANT_LISTENER_PREFIX_ENABLE, false);
+        }};
+        MultiTenantInterceptorConfig config = new MultiTenantInterceptorConfig(configMap);
+        MultiTenantRequestContext context = new MultiTenantRequestContext(
+                header, "1", null, principal,
+                ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT), SecurityProtocol.PLAINTEXT, ClientInformation.EMPTY,
+                new SystemTime(), metrics, tenantMetrics, config);
         return new RequestChannel.Request(1, context, 0, MemoryPool.NONE, buffer, requestChannelMetrics);
     }
 

@@ -30,6 +30,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import static io.confluent.kafka.multitenant.MultiTenantInterceptorConfig.intConfig;
+
 public class TenantQuotaCallback implements ClientQuotaCallback {
   private static final Logger log = LoggerFactory.getLogger(TenantQuotaCallback.class);
 
@@ -300,14 +302,6 @@ public class TenantQuotaCallback implements ClientQuotaCallback {
 
   private static Map<String, String> tenantMetricTags(String tenant) {
     return Collections.singletonMap(TenantMetrics.TENANT_TAG, tenant);
-  }
-
-  private static int intConfig(Map<String, ?> configs, String configName) {
-    Object configValue = configs.get(configName);
-    if (configValue == null) {
-      throw new ConfigException(configName + " is not set");
-    }
-    return Integer.parseInt(configValue.toString());
   }
 
   private static long loadPerTenantBrokerByteRateConfig(

@@ -74,7 +74,6 @@ import org.apache.kafka.common.requests.JoinGroupRequest;
 import org.apache.kafka.common.requests.JoinGroupResponse;
 import org.apache.kafka.common.requests.ListClusterLinksResponse;
 import org.apache.kafka.common.requests.ListGroupsResponse;
-import org.apache.kafka.common.requests.MetadataRequest;
 import org.apache.kafka.common.requests.MetadataResponse;
 import org.apache.kafka.common.requests.ProduceRequest;
 import org.apache.kafka.common.requests.RequestAndSize;
@@ -122,11 +121,11 @@ public class MultiTenantRequestContext extends RequestContext {
   private final int defaultNumPartitions;
   private final Time time;
   private final long startNanos;
-  private boolean isMetadataFetchForAllTopics;
   private boolean isJoinConsumerGroup = false;
   private PatternType describeAclsPatternType;
   private boolean requestParsingFailed = false;
   private ApiException tenantApiException;
+  private final boolean clusterPrefixForHostnameEnabled;
 
   static {
     // Actual header size is this base size + length of client-id
@@ -143,9 +142,7 @@ public class MultiTenantRequestContext extends RequestContext {
                                    Time time,
                                    Metrics metrics,
                                    TenantMetrics tenantMetrics,
-                                   TenantPartitionAssignor partitionAssignor,
-                                   short defaultReplicationFactor,
-                                   int defaultNumPartitions) {
+                                   MultiTenantInterceptorConfig config) {
     super(header, connectionId, clientAddress, principal, listenerName, securityProtocol, clientInformation);
 
     if (!(principal instanceof MultiTenantPrincipal)) {
@@ -156,12 +153,13 @@ public class MultiTenantRequestContext extends RequestContext {
     this.metrics = metrics;
     this.tenantMetrics = tenantMetrics;
     this.metricsRequestContext = new MetricsRequestContext(
-        (MultiTenantPrincipal) principal, header.clientId(), header.apiKey());
-    this.partitionAssignor = partitionAssignor;
-    this.defaultReplicationFactor = defaultReplicationFactor;
-    this.defaultNumPartitions = defaultNumPartitions;
+            (MultiTenantPrincipal) principal, header.clientId(), header.apiKey());
+    this.partitionAssignor = config.partitionAssignor();
+    this.defaultReplicationFactor = config.defaultReplicationFactor();
+    this.defaultNumPartitions = config.defaultNumPartitions();
     this.time = time;
     this.startNanos = time.nanoseconds();
+    this.clusterPrefixForHostnameEnabled = config.isClusterPrefixForHostnameEnabled();
   }
 
   @Override
@@ -189,9 +187,7 @@ public class MultiTenantRequestContext extends RequestContext {
       Struct struct = (Struct) schema.read(buffer, tenantContext);
       AbstractRequest body = AbstractRequest.parseRequest(api, apiVersion, struct);
       try {
-        if (body instanceof MetadataRequest) {
-          isMetadataFetchForAllTopics = ((MetadataRequest) body).isAllTopics();
-        } else if (body instanceof CreateAclsRequest) {
+        if (body instanceof CreateAclsRequest) {
           body = transformCreateAclsRequest((CreateAclsRequest) body);
         } else if (body instanceof DescribeAclsRequest) {
           body = transformDescribeAclsRequest((DescribeAclsRequest) body);
@@ -267,40 +263,13 @@ public class MultiTenantRequestContext extends RequestContext {
       // order to enable zero-copy transfer. We obviously don't want to lose this, so we do an
       // in-place transformation of the returned topic partitions.
       @SuppressWarnings("unchecked")
-      Send response = transformFetchResponse((FetchResponse<MemoryRecords>) body, apiVersion, responseHeader);
+      Send response = transformAndSendFetchResponse((FetchResponse<MemoryRecords>) body, apiVersion, responseHeader);
       updateResponseMetrics(body, response, responseTimestampMs);
       updatePartitionBytesOutMetrics((FetchResponse) body, responseTimestampMs);
       return response;
     } else {
-      // Since the Metadata and ListGroups APIs allow users to fetch metadata for all topics or
-      // groups in the cluster, we have to filter out the metadata from other tenants.
       @SuppressWarnings("unchecked")
-      AbstractResponse transformedResponse = body;
-      if (body instanceof MetadataResponse && isMetadataFetchForAllTopics) {
-        transformedResponse = filteredMetadataResponse((MetadataResponse) body);
-      } else if (body instanceof ListGroupsResponse) {
-        transformedResponse = filteredListGroupsResponse((ListGroupsResponse) body);
-      }  else if (body instanceof ListClusterLinksResponse) {
-        transformedResponse = filteredListClusterLinksResponse((ListClusterLinksResponse) body);
-      } else if (body instanceof DescribeConfigsResponse) {
-        transformedResponse = transformDescribeConfigsResponse((DescribeConfigsResponse) body);
-      } else if (body instanceof AlterConfigsResponse) {
-        transformedResponse = transformAlterConfigsResponse((AlterConfigsResponse) body);
-      } else if (body instanceof IncrementalAlterConfigsResponse) {
-        transformedResponse = transformIncrementalAlterConfigsResponse((IncrementalAlterConfigsResponse) body);
-      } else if (body instanceof DescribeAclsResponse) {
-        transformedResponse = filteredDescribeAclsResponse((DescribeAclsResponse) body);
-      } else if (body instanceof DeleteAclsResponse) {
-        transformedResponse = transformDeleteAclsResponse((DeleteAclsResponse) body);
-      } else if (body instanceof CreateTopicsResponse) {
-        transformedResponse = filteredCreateTopicsResponse((CreateTopicsResponse) body);
-      } else if (body instanceof JoinGroupResponse) {
-        transformedResponse = transformJoinGroupResponse((JoinGroupResponse) body);
-      } else if (body instanceof DescribeGroupsResponse) {
-        transformedResponse = transformDescribeGroupsResponse((DescribeGroupsResponse) body);
-      } else if (body instanceof WriteTxnMarkersResponse) {
-        transformedResponse = transformWriteTxnMarkersResponse((WriteTxnMarkersResponse) body);
-      }
+      AbstractResponse transformedResponse = transformResponse(body);
 
       TransformableType<TenantContext> schema = MultiTenantApis.responseSchema(api, apiVersion);
       Struct responseHeaderStruct = responseHeader.toStruct();
@@ -315,6 +284,39 @@ public class MultiTenantRequestContext extends RequestContext {
       updateResponseMetrics(body, response, responseTimestampMs);
       return response;
     }
+  }
+
+  private AbstractResponse transformResponse(AbstractResponse body) {
+    // Since the Metadata and ListGroups APIs allow users to fetch metadata for all topics or
+    // groups in the cluster, we have to filter out the metadata from other tenants.
+    @SuppressWarnings("unchecked")
+    AbstractResponse transformedResponse = body;
+    if (body instanceof MetadataResponse) {
+      transformedResponse = transformMetadataResponse((MetadataResponse) body);
+    } else if (body instanceof ListGroupsResponse) {
+      transformedResponse = filteredListGroupsResponse((ListGroupsResponse) body);
+    }  else if (body instanceof ListClusterLinksResponse) {
+      transformedResponse = filteredListClusterLinksResponse((ListClusterLinksResponse) body);
+    } else if (body instanceof DescribeConfigsResponse) {
+      transformedResponse = transformDescribeConfigsResponse((DescribeConfigsResponse) body);
+    } else if (body instanceof AlterConfigsResponse) {
+      transformedResponse = transformAlterConfigsResponse((AlterConfigsResponse) body);
+    } else if (body instanceof IncrementalAlterConfigsResponse) {
+      transformedResponse = transformIncrementalAlterConfigsResponse((IncrementalAlterConfigsResponse) body);
+    } else if (body instanceof DescribeAclsResponse) {
+      transformedResponse = filteredDescribeAclsResponse((DescribeAclsResponse) body);
+    } else if (body instanceof DeleteAclsResponse) {
+      transformedResponse = transformDeleteAclsResponse((DeleteAclsResponse) body);
+    } else if (body instanceof CreateTopicsResponse) {
+      transformedResponse = filteredCreateTopicsResponse((CreateTopicsResponse) body);
+    } else if (body instanceof JoinGroupResponse) {
+      transformedResponse = transformJoinGroupResponse((JoinGroupResponse) body);
+    } else if (body instanceof DescribeGroupsResponse) {
+      transformedResponse = transformDescribeGroupsResponse((DescribeGroupsResponse) body);
+    } else if (body instanceof WriteTxnMarkersResponse) {
+      transformedResponse = transformWriteTxnMarkersResponse((WriteTxnMarkersResponse) body);
+    }
+    return transformedResponse;
   }
 
   private AbstractRequest transformCreateTopicsRequest(CreateTopicsRequest topicsRequest,
@@ -614,8 +616,8 @@ public class MultiTenantRequestContext extends RequestContext {
     return newBuffer.array();
   }
 
-  private Send transformFetchResponse(FetchResponse<MemoryRecords> fetchResponse, short version,
-                                      ResponseHeader header) {
+  private Send transformAndSendFetchResponse(FetchResponse<MemoryRecords> fetchResponse, short version,
+                                             ResponseHeader header) {
     LinkedHashMap<TopicPartition, FetchResponse.PartitionData<MemoryRecords>> partitionData =
         fetchResponse.responseData();
     LinkedHashMap<TopicPartition, FetchResponse.PartitionData<MemoryRecords>> transformedPartitionData =
@@ -629,9 +631,19 @@ public class MultiTenantRequestContext extends RequestContext {
     return RequestInternals.toSend(copy, version, connectionId, header);
   }
 
-  private MetadataResponse filteredMetadataResponse(MetadataResponse response) {
+  private MetadataResponse transformMetadataResponse(MetadataResponse response) {
     response.data().topics().removeIf(topic -> !tenantContext.hasTenantPrefix(topic.name()));
+    if (clusterPrefixForHostnameEnabled) {
+      response.data().brokers().forEach(b -> b.setHost(prependClusterNameToHostName(b.host())));
+    }
     return response;
+  }
+
+  private String prependClusterNameToHostName(String hostName) {
+    // According to benchmarking, `concat` is faster than `+` with a ~30% improvement with `--release 8` flag.
+    // Since this is a performance-sensitive method, we use `concat` here.
+    return tenantContext.principal.tenantMetadata().clusterId
+            .concat(hostName);
   }
 
   private ListGroupsResponse filteredListGroupsResponse(ListGroupsResponse response) {
@@ -871,8 +883,8 @@ public class MultiTenantRequestContext extends RequestContext {
   }
 
   private WriteTxnMarkersResponse transformWriteTxnMarkersResponse(WriteTxnMarkersResponse response) {
-    response.data.markers().forEach(marker ->
-      marker.topics().forEach(topic -> topic.setName(tenantContext.removeTenantPrefix(topic.name())))
+    response.data.markers().forEach(marker -> marker.topics().forEach(
+            topic -> topic.setName(tenantContext.removeTenantPrefix(topic.name())))
     );
     return response;
   }

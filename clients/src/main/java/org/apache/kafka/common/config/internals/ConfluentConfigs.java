@@ -450,6 +450,13 @@ public class ConfluentConfigs {
             "Maximum consumer quota in bytes/s per tenant per broker";
     public static final long MAX_BROKER_TENANT_CONSUMER_BYTE_RATE_DEFAULT = 13107200;
 
+    public static final String MULTITENANT_LISTENER_PREFIX_ENABLE =
+           CONFLUENT_PREFIX + "multitenant.listener.hostname.cluster.prefix.enable";
+    public static final String MULTITENANT_LISTENER_PREFIX_ENABLE_DOC =
+            "If enabled, return tenant-specific broker endpoints by prepending tenant cluster id to " +
+                    "the advertised hostname configured for multi-tenant listeners";
+    public static final boolean MULTITENANT_LISTENER_PREFIX_ENABLE_DEFAULT = false;
+
     // The following define the minimum quota to be assigned for a broker when it's not a leader.
     // Per-broker tenant quota is always greater than zero to avoid excessive throttling of
     // requests received before cluster metadata or quota configs are refreshed.
