@@ -2157,15 +2157,25 @@ project(':connect:basic-auth-extension') {
 }
 
 project(':ce-sbk') {
+  apply plugin: 'com.github.johnrengelman.shadow'
   group = "io.confluent"
   archivesBaseName = "ce-sbk_${versions.baseScala}"
+  jar.enabled = false
+  jar.dependsOn 'shadowJar'
 
   dependencies {
     // SBK will only ever run on a Kafka broker so core's libraries are compileOnly --
     // anything needed by core will be present and the correct version.
     compile project(':clients')
     compileOnly project(':core')
-    compileOnly project(':ce-metrics')  // Confluent Metrics Reporter
+
+    // required for a few constants related to Confluent Telemetry configs, compileOnly since
+    // ce-metrics is assumed to be present at runtime (see releaseTarGz task for details)
+    compileOnly(project(':ce-metrics'))
+
+    // ce-metrics shades confluent-serializers, so we need to include it explicitly
+    compile project(':ce-serializers')
+
     compile libs.math3
     compileOnly libs.scalaCollectionCompat
     compileOnly libs.scalaJava8Compat
@@ -2192,9 +2202,15 @@ project(':ce-sbk') {
     testCompile project(':clients').sourceSets.test.output
     testCompile project(':core')
     testCompile project(':core').sourceSets.test.output
-    testCompile project(':ce-broker-plugins')
-    testCompile project(':ce-broker-plugins').sourceSets.test.output
-    testCompile project(':ce-metrics')
+
+    // required for EmbeddedKafkaCluster, use sourceSets.test.runtimeClassPath instead of sourceSets.test.output
+    // to avoid pulling in the shaded version of confluent-serializers, since SBK tests classes are compiled against
+    // unshaded confluent-serializers
+    testCompile project(':ce-broker-plugins').sourceSets.test.runtimeClasspath
+
+    // provides confluent-metrics jar for for integration tests
+    testCompile(project(':ce-metrics'))
+    // used for MetricReporterClusterTestHarness
     testCompile project(':ce-metrics').sourceSets.test.output
 
     testCompile libs.commonsIo
@@ -2209,15 +2225,28 @@ project(':ce-sbk') {
     from (configurations.runtime) {
       exclude('kafka-clients*')
       exclude('kafka*')
+      // align with ce-broker-plugins and shade ce-serializer dependencies in final output
+      exclude('confluent-serializers*')
     }
     into "$buildDir/dependant-libs-${versions.scala}"
     duplicatesStrategy 'exclude'
   }
 
-  jar {
+  // align with ce-broker-plugins and shade ce-serializer dependencies in final output
+  shadowJar {
+    classifier = null
+    relocate('com.google.protobuf', 'io.confluent.shaded.com.google.protobuf')
+    relocate('com.google.common', 'io.confluent.shaded.com.google.common')
+    relocate('com.google.gson', 'io.confluent.shaded.com.google.gson')
+    dependencies {
+      include(dependency(':ce-serializers'))
+      include(dependency(libs.gson))
+      include(dependency(libs.guava))
+      include(dependency(libs.protobuf))
+      include(dependency(libs.protobufUtil))
+    }
     dependsOn 'copyDependantLibs'
   }
-
 }
 
 project(':ce-metrics') {
@@ -2318,6 +2347,20 @@ project(':ce-metrics') {
     relocate('io.confluent.telemetry.events.serde', 'io.confluent.shaded.io.confluent.telemetry.events.serde')
     relocate('io.cloudevents.json', 'io.confluent.shaded.io.cloudevents.json')
     relocate('com.hubspot.jackson', 'io.confluent.shaded.com.hubspot.jackson')
+
+    // shade ce-serializers classes that directly or indirectly depend on packages we shade in ce-metric (mostly protobuf).
+    // this is so they don't clash in projects that depend on both ce-serializers and ce-metrics,
+    // otherwise we end up with different versions of ce-serializer classes, some referring to protobuf shaded, some without.
+
+    // don't shade all of io.confluent.metrics, since we also have classes in ce-metrics (e.g. ConfluentMetricsReporter) we don't want to shade
+    relocate('io.confluent.metrics.KafkaMetricsUtils', 'io.confluent.shaded.io.confluent.metrics.KafkaMetricsUtils')
+    relocate('io.confluent.metrics.YammerMetricsUtils', 'io.confluent.shaded.io.confluent.metrics.YammerMetricsUtils')
+    relocate('io.confluent.metrics.record', 'io.confluent.shaded.io.confluent.metrics.record') // generated protos
+    relocate('io.confluent.serializers', 'io.confluent.shaded.io.confluent.serializers') // serdes
+    relocate('io.confluent.monitoring', 'io.confluent.shaded.io.confluent.monitoring') // monitoring.records and monitoring.common
+    relocate('io.confluent.command', 'io.confluent.shaded.io.confluent.command') // generated protos
+    relocate('io.confluent.controlcenter', 'io.confluent.shaded.io.confluent.controlcenter') // generated protos
+    relocate('io.confluent.databalancer', 'io.confluent.shaded.io.confluent.databalancer') // generated protos
 
     // note that we exclude slf4j-api, lz4, and zstd-jni from the build. These
     // are provided at runtime by kafka-clients transitive dependencies.
