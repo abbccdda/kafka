@@ -141,9 +141,10 @@ public class AuthenticationEventTest {
         AuthenticationContext authenticationContext = new SaslAuthenticationContext(server, SecurityProtocol.SASL_SSL,
             InetAddress.getLoopbackAddress(), SecurityProtocol.SASL_SSL.name());
         // test with bad password error
-        AuthenticationErrorInfo errorInfo =
-            new AuthenticationErrorInfo(AuditEventStatus.UNAUTHENTICATED, "Bad password for user", "APIKEY123", "");
-        SaslAuthenticationException authenticationException = new SaslAuthenticationException("Invalid username or password", errorInfo);
+        AuthenticationErrorInfo errorInfo = new AuthenticationErrorInfo(
+                AuditEventStatus.UNAUTHENTICATED, "Bad password for user", "APIKEY123", "");
+        SaslAuthenticationException authenticationException = new SaslAuthenticationException(
+                "Invalid username or password", errorInfo);
         DefaultAuthenticationEvent authenticationEvent = new
             DefaultAuthenticationEvent(null, authenticationContext, AuditEventStatus.UNAUTHENTICATED, authenticationException);
 
@@ -222,8 +223,8 @@ public class AuthenticationEventTest {
         AuthenticationContext authenticationContext = new SaslAuthenticationContext(server, SecurityProtocol.SASL_SSL,
             InetAddress.getLoopbackAddress(), SecurityProtocol.SASL_SSL.name());
         // test with cluster extension is missing
-        AuthenticationErrorInfo errorInfo =
-            new AuthenticationErrorInfo(AuditEventStatus.UNAUTHENTICATED, "The logical cluster extension is missing or is empty", "Customer", "");
+        AuthenticationErrorInfo errorInfo = new AuthenticationErrorInfo(
+                AuditEventStatus.UNAUTHENTICATED, "The logical cluster extension is missing or is empty", "Customer", "");
         SaslAuthenticationException authenticationException = new SaslAuthenticationException("Authentication failed", errorInfo);
         DefaultAuthenticationEvent authenticationEvent = new
             DefaultAuthenticationEvent(null, authenticationContext, AuditEventStatus.UNAUTHENTICATED, authenticationException);
@@ -244,8 +245,8 @@ public class AuthenticationEventTest {
         AuthenticationContext authenticationContext = new SaslAuthenticationContext(server, SecurityProtocol.SASL_SSL,
             InetAddress.getLoopbackAddress(), SecurityProtocol.SASL_SSL.name());
         // cluster is not part of the allowed clusters in this token
-        AuthenticationErrorInfo errorInfo =
-            new AuthenticationErrorInfo(AuditEventStatus.UNAUTHENTICATED, "cluster is not part of the allowed clusters in this token", "Customer", "");
+        AuthenticationErrorInfo errorInfo = new AuthenticationErrorInfo(
+                AuditEventStatus.UNAUTHENTICATED, "cluster is not part of the allowed clusters in this token", "Customer", "");
         SaslAuthenticationException authenticationException = new SaslAuthenticationException("Authentication failed", errorInfo);
         DefaultAuthenticationEvent authenticationEvent = new
             DefaultAuthenticationEvent(null, authenticationContext, AuditEventStatus.UNAUTHENTICATED, authenticationException);

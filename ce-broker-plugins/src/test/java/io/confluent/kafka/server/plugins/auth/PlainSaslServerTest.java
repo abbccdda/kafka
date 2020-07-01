@@ -49,7 +49,7 @@ public class PlainSaslServerTest {
     jaasEntries = Collections.emptyList();
     mockSaslAuth = mock(SaslAuthenticator.class);
     when(mockSaslAuth.clusterId(any())).thenReturn(Optional.of("test-cluster"));
-    saslServer = new PlainSaslServer(jaasEntries, mockSaslAuth);
+    saslServer = new PlainSaslServer(jaasEntries, mockSaslAuth, Optional.empty());
     stats.reset();
   }
 
@@ -86,7 +86,7 @@ public class PlainSaslServerTest {
     final String password = "bar";
     final String authString = "\u0000" + username + "\u0000" + password;
     Mockito.doThrow(new SaslException("Top level msg", new Exception("Detailed cause")))
-        .when(mockSaslAuth).authenticate(username, password);
+        .when(mockSaslAuth).authenticate(username, password, Optional.empty());
     try {
       saslServer.evaluateResponse(authString.getBytes());
       fail();
@@ -102,7 +102,7 @@ public class PlainSaslServerTest {
     final String password = "bar";
     final String authString = "\u0000" + username + "\u0000" + password;
     Mockito.doThrow(new SaslException("Top level msg", null))
-        .when(mockSaslAuth).authenticate(username, password);
+        .when(mockSaslAuth).authenticate(username, password, Optional.empty());
     try {
       saslServer.evaluateResponse(authString.getBytes());
       fail();
@@ -218,7 +218,7 @@ public class PlainSaslServerTest {
         TenantMetadata tenantMetadata = new TenantMetadata(tenant, tenant);
         return new MultiTenantPrincipal(username, tenantMetadata);
       }
-     }).when(mockSaslAuth).authenticate(username, password);
+     }).when(mockSaslAuth).authenticate(username, password, Optional.empty());
   }
 
   private byte[] saslMessage(String authorizationId, String userName, String password) {

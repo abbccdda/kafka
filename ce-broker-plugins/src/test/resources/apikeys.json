@@ -5,7 +5,7 @@
       "hashed_secret": "$2a$12$JYBeR.t935onhpfWsaslMuRMQVmzdJIkVt5b62QnBybxdd83U0RfK",
       "hash_function": "bcrypt",
       "user_id": "23",
-      "logical_cluster_id": "rufus"
+      "logical_cluster_id": "lkc-bkey"
     },
     "pkey": {
       "sasl_mechanism": "PLAIN",

@@ -9,6 +9,8 @@ import io.confluent.kafka.server.plugins.auth.stats.TenantAuthenticationStats;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Optional;
+import javax.net.ssl.SNIHostName;
 import org.apache.kafka.common.errors.SaslAuthenticationException;
 import org.apache.kafka.common.security.plain.internals.PlainServerCallbackHandler;
 import org.apache.kafka.server.audit.AuditEventStatus;
@@ -37,6 +39,7 @@ import static org.apache.kafka.server.audit.AuthenticationErrorInfo.UNKNOWN_USER
 public class PlainSaslServer implements MultiTenantSaslServer {
 
   public static final String PLAIN_MECHANISM = "PLAIN";
+  public static final String SNI_BROKER_HOST_NAME = "SNIBrokerHostName";
   private final SaslAuthenticator authenticator;
   private static final AuthenticationStats STATS = AuthenticationStats.getInstance();
   private static final TenantAuthenticationStats TENANT_STATS =
@@ -48,11 +51,14 @@ public class PlainSaslServer implements MultiTenantSaslServer {
   private String authorizationID;
   private TenantMetadata tenantMetadata;
   private String username = "";
+  private Optional<SNIHostName> sniHostName;
 
   public PlainSaslServer(List<AppConfigurationEntry> jaasContextEntries,
-                         SaslAuthenticator authenticator) {
+                         SaslAuthenticator authenticator,
+                         Optional<SNIHostName> sniHostNameOptional) {
     this.authenticator = authenticator;
     authenticator.initialize(jaasContextEntries);
+    this.sniHostName = sniHostNameOptional;
   }
 
   @Override
@@ -117,7 +123,7 @@ public class PlainSaslServer implements MultiTenantSaslServer {
       throw new SaslAuthenticationException("Authentication failed: Client requested an authorization id that is different from username", errorInfo);
     }
 
-    MultiTenantPrincipal principal = authenticator.authenticate(username, password);
+    MultiTenantPrincipal principal = authenticator.authenticate(username, password, Optional.empty());
     authorizationID = principal.user();
     MDC.put("authorizationId", authorizationID);
     tenantMetadata = principal.tenantMetadata();
@@ -131,7 +137,8 @@ public class PlainSaslServer implements MultiTenantSaslServer {
 
   private AuthenticationErrorInfo getErrorInfo() throws SaslException {
     String clusterId = authenticator.clusterId(username).orElse("");
-    return new AuthenticationErrorInfo(AuditEventStatus.UNAUTHENTICATED, "", username, clusterId);
+    return new AuthenticationErrorInfo(
+            AuditEventStatus.UNAUTHENTICATED, "", username, clusterId);
   }
 
   private List<String> extractTokens(String string) {
@@ -210,6 +217,7 @@ public class PlainSaslServer implements MultiTenantSaslServer {
       this.saslServerSupplier = saslServerSupplier;
     }
 
+    @SuppressWarnings("unchecked")
     @Override
     public SaslServer createSaslServer(String mechanism, String protocol, String serverName,
             Map<String, ?> props, CallbackHandler cbh) throws SaslException {
@@ -233,7 +241,9 @@ public class PlainSaslServer implements MultiTenantSaslServer {
         @SuppressWarnings("unchecked")
         List<AppConfigurationEntry> jaasContextEntries =
             (List<AppConfigurationEntry>) field.get(cbh);
-        return saslServerSupplier.get(jaasContextEntries);
+        Optional<SNIHostName> sniHostName =
+                props.containsKey(SNI_BROKER_HOST_NAME) ? ((Optional<SNIHostName>) props.get(SNI_BROKER_HOST_NAME)) : Optional.empty();
+        return saslServerSupplier.get(jaasContextEntries, sniHostName);
       } catch (Throwable e) {
         throw new SaslException("Could not obtain JAAS context", e);
       }

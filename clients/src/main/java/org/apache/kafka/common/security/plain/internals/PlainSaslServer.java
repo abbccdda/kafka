@@ -97,7 +97,8 @@ public class PlainSaslServer implements SaslServer {
             throw new SaslAuthenticationException("Authentication failed: username not specified", UNKNOWN_USER_ERROR);
         }
 
-        AuthenticationErrorInfo errorInfo = new AuthenticationErrorInfo(AuditEventStatus.UNAUTHENTICATED, "", username, "");
+        AuthenticationErrorInfo errorInfo = new AuthenticationErrorInfo(
+                AuditEventStatus.UNAUTHENTICATED, "", username, "");
 
         if (password.isEmpty()) {
             throw new SaslAuthenticationException("Authentication failed: password not specified", errorInfo);

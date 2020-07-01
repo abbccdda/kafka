@@ -4,14 +4,14 @@ package io.confluent.kafka.server.plugins.auth;
 import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 import io.confluent.kafka.server.plugins.auth.stats.AuthenticationStats;
 
+import java.util.Optional;
+import javax.net.ssl.SNIHostName;
 import org.apache.kafka.common.errors.SaslAuthenticationException;
 import org.apache.kafka.common.security.plain.internals.PlainServerCallbackHandler;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.server.audit.AuditEventStatus;
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 import org.mindrot.jbcrypt.BCrypt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,60 +26,56 @@ import java.util.Map;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 public class FileBasedPlainSaslAuthenticatorTest {
   private static final Logger log = LoggerFactory.getLogger(FileBasedPlainSaslAuthenticatorTest.class);
+  public static final String USER_ID_1 = "23";
+  public static final String TENANT_NAME_1 = "lkc-bkey";
+  public static final String CLUSTER_ID_1 = "lkc-bkey";
+  public static final String USERNAME_1 = "bkey";
+
   private final String bcryptPassword = "MKRWvhKV5Xd8VQ05JYre6f+aAq0UBXutZjsHWnQd/GYNR6DfqFeay+VNnReeTRpe";
   private List<AppConfigurationEntry> jaasEntries;
   private SaslAuthenticator saslAuth;
-
-  @Rule
-  public TemporaryFolder tempFolder = new TemporaryFolder();
+  private Map<String, Object> options;
 
   @Before
   public void setUp() throws Exception {
-    final String path = FileBasedPlainSaslAuthenticatorTest.class.getResource("/apikeys.json").getFile();
-
-    Map<String, Object> options = new HashMap<>();
-    options.put(FileBasedPlainSaslAuthenticator.JAAS_ENTRY_CONFIG, path);
+    options = new HashMap<>();
+    options.put(FileBasedPlainSaslAuthenticator.JAAS_ENTRY_CONFIG, FileBasedPlainSaslAuthenticatorTest.class.getResource("/apikeys.json").getFile());
     options.put(FileBasedPlainSaslAuthenticator.JAAS_ENTRY_REFRESH_MS, "1000");
-    AppConfigurationEntry entry = new AppConfigurationEntry(FileBasedLoginModule.class.getName(),
-            AppConfigurationEntry.LoginModuleControlFlag.REQUIRED,
-            options);
+    setAuthenticatorValidationMode("optional_validation");
+    AuthenticationStats.getInstance().reset();
+  }
+
+  private void setAuthenticatorValidationMode(String sniValidationMode) {
+    options.put(FileBasedPlainSaslAuthenticator.SNI_HOST_NAME_VALIDATION_MODE, sniValidationMode);
+    AppConfigurationEntry entry = new AppConfigurationEntry(
+            FileBasedLoginModule.class.getName(), AppConfigurationEntry.LoginModuleControlFlag.REQUIRED, options);
     jaasEntries = Collections.singletonList(entry);
     saslAuth = new FileBasedPlainSaslAuthenticator();
     saslAuth.initialize(jaasEntries);
-    AuthenticationStats.getInstance().reset();
   }
 
   @Test
   public void testHashedPasswordAuth() throws Exception {
-    MultiTenantPrincipal principal = saslAuth.authenticate("bkey", bcryptPassword);
-    assertEquals("rufus_23", principal.getName());
-    assertEquals("23", principal.user());
-    assertEquals("rufus", principal.tenantMetadata().tenantName);
-    assertEquals("rufus", principal.tenantMetadata().clusterId);
-    assertTrue(principal.tenantMetadata().isSuperUser);
+    MultiTenantPrincipal principal = saslAuth.authenticate(USERNAME_1, bcryptPassword, Optional.empty());
+    assertPrincipal(TENANT_NAME_1 + "_" + USER_ID_1, USER_ID_1, TENANT_NAME_1, CLUSTER_ID_1, true, principal);
   }
 
   @Test
   public void testPlainPasswordAuth() throws Exception {
     for (int i = 0; i < 3; i++) {
-      MultiTenantPrincipal principal = saslAuth.authenticate("pkey", "no hash");
-      assertEquals("confluent_7", principal.getName());
-      assertEquals("7", principal.user());
-      assertEquals("confluent", principal.tenantMetadata().tenantName);
-      assertEquals("confluent", principal.tenantMetadata().clusterId);
-      assertTrue(principal.tenantMetadata().isSuperUser);
+      MultiTenantPrincipal principal = saslAuth.authenticate("pkey", "no hash", Optional.empty());
+      assertPrincipal("confluent_7", "7", "confluent", "confluent", true, principal);
     }
   }
 
   @Test
   public void testServiceAcoountAuth() throws Exception {
     for (int i = 0; i < 3; i++) {
-      MultiTenantPrincipal principal = saslAuth.authenticate("skey", "service secret");
+      MultiTenantPrincipal principal = saslAuth.authenticate("skey", "service secret", Optional.empty());
       assertEquals("test_service_11", principal.getName());
       assertEquals("11", principal.user());
       assertEquals("test_service", principal.tenantMetadata().tenantName);
@@ -92,11 +88,11 @@ public class FileBasedPlainSaslAuthenticatorTest {
   public void testInvalidUser() throws Exception {
     for (int i = 0; i < 3; i++) {
       try {
-        saslAuth.authenticate("no_user", "blah");
-        fail();
+        saslAuth.authenticate("no_user", "blah", Optional.empty());
+        fail("Invalid user name should fail the authentication");
       } catch (SaslAuthenticationException e) {
         //This message is returned to the client so it must not leak information
-        assertEquals("Authentication failed: Invalid username or password", e.getMessage());
+        assertEquals(FileBasedPlainSaslAuthenticator.AUTHENTICATION_FAILED_MSG, e.getMessage());
         assertEquals(AuditEventStatus.UNKNOWN_USER_DENIED, e.errorInfo().auditEventStatus());
         assertEquals("Unknown user no_user", e.errorInfo().errorMessage());
         assertEquals("no_user", e.errorInfo().identifier());
@@ -109,15 +105,15 @@ public class FileBasedPlainSaslAuthenticatorTest {
   public void testInvalidHashedPassword() throws Exception {
     for (int i = 0; i < 3; i++) {
       try {
-        saslAuth.authenticate("bkey", "not right");
-        fail();
+        saslAuth.authenticate(USERNAME_1, "not right", Optional.empty());
+        fail("Invalid hashed password should fail the authentication");
       } catch (SaslAuthenticationException e) {
         //This message is returned to the client so it must not leak information
-        assertEquals("Authentication failed: Invalid username or password", e.getMessage());
+        assertEquals(FileBasedPlainSaslAuthenticator.AUTHENTICATION_FAILED_MSG, e.getMessage());
         assertEquals(AuditEventStatus.UNAUTHENTICATED, e.errorInfo().auditEventStatus());
         assertEquals("Bad password for user bkey", e.errorInfo().errorMessage());
-        assertEquals("bkey", e.errorInfo().identifier());
-        assertEquals("rufus", e.errorInfo().clusterId());
+        assertEquals(USERNAME_1, e.errorInfo().identifier());
+        assertEquals(CLUSTER_ID_1, e.errorInfo().clusterId());
       }
     }
   }
@@ -125,11 +121,11 @@ public class FileBasedPlainSaslAuthenticatorTest {
   @Test
   public void testInvalidPlainPassword() throws Exception {
     try {
-      saslAuth.authenticate("pkey", "not right");
-      fail();
+      saslAuth.authenticate("pkey", "not right", Optional.empty());
+      fail("Invalid plain password should fail the authentication");
     } catch (SaslAuthenticationException e) {
       //This message is returned to the client so it must not leak information
-      assertEquals("Authentication failed: Invalid username or password", e.getMessage());
+      assertEquals(FileBasedPlainSaslAuthenticator.AUTHENTICATION_FAILED_MSG, e.getMessage());
       assertEquals(AuditEventStatus.UNAUTHENTICATED, e.errorInfo().auditEventStatus());
       assertEquals("Bad password for user pkey", e.errorInfo().errorMessage());
       assertEquals("pkey", e.errorInfo().identifier());
@@ -167,4 +163,77 @@ public class FileBasedPlainSaslAuthenticatorTest {
     PlainSaslServer server = (PlainSaslServer) factory.createSaslServer("PLAIN", "", "", emptyMap, cbh);
     assertNotNull("Server not created", server);
   }
+
+  @Test
+  public void testPKCClusterIdShouldAuthenticateUserInLegacyMode() throws Exception {
+    setAuthenticatorValidationMode("allow_legacy_bootstrap");
+    MultiTenantPrincipal principal = saslAuth.authenticate(USERNAME_1, bcryptPassword, Optional.of(
+            new SNIHostName("pkc-12345.wrong.host.name")));
+    assertPrincipal(TENANT_NAME_1 + "_" + USER_ID_1, USER_ID_1, TENANT_NAME_1, CLUSTER_ID_1, true, principal);
+  }
+
+  @Test
+  public void testIncorrectClusterIdShouldAuthenticateUserInOptionalMode() throws Exception {
+    setAuthenticatorValidationMode("optional_validation");
+    MultiTenantPrincipal principal = saslAuth.authenticate(USERNAME_1, bcryptPassword, Optional.of(
+            new SNIHostName("wrong.host.name")));
+    assertPrincipal(TENANT_NAME_1 + "_" + USER_ID_1, USER_ID_1, TENANT_NAME_1, CLUSTER_ID_1, true, principal);
+  }
+
+  @Test
+  public void testIncorrectClusterIdShouldFailAuthenticationInStrictMode() throws Exception {
+    setAuthenticatorValidationMode("strict");
+    try {
+      saslAuth.authenticate(USERNAME_1, bcryptPassword, Optional.of(new SNIHostName("lkc-wrong-00aa.host.name")));
+      fail("Incorrect cluster Id should fail the authentication.");
+    } catch (SaslAuthenticationException e) {
+      //This message is returned to the client so it must not leak information
+      assertEquals(FileBasedPlainSaslAuthenticator.AUTHENTICATION_FAILED_MSG, e.getMessage());
+      assertEquals(AuditEventStatus.UNAUTHENTICATED, e.errorInfo().auditEventStatus());
+      assertEquals(String.format(
+              "SNI cluster ID: %s does not match API key cluster ID %s for user name: %s",
+              "lkc-wrong", CLUSTER_ID_1, USERNAME_1), e.errorInfo().errorMessage());
+      assertEquals(USERNAME_1, e.errorInfo().identifier());
+      assertEquals(CLUSTER_ID_1, e.errorInfo().clusterId());
+    }
+  }
+
+  @Test
+  public void testCorrectClusterIdShouldAuthenticateUser() throws Exception {
+    setAuthenticatorValidationMode("strict");
+    MultiTenantPrincipal principal = saslAuth.authenticate(USERNAME_1, bcryptPassword, Optional.of(new SNIHostName(CLUSTER_ID_1 + "-0aa.rufus.confluent.cloud")));
+    assertPrincipal(TENANT_NAME_1 + "_" + USER_ID_1, USER_ID_1, TENANT_NAME_1, CLUSTER_ID_1, true, principal);
+  }
+
+  @Test
+  public void testExtractClusterIdFromHostName_shouldExtractClusterIdWhenHostNameIsWellFormed() {
+    Optional<String> clusterId =  FileBasedPlainSaslAuthenticator.extractClusterIdFromHostName(
+            Optional.of(new SNIHostName("lkc-1234-00aa-usw2-az1-x092.us-west-2.aws.glb.confluent.cloud")));
+    assertEquals(Optional.of("lkc-1234"), clusterId);
+  }
+
+  @Test
+  public void testExtractClusterIdFromHostName_shouldNotExtractClusterIdWhenHostNameIsNotLKCPrefixed() {
+    Optional<String> clusterId =  FileBasedPlainSaslAuthenticator.extractClusterIdFromHostName(
+            Optional.of(new SNIHostName("wrong.host.name")));
+    assertEquals(Optional.empty(), clusterId);
+  }
+
+  @Test
+  public void testExtractClusterIdFromHostName_shouldNotExtractClusterIdWhenHostNameDoesNotConfirmToTheFormat() {
+    Optional<String> clusterId =  FileBasedPlainSaslAuthenticator.extractClusterIdFromHostName(
+            Optional.of(new SNIHostName("lkc-1234.wrong.host.name")));
+    assertEquals(Optional.empty(), clusterId);
+  }
+
+  private void assertPrincipal(
+          String expectedUserName, String expectedUserId, String expectedTenantName, String expectedClusterId,
+          boolean expectedIsSuperUser, MultiTenantPrincipal actualPrincipal) {
+    assertEquals(expectedUserName, actualPrincipal.getName());
+    assertEquals(expectedUserId, actualPrincipal.user());
+    assertEquals(expectedTenantName, actualPrincipal.tenantMetadata().tenantName);
+    assertEquals(expectedClusterId, actualPrincipal.tenantMetadata().clusterId);
+    assertEquals(expectedIsSuperUser, actualPrincipal.tenantMetadata().isSuperUser);
+  }
+
 }

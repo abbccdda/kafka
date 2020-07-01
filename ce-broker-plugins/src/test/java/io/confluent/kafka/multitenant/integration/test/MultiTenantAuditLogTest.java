@@ -298,8 +298,8 @@ public class MultiTenantAuditLogTest {
     assertTrue(sanitizedEvent.getScope().toString().contains("ABC123"));
 
     //test with bad password error
-    AuthenticationErrorInfo errorInfo =
-        new AuthenticationErrorInfo(AuditEventStatus.UNAUTHENTICATED, "", "APIKEY123", "lkc123");
+    AuthenticationErrorInfo errorInfo = new AuthenticationErrorInfo(
+            AuditEventStatus.UNAUTHENTICATED, "", "APIKEY123", "lkc123");
 
     authenticationException = new SaslAuthenticationException("Bad password for user", errorInfo);
     failureEvent = new

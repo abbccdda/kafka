@@ -13,10 +13,10 @@ import java.util.Objects;
  */
 public class AuthenticationErrorInfo {
     public final static AuthenticationErrorInfo UNAUTHENTICATED_USER_ERROR =
-        new AuthenticationErrorInfo(AuditEventStatus.UNAUTHENTICATED);
+            new AuthenticationErrorInfo(AuditEventStatus.UNAUTHENTICATED);
 
     public final static AuthenticationErrorInfo UNKNOWN_USER_ERROR =
-        new AuthenticationErrorInfo(AuditEventStatus.UNKNOWN_USER_DENIED);
+            new AuthenticationErrorInfo(AuditEventStatus.UNKNOWN_USER_DENIED);
 
     private final AuditEventStatus auditEventStatus;
     private final String errorMessage;
@@ -24,10 +24,9 @@ public class AuthenticationErrorInfo {
     private final String clusterId;
     private Map<String, String> saslExtensions = Collections.emptyMap();
 
-    public AuthenticationErrorInfo(final AuditEventStatus auditEventStatus,
-                                   final String errorMessage,
-                                   final String identifier,
-                                   final String clusterId) {
+    public AuthenticationErrorInfo(
+            final AuditEventStatus auditEventStatus, final String errorMessage,
+            final String identifier, final String clusterId) {
         this.auditEventStatus = Objects.requireNonNull(auditEventStatus);
         this.errorMessage = Objects.toString(errorMessage, "");
         this.identifier = Objects.toString(identifier, "");
@@ -40,6 +39,7 @@ public class AuthenticationErrorInfo {
 
     /**
      * Returns the audit event status
+     *
      * @return the AuditEventStatus
      */
     public AuditEventStatus auditEventStatus() {
@@ -49,6 +49,7 @@ public class AuthenticationErrorInfo {
     /**
      * Returns additional errorMessage related to the failure. This message is for internal audit logging and
      * this should not be returned to clients.
+     *
      * @return the errorMessage
      */
     public String errorMessage() {
@@ -58,6 +59,7 @@ public class AuthenticationErrorInfo {
     /**
      * Returns the identifier used for authentication. This will be {@code SaslServer.getAuthorizationID()}
      * for SASL authentication and SSLSession's peerPrincipal of the remote host for SSL.
+     *
      * @return the identifier
      */
     public String identifier() {
@@ -66,6 +68,7 @@ public class AuthenticationErrorInfo {
 
     /**
      * Returns the cluster Id
+     *
      * @return the cluster ID
      */
     public String clusterId() {
@@ -73,7 +76,7 @@ public class AuthenticationErrorInfo {
     }
 
     /**
-     *  Returns an map of the SASL extension names and their values
+     * Returns a map of the SASL extension names and their values
      */
     public Map<String, String> saslExtensions() {
         return saslExtensions;
@@ -86,11 +89,11 @@ public class AuthenticationErrorInfo {
     @Override
     public String toString() {
         return "AuthenticationErrorInfo{" +
-            "auditEventStatus=" + auditEventStatus +
-            ", errorMessage='" + errorMessage + '\'' +
-            ", identifier='" + identifier + '\'' +
-            ", clusterId='" + clusterId + '\'' +
-            ", saslExtensions=" + saslExtensions +
-            '}';
+                "auditEventStatus=" + auditEventStatus +
+                ", errorMessage='" + errorMessage + '\'' +
+                ", identifier='" + identifier + '\'' +
+                ", clusterId='" + clusterId + '\'' +
+                ", saslExtensions=" + saslExtensions +
+                '}';
     }
 }

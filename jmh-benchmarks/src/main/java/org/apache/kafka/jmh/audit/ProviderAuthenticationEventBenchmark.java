@@ -77,8 +77,9 @@ public class ProviderAuthenticationEventBenchmark {
             } else {
                 AuthenticationContext authenticationContext = new SaslAuthenticationContext(server, SecurityProtocol.SASL_SSL,
                     InetAddress.getLoopbackAddress(), SecurityProtocol.SASL_SSL.name());
-                AuthenticationErrorInfo errorInfo = new
-                    AuthenticationErrorInfo(AuditEventStatus.UNAUTHENTICATED, "", "APIKEY" +  i % ProviderBenchmarkDefaults.USERS, "clusterId1");
+                AuthenticationErrorInfo errorInfo = new AuthenticationErrorInfo(
+                        AuditEventStatus.UNAUTHENTICATED, "", "APIKEY" +  i % ProviderBenchmarkDefaults.USERS,
+                        "clusterId1");
                 SaslAuthenticationException authenticationException = new SaslAuthenticationException("password not specified", errorInfo);
                 args[i] = new AuthenticationEventArguments(principal, authenticationContext, AuditEventStatus.UNAUTHENTICATED, authenticationException);
             }

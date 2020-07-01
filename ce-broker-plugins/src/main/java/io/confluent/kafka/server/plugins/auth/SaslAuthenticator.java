@@ -4,6 +4,7 @@ package io.confluent.kafka.server.plugins.auth;
 
 import io.confluent.kafka.multitenant.MultiTenantPrincipal;
 
+import javax.net.ssl.SNIHostName;
 import javax.security.auth.login.AppConfigurationEntry;
 import javax.security.sasl.SaslException;
 import java.util.List;
@@ -17,7 +18,7 @@ interface SaslAuthenticator {
    * Performs PLAIN authentication of username/password and returns principal containing
    * authorization id and tenant
    */
-  MultiTenantPrincipal authenticate(String username, String password) throws SaslException;
+  MultiTenantPrincipal authenticate(String username, String password, Optional<SNIHostName> sniHostName) throws SaslException;
 
   /**
    *
