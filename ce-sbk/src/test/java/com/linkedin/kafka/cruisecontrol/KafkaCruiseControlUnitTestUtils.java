@@ -145,15 +145,20 @@ public class KafkaCruiseControlUnitTestUtils {
     KafkaFuture<Map<ConfigResource, Config>> mockKafkaFuture = EasyMock.mock(KafkaFuture.class);
 
     Map<ConfigResource, Config> returnConfig = new HashMap<>();
+    Map<ConfigResource, KafkaFuture<Config>> futureMap = new HashMap<>();
     for (Map.Entry<String, List<ConfigEntry>> entry : entries.entrySet()) {
-      returnConfig.put(
-          new ConfigResource(ConfigResource.Type.BROKER, entry.getKey()),
-          new Config(entry.getValue())
-      );
+      KafkaFuture<Config> mockFuture = EasyMock.mock(KafkaFuture.class);
+      ConfigResource resource = new ConfigResource(ConfigResource.Type.BROKER, entry.getKey());
+      Config config = new Config(entry.getValue());
+      returnConfig.put(resource, config);
+      futureMap.put(resource, mockFuture);
+      EasyMock.expect(mockFuture.get()).andReturn(config).anyTimes();
+      EasyMock.replay(mockFuture);
     }
     EasyMock.expect(mockKafkaFuture.get())
-        .andReturn(returnConfig).times(1, 3);
-    EasyMock.expect(mockDescribeConfigsResult.all()).andReturn(mockKafkaFuture).times(1, 3);
+        .andReturn(returnConfig).times(0, 3);
+    EasyMock.expect(mockDescribeConfigsResult.all()).andReturn(mockKafkaFuture).anyTimes();
+    EasyMock.expect(mockDescribeConfigsResult.values()).andReturn(futureMap).anyTimes();
 
     EasyMock.expect(mockAdminClient.describeConfigs(expectedResourcesToDescribe)).andReturn(mockDescribeConfigsResult).times(1, 3);
     EasyMock.replay(mockDescribeConfigsResult, mockKafkaFuture);
@@ -178,6 +183,8 @@ public class KafkaCruiseControlUnitTestUtils {
     props.setProperty(KafkaCruiseControlConfig.DEMOTION_HISTORY_RETENTION_TIME_MS_CONFIG, Long.toString(TimeUnit.HOURS.toMillis(24)));
     props.setProperty(KafkaCruiseControlConfig.REMOVAL_HISTORY_RETENTION_TIME_MS_CONFIG, Long.toString(TimeUnit.HOURS.toMillis(12)));
     props.setProperty(KafkaCruiseControlConfig.GOAL_VIOLATION_DISTRIBUTION_THRESHOLD_MULTIPLIER_CONFIG, "2.0");
+    props.setProperty(KafkaCruiseControlConfig.REPLICATION_THROTTLE_CONFIG, KafkaCruiseControlConfig.DISABLED_THROTTLE.toString());
+
     return props;
   }
 

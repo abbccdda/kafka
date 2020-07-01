@@ -118,6 +118,7 @@ public class EmbeddedSBKKafkaCluster extends EmbeddedKafkaCluster {
     props.put(ConfluentConfigs.BALANCER_ENABLE_CONFIG, "true");
     props.put(ConfluentConfigs.BALANCER_NETWORK_IN_CAPACITY_CONFIG, "5000000");
     props.put(ConfluentConfigs.BALANCER_NETWORK_OUT_CAPACITY_CONFIG, "5000000");
+    props.put(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, ConfluentConfigs.BALANCER_THROTTLE_NO_THROTTLE.toString());
     props.put(confluentBalancerConfig(KafkaCruiseControlConfig.BOOTSTRAP_SERVERS_CONFIG), bootstrapServers);
     props.put(confluentBalancerConfig(KafkaCruiseControlConfig.METADATA_MAX_AGE_CONFIG),
         "500");

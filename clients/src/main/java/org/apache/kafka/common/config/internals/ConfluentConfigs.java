@@ -267,7 +267,7 @@ public class ConfluentConfigs {
     public static final Long BALANCER_THROTTLE_MIN = BALANCER_THROTTLE_AUTO_THROTTLE; // This is Kafka Cruise Control AUTO_THROTTLE.
     public static final Long BALANCER_THROTTLE_DEFAULT = 10L * 1024 * 1024; // 10MB/s network measurement
     public static final String BALANCER_THROTTLE_DOC = "This config specifies the upper bound for bandwidth in bytes to " +
-            "move replicas around for replica reassignment.";
+            "move replicas around for replica reassignment. A value of -1 disables throttling entirely.";
 
     public static final String BALANCER_REPLICA_CAPACITY_SBK_CONFIG = "max.replicas";
     public static final String BALANCER_REPLICA_CAPACITY_CONFIG = CONFLUENT_BALANCER_PREFIX + BALANCER_REPLICA_CAPACITY_SBK_CONFIG;

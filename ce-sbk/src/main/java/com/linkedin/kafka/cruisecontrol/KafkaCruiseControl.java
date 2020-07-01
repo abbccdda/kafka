@@ -128,7 +128,7 @@ public class KafkaCruiseControl {
         config.getBoolean(KafkaCruiseControlConfig.BROKER_FAILURE_EXCLUDE_RECENTLY_DEMOTED_BROKERS_CONFIG),
         config.getBoolean(KafkaCruiseControlConfig.BROKER_FAILURE_EXCLUDE_RECENTLY_REMOVED_BROKERS_CONFIG)
     );
-    _replicationThrottle = _config.getLong(KafkaCruiseControlConfig.DEFAULT_REPLICATION_THROTTLE_CONFIG);
+    _replicationThrottle = _config.getLong(KafkaCruiseControlConfig.REPLICATION_THROTTLE_CONFIG);
     _brokerShutdownManager = new BrokerShutdownManager(adminUtils, config, blockingSendClientBuilder, _time);
   }
 
@@ -150,7 +150,7 @@ public class KafkaCruiseControl {
         config.getBoolean(KafkaCruiseControlConfig.BROKER_FAILURE_EXCLUDE_RECENTLY_DEMOTED_BROKERS_CONFIG),
         config.getBoolean(KafkaCruiseControlConfig.BROKER_FAILURE_EXCLUDE_RECENTLY_REMOVED_BROKERS_CONFIG)
     );
-    this._replicationThrottle = _config.getLong(KafkaCruiseControlConfig.DEFAULT_REPLICATION_THROTTLE_CONFIG);
+    this._replicationThrottle = _config.getLong(KafkaCruiseControlConfig.REPLICATION_THROTTLE_CONFIG);
     this._brokerShutdownManager = shutdownManager;
     this._time = time;
   }

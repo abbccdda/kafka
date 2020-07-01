@@ -15,7 +15,10 @@ import kafka.zk.KafkaZkClient;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.Config;
 import org.apache.kafka.clients.admin.ConfigEntry;
+import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.config.ConfigResource;
+import org.apache.kafka.common.config.internals.ConfluentConfigs;
+import org.apache.kafka.common.errors.TimeoutException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -134,9 +137,11 @@ class ReplicationThrottleHelper {
     for (Integer brokerId : participatingBrokers) {
       Config brokerConfig = brokerConfigs.get(new ConfigResource(ConfigResource.Type.BROKER, Integer.toString(brokerId)));
       if (brokerConfig == null) {
-        throw new IllegalStateException(
-            String.format("Could not find config for broker %d when setting rebalance throttle", brokerId)
-        );
+        // it is likely that we were unable to fetch a config due to the broker being offline (e.g shutdown)
+        // we continue with setting the throttle rate in ZK just in case,
+        // with the known possibility of overriding the statically-set throttle on the broker in case its alive
+        brokerConfig = new Config(Collections.emptyList());
+        LOG.warn("Setting throttle rates on broker {} despite not having been able to fetch its configs", brokerId);
       }
       setLeaderThrottledRateIfUnset(brokerId, brokerConfig);
       setFollowerThrottledRateIfUnset(brokerId, brokerConfig);
@@ -151,7 +156,22 @@ class ReplicationThrottleHelper {
     List<ConfigResource> configResources = participatingBrokers.stream()
         .map(brokerId -> new ConfigResource(ConfigResource.Type.BROKER, brokerId.toString()))
         .collect(Collectors.toList());
-    return _adminClient.describeConfigs(configResources).all().get();
+
+    Map<ConfigResource, Config> configs = new HashMap<>();
+    for (Map.Entry<ConfigResource, KafkaFuture<Config>> entry : _adminClient.describeConfigs(configResources).values().entrySet()) {
+      String brokerId = entry.getKey().name();
+      try {
+        configs.put(entry.getKey(), entry.getValue().get());
+      } catch (ExecutionException e) {
+        if (e.getCause() instanceof TimeoutException) {
+          LOG.warn("Could not fetch broker configs for broker {} when setting replication throttles. " +
+              "This could be because the broker is offline. Ignoring it.", brokerId);
+        } else {
+          throw e;
+        }
+      }
+    }
+    return configs;
   }
 
   /**
@@ -246,7 +266,7 @@ class ReplicationThrottleHelper {
   }
 
   private boolean throttlingEnabled() {
-    return _throttleRate != null;
+    return _throttleRate != null && _throttleRate != ConfluentConfigs.BALANCER_THROTTLE_NO_THROTTLE;
   }
 
   private Set<Integer> getParticipatingBrokers(List<ExecutionProposal> replicaMovementProposals) {

@@ -202,7 +202,7 @@ public class AnomalyDetectorTest {
                                                        EasyMock.eq(false),
                                                        EasyMock.eq(null),
                                                        EasyMock.eq(null),
-                                                       EasyMock.eq(null),
+                                                       EasyMock.eq(KafkaCruiseControlConfig.DISABLED_THROTTLE),
                                                        EasyMock.anyString(),
                                                        EasyMock.eq(true),
                                                        EasyMock.eq(true),
@@ -223,7 +223,7 @@ public class AnomalyDetectorTest {
                                                                 EasyMock.eq(false),
                                                                 EasyMock.eq(null),
                                                                 EasyMock.eq(null),
-                                                                EasyMock.eq(null),
+                                                                EasyMock.eq(KafkaCruiseControlConfig.DISABLED_THROTTLE),
                                                                 EasyMock.anyString(),
                                                                 EasyMock.eq(true),
                                                                 EasyMock.eq(true)))

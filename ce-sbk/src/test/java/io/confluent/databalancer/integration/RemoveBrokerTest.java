@@ -34,6 +34,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
@@ -57,6 +58,13 @@ public class RemoveBrokerTest extends DataBalancerClusterTestHarness {
     super.tearDown();
     Exit.resetExitProcedure();
     exited.set(false);
+  }
+
+  @Override
+  protected Properties injectTestSpecificProperties(Properties props) {
+    // Add some throttle to test the throttle-setting path
+    props.put(ConfluentConfigs.BALANCER_THROTTLE_CONFIG, "10000000");
+    return props;
   }
 
   @Override

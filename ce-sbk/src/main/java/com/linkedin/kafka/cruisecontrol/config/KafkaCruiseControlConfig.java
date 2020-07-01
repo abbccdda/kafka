@@ -532,13 +532,14 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
   /**
    * Replication throttle: <code>throttle.bytes.per.second</code>
    */
-  public static final String DEFAULT_REPLICATION_THROTTLE_CONFIG = ConfluentConfigs.BALANCER_THROTTLE_SBK_CONFIG;
+  public static final String REPLICATION_THROTTLE_CONFIG = ConfluentConfigs.BALANCER_THROTTLE_SBK_CONFIG;
   public static final Long NO_THROTTLE = null;
   public static final Long DISABLED_THROTTLE = ConfluentConfigs.BALANCER_THROTTLE_NO_THROTTLE;
   public static final long AUTO_THROTTLE = ConfluentConfigs.BALANCER_THROTTLE_AUTO_THROTTLE;
-  private static final String DEFAULT_REPLICATION_THROTTLE_DOC = "The replication throttle applied to " +
-          "replicas being moved, in bytes per second. A value of null means no throttle is" +
+  private static final String REPLICATION_THROTTLE_DOC = "The replication throttle applied to " +
+          "replicas being moved, in bytes per second. A value of null or -1 means no throttle is" +
           "applied. A value of -2 means the throttle is automatically calculated based on the cluster metrics.";
+  private static final Long DEFAULT_THROTTLE_VALUE = ConfluentConfigs.BALANCER_THROTTLE_DEFAULT;
 
 
   /**
@@ -1231,11 +1232,11 @@ public class KafkaCruiseControlConfig extends AbstractConfig {
                 atLeast(1),
                 ConfigDef.Importance.MEDIUM,
                 NUM_CONCURRENT_LEADER_MOVEMENTS_DOC)
-        .define(DEFAULT_REPLICATION_THROTTLE_CONFIG,
+        .define(REPLICATION_THROTTLE_CONFIG,
                 ConfigDef.Type.LONG,
-                null,
+                DEFAULT_THROTTLE_VALUE,
                 ConfigDef.Importance.MEDIUM,
-                DEFAULT_REPLICATION_THROTTLE_DOC)
+                REPLICATION_THROTTLE_DOC)
         .define(REPLICA_MOVEMENT_STRATEGIES_CONFIG,
                 ConfigDef.Type.LIST,
                 String.join(",",

@@ -59,7 +59,7 @@ public class BrokerFailures extends KafkaAnomaly {
     _optimizationResult = null;
     _selfHealingGoals = selfHealingGoals;
     if (_kafkaCruiseControl != null && _kafkaCruiseControl.config() != null) {
-      _replicationThrottle = _kafkaCruiseControl.config().getLong(KafkaCruiseControlConfig.DEFAULT_REPLICATION_THROTTLE_CONFIG);
+      _replicationThrottle = _kafkaCruiseControl.config().getLong(KafkaCruiseControlConfig.REPLICATION_THROTTLE_CONFIG);
     } else {
       _replicationThrottle = null;
     }
