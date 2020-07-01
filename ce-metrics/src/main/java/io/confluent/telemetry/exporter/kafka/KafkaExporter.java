@@ -38,6 +38,13 @@ public class KafkaExporter extends AbstractExporter implements MetricsCollectorP
 
     private static final Logger log = LoggerFactory.getLogger(KafkaExporter.class);
 
+    private static final String DROPPED_METRIC_NAME =
+        MetricsUtils.fullMetricName(
+            "io.confluent.telemetry",
+            "exporter/kafka",
+            "dropped/delta"
+        );
+
     // minimum interval at which to log kafka producer errors to avoid unnecessary log spam
     private static final int ERROR_LOG_INTERVAL_MS = 5000;
 
@@ -203,13 +210,13 @@ public class KafkaExporter extends AbstractExporter implements MetricsCollectorP
                 long droppedDelta = droppedTotal - lastDroppedEventCount;
                 lastDroppedEventCount = droppedTotal;
 
-                String metricName = "io.confluent.telemetry/exporter/kafka/dropped/delta";
                 Map<String, String> metricLabels = Collections.emptyMap();
-                MetricKey metricKey = new MetricKey(metricName, metricLabels);
+                MetricKey metricKey = new MetricKey(DROPPED_METRIC_NAME, metricLabels);
                 if (metricsPredicate.test(metricKey)) {
                     exporter.emit(
-                        new MetricKey(metricName, metricLabels), context.metricWithSinglePointTimeseries(
-                            metricName,
+                        metricKey,
+                        context.metricWithSinglePointTimeseries(
+                            DROPPED_METRIC_NAME,
                             Type.CUMULATIVE_INT64,
                             metricLabels,
                             Point.newBuilder().setTimestamp(MetricsUtils.now()).setInt64Value(droppedDelta).build()

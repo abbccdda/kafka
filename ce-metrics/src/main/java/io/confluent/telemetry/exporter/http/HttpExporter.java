@@ -37,8 +37,15 @@ import io.opencensus.proto.metrics.v1.Point;
 
 public class HttpExporter extends AbstractExporter implements MetricsCollectorProvider {
 
+    private static final String METRIC_GROUP = "exporter/http";
+    private static final String BATCHES_TOTAL_METRIC_NAME = MetricsUtils.fullMetricName(
+        "io.confluent.telemetry", METRIC_GROUP, "batches_total");
+    private static final String ITEMS_TOTAL_METRIC_NAME = MetricsUtils.fullMetricName(
+        "io.confluent.telemetry", METRIC_GROUP, "items_total");
+    private static final String SEND_TIME_SEC_METRIC_NAME = MetricsUtils.fullMetricName(
+        "io.confluent.telemetry", METRIC_GROUP, "send_time_seconds");
+
     private static final Logger log = LoggerFactory.getLogger(HttpExporter.class);
-    public static final String GROUP = "http_exporter";
     private static final Double SECONDS_PER_MILLISECOND = 1e-3;
     private static final Function<Collection<Metric>, ExportMetricsServiceRequest> REQUEST_CONVERTER =
         metrics -> ExportMetricsServiceRequest.newBuilder().addAllMetrics(metrics)
@@ -127,8 +134,6 @@ public class HttpExporter extends AbstractExporter implements MetricsCollectorPr
                 }
 
                 // Three metrics for total batches: dropped, success, failed
-                String batchName = MetricsUtils.fullMetricName(context.getDomain(), GROUP, "batches_total");
-
                 Map<String, Long> statusToBatchValue = ImmutableMap.of(
                     "dropped", stats.getTotalDroppedBatches(),
                     "success", stats.getTotalSuccessfulBatches(),
@@ -137,12 +142,14 @@ public class HttpExporter extends AbstractExporter implements MetricsCollectorPr
                 statusToBatchValue.forEach((status, value) -> {
                     Map<String, String> statusLabels = ImmutableMap.<String, String>builder()
                         .putAll(labels).put("status", status).build();
-                    if (!metricsPredicate.test(new MetricKey(batchName, statusLabels))) {
+                    MetricKey metricKey = new MetricKey(BATCHES_TOTAL_METRIC_NAME, statusLabels);
+                    if (!metricsPredicate.test(metricKey)) {
                         return;
                     }
                     exporter.emit(
-                        new MetricKey(batchName, statusLabels), context.metricWithSinglePointTimeseries(
-                            batchName,
+                        metricKey,
+                        context.metricWithSinglePointTimeseries(
+                            BATCHES_TOTAL_METRIC_NAME,
                             Type.CUMULATIVE_INT64,
                             statusLabels,
                             Point.newBuilder()
@@ -152,19 +159,20 @@ public class HttpExporter extends AbstractExporter implements MetricsCollectorPr
                 });
 
                 // Two metrics for total items: success, failed. We don't have a "dropped items" metric.
-                String itemName = MetricsUtils.fullMetricName(context.getDomain(), GROUP, "items_total");
                 Map<String, Long> statusToItemValue = ImmutableMap.of(
                     "success", stats.getTotalSuccessfulItems(),
                     "failed", stats.getTotalFailedItems());
                 statusToItemValue.forEach((status, value) -> {
                     Map<String, String> statusLabels = ImmutableMap.<String, String>builder()
                         .putAll(labels).put("status", status).build();
-                    if (!metricsPredicate.test(new MetricKey(itemName, statusLabels))) {
+                    MetricKey metricKey = new MetricKey(ITEMS_TOTAL_METRIC_NAME, statusLabels);
+                    if (!metricsPredicate.test(metricKey)) {
                         return;
                     }
                     exporter.emit(
-                        new MetricKey(itemName, statusLabels), context.metricWithSinglePointTimeseries(
-                            itemName,
+                        metricKey,
+                        context.metricWithSinglePointTimeseries(
+                            ITEMS_TOTAL_METRIC_NAME,
                             Type.CUMULATIVE_INT64,
                             statusLabels,
                             Point.newBuilder()
@@ -174,12 +182,12 @@ public class HttpExporter extends AbstractExporter implements MetricsCollectorPr
                 });
 
                 // Timing metric. This is converted to seconds and sent as a Cumulative Double
-                String timingName = MetricsUtils
-                    .fullMetricName(context.getDomain(), GROUP, "send_time_seconds");
-                if (metricsPredicate.test(new MetricKey(timingName, labels))) {
+                MetricKey metricKey = new MetricKey(SEND_TIME_SEC_METRIC_NAME, labels);
+                if (metricsPredicate.test(metricKey)) {
                     exporter.emit(
-                        new MetricKey(timingName, labels), context.metricWithSinglePointTimeseries(
-                            timingName,
+                        metricKey,
+                        context.metricWithSinglePointTimeseries(
+                            SEND_TIME_SEC_METRIC_NAME,
                             Type.CUMULATIVE_DOUBLE,
                             labels,
                             Point.newBuilder()

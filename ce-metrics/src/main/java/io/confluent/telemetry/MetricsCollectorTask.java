@@ -27,6 +27,13 @@ public class MetricsCollectorTask implements MetricsCollector {
 
     private static final Logger log = LoggerFactory.getLogger(MetricsCollectorTask.class);
 
+    private static final String COLLECTED_TOTAL_METRIC_NAME =
+        MetricsUtils.fullMetricName(
+            "io.confluent.telemetry",
+            "metrics",
+            "collected/delta"
+        );
+
     private final ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
     private final Context context;
     private final Supplier<Collection<Exporter>> exportersSupplier;
@@ -101,19 +108,18 @@ public class MetricsCollectorTask implements MetricsCollector {
      */
     private void emitMetricsCollectedMetric(MetricsCollector collector, long metricCount,
                                             BiConsumer<MetricKey, Metric> emit) {
-        String metricName = "io.confluent.telemetry/metrics_collector_task/metrics_collected_total/delta";
         String collectorName = collector.getClass().getSimpleName();
         Map<String, String> labels = new HashMap<>();
         labels.put(MetricsCollector.LABEL_COLLECTOR, collectorName);
         if (context.isDebugEnabled()) {
             labels.put(MetricsCollector.LABEL_LIBRARY, MetricsCollector.LIBRARY_NONE);
         }
-        MetricKey metricKey = new MetricKey(metricName, labels);
+        MetricKey metricKey = new MetricKey(COLLECTED_TOTAL_METRIC_NAME, labels);
         if (this.metricsPredicate.test(metricKey)) {
             emit.accept(
                 metricKey,
                 context.metricWithSinglePointTimeseries(
-                    metricName,
+                    COLLECTED_TOTAL_METRIC_NAME,
                     Type.CUMULATIVE_INT64,
                     labels,
                     Point.newBuilder().setTimestamp(MetricsUtils.now()).setInt64Value(metricCount).build()
