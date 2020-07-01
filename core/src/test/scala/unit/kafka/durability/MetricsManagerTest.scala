@@ -49,9 +49,9 @@ class MetricsManagerTest {
     assertEquals("Tag count for 'external_lost_messages' metrics is not 1",
       metricName("external_lost_messages").tags().size(), 1)
 
-    // Update metrics for a TierPartition during audit run.
+    // Update metrics for a Partition during audit run.
     mm.updateStats(tp, Stats(1000, 50))
-    // Make sure the updated TierPartitions's metrics are not exposed.
+    // Make sure the updated Partitions's metrics are not exposed.
     assertEquals("Metrics value for 'total_messages' should not be updated before job completion",
       metrics.metric(metricName("total_messages")).metricValue(), 0L)
     assertEquals("Metrics value for 'external_lost_messages' should not be updated before job completion",

@@ -18,7 +18,7 @@ import org.apache.kafka.common.utils.Utils
  * On startup, it recovers it's in-memory state from the check pointed file.
  */
 
-private[db] class DurabilityDB (path: File) extends DbTrait {
+class DurabilityDB private[DurabilityDB](path: File) extends DbTrait {
   private[db] val dbFile = new File(path, "durability.db")
   private[db] val tmpFile = new File(path, "durability.db.tmp")
 

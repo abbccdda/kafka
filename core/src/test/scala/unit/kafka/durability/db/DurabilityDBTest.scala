@@ -47,7 +47,6 @@ class DurabilityDBTest {
     db.addPartition(tp, ps)
     db.close()
     val newDB = DurabilityDB(logDir)
-    println(newDB.topicStates)
     assertTrue("Check-pointing and recovery of db not consistent", newDB.header.equals(db.header))
     assertEquals("PartitionState not preserved after recovery", newDB.fetchPartitionState(tp).get, ps)
   }
