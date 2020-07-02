@@ -87,6 +87,11 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
     this.kafkaMetricsStateLedger.configure(configs);
   }
 
+  @Override
+  public void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
+    createConfiguration(configs, false);
+  }
+
   /* Implementing Reconfigurable interface to make this reporter dynamically reconfigurable. */
   @Override
   public synchronized void reconfigure(Map<String, ?> configs) {
@@ -94,14 +99,7 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
       throw new IllegalStateException("contextChange() was not called before reconfigure()");
     }
 
-    // start with original configs from properties file
-    Map<String, Object> newOriginals = new HashMap<>(this.originalConfig.originals());
-
-    // put all filtered configs (avoid applying configs that are not dynamic)
-    // TODO: remove once this is fixed https://confluentinc.atlassian.net/browse/CPKAFKA-4828
-    newOriginals.putAll(onlyReconfigurables(configs));
-
-    ConfluentTelemetryConfig newConfig = new ConfluentTelemetryConfig(newOriginals);
+    ConfluentTelemetryConfig newConfig = createConfiguration(configs, true);
     ConfluentTelemetryConfig oldConfig = this.config;
     this.config = newConfig;
 
@@ -118,6 +116,20 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
     this.unionPredicate = createUnionPredicate(this.config);
     reconfigureCollectors();
     reconfigureExporters(oldConfig, newConfig);
+  }
+
+  private ConfluentTelemetryConfig createConfiguration(Map<String, ?> configs, boolean doLog) {
+    configs = ConfluentTelemetryConfig.reconcileConfigs(configs);
+
+    // the original config may contain local exporter overrides so add those first
+    Map<String, Object> validateConfig = Maps.newHashMap(this.originalConfig.originals());
+
+    // put all filtered configs (avoid applying configs that are not dynamic)
+    // TODO: remove once this is fixed https://confluentinc.atlassian.net/browse/CPKAFKA-4828
+    validateConfig.putAll(onlyReconfigurables(configs));
+
+    // validation should be handled by ConfigDef Validators
+    return new ConfluentTelemetryConfig(validateConfig, doLog);
   }
 
   private void initExporters() {
@@ -321,14 +333,6 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
     // Add required configs for event logger.
     eventConfig.put(EventLoggerConfig.EVENT_EXPORTER_CLASS_CONFIG, EventHttpExporter.class.getCanonicalName());
     this.configEventLogger.configure(eventConfig);
-  }
-
-  @Override
-  public void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
-    // the original config may contain local exporter overrides so add those first
-    Map<String, Object> validateConfig = Maps.newHashMap(this.originalConfig.originals());
-    validateConfig.putAll(configs);
-    ConfluentTelemetryConfig.validateReconfiguration(validateConfig);
   }
 
   private void startMetricCollectorTask() {

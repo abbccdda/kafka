@@ -19,7 +19,6 @@ import io.confluent.telemetry.exporter.kafka.KafkaExporterConfig;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
-import org.apache.kafka.common.config.ConfigException;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -423,7 +422,7 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
             TELEMETRY_API_KEY_DOC
         ).define(
             TELEMETRY_API_SECRET,
-            ConfigDef.Type.STRING,
+            ConfigDef.Type.PASSWORD,
             null,
             ConfigDef.Importance.HIGH,
             TELEMETRY_API_SECRET_DOC
@@ -512,11 +511,6 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
 
     public VolumeMetricsCollectorConfig getVolumeMetricsCollectorConfig() {
         return volumeMetricsCollectorConfig;
-    }
-
-    public static void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
-        // validation should be handled by ConfigDef Validators
-        new ConfluentTelemetryConfig(configs, false);
     }
 
     // We have 2 sets of config flags for _confluent http exporter.
