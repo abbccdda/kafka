@@ -42,7 +42,8 @@ import org.slf4j.LoggerFactory;
  * The NonBlockingKafkaExporter sends events to topics based on their content. It doesnot block on
  * producer metadata refresh or creation of topics.
  */
-public class NonBlockingKafkaExporter<T extends MessageLite> implements Exporter<T> {
+public class NonBlockingKafkaExporter<T extends MessageLite>
+    implements Exporter<CloudEvent<AttributesImpl, T>> {
 
   private static final Logger log = LoggerFactory.getLogger(NonBlockingKafkaExporter.class);
   // TODO: Make this a property.
@@ -112,7 +113,7 @@ public class NonBlockingKafkaExporter<T extends MessageLite> implements Exporter
   }
 
   @Override
-  public void append(CloudEvent<AttributesImpl, T> event) throws RuntimeException {
+  public void emit(CloudEvent<AttributesImpl, T> event) throws RuntimeException {
     try {
       // A default topic should have matched, even if no explicit routing is configured
       String topicName = route(event);

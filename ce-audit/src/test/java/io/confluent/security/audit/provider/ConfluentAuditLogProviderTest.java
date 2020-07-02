@@ -288,7 +288,7 @@ public class ConfluentAuditLogProviderTest {
   }
 
   @SuppressWarnings("unchecked")
-  public static class TestExporter<T extends MessageLite> implements Exporter<T> {
+  public static class TestExporter<T extends MessageLite> implements Exporter<CloudEvent<AttributesImpl, T>> {
     private Serializer<T> jsonSerializer = Protobuf.structuredSerializer();
     private Logger log = LoggerFactory.getLogger(TestExporter.class);
 
@@ -344,7 +344,7 @@ public class ConfluentAuditLogProviderTest {
     }
 
     @Override
-    public void append(CloudEvent<AttributesImpl, T> event) throws RuntimeException {
+    public void emit(CloudEvent<AttributesImpl, T> event) throws RuntimeException {
     log.info(jsonSerializer.toString(event));
     }
 

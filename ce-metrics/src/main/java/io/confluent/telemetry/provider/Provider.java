@@ -19,6 +19,8 @@ import org.apache.kafka.common.metrics.MetricsContext;
  */
 public interface Provider extends Configurable {
 
+  Predicate<String> EXCLUDE_ALL = k -> false;
+
   /**
    * Validate that all the data required for generating correct metrics is present. The provider
    * will be disabled if validation fails.
@@ -59,5 +61,14 @@ public interface Provider extends Configurable {
    */
   default List<MetricsCollector> extraCollectors(Context ctx, Predicate<MetricKey> metricsPredicate) {
     return Collections.emptyList();
+  }
+
+  /**
+   * Include list for config
+   * @return Regex for filtering config keys.
+   */
+  default Predicate<String> configInclude() {
+    // exclude everything by default
+    return EXCLUDE_ALL;
   }
 }

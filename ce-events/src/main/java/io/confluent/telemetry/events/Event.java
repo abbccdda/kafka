@@ -30,6 +30,7 @@ public class Event {
     private T data;
     private String route;
     private String dataContentType;
+    private URI dataSchema;
 
     private Builder() {
     }
@@ -74,6 +75,11 @@ public class Event {
       return this;
     }
 
+    public Builder<T> setDataSchema(URI dataSchema) {
+      this.dataSchema = dataSchema;
+      return this;
+    }
+
     public CloudEvent<AttributesImpl, T> build() {
       Objects.requireNonNull(source);
       Objects.requireNonNull(subject);
@@ -97,7 +103,8 @@ public class Event {
           .withTime(time)
           .withSubject(subject)
           .withData(data)
-          .withDataContentType(dataContentType);
+          .withDataContentType(dataContentType)
+          .withDataschema(dataSchema);
 
       if (this.route != null) {
         RouteExtension re = new RouteExtension();

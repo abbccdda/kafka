@@ -385,6 +385,13 @@
     <suppress checks="AvoidStarImport"
               files="YammerMetricsTest.java$"/>
 
+    <!-- ce-events exclusions -->
+    <suppress checks=".+" files="ce-events/build/generated/.+.java$"/>
+    <!-- use protobuf generated classes -->
+    <suppress checks="ImportControl" files="ce-events/src/test/java/io/confluent/telemetry/events/*"/>
+    <suppress checks="ImportControl" files="ce-events/src/main/java/io/confluent/telemetry/events/.*"/>
+
+
     <!-- ce-licensing exclusions -->
     <suppress checks="NPathComplexity"
               files="LicenseManager.java"/>

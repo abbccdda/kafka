@@ -12,6 +12,10 @@ import io.confluent.telemetry.MetricsCollectorTask;
 import io.confluent.telemetry.collector.KafkaMetricsCollector;
 import io.confluent.telemetry.collector.MetricsCollector;
 import io.confluent.telemetry.collector.MetricsCollectorProvider;
+import io.confluent.telemetry.events.EventLogger;
+import io.confluent.telemetry.events.EventLoggerConfig;
+import io.confluent.telemetry.events.exporter.http.EventHttpExporter;
+import io.confluent.telemetry.events.v1.ConfigEvent;
 import io.confluent.telemetry.exporter.Exporter;
 import io.confluent.telemetry.exporter.ExporterConfig;
 import io.confluent.telemetry.exporter.http.HttpExporter;
@@ -42,6 +46,9 @@ import org.apache.kafka.common.metrics.MetricsReporter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static io.confluent.telemetry.ConfluentTelemetryConfig.CONFIG_EVENTS_ENABLE_CONFIG;
+import static io.confluent.telemetry.provider.Utils.configEvent;
+
 public class TelemetryReporter implements MetricsReporter, ClusterResourceListener {
 
   private static final Logger log = LoggerFactory.getLogger(TelemetryReporter.class);
@@ -64,6 +71,8 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
   private KafkaMetricsCollector.StateLedger kafkaMetricsStateLedger = new KafkaMetricsCollector.StateLedger();
 
   private Provider activeProvider;
+
+  private EventLogger<ConfigEvent> configEventLogger = new EventLogger<ConfigEvent>();
 
   /**
    * Note: we are assuming that these methods are invoked in the following order:
@@ -96,11 +105,19 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
     ConfluentTelemetryConfig oldConfig = this.config;
     this.config = newConfig;
 
+    ExporterConfig httpConfig = newConfig.allExporters().get(ConfluentTelemetryConfig.EXPORTER_CONFLUENT_NAME);
+    configEventLogger.reconfigure(httpConfig.originals());
+
+    if (this.activeProvider != null && this.config.getBoolean(CONFIG_EVENTS_ENABLE_CONFIG)) {
+      this.configEventLogger.log(configEvent(config.originals(),
+              activeProvider.configInclude(),
+              activeProvider.resource(),
+              activeProvider.domain() + "/config/dynamic"));
+    }
+
     this.unionPredicate = createUnionPredicate(this.config);
     reconfigureCollectors();
-
     reconfigureExporters(oldConfig, newConfig);
-
   }
 
   private void initExporters() {
@@ -228,7 +245,6 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
     return reconfigurables;
   }
 
-
   @Override
   public void contextChange(MetricsContext metricsContext) {
     /**
@@ -280,13 +296,31 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
 
       startMetricCollectorTask();
     }
+
+    if (config.getBoolean(CONFIG_EVENTS_ENABLE_CONFIG)) {
+      this.configEventLogger.log(configEvent(config.originals(), activeProvider.configInclude(), activeProvider.resource(), activeProvider.domain() + "/config/static"));
+    }
   }
 
   private void initConfig() {
     this.originalConfig = new ConfluentTelemetryConfig(
         maybeInjectLocalExporter(this.activeProvider, this.rawOriginalConfig));
+    maybeConfigureEventLogger(originalConfig);
     this.config = originalConfig;
     this.unionPredicate = createUnionPredicate(this.config);
+  }
+
+  private void maybeConfigureEventLogger(ConfluentTelemetryConfig configs) {
+    // Inherit http exporter configs from the _confluent http exporter.
+    ExporterConfig defaultHttpExporterConfig = configs.allExporters().get(ConfluentTelemetryConfig.EXPORTER_CONFLUENT_NAME);
+    if (defaultHttpExporterConfig == null) {
+      log.error("_confluent exporter config is empty.");
+    }
+
+    Map<String, Object> eventConfig = defaultHttpExporterConfig.originals();
+    // Add required configs for event logger.
+    eventConfig.put(EventLoggerConfig.EVENT_EXPORTER_CLASS_CONFIG, EventHttpExporter.class.getCanonicalName());
+    this.configEventLogger.configure(eventConfig);
   }
 
   @Override
@@ -296,7 +330,6 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
     validateConfig.putAll(configs);
     ConfluentTelemetryConfig.validateReconfiguration(validateConfig);
   }
-
 
   private void startMetricCollectorTask() {
     ctx = new Context(this.activeProvider.resource(),
@@ -363,7 +396,6 @@ public class TelemetryReporter implements MetricsReporter, ClusterResourceListen
     this.kafkaMetricsStateLedger.close();
 
   }
-
 
   @Override
   public synchronized void onUpdate(ClusterResource clusterResource) {

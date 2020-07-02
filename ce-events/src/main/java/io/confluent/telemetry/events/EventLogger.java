@@ -6,47 +6,42 @@ package io.confluent.telemetry.events;
 import io.cloudevents.CloudEvent;
 import io.cloudevents.v1.AttributesImpl;
 import io.confluent.telemetry.events.exporter.Exporter;
+
 import java.util.Map;
 import java.util.Set;
 import org.apache.kafka.common.Reconfigurable;
 import org.apache.kafka.common.config.ConfigException;
 
 /**
- * This creates a logger that writes events to the configured exporter. This enforces that for any
- * given logger name, there is a single exporter, to allow us to be sure that we have only one Kafka
- * Producer for each event log.
+ * This creates a logger that writes events to the configured exporter.
  */
 public class EventLogger<T> implements Reconfigurable, AutoCloseable {
 
-  private Exporter<T> exporter;
+  private Exporter<CloudEvent<AttributesImpl, T>> exporter;
   private boolean configured = false;
 
   public EventLogger() {
   }
 
   /**
-   * The log method synchronously waits for the topic to be created if it does not exist yet. If
-   * topic creation fails, the event is logged to Kafka exporter's log4j logger along with the
-   * error. If this behavior is undesirable, then you should ensure the topics to be created are
-   * added to the configuration and check if the routes are ready or configure the topic creation to
-   * be non-blocking using `event.logger.blocking=false`. Note that a RuntimeException is thrown if
-   * the topic is not exists if the call is non-blocking.
+   * Log an event.
+   * This method might block if the exporter is not ready yet. If you need non-blocking
+   * behavior then you should use the ready(..) method to ensure the exporter is ready
+   * before sending events.
+   * @param event
    */
 
   public void log(CloudEvent<AttributesImpl, T> event) {
     if (!this.configured) {
-      throw new RuntimeException("EventLogger is not configured yet !");
+      throw new IllegalStateException("EventLogger is not configured yet !");
     }
-    this.exporter.append(event);
+    this.exporter.emit(event);
   }
 
   /**
-   * Is the event exporter ready for sending events ? This method does not block. Calling this
-   * method will trigger a reconciliation of routes in the background. For Kafka, this means the
-   * topic manager will run its reconcile
-   *
-   * This is required for making sure the producer and topics are ready before sending a high volume
-   * data stream. This is mainly needed for bootstrapping the audit log provider. The provider can
+   * Check if the event exporter ready for sending events. This method does not block.
+   **
+   * This is mainly needed for bootstrapping the audit log provider. The provider can
    * use this method to verify that the Kafka exporter is ready before sending events.
    */
   public boolean ready(CloudEvent<AttributesImpl, T>  event) {
@@ -57,7 +52,6 @@ public class EventLogger<T> implements Reconfigurable, AutoCloseable {
     return this.exporter.routeReady(event);
   }
 
-  // Handle dynamic reconfiguration. This is mainly to support UI config usecases for Audit events.
   @Override
   public Set<String> reconfigurableConfigs() {
     return this.exporter.reconfigurableConfigs();
@@ -91,7 +85,7 @@ public class EventLogger<T> implements Reconfigurable, AutoCloseable {
   }
 
   //For testing.
-  public Exporter<T> eventExporter() {
+  public Exporter<CloudEvent<AttributesImpl, T>> eventExporter() {
     return exporter;
   }
 }

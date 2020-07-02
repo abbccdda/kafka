@@ -92,6 +92,8 @@
     <allow pkg="io.confluent.kafka.schemaregistry" />
     <allow pkg="io.cloudevents" />
     <allow pkg="org.apache.log4j" />
+    <allow pkg="org.eclipse.jetty" />
+    <allow pkg="javax.servlet.http" />
   </subpackage>
 
   <subpackage name="monitoring">

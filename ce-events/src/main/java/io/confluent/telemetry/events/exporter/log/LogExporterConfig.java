@@ -6,10 +6,10 @@ package io.confluent.telemetry.events.exporter.log;
 import static org.apache.kafka.common.config.internals.ConfluentConfigs.EVENT_LOGGER_PREFIX;
 
 import java.util.Map;
-import org.apache.kafka.common.config.AbstractConfig;
+import io.confluent.telemetry.events.exporter.ExporterConfig;
 import org.apache.kafka.common.config.ConfigDef;
 
-public class LogExporterConfig extends AbstractConfig {
+public class LogExporterConfig extends ExporterConfig {
 
   // Configuration for LogExporter
   public static final String LOG_EVENT_EXPORTER_NAME_CONFIG = EVENT_LOGGER_PREFIX + "exporter.log.name";

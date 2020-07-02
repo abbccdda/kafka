@@ -7,6 +7,12 @@ import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
 public class RegexConfigDefValidator implements ConfigDef.Validator {
+  private String description;
+
+  public RegexConfigDefValidator(String description) {
+    this.description = description;
+  }
+
   @Override
   public void ensureValid(String name, Object value) {
     String regexString = value.toString();
@@ -14,7 +20,7 @@ public class RegexConfigDefValidator implements ConfigDef.Validator {
       Pattern.compile(regexString);
     } catch (PatternSyntaxException e) {
       throw new ConfigException(
-          "Metrics filter for configuration "
+              description
               + name
               + " is not a valid regular expression"
       );

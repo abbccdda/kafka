@@ -3,8 +3,6 @@
  */
 package io.confluent.telemetry.events.exporter;
 
-import io.cloudevents.CloudEvent;
-import io.cloudevents.v1.AttributesImpl;
 import org.apache.kafka.common.Reconfigurable;
 
 /**
@@ -14,9 +12,10 @@ import org.apache.kafka.common.Reconfigurable;
 public interface Exporter<T> extends Reconfigurable, AutoCloseable {
 
   /**
-   * Filter and transform the events as appropriate and send to the specified destination
+   * Filter and transform the events as appropriate and send to the specified destination. This
+   * method takes care of batching, serialization and retries.
    */
-  void append(CloudEvent<AttributesImpl, T> event) throws RuntimeException;
+  void emit(T event) throws RuntimeException;
 
   /**
    * Checks if a topic is ready. This is specifically used for transports where the routes require
@@ -25,7 +24,9 @@ public interface Exporter<T> extends Reconfigurable, AutoCloseable {
    *
    * @return if the route for this event is ready.
    */
-  boolean routeReady(CloudEvent<AttributesImpl, T> event);
+  default boolean routeReady(T event) {
+    return true;
+  }
 
 }
 

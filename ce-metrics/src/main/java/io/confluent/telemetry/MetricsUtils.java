@@ -7,6 +7,8 @@ import static com.google.common.base.CaseFormat.UPPER_CAMEL;
 import com.google.protobuf.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -33,6 +35,15 @@ public class MetricsUtils {
     public static Instant toInstant(Timestamp timestamp) {
         return Instant.ofEpochSecond(timestamp.getSeconds(), timestamp.getNanos());
     }
+
+    public static ZonedDateTime nowInUTC(Clock clock) {
+        return Instant.now(clock).atZone(ZoneOffset.UTC);
+    }
+
+    public static ZonedDateTime nowInUTC() {
+        return nowInUTC(Clock.systemUTC());
+    }
+
 
     /**
      * Creates a metric name given the domain, group, and name. The new String follows the following

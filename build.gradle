@@ -2305,7 +2305,9 @@ project(':ce-metrics') {
     testCompile project(':core')
     testCompile project(':core').sourceSets.test.output
     testCompile project(':ce-serializers').sourceSets.test.output
-
+    testCompile libs.jettyServer
+    testCompile libs.jettyServlet
+    testCompile libs.jettyServlets
     // Streams
     testCompile project(':streams')
     testCompile project(':streams').sourceSets.test.output
@@ -2412,6 +2414,12 @@ project(':ce-events') {
       exclude module: 'kafka-clients'
     }
     compile libs.jacksonProtobufDatatype
+    compile(libs.telemetryApi){
+      exclude module: 'grpc-protobuf'
+    }
+    compile(libs.telemetryClient){
+      exclude module: 'grpc-protobuf'
+    }
 
     compileOnly project(':core')
 

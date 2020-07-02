@@ -122,11 +122,154 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
             )
     );
 
+    public static final String CONFIG_EVENTS_ENABLE_CONFIG = PREFIX + "events.enable";
+    public static final String CONFIG_EVENTS_ENABLE_DOC = "Enable config events collection." +
+            "Disabled by default for v6.0.";
+    public static final Boolean CONFIG_EVENTS_ENABLE_DEFAULT = false;
+
+    public static final String CONFIG_EVENTS_INCLUDE_CONFIG = PREFIX + "events.collector.include";
+    public static final String CONFIG_EVENTS_INCLUDE_DOC =
+            "Regex matching the config names to be published to telemetry collector."
+                    + "This should typically never be modified unless requested by Confluent.";
+    public static final String CONFIG_EVENTS_INCLUDE_DEFAULT;
+
+    //https://confluentinc.atlassian.net/wiki/spaces/PM/pages/906395695/1-pager+Telemetry+of+Configuration+and+Control+Event+Data#id-1-pager:TelemetryofConfigurationandControlEventData-Staticserviceconfiguration
+    // TODO: Add include list for non-kafka components.
+    public static final List<String> CONFIG_EVENTS_INCLUDE = Collections.unmodifiableList(
+            Arrays.asList("auto.create.topics.enable",
+                    "broker.id",
+                    "compression.type",
+                    "confluent.tier.local.hotset.bytes",
+                    "confluent.tier.local.hotset.ms",
+                    "confluent.tier.metadata.replication.factor",
+                    "confluent.tier.s3.region",
+                    "delete.topic.enable",
+                    "leader.imbalance.check.interval.seconds",
+                    "leader.imbalance.per.broker.percentage",
+                    "log.dir",
+                    "log.dirs",
+                    "log.flush.interval.messages",
+                    "log.flush.interval.ms",
+                    "log.flush.offset.checkpoint.interval.ms",
+                    "log.flush.scheduler.interval.ms",
+                    "log.flush.start.offset.checkpoint.interval.ms",
+                    "log.retention.bytes",
+                    "log.retention.hours",
+                    "log.retention.minutes",
+                    "log.retention.ms",
+                    "log.roll.hours",
+                    "log.roll.ms",
+                    "log.segment.bytes",
+                    "log.segment.delete.delay.ms",
+                    "message.max.bytes",
+                    "min.insync.replicas",
+                    "num.io.threads",
+                    "num.network.threads",
+                    "num.recovery.threads.per.data.dir",
+                    "num.replica.alter.log.dirs.threads",
+                    "num.replica.fetchers",
+                    "offset.metadata.max.bytes",
+                    "offsets.commit.required.acks",
+                    "offsets.commit.timeout.ms",
+                    "offsets.load.buffer.size",
+                    "offsets.retention.check.interval.ms",
+                    "offsets.retention.minutes",
+                    "offsets.topic.compression.codec",
+                    "offsets.topic.num.partitions",
+                    "offsets.topic.replication.factor",
+                    "queued.max.requests",
+                    "replica.fetch.min.bytes",
+                    "replica.fetch.wait.max.ms",
+                    "replica.high.watermark.checkpoint.interval.ms",
+                    "replica.lag.time.max.ms",
+                    "replica.socket.receive.buffer.bytes",
+                    "replica.socket.timeout.ms",
+                    "request.timeout.ms",
+                    "socket.receive.buffer.bytes",
+                    "socket.request.max.bytes",
+                    "socket.send.buffer.bytes",
+                    "transacation.*",
+                    "unclean.leader.election.enable",
+                    "zookeeper.connection.timeout.ms",
+                    "zookeeper.max.in.flight.requests",
+                    "zookeeper.session.timeout.ms",
+                    "zookeeper.set.acl",
+                    "broker.id.generation.enable",
+                    "broker.rack",
+                    "confluent.tier.archiver.num.threads",
+                    "confluent.tier.backend",
+                    "confluent.tier.enable",
+                    "confluent.tier.feature",
+                    "confluent.tier.fetcher.num.threads",
+                    "connections.max.idle.ms",
+                    "connections.max.reauth.ms",
+                    "controlled.*",
+                    "controller.socket.timeout.ms",
+                    "default.replication.factor",
+                    "delegation.token.expiry.time.ms",
+                    "delegation.token.max.lifetime.ms",
+                    "delete.records.purgatory.purge.interval.requests",
+                    "fetch.*",
+                    "group.*",
+                    "log.cleaner.*",
+                    "log.index.*",
+                    "log.message.*",
+                    "log.preallocate",
+                    "log.retention.check.interval.ms",
+                    "max.*",
+                    "num.partitions",
+                    "principal.builder.class",
+                    "producer.purgatory.purge.interval.requests",
+                    "queued.max.request.bytes",
+                    "replica.*",
+                    "reserved.broker.max.id",
+                    "sasl.client.callback.handler.class",
+                    "sasl.enabled.mechanisms",
+                    "sasl.login.class",
+                    "sasl.mechanism.inter.broker.protocol",
+                    "sasl.server.callback.handler.class",
+                    "security.inter.broker.protocol",
+                    "ssl.client.auth",
+                    "ssl.enabled.protocols",
+                    "ssl.engine.builder.class",
+                    "ssl.protocol",
+                    "ssl.provider",
+                    "zookeeper.clientCnxnSocket",
+                    "zookeeper.ssl.client.enable",
+                    "alter.*",
+                    "authorizer.class.name",
+                    "client.quota.callback.class",
+                    "confluent.log.placement.constraints",
+                    "confluent.tier.topic.delete.check.interval.ms",
+                    "connection.failed.authentication.delay.ms",
+                    "create.topic.policy.class.name",
+                    "kafka.metrics.polling.interval.secs",
+                    "kafka.metrics.reporters",
+                    "listener.security.protocol.map",
+                    "log.message.downconversion.enable",
+                    "metric.reporters",
+                    "metrics.*",
+                    "password.encoder.cipher.algorithm",
+                    "password.encoder.iterations",
+                    "password.encoder.key.length",
+                    "password.encoder.keyfactory.algorithm",
+                    "quota.*",
+                    "replication.*",
+                    "security.providers",
+                    "ssl.endpoint.identification.algorithm",
+                    "enable.fips"));
+
+
     static {
         StringBuilder builder = new StringBuilder(".*");
         Joiner.on(".*|.*").appendTo(builder, DEFAULT_BROKER_MONITORING_METRICS);
         builder.append(".*");
         DEFAULT_METRICS_INCLUDE = builder.toString();
+
+        StringBuilder eventBuilder = new StringBuilder(".*");
+        Joiner.on(".*|.*").appendTo(eventBuilder, CONFIG_EVENTS_INCLUDE);
+        eventBuilder.append(".*");
+        CONFIG_EVENTS_INCLUDE_DEFAULT = eventBuilder.toString();
     }
 
     public static final String DEBUG_ENABLED = PREFIX + "debug.enabled";
@@ -247,12 +390,25 @@ public class ConfluentTelemetryConfig extends AbstractConfig {
                 ConfigDef.Importance.LOW,
                 COLLECT_INTERVAL_DOC
         ).define(
-            METRICS_INCLUDE_CONFIG,
+                METRICS_INCLUDE_CONFIG,
                 ConfigDef.Type.STRING,
-            DEFAULT_METRICS_INCLUDE,
-                new RegexConfigDefValidator(),
+                DEFAULT_METRICS_INCLUDE,
+                new RegexConfigDefValidator("Metrics filter for configuration"),
                 ConfigDef.Importance.LOW,
-            METRICS_INCLUDE_DOC
+                METRICS_INCLUDE_DOC
+        ).define(
+                CONFIG_EVENTS_INCLUDE_CONFIG,
+                ConfigDef.Type.STRING,
+                CONFIG_EVENTS_INCLUDE_DEFAULT,
+                new RegexConfigDefValidator("Events filter for configuration"),
+                ConfigDef.Importance.LOW,
+                CONFIG_EVENTS_INCLUDE_DOC
+        ).define(
+                CONFIG_EVENTS_ENABLE_CONFIG,
+                ConfigDef.Type.BOOLEAN,
+                CONFIG_EVENTS_ENABLE_DEFAULT,
+                ConfigDef.Importance.LOW,
+                CONFIG_EVENTS_ENABLE_DOC
         ).define(
                 DEBUG_ENABLED,
                 ConfigDef.Type.BOOLEAN,

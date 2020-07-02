@@ -12,7 +12,7 @@ import java.util.Map;
 import java.util.Set;
 import org.apache.kafka.common.config.ConfigException;
 
-public class MockExporter<T> implements Exporter<T> {
+public class MockExporter<T> implements Exporter<CloudEvent<AttributesImpl, T>> {
 
   public RuntimeException configureException;
   public boolean routeReady = true;
@@ -29,7 +29,7 @@ public class MockExporter<T> implements Exporter<T> {
   }
 
   @Override
-  public void append(CloudEvent<AttributesImpl, T> event) throws RuntimeException {
+  public void emit(CloudEvent<AttributesImpl, T> event) throws RuntimeException {
     events.add(event);
   }
 

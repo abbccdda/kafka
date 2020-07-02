@@ -13,6 +13,7 @@ import io.confluent.telemetry.events.EventLogger;
 import io.confluent.telemetry.events.EventLoggerConfig;
 import io.confluent.telemetry.events.Test.AMessage;
 import io.confluent.telemetry.events.Test.AnEnum;
+import io.confluent.telemetry.events.exporter.ExporterConfig;
 import io.confluent.telemetry.events.serde.Protobuf;
 import java.io.StringWriter;
 import java.util.HashMap;
@@ -49,6 +50,7 @@ public class LogExporterTest {
     assertTrue(testLogger.isInfoEnabled());
     HashMap<String, String> config = new HashMap<>();
     config.put(EventLoggerConfig.EVENT_EXPORTER_CLASS_CONFIG, LogExporter.class.getCanonicalName());
+    config.put(ExporterConfig.TYPE_CONFIG, "test");
     config.put(LogExporterConfig.LOG_EVENT_EXPORTER_NAME_CONFIG, "test");
 
     EventLogger<AMessage> logger = new EventLogger<>();
@@ -77,6 +79,7 @@ public class LogExporterTest {
 
     HashMap<String, String> config = new HashMap<>();
     config.put(EventLoggerConfig.EVENT_EXPORTER_CLASS_CONFIG, LogExporter.class.getCanonicalName());
+    config.put(ExporterConfig.TYPE_CONFIG, "test");
     config.put(LogExporterConfig.LOG_EVENT_EXPORTER_NAME_CONFIG, "test");
 
     EventLogger<AMessage> logger = new EventLogger<>();

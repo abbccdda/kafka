@@ -14,7 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.config.ConfigException;
 
-public class CountExporter<T extends MessageLite> implements Exporter<T> {
+public class CountExporter<T extends MessageLite> implements Exporter<CloudEvent<AttributesImpl, T>> {
 
   public RuntimeException configureException;
   public boolean routeReady = true;
@@ -44,7 +44,7 @@ public class CountExporter<T extends MessageLite> implements Exporter<T> {
   }
 
   @Override
-  public void append(CloudEvent<AttributesImpl, T> event) throws RuntimeException {
+  public void emit(CloudEvent<AttributesImpl, T> event) throws RuntimeException {
     // A default topic should have matched, even if no explicit routing is configured
     String topicName = route(event);
 

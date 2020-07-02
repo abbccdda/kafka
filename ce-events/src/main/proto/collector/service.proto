@@ -1,0 +1,28 @@
+// Request/Response protos for communicating with the collector
+
+syntax = "proto3";
+
+// The pre-release version of the cloudevent protobuf representation spec
+// https://github.com/cloudevents/spec/pull/626
+
+package io.confluent.telemetry.events.v0;
+
+import "cloudevents/spec.proto";
+
+option java_package = "io.confluent.telemetry.events.v1";
+option java_outer_classname = "EventServiceProto";
+option java_multiple_files = true;
+
+
+
+message EventServiceRequest {
+  repeated io.cloudevents.v0.CloudEvent events = 1;
+  Version version = 2;
+}
+
+enum Version {
+  V0 = 0;
+}
+
+message EventServiceResponse {
+}

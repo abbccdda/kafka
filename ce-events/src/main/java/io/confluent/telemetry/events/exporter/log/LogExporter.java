@@ -20,7 +20,7 @@ import org.slf4j.LoggerFactory;
  * The LogExporter sends events to the SLF4J-configured log file
  */
 
-public class LogExporter<T extends MessageLite> implements Exporter<T> {
+public class LogExporter<T extends MessageLite> implements Exporter<CloudEvent<AttributesImpl, T>> {
 
   private Logger log = LoggerFactory.getLogger(LogExporter.class);
   private Serializer<T> ser;
@@ -35,7 +35,7 @@ public class LogExporter<T extends MessageLite> implements Exporter<T> {
   }
 
   @Override
-  public void append(CloudEvent<AttributesImpl, T> event) throws RuntimeException {
+  public void emit(CloudEvent<AttributesImpl, T> event) throws RuntimeException {
     log.info(new String(ser.serialize(event)));
   }
 

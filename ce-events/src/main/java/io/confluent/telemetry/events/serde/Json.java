@@ -21,7 +21,7 @@ public class Json {
   public static final String APPLICATION_JSON = "application/json";
 
   // Setup Jackson correctly.
-  private static ObjectMapper createJacksonMapper() {
+  public static ObjectMapper createJacksonMapper() {
     ObjectMapper mapper = new ObjectMapper();
     mapper.registerModule(new Jdk8Module());
 
@@ -75,7 +75,7 @@ public class Json {
   }
 
   // Wrap the checked exception in an unchecked one for use in a lambda function.
-  private static byte[] uncheckedEncode(ObjectMapper mapper, final Object obj) {
+  public static byte[] uncheckedEncode(ObjectMapper mapper, final Object obj) {
     try {
       return mapper.writeValueAsBytes(obj);
     } catch (Exception e) {

@@ -40,6 +40,7 @@ public class KafkaServerProviderTest {
         MetricsContext metricsContext = new KafkaMetricsContext("kafka.server", contextLabels);
         Map<String, Object> config = new HashMap<>();
         config.put(KafkaConfig.BrokerIdProp(), "broker-1");
+
         serverProvider.configure(config);
         serverProvider.contextChange(metricsContext);
         Resource resource = serverProvider.resource();

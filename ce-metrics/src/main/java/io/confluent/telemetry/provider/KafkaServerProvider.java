@@ -2,8 +2,10 @@
 
 package io.confluent.telemetry.provider;
 
+import static io.confluent.telemetry.ConfluentTelemetryConfig.CONFIG_EVENTS_INCLUDE_CONFIG;
 import static io.confluent.telemetry.provider.Utils.KAFKA_BROKER_ID;
 import static io.confluent.telemetry.provider.Utils.KAFKA_CLUSTER_ID;
+import static io.confluent.telemetry.provider.Utils.configPredicate;
 import static io.confluent.telemetry.provider.Utils.getResourceLabels;
 import static io.confluent.telemetry.provider.Utils.notEmptyString;
 
@@ -43,6 +45,9 @@ public class KafkaServerProvider implements Provider {
   public static final String NAMESPACE = "kafka.server";
   private static final Logger log = LoggerFactory.getLogger(KafkaServerProvider.class);
   private static final String DOMAIN = "io.confluent.kafka.server";
+
+  private Predicate<String> eventIncludeList = EXCLUDE_ALL;
+
   private Resource resource;
   private ConfluentTelemetryConfig config;
 
@@ -59,6 +64,7 @@ public class KafkaServerProvider implements Provider {
             .collect(Collectors.toMap(e -> e.getKey(), e -> e.getValue())),
         false
     );
+    eventIncludeList = configPredicate(config.getString(CONFIG_EVENTS_INCLUDE_CONFIG));
   }
 
   @Override
@@ -134,10 +140,15 @@ public class KafkaServerProvider implements Provider {
     this.resource = resourceBuilderFacade.build();
   }
 
+
   private boolean validateKafkaServerRequiredLabels(Map<String, String> metadata) {
     return Utils.validateRequiredResourceLabels(metadata) &&
             notEmptyString(metadata, KAFKA_CLUSTER_ID) &&
             notEmptyString(metadata, KAFKA_BROKER_ID);
+  }
+
+  public Predicate<String> configInclude() {
+    return eventIncludeList;
   }
 
 }

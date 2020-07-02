@@ -236,7 +236,7 @@ public class ProviderRoutingTest {
         .logEvent(
             new ConfluentAuthorizationEvent(clusterScope, requestContext, create, AuthorizeResult.ALLOWED,
                 policy));
-    MockExporter ma = (MockExporter) provider.getEventLogger().eventExporter();
+    MockExporter<AuditLogEntry> ma = (MockExporter) provider.getEventLogger().eventExporter();
 
     assertEquals(0, ma.events.size());
 
@@ -248,7 +248,7 @@ public class ProviderRoutingTest {
     ConfluentAuditLogProvider provider = providerWithMockExporter("63REM3VWREiYtMuVxZeplA",
         Utils.mkMap());
     Scope clusterScope = Scope.kafkaClusterScope("63REM3VWREiYtMuVxZeplA");
-    MockExporter ma = (MockExporter) provider.getEventLogger().eventExporter();
+    MockExporter<AuditLogEntry> ma = (MockExporter) provider.getEventLogger().eventExporter();
 
     KafkaPrincipal principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "Alice");
     ResourcePattern topic = new ResourcePattern(new ResourceType("Route"), "testTopic",
@@ -289,7 +289,7 @@ public class ProviderRoutingTest {
         )
     );
     Scope clusterScope = Scope.kafkaClusterScope("63REM3VWREiYtMuVxZeplA");
-    MockExporter ma = (MockExporter) provider.getEventLogger().eventExporter();
+    MockExporter<AuditLogEntry> ma = (MockExporter) provider.getEventLogger().eventExporter();
 
     KafkaPrincipal principal = SecurityUtils.parseKafkaPrincipal("User:kafka");
     ResourcePattern topic = new ResourcePattern(new ResourceType("Topic"),
@@ -320,7 +320,7 @@ public class ProviderRoutingTest {
     ConfluentAuditLogProvider provider = providerWithMockExporter("63REM3VWREiYtMuVxZeplA",
         Utils.mkMap());
     Scope clusterScope = Scope.kafkaClusterScope("63REM3VWREiYtMuVxZeplA");
-    MockExporter ma = (MockExporter) provider.getEventLogger().eventExporter();
+    MockExporter<AuditLogEntry> ma = (MockExporter) provider.getEventLogger().eventExporter();
 
     KafkaPrincipal principal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "FOO");
     ResourcePattern topic = new ResourcePattern(new ResourceType("Route"), "testTopic",
@@ -476,7 +476,7 @@ public class ProviderRoutingTest {
     MockTime time = new MockTime();
     ConfluentAuthorizationEvent authEvent = createConfluentAuthorizationEvent(true, true);
     ConfluentAuditLogProvider provider = providerWithMockExporter("63REM3VWREiYtMuVxZeplA", Utils.mkMap());
-    MockExporter export = (MockExporter) provider.getEventLogger().eventExporter();
+    MockExporter<AuditLogEntry> export = (MockExporter) provider.getEventLogger().eventExporter();
     export.setRouteReady(false);
     // reset Metrics
     provider.setupMetrics(time);

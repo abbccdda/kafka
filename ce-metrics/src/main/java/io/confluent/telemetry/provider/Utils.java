@@ -1,18 +1,35 @@
 package io.confluent.telemetry.provider;
 
 import com.google.common.collect.ImmutableSet;
+import io.cloudevents.CloudEvent;
+import io.cloudevents.v1.AttributesImpl;
 import io.confluent.telemetry.ResourceBuilderFacade;
+import io.confluent.telemetry.events.Event;
+import io.confluent.telemetry.events.serde.Protobuf;
+import io.confluent.telemetry.events.v1.AnyValue;
+import io.confluent.telemetry.events.v1.ArrayValue;
+import io.confluent.telemetry.events.v1.Config;
+import io.confluent.telemetry.events.v1.ConfigEvent;
+import io.confluent.telemetry.events.v1.ConfigResource;
+import io.confluent.telemetry.events.v1.KeyValue;
 import io.opencensus.proto.resource.v1.Resource;
-
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
-import java.util.stream.Collectors;
-
 import org.apache.kafka.common.config.internals.ConfluentConfigs;
 import org.apache.kafka.common.metrics.MetricsContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.net.URI;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.function.Predicate;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+
+import static io.confluent.telemetry.MetricsUtils.nowInUTC;
+import static io.confluent.telemetry.provider.Provider.EXCLUDE_ALL;
 
 public class Utils {
   public static final String RESOURCE_LABEL_CLUSTER_ID = ConfluentConfigs.RESOURCE_LABEL_PREFIX + "cluster.id";
@@ -121,4 +138,75 @@ public class Utils {
             notEmptyString(metadata, ConfluentConfigs.RESOURCE_LABEL_VERSION) &&
             notEmptyString(metadata, ConfluentConfigs.RESOURCE_LABEL_COMMIT_ID);
   }
+
+  public static Predicate<String> configPredicate(String regexString) {
+    regexString = regexString.trim();
+
+    if (regexString.isEmpty()) {
+      return EXCLUDE_ALL;
+    }
+    // sourceCompatibility and targetCompatibility is set to Java 8 in build.gradle hence avoid
+    // using `asMatchPredicate` method of `Predicate` class.
+    Pattern pattern = Pattern.compile(regexString);
+
+    return configName -> pattern.matcher(configName).matches();
+  }
+
+  @SuppressWarnings({"unchecked", "rawtypes"})
+  public static CloudEvent<AttributesImpl, ConfigEvent> configEvent(Map<String, ?> cfg, Predicate<String> configPredicate, Resource res, String type) {
+    Config.Builder ceConfig = Config.newBuilder();
+    cfg.entrySet().stream()
+            .filter(e -> configPredicate.test(e.getKey()))
+            .forEach(e -> {
+              Object value = e.getValue();
+              AnyValue.Builder av = AnyValue.newBuilder();
+              /**
+               * values can be of type @link{org.apache.kafka.common.config.ConfigDef.Type}
+               */
+              if (value instanceof String) {
+                av.setStringValue((String) value);
+              } else if (value instanceof Integer || value instanceof Long || value instanceof Short) {
+                av.setIntValue(Long.parseLong("" + value));
+              } else if (value instanceof Boolean) {
+                av.setBoolValue((Boolean) value);
+              } else if (value instanceof Double) {
+                av.setDoubleValue((Double) value);
+              } else if (value instanceof Class) {
+                av.setStringValue(((Class) value).getCanonicalName());
+              } else if (value instanceof List) {
+                List l = (List) value;
+                ArrayValue.Builder arv = ArrayValue.newBuilder();
+                l.forEach(el -> arv.addValues(AnyValue.newBuilder().setStringValue(el.toString()).build()));
+                av.setArrayValue(arv.build());
+              } else {
+                log.debug("Ignoring {} = {} ", e.getKey(), value);
+                return;
+              }
+              ceConfig.putData(e.getKey(), av.build());
+            });
+
+    ConfigResource.Builder r = ConfigResource.newBuilder();
+    res.getLabelsMap().forEach((k, v) -> {
+      r.addAttributes(KeyValue.newBuilder()
+            .setKey(k)
+            .setValue(AnyValue.newBuilder().setStringValue(v).build())
+            .build());
+    });
+
+    return Event.<ConfigEvent>newBuilder()
+            .setId(UUID.randomUUID().toString())
+            // TODO: Add CRN here
+            .setSource(res.getType())
+            .setSubject("telemetry-reporter")
+            .setType(type)
+            .setDataContentType(Protobuf.APPLICATION_PROTOBUF)
+            .setTime(nowInUTC())
+            .setDataSchema(URI.create(ConfigEvent.getDescriptor().getFullName()))
+            .setData(ConfigEvent.newBuilder()
+                    .setConfig(ceConfig.build())
+                    .setResource(r.build())
+                    .build())
+            .build();
+  }
+
 }
