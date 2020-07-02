@@ -116,14 +116,14 @@ public class EmbeddedKafka {
    * You can use this to tell Kafka producers and consumers how to connect to this instance.
    * </p>
    */
-  public String brokerConnect(String listenerName) {
+  public synchronized String brokerConnect(String listenerName) {
     return kafka.config().hostName() + ":" + kafka.boundPort(new ListenerName(listenerName));
   }
 
   /**
    * The ZooKeeper connection string aka `zookeeper.connect`.
    */
-  public String zkConnect() {
+  public synchronized String zkConnect() {
     return kafka.config().zkConnect();
   }
 
@@ -143,7 +143,7 @@ public class EmbeddedKafka {
   /**
    * Shutdown the broker, but keep the data
    */
-  public void shutdown() {
+  public synchronized void shutdown() {
     if (isShutdown) {
       log.debug("Embedded Kafka broker {} was already shut down. Skipping shutdown", this);
       return;
@@ -156,7 +156,7 @@ public class EmbeddedKafka {
     log.debug("Shutdown of embedded Kafka broker completed {}.", this);
   }
 
-  public void startBroker(final Time time) {
+  public synchronized void startBroker(final Time time) {
     if (kafka == null) {
       kafka = TestUtils.createServer(kafkaConfig, time);
       isShutdown = false;
@@ -192,11 +192,11 @@ public class EmbeddedKafka {
         "testMetricType", Option.empty(), Option.empty());
   }
 
-  public KafkaServer kafkaServer() {
+  public synchronized KafkaServer kafkaServer() {
     return kafka;
   }
 
-  public EndPoint endPoint() {
+  public synchronized EndPoint endPoint() {
     Object listenerConfig = effectiveConfig.get(KafkaConfig.InterBrokerListenerNameProp());
     SecurityProtocol securityProtocol = SecurityProtocol.PLAINTEXT;
     if (listenerConfig != null) {
@@ -208,14 +208,14 @@ public class EmbeddedKafka {
   }
 
   @SuppressWarnings("deprecation")
-  public List<String> listeners() {
+  public synchronized List<String> listeners() {
     return scala.collection.JavaConverters.seqAsJavaList(kafka.config().listeners())
         .stream().map(e -> e.listenerName().value())
         .collect(Collectors.toList());
   }
 
   @Override
-  public String toString() {
+  public synchronized String toString() {
     Map<String, String> endpoints = listeners().stream()
         .collect(Collectors.toMap(Function.identity(), this::brokerConnect));
     return String.format("Kafka brokerId=%d, endpoints=%s, zkConnect=%s",
