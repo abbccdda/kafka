@@ -84,15 +84,8 @@ case class LogDeleteRecordsResult(requestedOffset: Long, lowWatermark: Long, exc
   }
 }
 
-/*
- * Result metadata of a log read operation on the log
- * @param info @FetchDataInfo returned by the @Log read
- * @param hw high watermark of the local replica
- * @param readSize amount of data that was read from the log i.e. size of the fetch
- * @param isReadFromLogEnd true if the request read up to the log end offset snapshot
- *                         when the read was initiated, false otherwise
- * @param error Exception if error encountered while reading from the log
- * @param preferredReadReplica the preferred read replica to be used for future fetches
+/**
+ * See LogReadResult for a description of what each method returns.
  */
 sealed trait AbstractLogReadResult {
   def info: AbstractFetchDataInfo
@@ -165,10 +158,6 @@ case class TierLogReadResult(info: TierFetchDataInfo,
                              lastStableOffset: Option[Long],
                              preferredReadReplica: Option[Int] = None,
                              exception: Option[Throwable] = None) extends AbstractLogReadResult {
-  /**
-    * An attempt to fetch tiered data by the follower will raise an [[OffsetTieredException]]. See [[ReplicaManager.updateFollowerFetchState]].
-    */
-  val followerNeedsHwUpdate = false
 
   override def toString =
     s"Tiered Fetch Data: [$info], HW: [$highWatermark], leaderLogStartOffset: [$leaderLogStartOffset], leaderLogEndOffset: [$leaderLogEndOffset], " +
