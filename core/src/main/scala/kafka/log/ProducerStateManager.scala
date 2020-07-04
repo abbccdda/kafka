@@ -20,6 +20,8 @@ import java.io.File
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import java.nio.file.{Files, StandardOpenOption}
+import java.nio.file.Path
+import java.nio.file.Paths
 
 import kafka.log.Log.offsetFromFile
 import kafka.server.LogOffsetMetadata
@@ -450,7 +452,7 @@ object ProducerStateManager {
   private[log] def listSnapshotFiles(dir: File): Seq[File] = {
     if (dir.exists && dir.isDirectory) {
       Option(dir.listFiles).map { files =>
-        files.filter(f => f.isFile && isSnapshotFile(f)).toSeq
+        files.filter(isSnapshotFile).toSeq
       }.getOrElse(Seq.empty)
     } else Seq.empty
   }
@@ -465,13 +467,28 @@ object ProducerStateManager {
   }
 
   /**
-    * Return the snapshot file for the given offset.
-    * @param dir snapshot file directory
-    * @param offset snapshot offset
-    * @return file for provided snapshot offset
-    */
-  private def snapshotFileForOffset(dir: File, offset: Long): Option[File] = {
-    listSnapshotFiles(dir).find(offsetFromFile(_) == offset)
+   * Generate the path to a snapshot file corresponding to a given offset and partition directory
+   * @param dir the directory for the partition
+   * @param offset the aligned offset for the snapshot file
+   * @return a path to a snapshot file
+   */
+  private[log] def snapshotPathForOffset(dir: File, offset: Long): Path = {
+    Paths.get(dir.getAbsolutePath, Log.filenamePrefixFromOffset(offset) + Log.ProducerSnapshotFileSuffix)
+  }
+
+  /**
+   * Returns an optional snapshot file aligned to a given offset
+   * @param dir snapshot file directory
+   * @param offset snapshot offset
+   * @return optional file for the provided snapshot offset. Returns None if no such snapshot exists
+   */
+  private[log] def snapshotFileForOffset(dir: File, offset: Long): Option[File] = {
+    val file = snapshotPathForOffset(dir, offset).toFile
+    if (file.exists) {
+      Some(file)
+    } else {
+      None
+    }
   }
 }
 

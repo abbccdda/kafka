@@ -222,6 +222,19 @@ public class MergedLogTierBenchmark {
 
     @Benchmark
     @OutputTimeUnit(TimeUnit.NANOSECONDS)
+    public void listSnapshots() {
+        mergedLog.producerStateManager().listSnapshotFiles();
+    }
+
+
+    @Benchmark
+    @OutputTimeUnit(TimeUnit.NANOSECONDS)
+    public void createUploadableSegment() {
+        mergedLog.createUploadableSegment(mergedLog.localLogSegments().last());
+    }
+
+    @Benchmark
+    @OutputTimeUnit(TimeUnit.NANOSECONDS)
     public int tieredLogSegmentsFullIteration() {
         int size = 0;
         try (CloseableIterator<TierLogSegment> iterator = mergedLog.tieredLogSegments()) {

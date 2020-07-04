@@ -20,6 +20,7 @@ package kafka.log
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
+import java.nio.file.Paths
 import java.nio.file.StandardOpenOption
 import java.util.Collections
 
@@ -877,6 +878,25 @@ class ProducerStateManagerTest {
     assertEquals("expected lastOffsetDelta to be restored", originalLastOffsetDelta, reloadedLastEntry.lastOffsetDelta)
     assertEquals("expected lastSeq to be restored", originalLastSeq, reloadedLastEntry.lastSeq)
     assertEquals("expected lastTimestamp to be restored", originalLastTimestamp, reloadedLastEntry.lastTimestamp)
+  }
+
+  @Test
+  def testSnapshotPathForOffset(): Unit = {
+    assertEquals("/log/dir/path/00000000000000000030.snapshot",
+      ProducerStateManager.snapshotPathForOffset(new File("/log/dir/path"), 30).toString)
+    assertEquals("/log/dir/path/00000000000000000030.snapshot",
+      ProducerStateManager.snapshotPathForOffset(new File("/log/dir/path/"), 30).toString)
+  }
+
+  @Test
+  def testSnapshotFileForOffset(): Unit = {
+    val emptyTestFile = Paths.get(logDir.getAbsolutePath, "00000000000000000020.snapshot").toFile
+    assertTrue(emptyTestFile.createNewFile())
+
+    val foundFile = ProducerStateManager.snapshotFileForOffset(logDir, 20).get
+    assertEquals("00000000000000000020.snapshot", foundFile.getName)
+    assertTrue(foundFile.exists)
+    assertFalse(ProducerStateManager.snapshotFileForOffset(logDir, 19).isDefined)
   }
 
   private def testLoadFromCorruptSnapshot(makeFileCorrupt: FileChannel => Unit): Unit = {
