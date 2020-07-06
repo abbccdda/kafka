@@ -41,6 +41,7 @@ import scala.jdk.CollectionConverters._
 import scala.collection.{Seq, mutable}
 
 class ReassignPartitionsIntegrationTest extends ZooKeeperTestHarness {
+  import ReassignPartitionsIntegrationTest._
   @Rule
   def globalTimeout: Timeout = Timeout.millis(300000)
 
@@ -72,9 +73,9 @@ class ReassignPartitionsIntegrationTest extends ZooKeeperTestHarness {
     // Check that the assignment has not yet been started yet.
     val initialAssignment = Map(
       new TopicPartition("foo", 0) ->
-        PartitionReassignmentState(Seq(0, 1, 2), Seq(0, 1, 3), true),
+        PartitionReassignmentState(Assignment(Seq(0, 1, 2), Seq()), Assignment(Seq(0, 1, 3), Seq()), true),
       new TopicPartition("bar", 0) ->
-        PartitionReassignmentState(Seq(3, 2, 1), Seq(3, 2, 0), true)
+        PartitionReassignmentState(Assignment(Seq(3, 2, 1), Seq()), Assignment(Seq(3, 2, 0), Seq()), true)
     )
     waitForVerifyAssignment(cluster.adminClient, assignment, false,
       VerifyAssignmentResult(initialAssignment))
@@ -87,9 +88,9 @@ class ReassignPartitionsIntegrationTest extends ZooKeeperTestHarness {
       describeBrokerLevelThrottles(unthrottledBrokerConfigs.keySet.toSeq))
     val finalAssignment = Map(
       new TopicPartition("foo", 0) ->
-        PartitionReassignmentState(Seq(0, 1, 3), Seq(0, 1, 3), true),
+        PartitionReassignmentState(Assignment(Seq(0, 1, 3), Seq()), Assignment(Seq(0, 1, 3), Seq()), true),
       new TopicPartition("bar", 0) ->
-        PartitionReassignmentState(Seq(3, 2, 0), Seq(3, 2, 0), true)
+        PartitionReassignmentState(Assignment(Seq(3, 2, 0), Seq()), Assignment(Seq(3, 2, 0), Seq()), true)
     )
 
     // When using --zookeeper, we aren't able to see the new-style assignment
@@ -118,9 +119,9 @@ class ReassignPartitionsIntegrationTest extends ZooKeeperTestHarness {
     runExecuteAssignment(zkClient, assignment, -1L)
     val finalAssignment = Map(
       new TopicPartition("foo", 0) ->
-        PartitionReassignmentState(Seq(0, 1, 3), Seq(0, 1, 3), true),
+        PartitionReassignmentState(Assignment(Seq(0, 1, 3), Seq()), Assignment(Seq(0, 1, 3), Seq()), true),
       new TopicPartition("bar", 0) ->
-        PartitionReassignmentState(Seq(3, 2, 0), Seq(3, 2, 0), true)
+        PartitionReassignmentState(Assignment(Seq(3, 2, 0), Seq()), Assignment(Seq(3, 2, 0), Seq()), true)
     )
     // Wait for the assignment to complete
     waitForVerifyAssignment(cluster.adminClient, assignment, false,
@@ -144,7 +145,7 @@ class ReassignPartitionsIntegrationTest extends ZooKeeperTestHarness {
     // Execute the assignment
     runExecuteAssignment(cluster.adminClient, false, assignment, -1L, -1L)
     val finalAssignment = Map(part ->
-        PartitionReassignmentState(Seq(3, 1, 2), Seq(3, 1, 2), true))
+        PartitionReassignmentState(Assignment(Seq(3, 1, 2), Seq()), Assignment(Seq(3, 1, 2), Seq()), true))
 
     // Wait for the assignment to complete
     waitForVerifyAssignment(cluster.adminClient, assignment, false,
@@ -176,9 +177,9 @@ class ReassignPartitionsIntegrationTest extends ZooKeeperTestHarness {
     // Check that the assignment has not yet been started yet.
     val initialAssignment = Map(
       new TopicPartition("foo", 0) ->
-        PartitionReassignmentState(Seq(0, 1, 2), Seq(0, 3, 2), true),
+        PartitionReassignmentState(Assignment(Seq(0, 1, 2), Seq()), Assignment(Seq(0, 3, 2), Seq()), true),
       new TopicPartition("baz", 2) ->
-        PartitionReassignmentState(Seq(0, 2, 1), Seq(3, 2, 1), true))
+        PartitionReassignmentState(Assignment(Seq(0, 2, 1), Seq()), Assignment(Seq(3, 2, 1), Seq()), true))
     assertEquals(VerifyAssignmentResult(initialAssignment),
       runVerifyAssignment(cluster.adminClient, assignment, false))
     assertEquals(VerifyAssignmentResult(initialAssignment),
@@ -205,9 +206,9 @@ class ReassignPartitionsIntegrationTest extends ZooKeeperTestHarness {
     waitForBrokerLevelThrottles(throttledBrokerConfigs)
     val finalAssignment = Map(
       new TopicPartition("foo", 0) ->
-        PartitionReassignmentState(Seq(0, 3, 2), Seq(0, 3, 2), true),
+        PartitionReassignmentState(Assignment(Seq(0, 3, 2), Seq()), Assignment(Seq(0, 3, 2), Seq()), true),
       new TopicPartition("baz", 2) ->
-        PartitionReassignmentState(Seq(3, 2, 1), Seq(3, 2, 1), true))
+        PartitionReassignmentState(Assignment(Seq(3, 2, 1), Seq()), Assignment(Seq(3, 2, 1), Seq()), true))
 
     // Wait for the assignment to complete
     TestUtils.waitUntilTrue(
@@ -219,10 +220,10 @@ class ReassignPartitionsIntegrationTest extends ZooKeeperTestHarness {
         } else {
           assertTrue("Expected at least one partition reassignment to be ongoing when " +
             s"result = ${result}", !result.partStates.forall(_._2.done))
-          assertEquals(Seq(0, 3, 2),
-            result.partStates(new TopicPartition("foo", 0)).targetReplicas)
-          assertEquals(Seq(3, 2, 1),
-            result.partStates(new TopicPartition("baz", 2)).targetReplicas)
+          assertEquals(Assignment(Seq(0, 3, 2), Seq()),
+            result.partStates(new TopicPartition("foo", 0)).targetAssignment)
+          assertEquals(Assignment(Seq(3, 2, 1), Seq()),
+            result.partStates(new TopicPartition("baz", 2)).targetAssignment)
           logger.info(s"Current result: ${result}")
           waitForBrokerLevelThrottles(throttledBrokerConfigs)
           false
@@ -260,7 +261,7 @@ class ReassignPartitionsIntegrationTest extends ZooKeeperTestHarness {
     }
     TestUtils.removeReplicationThrottleForPartitions(cluster.adminClient, Seq(0,1,2,3), Set(part))
     val finalAssignment = Map(part ->
-      PartitionReassignmentState(Seq(3, 2, 1), Seq(3, 2, 1), true))
+      PartitionReassignmentState(Assignment(Seq(3, 2, 1), Seq()), Assignment(Seq(3, 2, 1), Seq()), true))
     waitForVerifyAssignment(cluster.adminClient, assignment, false,
       VerifyAssignmentResult(finalAssignment))
   }
@@ -298,9 +299,10 @@ class ReassignPartitionsIntegrationTest extends ZooKeeperTestHarness {
     // Verify that the reassignment is running.  The very low throttle should keep it
     // from completing before this runs.
     waitForVerifyAssignment(cluster.adminClient, assignment, true,
-      VerifyAssignmentResult(Map(
-        new TopicPartition("foo", 0) -> PartitionReassignmentState(Seq(0, 1, 3, 2), Seq(0, 1, 3), false),
-        new TopicPartition("baz", 1) -> PartitionReassignmentState(Seq(0, 2, 3, 1), Seq(0, 2, 3), false)),
+      VerifyAssignmentResult(Map(new TopicPartition("foo", 0) ->
+        PartitionReassignmentState(Assignment(Seq(0, 1, 3, 2), Seq()), Assignment(Seq(0, 1, 3), Seq()), false),
+        new TopicPartition("baz", 1) ->
+          PartitionReassignmentState(Assignment(Seq(0, 2, 3, 1), Seq()), Assignment(Seq(0, 2, 3), Seq()), false)),
       true, Map(), false))
     // Cancel the reassignment.
     assertEquals((Set(
@@ -375,7 +377,7 @@ class ReassignPartitionsIntegrationTest extends ZooKeeperTestHarness {
     // Check the output of --verify
     waitForVerifyAssignment(cluster.adminClient, assignment, true,
       VerifyAssignmentResult(Map(
-          new TopicPartition("foo", 0) -> PartitionReassignmentState(Seq(0, 1, 2), Seq(0, 1, 2), true)
+          new TopicPartition("foo", 0) -> PartitionReassignmentState(Assignment(Seq(0, 1, 2), Seq()), Assignment(Seq(0, 1, 2), Seq()), true)
         ), false, Map(
           new TopicPartitionReplica("foo", 0, 0) -> ActiveMoveState(curFoo1Dir, newFoo1Dir, newFoo1Dir)
         ), true))
@@ -406,7 +408,7 @@ class ReassignPartitionsIntegrationTest extends ZooKeeperTestHarness {
     // Wait for the directory movement to complete.
     waitForVerifyAssignment(cluster.adminClient, assignment, true,
         VerifyAssignmentResult(Map(
-          new TopicPartition("foo", 0) -> PartitionReassignmentState(Seq(0, 1, 2), Seq(0, 1, 2), true)
+          new TopicPartition("foo", 0) -> PartitionReassignmentState(Assignment(Seq(0, 1, 2), Seq()), Assignment(Seq(0, 1, 2), Seq()), true)
         ), false, Map(
           new TopicPartitionReplica("foo", 0, 0) -> CompletedMoveState(newFoo1Dir)
         ), false))
@@ -435,78 +437,12 @@ class ReassignPartitionsIntegrationTest extends ZooKeeperTestHarness {
 
     val expectedAssignment = Map(
       new TopicPartition(topicName, partition) ->
-        PartitionReassignmentState(Seq(targetReplicaId), Seq(targetReplicaId), true)
+        PartitionReassignmentState(Assignment(Seq(targetReplicaId), Seq()), Assignment(Seq(targetReplicaId), Seq()), true)
     )
     waitForVerifyAssignment(cluster.adminClient, reassignmentJson, preserveThrottles = true,
       VerifyAssignmentResult(expectedAssignment))
 
     assertEquals(initialTopicId, zkClient.getTopicIdsForTopics(Set(topicName)).get(topicName))
-  }
-
-  private def runVerifyAssignment(adminClient: Admin, jsonString: String,
-                                  preserveThrottles: Boolean) = {
-    println(s"==> verifyAssignment(adminClient, jsonString=${jsonString})")
-    verifyAssignment(adminClient, jsonString, preserveThrottles)
-  }
-
-  private def waitForVerifyAssignment(adminClient: Admin, jsonString: String,
-                                      preserveThrottles: Boolean,
-                                      expectedResult: VerifyAssignmentResult): Unit = {
-    var latestResult: VerifyAssignmentResult = null
-    TestUtils.waitUntilTrue(
-      () => {
-        latestResult = runVerifyAssignment(adminClient, jsonString, preserveThrottles)
-        expectedResult.equals(latestResult)
-      }, s"Timed out waiting for verifyAssignment result ${expectedResult}.  " +
-        s"The latest result was ${latestResult}", pause = 10L)
-  }
-
-  private def runVerifyAssignment(zkClient: KafkaZkClient, jsonString: String,
-                                  preserveThrottles: Boolean) = {
-    println(s"==> verifyAssignment(zkClient, jsonString=${jsonString})")
-    verifyAssignment(zkClient, jsonString, preserveThrottles)
-  }
-
-  private def waitForVerifyAssignment(zkClient: KafkaZkClient, jsonString: String,
-                                      preserveThrottles: Boolean,
-                                      expectedResult: VerifyAssignmentResult): Unit = {
-    var latestResult: VerifyAssignmentResult = null
-    TestUtils.waitUntilTrue(
-      () => {
-        println(s"==> verifyAssignment(zkClient, jsonString=${jsonString}, " +
-          s"preserveThrottles=${preserveThrottles})")
-        latestResult = verifyAssignment(zkClient, jsonString, preserveThrottles)
-        expectedResult.equals(latestResult)
-      }, s"Timed out waiting for verifyAssignment result ${expectedResult}.  " +
-        s"The latest result was ${latestResult}", pause = 10L)
-  }
-
-  private def runExecuteAssignment(adminClient: Admin,
-                        additional: Boolean,
-                        reassignmentJson: String,
-                        interBrokerThrottle: Long,
-                        replicaAlterLogDirsThrottle: Long) = {
-    println(s"==> executeAssignment(adminClient, additional=${additional}, " +
-      s"reassignmentJson=${reassignmentJson}, " +
-      s"interBrokerThrottle=${interBrokerThrottle}, " +
-      s"replicaAlterLogDirsThrottle=${replicaAlterLogDirsThrottle}))")
-    executeAssignment(adminClient, additional, reassignmentJson,
-      interBrokerThrottle, replicaAlterLogDirsThrottle)
-  }
-
-  private def runExecuteAssignment(zkClient: KafkaZkClient,
-                                   reassignmentJson: String,
-                                   interBrokerThrottle: Long) = {
-    println(s"==> executeAssignment(adminClient, " +
-      s"reassignmentJson=${reassignmentJson}, " +
-      s"interBrokerThrottle=${interBrokerThrottle})")
-    executeAssignment(zkClient, reassignmentJson, interBrokerThrottle)
-  }
-
-  private def runCancelAssignment(adminClient: Admin, jsonString: String,
-                                  preserveThrottles: Boolean) = {
-    println(s"==> cancelAssignment(adminClient, jsonString=${jsonString})")
-    cancelAssignment(adminClient, jsonString, preserveThrottles)
   }
 
   class BrokerDirs(result: DescribeLogDirsResult, val brokerId: Int) {
@@ -622,5 +558,73 @@ class ReassignPartitionsIntegrationTest extends ZooKeeperTestHarness {
         servers.clear()
       }
     }
+  }
+}
+
+object ReassignPartitionsIntegrationTest {
+  def runVerifyAssignment(adminClient: Admin, jsonString: String,
+                          preserveThrottles: Boolean) = {
+    println(s"==> verifyAssignment(adminClient, jsonString=${jsonString})")
+    verifyAssignment(adminClient, jsonString, preserveThrottles)
+  }
+
+  def runVerifyAssignment(zkClient: KafkaZkClient, jsonString: String,
+                          preserveThrottles: Boolean) = {
+    println(s"==> verifyAssignment(zkClient, jsonString=${jsonString})")
+    verifyAssignment(zkClient, jsonString, preserveThrottles)
+  }
+
+  def waitForVerifyAssignment(adminClient: Admin, jsonString: String,
+                              preserveThrottles: Boolean,
+                              expectedResult: VerifyAssignmentResult): Unit = {
+    var latestResult: VerifyAssignmentResult = null
+    TestUtils.waitUntilTrue(
+      () => {
+        latestResult = runVerifyAssignment(adminClient, jsonString, preserveThrottles)
+        expectedResult.equals(latestResult)
+      }, s"Timed out waiting for verifyAssignment result ${expectedResult}.  " +
+        s"The latest result was ${latestResult}", pause = 10L)
+  }
+
+  def waitForVerifyAssignment(zkClient: KafkaZkClient, jsonString: String,
+                              preserveThrottles: Boolean,
+                              expectedResult: VerifyAssignmentResult): Unit = {
+    var latestResult: VerifyAssignmentResult = null
+    TestUtils.waitUntilTrue(
+      () => {
+        println(s"==> verifyAssignment(zkClient, jsonString=${jsonString}, " +
+          s"preserveThrottles=${preserveThrottles})")
+        latestResult = verifyAssignment(zkClient, jsonString, preserveThrottles)
+        expectedResult.equals(latestResult)
+      }, s"Timed out waiting for verifyAssignment result ${expectedResult}.  " +
+        s"The latest result was ${latestResult}", pause = 10L)
+  }
+
+  def runExecuteAssignment(adminClient: Admin,
+                           additional: Boolean,
+                           reassignmentJson: String,
+                           interBrokerThrottle: Long,
+                           replicaAlterLogDirsThrottle: Long) = {
+    println(s"==> executeAssignment(adminClient, additional=${additional}, " +
+      s"reassignmentJson=${reassignmentJson}, " +
+      s"interBrokerThrottle=${interBrokerThrottle}, " +
+      s"replicaAlterLogDirsThrottle=${replicaAlterLogDirsThrottle}))")
+    executeAssignment(adminClient, additional, reassignmentJson,
+      interBrokerThrottle, replicaAlterLogDirsThrottle)
+  }
+
+  def runExecuteAssignment(zkClient: KafkaZkClient,
+                           reassignmentJson: String,
+                           interBrokerThrottle: Long) = {
+    println(s"==> executeAssignment(adminClient, " +
+      s"reassignmentJson=${reassignmentJson}, " +
+      s"interBrokerThrottle=${interBrokerThrottle})")
+    executeAssignment(zkClient, reassignmentJson, interBrokerThrottle)
+  }
+
+  def runCancelAssignment(adminClient: Admin, jsonString: String,
+                          preserveThrottles: Boolean) = {
+    println(s"==> cancelAssignment(adminClient, jsonString=${jsonString})")
+    cancelAssignment(adminClient, jsonString, preserveThrottles)
   }
 }

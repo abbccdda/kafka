@@ -75,11 +75,29 @@ class ReassignPartitionsUnitTest {
         mkString(System.lineSeparator()),
       partitionReassignmentStatesToString(Map(
         new TopicPartition("foo", 0) ->
-          new PartitionReassignmentState(Seq(1, 2, 3), Seq(1, 2, 3), true),
+          new PartitionReassignmentState(Assignment(Seq(1, 2, 3), Seq()), Assignment(Seq(1, 2, 3), Seq()), true),
         new TopicPartition("foo", 1) ->
-          new PartitionReassignmentState(Seq(1, 2, 3), Seq(1, 2, 4), false),
+          new PartitionReassignmentState(Assignment(Seq(1, 2, 3), Seq()), Assignment(Seq(1, 2, 4), Seq()), false),
         new TopicPartition("bar", 0) ->
-          new PartitionReassignmentState(Seq(1, 2, 3), Seq(1, 2, 4), false),
+          new PartitionReassignmentState(Assignment(Seq(1, 2, 3), Seq()), Assignment(Seq(1, 2, 4), Seq()), false),
+      )))
+  }
+
+  @Test
+  def testPartitionReassignStatesToStringWithObservers(): Unit = {
+    assertEquals(Seq(
+      "Status of partition reassignment:",
+      "Reassignment of partition bar-0 is still in progress.",
+      "Reassignment of partition foo-0 is complete.",
+      "Reassignment of partition foo-1 is still in progress.").
+        mkString(System.lineSeparator()),
+      partitionReassignmentStatesToString(Map(
+        new TopicPartition("foo", 0) ->
+          new PartitionReassignmentState(Assignment(Seq(1, 2, 3), Seq(2,3)), Assignment(Seq(1, 2, 3), Seq(2,3)), true),
+        new TopicPartition("foo", 1) ->
+          new PartitionReassignmentState(Assignment(Seq(1, 2, 3), Seq(1,2,3)), Assignment(Seq(1, 2, 4), Seq(1,2,4)), false),
+        new TopicPartition("bar", 0) ->
+          new PartitionReassignmentState(Assignment(Seq(1, 2, 3), Seq()), Assignment(Seq(1, 2, 4), Seq(2,4)), false),
       )))
   }
 
@@ -100,6 +118,32 @@ class ReassignPartitionsUnitTest {
     ), Collections.emptyMap())
   }
 
+  private def addTopicsWithObservers(adminClient: MockAdminClient): Unit = {
+    val b = adminClient.brokers()
+    adminClient.addTopic(false, "foo", Arrays.asList(
+      TopicPartitionInfo.ofReplicasAndObservers(
+        0, 
+        b.get(0),
+        Arrays.asList(b.get(0), b.get(1), b.get(2), b.get(3)),
+        Arrays.asList(b.get(2), b.get(3)),
+        Arrays.asList(b.get(0), b.get(1))),
+      TopicPartitionInfo.ofReplicasAndObservers(
+        1, 
+        b.get(1),
+        Arrays.asList(b.get(1), b.get(2), b.get(3)),
+        Arrays.asList(b.get(3)),
+        Arrays.asList(b.get(1), b.get(2)))
+    ), Collections.emptyMap())
+    adminClient.addTopic(false, "bar", Arrays.asList(
+      TopicPartitionInfo.ofReplicasAndObservers(
+        0, 
+        b.get(2),
+        Arrays.asList(b.get(2), b.get(3), b.get(0), b.get(1)),
+        Arrays.asList(b.get(0), b.get(1)),
+        Arrays.asList(b.get(2), b.get(3)))
+    ), Collections.emptyMap())
+  }
+
   @Test
   def testFindPartitionReassignmentStates(): Unit = {
     val adminClient = new MockAdminClient.Builder().numBrokers(4).build()
@@ -107,17 +151,17 @@ class ReassignPartitionsUnitTest {
       addTopics(adminClient)
       // Create a reassignment and test findPartitionReassignmentStates.
       val reassignmentResult: Map[TopicPartition, Class[_ <: Throwable]] = alterPartitionReassignments(adminClient, Map(
-        new TopicPartition("foo", 0) -> Seq(0,1,3),
-        new TopicPartition("quux", 0) -> Seq(1,2,3))).map { case (k, v) => k -> v.getClass }.toMap
+        new TopicPartition("foo", 0) -> Assignment(Seq(0,1,3), Seq()),
+        new TopicPartition("quux", 0) -> Assignment(Seq(1,2,3), Seq()))).map { case (k, v) => k -> v.getClass }.toMap
       assertEquals(Map(new TopicPartition("quux", 0) -> classOf[UnknownTopicOrPartitionException]),
         reassignmentResult)
       assertEquals((Map(
-          new TopicPartition("foo", 0) -> PartitionReassignmentState(Seq(0,1,2), Seq(0,1,3), false),
-          new TopicPartition("foo", 1) -> PartitionReassignmentState(Seq(1,2,3), Seq(1,2,3), true)
+          new TopicPartition("foo", 0) -> PartitionReassignmentState(Assignment(Seq(0,1,2), Seq()), Assignment(Seq(0,1,3), Seq()), false),
+          new TopicPartition("foo", 1) -> PartitionReassignmentState(Assignment(Seq(1,2,3), Seq()), Assignment(Seq(1,2,3), Seq()), true)
         ), true),
         findPartitionReassignmentStates(adminClient, Seq(
-          (new TopicPartition("foo", 0), Seq(0,1,3)),
-          (new TopicPartition("foo", 1), Seq(1,2,3))
+          (new TopicPartition("foo", 0), Assignment(Seq(0,1,3), Seq())),
+          (new TopicPartition("foo", 1), Assignment(Seq(1,2,3), Seq()))
         )))
       // Cancel the reassignment and test findPartitionReassignmentStates again.
       val cancelResult: Map[TopicPartition, Class[_ <: Throwable]] = cancelPartitionReassignments(adminClient,
@@ -127,12 +171,12 @@ class ReassignPartitionsUnitTest {
       assertEquals(Map(new TopicPartition("quux", 2) -> classOf[UnknownTopicOrPartitionException]),
         cancelResult)
       assertEquals((Map(
-          new TopicPartition("foo", 0) -> PartitionReassignmentState(Seq(0,1,2), Seq(0,1,3), true),
-          new TopicPartition("foo", 1) -> PartitionReassignmentState(Seq(1,2,3), Seq(1,2,3), true)
+          new TopicPartition("foo", 0) -> PartitionReassignmentState(Assignment(Seq(0,1,2), Seq()), Assignment(Seq(0,1,3), Seq()), true),
+          new TopicPartition("foo", 1) -> PartitionReassignmentState(Assignment(Seq(1,2,3), Seq()), Assignment(Seq(1,2,3), Seq()), true)
         ), false),
           findPartitionReassignmentStates(adminClient, Seq(
-            (new TopicPartition("foo", 0), Seq(0,1,3)),
-            (new TopicPartition("foo", 1), Seq(1,2,3))
+            (new TopicPartition("foo", 0), Assignment(Seq(0,1,3), Seq())),
+            (new TopicPartition("foo", 1), Assignment(Seq(1,2,3), Seq()))
           )))
     } finally {
       adminClient.close()
@@ -210,13 +254,34 @@ class ReassignPartitionsUnitTest {
     try {
       addTopics(adminClient)
       assertEquals(Map(
-          new TopicPartition("foo", 0) -> Seq(0, 1, 2),
-          new TopicPartition("foo", 1) -> Seq(1, 2, 3),
+          new TopicPartition("foo", 0) -> Assignment(Seq(0, 1, 2), Seq()),
+          new TopicPartition("foo", 1) -> Assignment(Seq(1, 2, 3), Seq()),
         ),
         getReplicaAssignmentForTopics(adminClient, Seq("foo")))
       assertEquals(Map(
-          new TopicPartition("foo", 0) -> Seq(0, 1, 2),
-          new TopicPartition("bar", 0) -> Seq(2, 3, 0),
+          new TopicPartition("foo", 0) -> Assignment(Seq(0, 1, 2), Seq()),
+          new TopicPartition("bar", 0) -> Assignment(Seq(2, 3, 0), Seq()),
+        ),
+        getReplicaAssignmentForPartitions(adminClient, Set(
+          new TopicPartition("foo", 0), new TopicPartition("bar", 0))))
+    } finally {
+      adminClient.close()
+    }
+  }
+
+  @Test
+  def testGetReplicaAndObserverAssignments(): Unit = {
+    val adminClient = new MockAdminClient.Builder().numBrokers(4).build()
+    try {
+      addTopicsWithObservers(adminClient)
+      assertEquals(Map(
+          new TopicPartition("foo", 0) -> Assignment(Seq(0, 1, 2, 3), Seq(2,3)),
+          new TopicPartition("foo", 1) -> Assignment(Seq(1, 2, 3), Seq(3)),
+        ),
+        getReplicaAssignmentForTopics(adminClient, Seq("foo")))
+      assertEquals(Map(
+          new TopicPartition("foo", 0) -> Assignment(Seq(0, 1, 2, 3), Seq(2,3)),
+          new TopicPartition("bar", 0) -> Assignment(Seq(2, 3, 0, 1), Seq(0,1)),
         ),
         getReplicaAssignmentForPartitions(adminClient, Set(
           new TopicPartition("foo", 0), new TopicPartition("bar", 0))))
@@ -326,8 +391,8 @@ class ReassignPartitionsUnitTest {
       val (_, current) = generateAssignment(adminClient,
         """{"topics":[{"topic":"foo"}]}""", "0,1,2,3", false)
       assertEquals(Map(
-        new TopicPartition("foo", 0) -> Seq(0, 1, 2),
-        new TopicPartition("foo", 1) -> Seq(1, 2, 3),
+        new TopicPartition("foo", 0) -> Assignment(Seq(0, 1, 2), Seq()),
+        new TopicPartition("foo", 1) -> Assignment(Seq(1, 2, 3), Seq()),
       ), current)
     } finally {
       adminClient.close()
@@ -344,15 +409,15 @@ class ReassignPartitionsUnitTest {
         """{"topics":[{"topic":"foo"},{"topic":"bar"}]}""",
         goalBrokers.mkString(","), false)
       assertEquals(Map(
-        new TopicPartition("foo", 0) -> Seq(0, 1, 2),
-        new TopicPartition("foo", 1) -> Seq(1, 2, 3),
-        new TopicPartition("bar", 0) -> Seq(2, 3, 0)
+        new TopicPartition("foo", 0) -> Assignment(Seq(0, 1, 2), Seq()),
+        new TopicPartition("foo", 1) -> Assignment(Seq(1, 2, 3), Seq()),
+        new TopicPartition("bar", 0) -> Assignment(Seq(2, 3, 0), Seq())
       ), current)
 
       // The proposed assignment should only span the provided brokers
       proposed.values.foreach {
         case replicas => {
-          if (!replicas.forall(goalBrokers.contains(_))) {
+          if (!replicas.replicas.forall(goalBrokers.contains(_))) {
             Assert.fail(s"Proposed assignment ${proposed} puts replicas on brokers " +
               s"other than ${goalBrokers}")
           }
@@ -376,14 +441,39 @@ class ReassignPartitionsUnitTest {
         """Save this to use as the --reassignment-json-file option during rollback"""
       ).mkString(System.lineSeparator()),
       currentPartitionReplicaAssignmentToString(Map(
-          new TopicPartition("foo", 1) -> Seq(1,2,3),
-          new TopicPartition("bar", 0) -> Seq(7,8,9)
+          new TopicPartition("foo", 1) -> Assignment(Seq(1,2,3), Seq()),
+          new TopicPartition("bar", 0) -> Assignment(Seq(7,8,9), Seq())
         ),
         Map(
-          new TopicPartition("foo", 0) -> Seq(1,2,3),
-          new TopicPartition("foo", 1) -> Seq(4,5,6),
-          new TopicPartition("bar", 0) -> Seq(7,8),
-          new TopicPartition("baz", 0) -> Seq(10,11,12)
+          new TopicPartition("foo", 0) -> Assignment(Seq(1,2,3), Seq()),
+          new TopicPartition("foo", 1) -> Assignment(Seq(4,5,6), Seq()),
+          new TopicPartition("bar", 0) -> Assignment(Seq(7,8), Seq()),
+          new TopicPartition("baz", 0) -> Assignment(Seq(10,11,12), Seq())
+        ),
+      ))
+  }
+
+  @Test
+  def testCurrentPartitionReplicaAssignmentWithObserversToString(): Unit = {
+    assertEquals(Seq(
+        """Current partition replica assignment""",
+        """""",
+        """{"version":1,"partitions":""" +
+          """[{"topic":"bar","partition":0,"observers":[8],"replicas":[7,8],"log_dirs":["any","any"]},""" +
+          """{"topic":"foo","partition":1,"observers":[5,6],"replicas":[4,5,6],"log_dirs":["any","any","any"]}]""" +
+        """}""",
+        """""",
+        """Save this to use as the --reassignment-json-file option during rollback"""
+      ).mkString(System.lineSeparator()),
+      currentPartitionReplicaAssignmentToString(Map(
+          new TopicPartition("foo", 1) -> Assignment(Seq(1,2,3), Seq(2,3)),
+          new TopicPartition("bar", 0) -> Assignment(Seq(7,8,9), Seq(8,9))
+        ),
+        Map(
+          new TopicPartition("foo", 0) -> Assignment(Seq(1,2,3), Seq()),
+          new TopicPartition("foo", 1) -> Assignment(Seq(4,5,6), Seq(5,6)),
+          new TopicPartition("bar", 0) -> Assignment(Seq(7,8), Seq(8)),
+          new TopicPartition("baz", 0) -> Assignment(Seq(10,11,12), Seq())
         ),
       ))
   }
@@ -396,13 +486,13 @@ class ReassignPartitionsUnitTest {
       new TopicPartition("foo", 1) -> new PartitionReassignment(
         Arrays.asList(4,5,6),Arrays.asList(7, 8),Arrays.asList(4, 5))
     ), Map(
-      new TopicPartition("foo", 0) -> Seq(1,2,5),
-      new TopicPartition("bar", 0) -> Seq(1,2,3)
+      new TopicPartition("foo", 0) -> Assignment(Seq(1,2,5), Seq()),
+      new TopicPartition("bar", 0) -> Assignment(Seq(1,2,3), Seq())
     ), Map(
-      new TopicPartition("foo", 0) -> Seq(1,2,3),
-      new TopicPartition("foo", 1) -> Seq(4,5,6),
-      new TopicPartition("bar", 0) -> Seq(2,3,4),
-      new TopicPartition("baz", 0) -> Seq(1,2,3)
+      new TopicPartition("foo", 0) -> Assignment(Seq(1,2,3), Seq()),
+      new TopicPartition("foo", 1) -> Assignment(Seq(4,5,6), Seq()),
+      new TopicPartition("bar", 0) -> Assignment(Seq(2,3,4), Seq()),
+      new TopicPartition("baz", 0) -> Assignment(Seq(1,2,3), Seq())
     ))
     assertEquals(
       mutable.Map("foo" -> mutable.Map(
@@ -466,8 +556,8 @@ class ReassignPartitionsUnitTest {
                 """]}""")
         }).getMessage)
     assertEquals((Map(
-        new TopicPartition("foo", 0) -> Seq(1, 2, 3),
-        new TopicPartition("foo", 1) -> Seq(3, 4, 5),
+        new TopicPartition("foo", 0) -> Assignment(Seq(1, 2, 3), Seq()),
+        new TopicPartition("foo", 1) -> Assignment(Seq(3, 4, 5), Seq()),
       ), Map(
       )),
       parseExecuteAssignmentArgs(
@@ -476,7 +566,7 @@ class ReassignPartitionsUnitTest {
           """{"topic":"foo","partition":1,"replicas":[3,4,5],"log_dirs":["any","any","any"]}""" +
           """]}"""))
     assertEquals((Map(
-      new TopicPartition("foo", 0) -> Seq(1, 2, 3),
+      new TopicPartition("foo", 0) -> Assignment(Seq(1, 2, 3), Seq()),
     ), Map(
       new TopicPartitionReplica("foo", 0, 1) -> "/tmp/a",
       new TopicPartitionReplica("foo", 0, 2) -> "/tmp/b",
@@ -485,6 +575,31 @@ class ReassignPartitionsUnitTest {
       parseExecuteAssignmentArgs(
         """{"version":1,"partitions":""" +
           """[{"topic":"foo","partition":0,"replicas":[1,2,3],"log_dirs":["/tmp/a","/tmp/b","/tmp/c"]}""" +
+          """]}"""))
+  }
+
+  @Test
+  def testParseExecuteAssignmentArgsWithObservers(): Unit = {
+    assertEquals((Map(
+        new TopicPartition("foo", 0) -> Assignment(Seq(1, 2, 3), Seq(2,3)),
+        new TopicPartition("foo", 1) -> Assignment(Seq(3, 4, 5), Seq(5)),
+      ), Map(
+      )),
+      parseExecuteAssignmentArgs(
+        """{"version":1,"partitions":""" +
+          """[{"topic":"foo","partition":0,"replicas":[1,2,3],"observers":[2,3],"log_dirs":["any","any","any"]},""" +
+          """{"topic":"foo","partition":1,"replicas":[3,4,5],"observers":[5],"log_dirs":["any","any","any"]}""" +
+          """]}"""))
+    assertEquals((Map(
+      new TopicPartition("foo", 0) -> Assignment(Seq(1, 2, 3), Seq(3)),
+    ), Map(
+      new TopicPartitionReplica("foo", 0, 1) -> "/tmp/a",
+      new TopicPartitionReplica("foo", 0, 2) -> "/tmp/b",
+      new TopicPartitionReplica("foo", 0, 3) -> "/tmp/c"
+    )),
+      parseExecuteAssignmentArgs(
+        """{"version":1,"partitions":""" +
+          """[{"topic":"foo","partition":0,"replicas":[1,2,3],"observers":[3],"log_dirs":["/tmp/a","/tmp/b","/tmp/c"]}""" +
           """]}"""))
   }
 
@@ -554,9 +669,9 @@ class ReassignPartitionsUnitTest {
       assertEquals("No partition reassignments found.", curReassignmentsToString(adminClient))
       val reassignmentResult: Map[TopicPartition, Class[_ <: Throwable]] = alterPartitionReassignments(adminClient,
         Map(
-          new TopicPartition("foo", 1) -> Seq(4,5,3),
-          new TopicPartition("foo", 0) -> Seq(0,1,4,2),
-          new TopicPartition("bar", 0) -> Seq(2,3)
+          new TopicPartition("foo", 1) -> Assignment(Seq(4,5,3), Seq()),
+          new TopicPartition("foo", 0) -> Assignment(Seq(0,1,4,2), Seq()),
+          new TopicPartition("bar", 0) -> Assignment(Seq(2,3), Seq())
         )
       ).map { case (k, v) => k -> v.getClass }.toMap
       assertEquals(Map(), reassignmentResult)
@@ -564,6 +679,31 @@ class ReassignPartitionsUnitTest {
                        "bar-0: replicas: 2,3,0. removing: 0.",
                        "foo-0: replicas: 0,1,2. adding: 4.",
                        "foo-1: replicas: 1,2,3. adding: 4,5. removing: 1,2.").mkString(System.lineSeparator()),
+                  curReassignmentsToString(adminClient))
+    } finally {
+      adminClient.close()
+    }
+  }
+
+  @Test
+  def testCurReassignmentsToStringWithObservers(): Unit = {
+    val adminClient = new MockAdminClient.Builder().numBrokers(4).build()
+    try {
+      addTopicsWithObservers(adminClient)
+      assertEquals("No partition reassignments found.", curReassignmentsToString(adminClient))
+      val reassignmentResult: Map[TopicPartition, Class[_ <: Throwable]] = alterPartitionReassignments(adminClient,
+        Map(
+          new TopicPartition("foo", 1) -> Assignment(Seq(1,2,4), Seq(4)),
+          new TopicPartition("foo", 0) -> Assignment(Seq(0,1,2,4,5), Seq(2,4,5)),
+          new TopicPartition("bar", 0) -> Assignment(Seq(2,3,0,1,4), Seq(0,1,4))
+        )
+      ).map { case (k, v) => k -> v.getClass }.toMap
+      assertEquals(Map(), reassignmentResult)
+      // Observers not added to expected result because of bug on the broker.
+      assertEquals(Seq("Current partition reassignments:",
+                       "bar-0: replicas: 2,3,0,1. adding: 4.",
+                       "foo-0: replicas: 0,1,2,3. adding: 4,5. removing: 3.",
+                       "foo-1: replicas: 1,2,3. adding: 4. removing: 3.").mkString(System.lineSeparator()),
                   curReassignmentsToString(adminClient))
     } finally {
       adminClient.close()

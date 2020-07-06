@@ -1613,6 +1613,22 @@ object TestUtils extends Logging {
     )
   }
 
+  def waitForObserversAssigned(client: Admin, partition: TopicPartition, brokerIds: Seq[Int]): Unit = {
+    TestUtils.waitUntilTrue(
+      () => {
+        val description = client.describeTopics(Set(partition.topic).asJava).all.get.asScala
+        val observers = description
+          .values
+          .flatMap(_.partitions.asScala.flatMap(_.observers.asScala))
+          .map(_.id)
+          .toSeq
+
+        brokerIds == observers
+      },
+      s"Expected brokers $brokerIds to be the observers for $partition"
+    )
+  }
+
   /**
    * Capture the console output during the execution of the provided function.
    */

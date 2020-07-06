@@ -349,7 +349,8 @@ class DisableTierStorageTest extends BaseRequestTest {
     // Wait for assignment to change
     var latestResult: VerifyAssignmentResult = null
     val expectedResult = new VerifyAssignmentResult(Map(
-      new TopicPartition("foo", 0) -> PartitionReassignmentState(targetAssignment, targetAssignment, done = true)
+      new TopicPartition("foo", 0) -> PartitionReassignmentState(Assignment(targetAssignment, Seq.empty), 
+        Assignment(targetAssignment, Seq.empty), done = true)
     ))
     TestUtils.waitUntilTrue(
       () => {

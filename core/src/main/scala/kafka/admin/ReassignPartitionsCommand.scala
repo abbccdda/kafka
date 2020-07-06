@@ -20,14 +20,15 @@ import java.util
 import java.util.Optional
 import java.util.concurrent.ExecutionException
 
-import kafka.common.AdminCommandFailedException
+import kafka.common.{AdminCommandFailedException, TopicPlacement}
 import kafka.server.{ConfigType, DynamicConfig, KafkaConfig}
 import kafka.utils.{CommandDefaultOptions, CommandLineUtils, CoreUtils, Exit, Json, Logging}
 import kafka.utils.json.JsonValue
 import kafka.zk.{AdminZkClient, KafkaZkClient}
 import org.apache.kafka.clients.admin.AlterConfigOp.OpType
 import org.apache.kafka.clients.admin.{Admin, AdminClientConfig, AlterConfigOp, ConfigEntry, NewPartitionReassignment, PartitionReassignment, TopicDescription}
-import org.apache.kafka.common.config.ConfigResource
+import org.apache.kafka.common.config.{ConfigResource, ConfluentTopicConfig}
+import org.apache.kafka.common.config.ConfigResource.Type
 import org.apache.kafka.common.errors.{ReplicaNotAvailableException, UnknownTopicOrPartitionException}
 import org.apache.kafka.common.security.JaasUtils
 import org.apache.kafka.common.utils.{Time, Utils}
@@ -101,15 +102,23 @@ object ReassignPartitionsCommand extends Logging {
                                   destinations: mutable.Set[Int]) { }
 
   /**
+   * Replica and observer assignments. The suffix of the replica list is the observer list.
+   *
+   * @param replicas The replica assignments
+   * @param opbservers The observer assignments
+   */
+  case class Assignment(replicas: Seq[Int], observers: Seq[Int])
+
+  /**
    * The state of a partition reassignment.  The current replicas and target replicas
    * may overlap.
    *
-   * @param currentReplicas The current replicas.
-   * @param targetReplicas  The target replicas.
+   * @param currentAssignment The current replicas.
+   * @param targetAssignment  The target replicas.
    * @param done            True if the reassignment is done.
    */
-  sealed case class PartitionReassignmentState(currentReplicas: Seq[Int],
-                                               targetReplicas: Seq[Int],
+  sealed case class PartitionReassignmentState(currentAssignment: Assignment,
+                                               targetAssignment: Assignment,
                                                done: Boolean) {}
 
   /**
@@ -335,7 +344,7 @@ object ReassignPartitionsCommand extends Logging {
    *                              in the JSON file.)
    */
   def verifyPartitionAssignments(adminClient: Admin,
-                                 targets: Seq[(TopicPartition, Seq[Int])])
+                                 targets: Seq[(TopicPartition, Assignment)])
                                  : (Map[TopicPartition, PartitionReassignmentState], Boolean) = {
     val (partStates, partsOngoing) = findPartitionReassignmentStates(adminClient, targets)
     println(partitionReassignmentStatesToString(partStates))
@@ -379,7 +388,7 @@ object ReassignPartitionsCommand extends Logging {
    *                              partitions ZNode.
    */
   def verifyPartitionAssignments(zkClient: KafkaZkClient,
-                                 targets: Map[TopicPartition, Seq[Int]])
+                                 targets: Map[TopicPartition, Assignment])
                                  : (Map[TopicPartition, PartitionReassignmentState], Boolean) = {
     val (partStates, partsOngoing) = findPartitionReassignmentStates(zkClient, targets)
     println(partitionReassignmentStatesToString(partStates))
@@ -408,13 +417,20 @@ object ReassignPartitionsCommand extends Logging {
       topicPartition => {
         val state = states(topicPartition)
         if (state.done) {
-          if (state.currentReplicas.equals(state.targetReplicas)) {
+          if (state.currentAssignment.equals(state.targetAssignment)) {
             bld.append("Reassignment of partition %s is complete.".
               format(topicPartition.toString))
           } else {
-            bld.append(s"There is no active reassignment of partition ${topicPartition}, " +
-              s"but replica set is ${state.currentReplicas.mkString(",")} rather than " +
-              s"${state.targetReplicas.mkString(",")}.")
+            if (!state.currentAssignment.replicas.equals(state.targetAssignment.replicas)) {
+              bld.append(s"There is no active reassignment of partition ${topicPartition}, " +
+                s"but replica set is ${state.currentAssignment.replicas.mkString(",")} rather than " +
+                s"${state.targetAssignment.replicas.mkString(",")}.")
+            }
+            if (!state.currentAssignment.observers.equals(state.targetAssignment.observers)) {
+              bld.append(s"There is no active reassignment of partition ${topicPartition}, " +
+                s"but observer set is ${state.currentAssignment.observers.mkString(",")} rather than " +
+                s"${state.targetAssignment.observers.mkString(",")}.")
+            }
           }
         } else {
           bld.append("Reassignment of partition %s is still in progress.".format(topicPartition))
@@ -423,6 +439,25 @@ object ReassignPartitionsCommand extends Logging {
     }
     bld.mkString(System.lineSeparator())
   }
+
+  def createPartitionReassignmentState (currentAssignment: PartitionReassignment,
+                                        targetAssignment:  Assignment,
+                                        done: Boolean) 
+                                        : PartitionReassignmentState = {
+
+    val currentReplicas = currentAssignment.replicas.
+                            asScala.map(_.toInt)
+    val currentObservers = currentAssignment.observers.
+                            asScala.map(_.toInt)
+    val assignment = Assignment(currentReplicas, currentObservers)
+    val state = PartitionReassignmentState(
+          assignment,
+          targetAssignment,
+          done)
+
+    state
+  }
+  
 
   /**
    * Find the state of the specified partition reassignments.
@@ -434,7 +469,7 @@ object ReassignPartitionsCommand extends Logging {
    *                             partition, plus whether there are any ongoing reassignments.
    */
   def findPartitionReassignmentStates(adminClient: Admin,
-                                      targetReassignments: Seq[(TopicPartition, Seq[Int])])
+                                      targetReassignments: Seq[(TopicPartition, Assignment)])
                                       : (Map[TopicPartition, PartitionReassignmentState], Boolean) = {
     val currentReassignments = adminClient.
       listPartitionReassignments.reassignments.get().asScala
@@ -442,12 +477,8 @@ object ReassignPartitionsCommand extends Logging {
       case (part, _) => currentReassignments.contains(part)
     }
     val foundResults: Seq[(TopicPartition, PartitionReassignmentState)] = foundReassignments.map {
-      case (part, targetReplicas) => (part,
-        new PartitionReassignmentState(
-          currentReassignments.get(part).get.replicas.
-            asScala.map(i => i.asInstanceOf[Int]),
-          targetReplicas,
-          false))
+      case (part, targetAssignment) => (part,
+        createPartitionReassignmentState(currentReassignments.get(part).get, targetAssignment, false))
     }
     val topicNamesToLookUp = new mutable.HashSet[String]()
     notFoundReassignments.foreach {
@@ -458,16 +489,15 @@ object ReassignPartitionsCommand extends Logging {
     val topicDescriptions = adminClient.
       describeTopics(topicNamesToLookUp.asJava).values().asScala
     val notFoundResults: Seq[(TopicPartition, PartitionReassignmentState)] = notFoundReassignments.map {
-      case (part, targetReplicas) =>
+      case (part, targetAssignment) =>
         currentReassignments.get(part) match {
           case Some(reassignment) => (part,
-            PartitionReassignmentState(
-              reassignment.replicas.asScala.map(_.asInstanceOf[Int]),
-              targetReplicas,
-              false))
+            createPartitionReassignmentState(reassignment, 
+                                             targetAssignment, 
+                                             false))
           case None =>
             (part, topicDescriptionFutureToState(part.partition,
-              topicDescriptions(part.topic), targetReplicas))
+              topicDescriptions(part.topic), targetAssignment))
         }
     }
     val allResults = foundResults ++ notFoundResults
@@ -476,22 +506,28 @@ object ReassignPartitionsCommand extends Logging {
 
   private def topicDescriptionFutureToState(partition: Int,
                                             future: KafkaFuture[TopicDescription],
-                                            targetReplicas: Seq[Int])
+                                            targetAssignment: Assignment)
                                             : PartitionReassignmentState = {
     try {
       val topicDescription = future.get()
       if (topicDescription.partitions().size() < partition) {
         throw new ExecutionException("Too few partitions found", new UnknownTopicOrPartitionException())
       }
-      PartitionReassignmentState(
+
+      val currentAssignment = Assignment(
         topicDescription.partitions.get(partition).replicas.asScala.map(_.id),
-        targetReplicas,
+        topicDescription.partitions.get(partition).observers.asScala.map(_.id)
+      )
+
+      PartitionReassignmentState(
+        currentAssignment,
+        targetAssignment,
         true)
     } catch {
       case t: ExecutionException =>
         t.getCause match {
           case _: UnknownTopicOrPartitionException =>
-            new PartitionReassignmentState(Seq(), targetReplicas, true)
+            PartitionReassignmentState(Assignment(Seq.empty, Seq.empty), targetAssignment, true)
         }
     }
   }
@@ -507,7 +543,7 @@ object ReassignPartitionsCommand extends Logging {
    *                              found in the legacy reassign partitions znode.
    */
   def findPartitionReassignmentStates(zkClient: KafkaZkClient,
-                                      targetReassignments: Map[TopicPartition, Seq[Int]])
+                                      targetReassignments: Map[TopicPartition, Assignment])
                                       : (Map[TopicPartition, PartitionReassignmentState], Boolean) = {
     val partitionsBeingReassigned = zkClient.getPartitionReassignment
     val results = new mutable.HashMap[TopicPartition, PartitionReassignmentState]()
@@ -517,8 +553,9 @@ object ReassignPartitionsCommand extends Logging {
         partitions.foreach {
           case (partition, targetReplicas) =>
             val currentReplicas = replicasForTopic.getOrElse(partition, Seq())
-            results.put(partition, new PartitionReassignmentState(
-              currentReplicas, targetReplicas, !partitionsBeingReassigned.contains(partition)))
+            // The zkClient admin client is deprecated and using observer assignments is not supported
+            results.put(partition, PartitionReassignmentState(
+              Assignment(currentReplicas, Seq.empty), targetReplicas, !partitionsBeingReassigned.contains(partition)))
         }
     }
     (results, partitionsBeingReassigned.nonEmpty)
@@ -629,9 +666,9 @@ object ReassignPartitionsCommand extends Logging {
    * @param targetParts     The target partitions loaded from the JSON file.
    */
   def clearAllThrottles(adminClient: Admin,
-                        targetParts: Seq[(TopicPartition, Seq[Int])]): Unit = {
+                        targetParts: Seq[(TopicPartition, Assignment)]): Unit = {
     val activeBrokers = adminClient.describeCluster().nodes().get().asScala.map(_.id()).toSet
-    val brokers = activeBrokers ++ targetParts.map(_._2).flatten.toSet
+    val brokers = activeBrokers ++ targetParts.flatMap { case (_, assignment) => assignment.replicas }.toSet
     println("Clearing broker-level throttles on broker%s %s".format(
       if (brokers.size == 1) "" else "s", brokers.mkString(",")))
     clearBrokerLevelThrottles(adminClient, brokers)
@@ -649,9 +686,9 @@ object ReassignPartitionsCommand extends Logging {
    * @param targetParts     The target partitions loaded from the JSON file.
    */
   def clearAllThrottles(zkClient: KafkaZkClient,
-                        targetParts: Seq[(TopicPartition, Seq[Int])]): Unit = {
+                        targetParts: Seq[(TopicPartition, Assignment)]): Unit = {
     val activeBrokers = zkClient.getAllBrokersInCluster.map(_.id).toSet
-    val brokers = activeBrokers ++ targetParts.map(_._2).flatten.toSet
+    val brokers = activeBrokers ++ targetParts.flatMap { case (_, assignment) => assignment.replicas }.toSet
     println("Clearing broker-level throttles on broker%s %s".format(
       if (brokers.size == 1) "" else "s", brokers.mkString(",")))
     clearBrokerLevelThrottles(zkClient, brokers)
@@ -729,6 +766,56 @@ object ReassignPartitionsCommand extends Logging {
   }
 
   /**
+   * Throw an AdminCommandFailedException if any topics in the list have a topic placement constraint
+   *
+   * @param client Admin client to use
+   * @param topics topics to check for constraints
+   */
+  def checkForTopicsWithConstraints(client: Admin, topics: Seq[String]): Unit = {
+    val topicConfigs = client.describeConfigs(
+      topics.map(new ConfigResource(Type.TOPIC, _)).asJava
+    ).all().get().asScala
+
+    val topicsWithConstraint: Seq[String] = topicConfigs.toSeq.flatMap { case (resource, config) =>
+      Option(config.get(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG)).flatMap { configEntry =>
+        TopicPlacement
+          .parse(configEntry.value).asScala
+          .map { _ => resource.name }
+      }
+    }
+
+    if (!topicsWithConstraint.isEmpty) {
+      throw new AdminCommandFailedException(
+        s"Assignments could not be generated because the following topics have placement constraints ${topicsWithConstraint.mkString(", ")}"
+      )
+    }
+  }
+
+  /**
+   * Throw an AdminCommandFailedException if any topics in the list have a topic placement constraint
+   *
+   * @param zkClient ZooKeeper client to use
+   * @param topics topics to check for constraints
+   */
+  def checkForTopicsWithConstraints(zkClient: KafkaZkClient, topics: Seq[String], errorType: String): Unit = {
+    val topicsWithConstraint: Seq[String] = topics.flatMap { topic =>
+      Option(zkClient.getEntityConfigs("topics", topic)).flatMap { config =>
+        Option(config.getProperty(ConfluentTopicConfig.TOPIC_PLACEMENT_CONSTRAINTS_CONFIG)).flatMap { value =>
+            TopicPlacement
+              .parse(value).asScala
+              .map { _ => topic }
+        }
+      }
+    }
+
+    if (!topicsWithConstraint.isEmpty) {
+      throw new AdminCommandFailedException(
+        s"Assignments could not be $errorType because the following topics have placement constraints ${topicsWithConstraint.mkString(", ")}"
+      )
+    }
+  }
+
+  /**
    * The entry point for the --generate command.
    *
    * @param adminClient           The AdminClient to use.
@@ -743,9 +830,10 @@ object ReassignPartitionsCommand extends Logging {
                          reassignmentJson: String,
                          brokerListString: String,
                          enableRackAwareness: Boolean)
-                         : (Map[TopicPartition, Seq[Int]], Map[TopicPartition, Seq[Int]]) = {
+                         : (Map[TopicPartition, Assignment], Map[TopicPartition, Assignment]) = {
     val (brokersToReassign, topicsToReassign) =
       parseGenerateAssignmentArgs(reassignmentJson, brokerListString)
+    checkForTopicsWithConstraints(adminClient, topicsToReassign)
     val currentAssignments = getReplicaAssignmentForTopics(adminClient, topicsToReassign)
     val brokerMetadatas = getBrokerMetadata(adminClient, brokersToReassign, enableRackAwareness)
     val proposedAssignments = calculateAssignment(currentAssignments, brokerMetadatas)
@@ -771,10 +859,12 @@ object ReassignPartitionsCommand extends Logging {
                          reassignmentJson: String,
                          brokerListString: String,
                          enableRackAwareness: Boolean)
-                         : (Map[TopicPartition, Seq[Int]], Map[TopicPartition, Seq[Int]]) = {
+                         : (Map[TopicPartition, Assignment], Map[TopicPartition, Assignment]) = {
     val (brokersToReassign, topicsToReassign) =
       parseGenerateAssignmentArgs(reassignmentJson, brokerListString)
     val currentAssignments = zkClient.getReplicaAssignmentForTopics(topicsToReassign.toSet)
+      .map { case (partition, replicas) => (partition -> Assignment(replicas, Seq.empty)) }
+    checkForTopicsWithConstraints(zkClient, topicsToReassign, "generated") 
     val brokerMetadatas = getBrokerMetadata(zkClient, brokersToReassign, enableRackAwareness)
     val proposedAssignments = calculateAssignment(currentAssignments, brokerMetadatas)
     println("Current partition replica assignment\n%s\n".
@@ -792,17 +882,17 @@ object ReassignPartitionsCommand extends Logging {
    *
    * @return                   A map from partitions to the proposed assignments for each.
    */
-  def calculateAssignment(currentAssignment: Map[TopicPartition, Seq[Int]],
+  def calculateAssignment(currentAssignment: Map[TopicPartition, Assignment],
                           brokerMetadatas: Seq[BrokerMetadata])
-                          : Map[TopicPartition, Seq[Int]] = {
+                          : Map[TopicPartition, Assignment] = {
     val groupedByTopic = currentAssignment.groupBy { case (tp, _) => tp.topic }
-    val proposedAssignments = mutable.Map[TopicPartition, Seq[Int]]()
-    groupedByTopic.foreach { case (topic, assignment) =>
-      val (_, replicas) = assignment.head
+    val proposedAssignments = mutable.Map[TopicPartition, Assignment]()
+    groupedByTopic.foreach { case (topic, assignments) =>
+      val (_, assignment) = assignments.head
       val assignedReplicas = AdminUtils.
-        assignReplicasToBrokers(brokerMetadatas, assignment.size, replicas.size)
+        assignReplicasToBrokers(brokerMetadatas, assignments.size, assignment.replicas.size)
       proposedAssignments ++= assignedReplicas.map { case (partition, replicas) =>
-        new TopicPartition(topic, partition) -> replicas
+        new TopicPartition(topic, partition) -> Assignment(replicas, Seq.empty)
       }
     }
     proposedAssignments
@@ -818,12 +908,12 @@ object ReassignPartitionsCommand extends Logging {
    */
   def getReplicaAssignmentForTopics(adminClient: Admin,
                                     topics: Seq[String])
-                                    : Map[TopicPartition, Seq[Int]] = {
+                                    : Map[TopicPartition, Assignment] = {
     adminClient.describeTopics(topics.asJava).all().get().asScala.flatMap {
       case (topicName, topicDescription) =>
         topicDescription.partitions.asScala.map {
           info => (new TopicPartition(topicName, info.partition),
-            info.replicas.asScala.map(_.id))
+            Assignment(info.replicas.asScala.map(_.id), info.observers.asScala.map(_.id)))
         }
     }
   }
@@ -838,13 +928,15 @@ object ReassignPartitionsCommand extends Logging {
    */
   def getReplicaAssignmentForPartitions(adminClient: Admin,
                                         partitions: Set[TopicPartition])
-                                        : Map[TopicPartition, Seq[Int]] = {
+                                        : Map[TopicPartition, Assignment] = {
     adminClient.describeTopics(partitions.map(_.topic).asJava).all().get().asScala.flatMap {
       case (topicName, topicDescription) =>
         topicDescription.partitions.asScala.flatMap {
           info => if (partitions.contains(new TopicPartition(topicName, info.partition))) {
             Some(new TopicPartition(topicName, info.partition()),
-                info.replicas.asScala.map(_.id))
+              Assignment(
+                info.replicas.asScala.map(_.id), 
+                info.observers.asScala.map(_.id)))
           } else {
             None
           }
@@ -958,7 +1050,9 @@ object ReassignPartitionsCommand extends Logging {
     if (!additional && currentReassignments.nonEmpty) {
       throw new TerseReassignmentFailureException(cannotExecuteBecauseOfExistingMessage)
     }
-    verifyBrokerIds(adminClient, proposedParts.values.flatten.toSet)
+
+    val targetReplicaIds = proposedParts.flatMap { case (_, assignment) => assignment.replicas }.toSet
+    verifyBrokerIds(adminClient, targetReplicaIds)
     val currentParts = getReplicaAssignmentForPartitions(adminClient, proposedParts.keySet.toSet)
     println(currentPartitionReplicaAssignmentToString(proposedParts, currentParts))
     if (interBrokerThrottle >= 0 || logDirThrottle >= 0) {
@@ -1105,6 +1199,10 @@ object ReassignPartitionsCommand extends Logging {
       throw new AdminCommandFailedException("bootstrap-server needs to be provided when " +
         "replica reassignments are present.")
     }
+    val topicsToReassign = proposedParts.map { case (tp, _) =>
+      tp.topic
+    }.toSet.toSeq
+    checkForTopicsWithConstraints(zkClient, topicsToReassign, "executed")
     verifyReplicasAndBrokersInAssignment(zkClient, proposedParts)
 
     // Check for the presence of the legacy partition reassignment ZNode.  This actually
@@ -1119,9 +1217,9 @@ object ReassignPartitionsCommand extends Logging {
       throw new TerseReassignmentFailureException(cannotExecuteBecauseOfExistingMessage)
     }
     val currentParts = zkClient.getReplicaAssignmentForTopics(
-      proposedParts.map(_._1.topic()).toSet)
-    println(currentPartitionReplicaAssignmentToString(proposedParts, currentParts))
+      proposedParts.map(_._1.topic()).toSet).map { case (tp, replicas) => (tp -> Assignment(replicas, Seq.empty)) }
 
+    println(currentPartitionReplicaAssignmentToString(proposedParts, currentParts))
     if (interBrokerThrottle >= 0) {
       println(youMustRunVerifyPeriodicallyMessage)
       val moveMap = calculateMoveMap(Map.empty, proposedParts, currentParts)
@@ -1132,7 +1230,7 @@ object ReassignPartitionsCommand extends Logging {
       modifyBrokerThrottles(zkClient, reassigningBrokers, interBrokerThrottle)
       println(s"The inter-broker throttle limit was set to ${interBrokerThrottle} B/s")
     }
-    zkClient.createPartitionReassignment(proposedParts)
+    zkClient.createPartitionReassignment(proposedParts.map { case (tp, assignment) => tp -> assignment.replicas })
     println("Successfully started partition reassignment%s for %s".format(
       if (proposedParts.size == 1) "" else "s",
       proposedParts.keySet.toBuffer.sortWith(compareTopicPartitions).mkString(",")))
@@ -1147,8 +1245,8 @@ object ReassignPartitionsCommand extends Logging {
    * @return                            The string to print.  We will only print information about
    *                                    partitions that appear in the proposed partition assignment.
    */
-  def currentPartitionReplicaAssignmentToString(proposedParts: Map[TopicPartition, Seq[Int]],
-                                                currentParts: Map[TopicPartition, Seq[Int]]): String = {
+  def currentPartitionReplicaAssignmentToString(proposedParts: Map[TopicPartition, Assignment],
+                                                currentParts: Map[TopicPartition, Assignment]): String = {
     "Current partition replica assignment%n%n%s%n%nSave this to use as the %s".
         format(formatAsReassignmentJson(currentParts.filter { case (k, _) => proposedParts.contains(k) }.toMap, Map.empty),
               "--reassignment-json-file option during rollback")
@@ -1163,7 +1261,7 @@ object ReassignPartitionsCommand extends Logging {
    * @param proposedParts               The partition assignment.
    */
   def verifyReplicasAndBrokersInAssignment(zkClient: KafkaZkClient,
-                                           proposedParts: Map[TopicPartition, Seq[Int]]): Unit = {
+                                           proposedParts: Map[TopicPartition, Assignment]): Unit = {
     // check that all partitions in the proposed assignment exist in the cluster
     val proposedTopics = proposedParts.map { case (tp, _) => tp.topic }
     val existingAssignment = zkClient.getReplicaAssignmentForTopics(proposedTopics.toSet)
@@ -1174,7 +1272,10 @@ object ReassignPartitionsCommand extends Logging {
 
     // check that all brokers in the proposed assignment exist in the cluster
     val existingBrokerIDs = zkClient.getSortedBrokerList
-    val nonExistingBrokerIDs = proposedParts.toMap.values.flatten.filterNot(existingBrokerIDs.contains).toSet
+    val nonExistingBrokerIDs = proposedParts
+      .flatMap { case (_, assignment) => assignment.replicas}
+      .toSet
+      .filterNot(existingBrokerIDs.contains)
     if (nonExistingBrokerIDs.nonEmpty)
       throw new AdminCommandFailedException("The proposed assignment contains non-existent brokerIDs: " + nonExistingBrokerIDs.mkString(","))
   }
@@ -1187,10 +1288,12 @@ object ReassignPartitionsCommand extends Logging {
    * @return                  A map from partition objects to error strings.
    */
   def alterPartitionReassignments(adminClient: Admin,
-                                  reassignments: Map[TopicPartition, Seq[Int]]): Map[TopicPartition, Throwable] = {
+                                  reassignments: Map[TopicPartition, Assignment]): Map[TopicPartition, Throwable] = {
     val results: Map[TopicPartition, KafkaFuture[Void]] =
-      adminClient.alterPartitionReassignments(reassignments.map { case (part, replicas) =>
-        (part, Optional.of(new NewPartitionReassignment(replicas.map(Integer.valueOf(_)).asJava)))
+      adminClient.alterPartitionReassignments(reassignments.map { case (part, assignment) =>
+        (part, Optional.of(NewPartitionReassignment.ofReplicasAndObservers(
+                            assignment.replicas.map(Integer.valueOf(_)).asJava, 
+                            assignment.observers.map(Integer.valueOf(_)).asJava)))
       }.asJava).values().asScala
     results.flatMap {
       case (part, future) => {
@@ -1242,8 +1345,8 @@ object ReassignPartitionsCommand extends Logging {
    *                                the movements for that partition.
    */
   def calculateMoveMap(currentReassignments: Map[TopicPartition, PartitionReassignment],
-                       proposedReassignments: Map[TopicPartition, Seq[Int]],
-                       currentParts: Map[TopicPartition, Seq[Int]]): MoveMap = {
+                       proposedReassignments: Map[TopicPartition, Assignment],
+                       currentParts: Map[TopicPartition, Assignment]): MoveMap = {
     val moveMap = new mutable.HashMap[String, mutable.Map[Int, PartitionMove]]()
     // Add the current reassignments to the move map.
     currentReassignments.foreach {
@@ -1261,9 +1364,9 @@ object ReassignPartitionsCommand extends Logging {
     // Add the proposed reassignments to the move map.  The proposals will overwrite
     // the current reassignments.
     proposedReassignments.foreach {
-      case (part, replicas) => {
+      case (part, assignment) => {
         val move = PartitionMove(new mutable.HashSet[Int](), new mutable.HashSet[Int]())
-        move.destinations ++= replicas
+        move.destinations ++= assignment.replicas
         val partMoves = moveMap.getOrElseUpdate(part.topic(), new mutable.HashMap[Int, PartitionMove])
         partMoves.put(part.partition(), move)
       }
@@ -1276,7 +1379,7 @@ object ReassignPartitionsCommand extends Logging {
           case (partitionIndex, moves) =>
             currentParts.get(new TopicPartition(topicName, partitionIndex)) match {
               case None =>
-              case Some(replicas) => moves.sources ++= replicas
+              case Some(assignment) => moves.sources ++= assignment.replicas
             }
         }
     }
@@ -1478,18 +1581,18 @@ object ReassignPartitionsCommand extends Logging {
    *                          to be reassigned.
    */
   def parseExecuteAssignmentArgs(reassignmentJson: String)
-      : (Map[TopicPartition, Seq[Int]], Map[TopicPartitionReplica, String]) = {
+      : (Map[TopicPartition, Assignment], Map[TopicPartitionReplica, String]) = {
     val (partitionsToBeReassigned, replicaAssignment) = parsePartitionReassignmentData(reassignmentJson)
     if (partitionsToBeReassigned.isEmpty)
       throw new AdminCommandFailedException("Partition reassignment list cannot be empty")
-    if (partitionsToBeReassigned.exists(_._2.isEmpty)) {
+    if (partitionsToBeReassigned.exists(_._2.replicas.isEmpty)) {
       throw new AdminCommandFailedException("Partition replica list cannot be empty")
     }
     val duplicateReassignedPartitions = CoreUtils.duplicates(partitionsToBeReassigned.map { case (tp, _) => tp })
     if (duplicateReassignedPartitions.nonEmpty)
       throw new AdminCommandFailedException("Partition reassignment contains duplicate topic partitions: %s".format(duplicateReassignedPartitions.mkString(",")))
     val duplicateEntries = partitionsToBeReassigned
-      .map { case (tp, replicas) => (tp, CoreUtils.duplicates(replicas))}
+      .map { case (tp, assignment) => (tp, CoreUtils.duplicates(assignment.replicas))}
       .filter { case (_, duplicatedReplicas) => duplicatedReplicas.nonEmpty }
     if (duplicateEntries.nonEmpty) {
       val duplicatesMsg = duplicateEntries
@@ -1563,19 +1666,24 @@ object ReassignPartitionsCommand extends Logging {
     (curReassigningParts, curMovingParts.keySet)
   }
 
-  def formatAsReassignmentJson(partitionsToBeReassigned: Map[TopicPartition, Seq[Int]],
+  
+  def formatAsReassignmentJson(partitionsToBeReassigned: Map[TopicPartition, Assignment],
                                replicaLogDirAssignment: Map[TopicPartitionReplica, String]): String = {
     Json.encodeAsString(Map(
       "version" -> 1,
       "partitions" -> partitionsToBeReassigned.keySet.toBuffer.sortWith(compareTopicPartitions).map {
         tp =>
-          val replicas = partitionsToBeReassigned(tp)
-          Map(
+          val assignment = partitionsToBeReassigned(tp)
+          val json = mutable.Map(
             "topic" -> tp.topic,
             "partition" -> tp.partition,
-            "replicas" -> replicas.asJava,
-            "log_dirs" -> replicas.map(r => replicaLogDirAssignment.getOrElse(new TopicPartitionReplica(tp.topic, tp.partition, r), AnyLogDir)).asJava
-          ).asJava
+            "replicas" -> assignment.replicas.asJava,
+            "log_dirs" -> assignment.replicas.map(r => replicaLogDirAssignment.getOrElse(new TopicPartitionReplica(tp.topic, tp.partition, r), AnyLogDir)).asJava
+          )
+          if (!assignment.observers.isEmpty) {
+            json("observers") = assignment.observers.asJava
+          }
+          json.asJava
       }.asJava
     ).asJava)
   }
@@ -1603,7 +1711,7 @@ object ReassignPartitionsCommand extends Logging {
     }
   }
 
-  def parsePartitionReassignmentData(jsonData: String): (Seq[(TopicPartition, Seq[Int])], Map[TopicPartitionReplica, String]) = {
+  def parsePartitionReassignmentData(jsonData: String): (Seq[(TopicPartition, Assignment)], Map[TopicPartitionReplica, String]) = {
     Json.parseFull(jsonData) match {
       case Some(js) =>
         val version = js.asJsonObject.get("version") match {
@@ -1616,10 +1724,10 @@ object ReassignPartitionsCommand extends Logging {
   }
 
   // Parses without deduplicating keys so the data can be checked before allowing reassignment to proceed
-  def parsePartitionReassignmentData(version:Int, jsonData: JsonValue): (Seq[(TopicPartition, Seq[Int])], Map[TopicPartitionReplica, String]) = {
+  def parsePartitionReassignmentData(version:Int, jsonData: JsonValue): (Seq[(TopicPartition, Assignment)], Map[TopicPartitionReplica, String]) = {
     version match {
       case 1 =>
-        val partitionAssignment = mutable.ListBuffer.empty[(TopicPartition, Seq[Int])]
+        val partitionAssignment = mutable.ListBuffer.empty[(TopicPartition, Assignment)]
         val replicaAssignment = mutable.Map.empty[TopicPartitionReplica, String]
         for {
           partitionsSeq <- jsonData.asJsonObject.get("partitions").toSeq
@@ -1629,6 +1737,10 @@ object ReassignPartitionsCommand extends Logging {
           val topic = partitionFields("topic").to[String]
           val partition = partitionFields("partition").to[Int]
           val newReplicas = partitionFields("replicas").to[Seq[Int]]
+          val newObservers = partitionFields.get("observers") match {
+            case Some(jsonValue) => jsonValue.to[Seq[Int]]
+            case None => Seq.empty
+          }
           val newLogDirs = partitionFields.get("log_dirs") match {
             case Some(jsonValue) => jsonValue.to[Seq[String]]
             case None => newReplicas.map(_ => AnyLogDir)
@@ -1636,7 +1748,7 @@ object ReassignPartitionsCommand extends Logging {
           if (newReplicas.size != newLogDirs.size)
             throw new AdminCommandFailedException(s"Size of replicas list $newReplicas is different from " +
               s"size of log dirs list $newLogDirs for partition ${new TopicPartition(topic, partition)}")
-          partitionAssignment += (new TopicPartition(topic, partition) -> newReplicas)
+          partitionAssignment += (new TopicPartition(topic, partition) -> Assignment(newReplicas, newObservers))
           replicaAssignment ++= newReplicas.zip(newLogDirs).map { case (replica, logDir) =>
             new TopicPartitionReplica(topic, partition, replica) -> logDir
           }.filter(_._2 != AnyLogDir)
@@ -1800,9 +1912,12 @@ object ReassignPartitionsCommand extends Logging {
                       .ofType(classOf[String])
     val reassignmentJsonFileOpt = parser.accepts("reassignment-json-file", "The JSON file with the partition reassignment configuration" +
                       "The format to use is - \n" +
-                      "{\"partitions\":\n\t[{\"topic\": \"foo\",\n\t  \"partition\": 1,\n\t  \"replicas\": [1,2,3],\n\t  \"log_dirs\": [\"dir1\",\"dir2\",\"dir3\"] }],\n\"version\":1\n}\n" +
+                      "{\"partitions\":\n\t[{\"topic\": \"foo\",\n\t  \"partition\": 1,\n\t  \"replicas\": [1,2,3,4],\n\t  \"observers\":[3,4],\n\t  " +
+                      "\"log_dirs\": [\"dir1\",\"dir2\",\"dir3\",\"dir4\"] }],\n\"version\":1\n}\n" +
                       "Note that \"log_dirs\" is optional. When it is specified, its length must equal the length of the replicas list. The value in this list " +
-                      "can be either \"any\" or the absolution path of the log directory on the broker. If absolute log directory path is specified, the replica will be moved to the specified log directory on the broker.")
+                      "can be either \"any\" or the absolution path of the log directory on the broker. If absolute log directory path is specified, the replica" +
+                      " will be moved to the specified log directory on the broker.\n" +
+                      "Note that  \"observers\" is optional. When it is specified it must be a suffix of the replicas list.")
                       .withRequiredArg
                       .describedAs("manual assignment json file path")
                       .ofType(classOf[String])
