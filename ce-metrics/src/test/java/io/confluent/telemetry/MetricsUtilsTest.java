@@ -54,4 +54,13 @@ public class MetricsUtilsTest {
         MetricsUtils.fullMetricName(DOMAIN, "ControllerEventManager", "EventQueueTimeMs")
     );
   }
+
+  @Test
+  public void testConvertCase() {
+    assertEquals("total_errors_metrics", MetricsUtils.convertCase("total-errors-metrics"));
+    assertEquals("total_errors_metrics", MetricsUtils.convertCase("TotalErrorsMetrics"));
+    assertEquals("metrics/delta", MetricsUtils.convertCase("metrics/delta"));
+    assertEquals("pending_shutdown_queries_test", MetricsUtils.convertCase("PENDING_SHUTDOWN-queries-test"));
+    assertEquals("pending_shutdown_queries_test", MetricsUtils.convertCase("PENDING-SHUTDOWN-queries-test"));
+  }
 }

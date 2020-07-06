@@ -3,6 +3,7 @@ package io.confluent.telemetry;
 import static com.google.common.base.CaseFormat.LOWER_HYPHEN;
 import static com.google.common.base.CaseFormat.LOWER_UNDERSCORE;
 import static com.google.common.base.CaseFormat.UPPER_CAMEL;
+import static com.google.common.base.CaseFormat.UPPER_UNDERSCORE;
 
 import com.google.protobuf.Timestamp;
 import java.time.Clock;
@@ -68,12 +69,36 @@ public class MetricsUtils {
     /**
      * Converts a tag/name to match the telemetry naming conventions by converting snake_case.
      *
-     * <p>Kafka metrics have tags/name with dashes and Yammer metrics have tags/name in camelcase.</p>
+     * <p>
+     *   Kafka metrics have tags/name in lower case separated by hyphens. Eg: total-errors
+     *
+     *   Yammer metrics have tags/name in upper camelcase. Eg: TotalErrors
+     *
+     *   Some KSQL metrics have weird casing where the metric name is a mix of upper case words
+     *   separated by underscore along with lower case words separated by hyphen.
+     *   Eg: PENDING_SHUTDOWN-queries
+     * </p>
      * @param raw
      * @return
      */
     public static String convertCase(String raw) {
+        // Special handling of KSQL metrics as we can't change these at the source.
+        // https://confluentinc.atlassian.net/browse/METRICS-1833
+        // PENDING_SHUTDOWN-queries => pending-shutdown-queries
+        String[] nameParts = raw.split("-");
+        if (nameParts.length > 1) {
+            for (int index = 0; index < nameParts.length; index++) {
+                nameParts[index] = UPPER_UNDERSCORE.to(LOWER_HYPHEN, nameParts[index]);
+            }
+            raw = String.join("-", nameParts);
+        }
+
+        // Handling of Yammer metrics
+        // TotalErrors => total-errors
         String lowerHypenCase = UPPER_CAMEL.to(LOWER_HYPHEN, raw);
+
+        // At this point all metric names are in lower hyhen format.
+        // Convert them to lower underscore format and return.
         return LOWER_HYPHEN.to(LOWER_UNDERSCORE, lowerHypenCase);
     }
 
@@ -90,7 +115,7 @@ public class MetricsUtils {
             = Pattern.compile("zoo_keeper");
 
     private static String clean(String raw) {
-        // Convert from upper camel case to lower hypen case
+        // Convert from upper camel case to lower underscore case
         String lowerHyphenCase = convertCase(raw);
         return ZOOKEEPER_PATTERN.matcher(
                 PER_SEC_PATTERN.matcher(
