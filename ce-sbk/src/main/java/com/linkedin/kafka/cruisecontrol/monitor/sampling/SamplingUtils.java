@@ -15,12 +15,6 @@ import com.linkedin.kafka.cruisecontrol.monitor.metricdefinition.KafkaMetricDef;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.BrokerLoad;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.BrokerMetricSample;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.PartitionMetricSample;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import org.apache.kafka.clients.consumer.OffsetAndTimestamp;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.Node;
@@ -28,12 +22,19 @@ import org.apache.kafka.common.TopicPartition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
 import static com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig.SAMPLING_ALLOW_CPU_CAPACITY_ESTIMATION_CONFIG;
-import static com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType.BROKER_CPU_UTIL;
 import static com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType.ALL_TOPIC_BYTES_IN;
 import static com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType.ALL_TOPIC_BYTES_OUT;
 import static com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType.ALL_TOPIC_REPLICATION_BYTES_IN;
 import static com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType.ALL_TOPIC_REPLICATION_BYTES_OUT;
+import static com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType.BROKER_CPU_UTIL;
 import static com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType.PARTITION_SIZE;
 
 
@@ -144,37 +145,12 @@ public class SamplingUtils {
   }
 
   /**
-   * Removes any dots that potentially exist in the given parameter.
-   *
-   * @param tp TopicPartition that may contain dots.
-   * @return TopicPartition whose dots have been removed from the given topic name.
-   */
-  private static TopicPartition partitionHandleDotInTopicName(TopicPartition tp) {
-    // In the reported metrics, the "." in the topic name will be replaced by "_".
-    return !tp.topic().contains(".") ? tp :
-           new TopicPartition(replaceDotsWithUnderscores(tp.topic()), tp.partition());
-  }
-
-  /**
-   * Removes any dots that potentially exist in the given string. This method useful for making topic names reported by
-   * Kafka metadata consistent with the topic names reported by the metrics reporter.
-   *
-   * Note that the reported metrics implicitly replaces the "." in topic names with "_".
-   *
-   * @param stringWithDots String that may contain dots.
-   * @return String whose dots have been removed from the given string.
-   */
-  public static String replaceDotsWithUnderscores(String stringWithDots) {
-    return !stringWithDots.contains(".") ? stringWithDots : stringWithDots.replace('.', '_');
-  }
-
-  /**
    * Create a {@link PartitionMetricSample}, record the relevant metrics for the given partition from the given topic on
    * broker that hosts the given number of leaders, and return the sample.
    *
    * @param cluster Kafka cluster.
    * @param leaderDistribution The leader count per topic/broker
-   * @param tpDotNotHandled The original topic name that may contain dots.
+   * @param topicPartition The topic partition.
    * @param brokerLoadById Load information for brokers by the broker id.
    * @param maxMetricTimestamp Maximum timestamp of the sampled metric during the sampling process.
    * @param cachedNumCoresByBroker Cached number of cores by broker.
@@ -182,34 +158,33 @@ public class SamplingUtils {
    */
   static PartitionMetricSample buildPartitionMetricSample(Cluster cluster,
                                                           Map<Integer, Map<String, Integer>> leaderDistribution,
-                                                          TopicPartition tpDotNotHandled,
+                                                          TopicPartition topicPartition,
                                                           Map<Integer, BrokerLoad> brokerLoadById,
                                                           long maxMetricTimestamp,
                                                           Map<Integer, Short> cachedNumCoresByBroker) {
-    Node leaderNode = cluster.leaderFor(tpDotNotHandled);
+    Node leaderNode = cluster.leaderFor(topicPartition);
     if (leaderNode == null) {
-      LOG.trace("Partition {} has no current leader.", tpDotNotHandled);
+      LOG.trace("Partition {} has no current leader.", topicPartition);
       return null;
     }
     int leaderId = leaderNode.id();
     //TODO: switch to linear regression model without computing partition level CPU usage.
     BrokerLoad brokerLoad = brokerLoadById.get(leaderId);
-    TopicPartition tpWithDotHandled = partitionHandleDotInTopicName(tpDotNotHandled);
-    if (skipBuildingPartitionMetricSample(tpDotNotHandled, tpWithDotHandled, leaderId, brokerLoad, cachedNumCoresByBroker)) {
+    if (skipBuildingPartitionMetricSample(topicPartition, leaderId, brokerLoad, cachedNumCoresByBroker)) {
       return null;
     }
 
     // Fill in all the common metrics.
     MetricDef commonMetricDef = KafkaMetricDef.commonMetricDef();
-    PartitionMetricSample pms = new PartitionMetricSample(leaderId, tpDotNotHandled);
-    int numLeaders = leaderDistribution.get(leaderId).get(tpDotNotHandled.topic());
+    PartitionMetricSample pms = new PartitionMetricSample(leaderId, topicPartition);
+    int numLeaders = leaderDistribution.get(leaderId).get(topicPartition.topic());
     for (RawMetricType rawMetricType : RawMetricType.topicMetricTypes()) {
-      double sampleValue = numLeaders == 0 ? 0 : (brokerLoad.topicMetrics(tpWithDotHandled.topic(), rawMetricType)) / numLeaders;
+      double sampleValue = numLeaders == 0 ? 0 : (brokerLoad.topicMetrics(topicPartition.topic(), rawMetricType)) / numLeaders;
       MetricInfo metricInfo = commonMetricDef.metricInfo(KafkaMetricDef.forRawMetricType(rawMetricType).name());
       pms.record(metricInfo, sampleValue);
     }
     // Fill in disk and CPU utilization, which are not topic metric types.
-    double partitionSize = brokerLoad.partitionMetric(tpWithDotHandled.topic(), tpWithDotHandled.partition(), PARTITION_SIZE);
+    double partitionSize = brokerLoad.partitionMetric(topicPartition.topic(), topicPartition.partition(), PARTITION_SIZE);
     pms.record(commonMetricDef.metricInfo(KafkaMetricDef.DISK_USAGE.name()), partitionSize);
     double estimatedLeaderCpuUtil = estimateLeaderCpuUtil(pms, brokerLoad, commonMetricDef, cachedNumCoresByBroker.get(leaderId));
     pms.record(commonMetricDef.metricInfo(KafkaMetricDef.CPU_USAGE.name()), estimatedLeaderCpuUtil);
@@ -258,34 +233,32 @@ public class SamplingUtils {
   /**
    * Check whether the metric sample generation for the partition with the given information should be skipped.
    *
-   * @param tpDotNotHandled The original topic name that may contain dots.
-   * @param tpWithDotHandled Topic partition with dot-handled topic name (see {@link SamplingUtils#partitionHandleDotInTopicName}).
+   * @param topicPartition The topic partition.
    * @param leaderId Leader Id of partition.
    * @param brokerLoad Load information for the broker that the leader of the partition resides.
    * @param cachedNumCoresByBroker Cached number of cores by broker.
    * @return True to skip generating partition metric sample, false otherwise.
    */
-  private static boolean skipBuildingPartitionMetricSample(TopicPartition tpDotNotHandled,
-                                                           TopicPartition tpWithDotHandled,
+  private static boolean skipBuildingPartitionMetricSample(TopicPartition topicPartition,
                                                            int leaderId,
                                                            BrokerLoad brokerLoad,
                                                            Map<Integer, Short> cachedNumCoresByBroker) {
     if (brokerLoad == null || !brokerLoad.brokerMetricAvailable(BROKER_CPU_UTIL)) {
       // Broker load or its BROKER_CPU_UTIL metric is not available.
       LOG.debug("{}partition {} because {} metric for broker {} is unavailable.", SKIP_BUILDING_SAMPLE_PREFIX,
-                tpDotNotHandled, BROKER_CPU_UTIL, leaderId);
+                topicPartition, BROKER_CPU_UTIL, leaderId);
       return true;
     } else if (cachedNumCoresByBroker.get(leaderId) == null) {
       // Broker load is available but the corresponding number of cores was not cached.
       LOG.debug("{}partition {} because the number of CPU cores of its leader broker {} is unavailable. Please ensure that "
                 + "either the broker capacity config resolver provides the number of CPU cores without estimation or allow "
                 + "CPU capacity estimation during sampling (i.e. set {} to true).", SKIP_BUILDING_SAMPLE_PREFIX,
-                tpDotNotHandled, leaderId, SAMPLING_ALLOW_CPU_CAPACITY_ESTIMATION_CONFIG);
+                topicPartition, leaderId, SAMPLING_ALLOW_CPU_CAPACITY_ESTIMATION_CONFIG);
       return true;
-    } else if (!brokerLoad.allDotHandledTopicMetricsAvailable(tpWithDotHandled.topic())) {
+    } else if (!brokerLoad.topicMetricsAvailable(topicPartition.topic())) {
       // Topic metrics are not available.
       LOG.debug("{}partition {} because broker {} has no metric or topic metrics are not available", SKIP_BUILDING_SAMPLE_PREFIX,
-                tpDotNotHandled, leaderId);
+                topicPartition, leaderId);
       return true;
     }
     return false;

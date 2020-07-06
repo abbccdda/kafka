@@ -8,19 +8,12 @@ import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityConfigResolver;
 import com.linkedin.kafka.cruisecontrol.config.BrokerCapacityInfo;
 import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.BrokerMetric;
 import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.CruiseControlMetric;
-import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType;
 import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.PartitionMetric;
+import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType;
 import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.TopicMetric;
 import com.linkedin.kafka.cruisecontrol.monitor.metricdefinition.KafkaMetricDef;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.BrokerMetricSample;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.PartitionMetricSample;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.TimeUnit;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.PartitionInfo;
@@ -30,15 +23,21 @@ import org.apache.kafka.common.utils.Time;
 import org.easymock.EasyMock;
 import org.junit.Test;
 
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+
 import static com.linkedin.kafka.cruisecontrol.common.TestConstants.TOPIC1;
-import static com.linkedin.kafka.cruisecontrol.common.TestConstants.TOPIC2;
-//import static com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType.*;
+import static com.linkedin.kafka.cruisecontrol.common.TestConstants.TOPIC_WITH_DOT;
 import static com.linkedin.kafka.cruisecontrol.model.ModelUtils.estimateLeaderCpuUtil;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-
 
 /**
  * Unit test for CruiseControlMetricsProcessor
@@ -51,8 +50,8 @@ public class CruiseControlMetricsProcessorTest {
   private static final int P1 = 1;
   private static final TopicPartition T1P0 = new TopicPartition(TOPIC1, P0);
   private static final TopicPartition T1P1 = new TopicPartition(TOPIC1, P1);
-  private static final TopicPartition T2P0 = new TopicPartition(TOPIC2, P0);
-  private static final TopicPartition T2P1 = new TopicPartition(TOPIC2, P1);
+  private static final TopicPartition T3P0 = new TopicPartition(TOPIC_WITH_DOT, P0);
+  private static final TopicPartition T3P1 = new TopicPartition(TOPIC_WITH_DOT, P1);
   private static final int BROKER_ID_0 = 0;
   private static final int BROKER_ID_1 = 1;
   private static final double DELTA = 0.001;
@@ -64,27 +63,27 @@ public class CruiseControlMetricsProcessorTest {
   private static final double B1_ALL_TOPIC_BYTES_OUT = 500.0;
   private static final double B0_TOPIC1_BYTES_IN = 20.0;
   private static final double B1_TOPIC1_BYTES_IN = 500.0;
-  private static final double B0_TOPIC2_BYTES_IN = 800.0;
+  private static final double B0_TOPIC3_BYTES_IN = 800.0;
   private static final double B0_TOPIC1_BYTES_OUT = 80.0;
   private static final double B1_TOPIC1_BYTES_OUT = 500.0;
-  private static final double B0_TOPIC2_BYTES_OUT = 1300.0;
+  private static final double B0_TOPIC3_BYTES_OUT = 1300.0;
   private static final double B1_TOPIC1_REPLICATION_BYTES_IN = 20.0;
   private static final double B0_TOPIC1_REPLICATION_BYTES_IN = 500.0;
-  private static final double B1_TOPIC2_REPLICATION_BYTES_IN = 800.0;
+  private static final double B1_TOPIC3_REPLICATION_BYTES_IN = 800.0;
   private static final double B0_TOPIC1_REPLICATION_BYTES_OUT = 20.0;
   private static final double B1_TOPIC1_REPLICATION_BYTES_OUT = 500.0;
-  private static final double B0_TOPIC2_REPLICATION_BYTES_OUT = 800.0;
+  private static final double B0_TOPIC3_REPLICATION_BYTES_OUT = 800.0;
   private static final double T1P0_BYTES_SIZE = 100.0;
   private static final double T1P1_BYTES_SIZE = 300.0;
-  private static final double T2P0_BYTES_SIZE = 200.0;
-  private static final double T2P1_BYTES_SIZE = 500.0;
-  private static final Set<TopicPartition> TEST_PARTITIONS = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(T1P0, T1P1, T2P0, T2P1)));
+  private static final double T3P0_BYTES_SIZE = 200.0;
+  private static final double T3P1_BYTES_SIZE = 500.0;
+  private static final Set<TopicPartition> TEST_PARTITIONS = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(T1P0, T1P1, T3P0, T3P1)));
   private static final Map<TopicPartition, Double> CPU_UTIL = new HashMap<>(4);
   static {
     CPU_UTIL.put(T1P0, MOCK_NUM_CPU_CORES *
                        estimateLeaderCpuUtil(B0_CPU,
                                              B0_ALL_TOPIC_BYTES_IN,
-                                             B0_ALL_TOPIC_BYTES_OUT + B0_TOPIC1_REPLICATION_BYTES_OUT + B0_TOPIC2_REPLICATION_BYTES_OUT,
+                                             B0_ALL_TOPIC_BYTES_OUT + B0_TOPIC1_REPLICATION_BYTES_OUT + B0_TOPIC3_REPLICATION_BYTES_OUT,
                                              B0_TOPIC1_REPLICATION_BYTES_IN,
                                              B0_TOPIC1_BYTES_IN,
                                              B0_TOPIC1_BYTES_OUT + B0_TOPIC1_REPLICATION_BYTES_OUT));
@@ -92,23 +91,23 @@ public class CruiseControlMetricsProcessorTest {
                        estimateLeaderCpuUtil(B1_CPU,
                                              B1_ALL_TOPIC_BYTES_IN,
                                              B1_ALL_TOPIC_BYTES_OUT + B1_TOPIC1_REPLICATION_BYTES_OUT,
-                                             B1_TOPIC1_REPLICATION_BYTES_IN + B1_TOPIC2_REPLICATION_BYTES_IN,
+                                             B1_TOPIC1_REPLICATION_BYTES_IN + B1_TOPIC3_REPLICATION_BYTES_IN,
                                              B1_TOPIC1_BYTES_IN,
                                              B1_TOPIC1_BYTES_OUT + B1_TOPIC1_REPLICATION_BYTES_OUT));
-    CPU_UTIL.put(T2P0, MOCK_NUM_CPU_CORES *
+    CPU_UTIL.put(T3P0, MOCK_NUM_CPU_CORES *
                        estimateLeaderCpuUtil(B0_CPU,
                                              B0_ALL_TOPIC_BYTES_IN,
-                                             B0_ALL_TOPIC_BYTES_OUT + B0_TOPIC1_REPLICATION_BYTES_OUT + B0_TOPIC2_REPLICATION_BYTES_OUT,
+                                             B0_ALL_TOPIC_BYTES_OUT + B0_TOPIC1_REPLICATION_BYTES_OUT + B0_TOPIC3_REPLICATION_BYTES_OUT,
                                              B0_TOPIC1_REPLICATION_BYTES_IN,
-                                             B0_TOPIC2_BYTES_IN / 2,
-                                             (B0_TOPIC2_BYTES_OUT + B0_TOPIC2_REPLICATION_BYTES_OUT) / 2));
-    CPU_UTIL.put(T2P1, MOCK_NUM_CPU_CORES *
+                                             B0_TOPIC3_BYTES_IN / 2,
+                                             (B0_TOPIC3_BYTES_OUT + B0_TOPIC3_REPLICATION_BYTES_OUT) / 2));
+    CPU_UTIL.put(T3P1, MOCK_NUM_CPU_CORES *
                        estimateLeaderCpuUtil(B0_CPU,
                                              B0_ALL_TOPIC_BYTES_IN,
-                                             B0_ALL_TOPIC_BYTES_OUT + B0_TOPIC1_REPLICATION_BYTES_OUT + B0_TOPIC2_REPLICATION_BYTES_OUT,
+                                             B0_ALL_TOPIC_BYTES_OUT + B0_TOPIC1_REPLICATION_BYTES_OUT + B0_TOPIC3_REPLICATION_BYTES_OUT,
                                              B0_TOPIC1_REPLICATION_BYTES_IN,
-                                             B0_TOPIC2_BYTES_IN / 2,
-                                             (B0_TOPIC2_BYTES_OUT + B0_TOPIC2_REPLICATION_BYTES_OUT) / 2));
+                                             B0_TOPIC3_BYTES_IN / 2,
+                                             (B0_TOPIC3_BYTES_OUT + B0_TOPIC3_REPLICATION_BYTES_OUT) / 2));
   }
   private final Time _time = new MockTime(0, 100L, TimeUnit.NANOSECONDS.convert(100L, TimeUnit.MILLISECONDS));
 
@@ -222,12 +221,12 @@ public class CruiseControlMetricsProcessorTest {
       } else if (sample.entity().tp().equals(T1P1)) {
         validatePartitionMetricSample(sample, _time.milliseconds() + 2, CPU_UTIL.get(T1P1),
                                       B1_TOPIC1_BYTES_IN, B1_TOPIC1_BYTES_OUT, T1P1_BYTES_SIZE);
-      } else if (sample.entity().tp().equals(T2P0)) {
-        validatePartitionMetricSample(sample, _time.milliseconds() + 2, CPU_UTIL.get(T2P0),
-                                      B0_TOPIC2_BYTES_IN / 2, B0_TOPIC2_BYTES_OUT / 2, T2P0_BYTES_SIZE);
-      } else if (sample.entity().tp().equals(T2P1)) {
-        validatePartitionMetricSample(sample, _time.milliseconds() + 2, CPU_UTIL.get(T2P1),
-                                      B0_TOPIC2_BYTES_IN / 2, B0_TOPIC2_BYTES_OUT / 2, T2P1_BYTES_SIZE);
+      } else if (sample.entity().tp().equals(T3P0)) {
+        validatePartitionMetricSample(sample, _time.milliseconds() + 2, CPU_UTIL.get(T3P0),
+                                      B0_TOPIC3_BYTES_IN / 2, B0_TOPIC3_BYTES_OUT / 2, T3P0_BYTES_SIZE);
+      } else if (sample.entity().tp().equals(T3P1)) {
+        validatePartitionMetricSample(sample, _time.milliseconds() + 2, CPU_UTIL.get(T3P1),
+                                      B0_TOPIC3_BYTES_IN / 2, B0_TOPIC3_BYTES_OUT / 2, T3P1_BYTES_SIZE);
       } else {
         fail("Should never have partition " + sample.entity().tp());
       }
@@ -237,7 +236,7 @@ public class CruiseControlMetricsProcessorTest {
       if (sample.metricValue(KafkaMetricDef.CPU_USAGE) == B0_CPU) {
         assertEquals(B0_TOPIC1_REPLICATION_BYTES_IN, sample.metricValue(KafkaMetricDef.REPLICATION_BYTES_IN_RATE), DELTA);
       } else if (sample.metricValue(KafkaMetricDef.CPU_USAGE) == B1_CPU) {
-        assertEquals(B1_TOPIC1_REPLICATION_BYTES_IN + B1_TOPIC2_REPLICATION_BYTES_IN,
+        assertEquals(B1_TOPIC1_REPLICATION_BYTES_IN + B1_TOPIC3_REPLICATION_BYTES_IN,
                      sample.metricValue(KafkaMetricDef.REPLICATION_BYTES_IN_RATE), DELTA);
       } else {
         fail("Should never have broker cpu util " + sample.metricValue(KafkaMetricDef.CPU_USAGE));
@@ -340,10 +339,10 @@ public class CruiseControlMetricsProcessorTest {
    * size = {@link #T1P0_BYTES_SIZE} MB</li>
    * <li>T1P1(B1): NW_IN = {@link #B1_TOPIC1_BYTES_IN} KB, NW_OUT = {@link #B1_TOPIC1_BYTES_OUT} KB,
    * size = {@link #T1P1_BYTES_SIZE} MB</li>
-   * <li>T2P0(B0): NW_IN = est. {@link #B0_TOPIC2_BYTES_IN}/2 KB, NW_OUT = est. {@link #B0_TOPIC2_BYTES_OUT}/2 KB,
-   * size = {@link #T2P0_BYTES_SIZE} MB</li>
-   * <li>T2P1(B0): NW_IN = est. {@link #B0_TOPIC2_BYTES_IN}/2 KB, NW_OUT = est. {@link #B0_TOPIC2_BYTES_OUT}/2 KB,
-   * size = {@link #T2P1_BYTES_SIZE} MB</li>
+   * <li>T3P0(B0): NW_IN = est. {@link #B0_TOPIC3_BYTES_IN}/2 KB, NW_OUT = est. {@link #B0_TOPIC3_BYTES_OUT}/2 KB,
+   * size = {@link #T3P0_BYTES_SIZE} MB</li>
+   * <li>T3P1(B0): NW_IN = est. {@link #B0_TOPIC3_BYTES_IN}/2 KB, NW_OUT = est. {@link #B0_TOPIC3_BYTES_OUT}/2 KB,
+   * size = {@link #T3P1_BYTES_SIZE} MB</li>
    * <li>B0: CPU = {@link #B0_CPU}%</li>
    * <li>B1: CPU = {@link #B1_CPU}%</li>
    * </ul>
@@ -384,38 +383,38 @@ public class CruiseControlMetricsProcessorTest {
                                       B0_TOPIC1_BYTES_IN * BYTES_IN_KB));
           metrics.add(new TopicMetric(RawMetricType.TOPIC_BYTES_IN, _time.milliseconds() + 2, BROKER_ID_1, TOPIC1,
                                       B1_TOPIC1_BYTES_IN * BYTES_IN_KB));
-          metrics.add(new TopicMetric(RawMetricType.TOPIC_BYTES_IN, _time.milliseconds(), BROKER_ID_0, TOPIC2,
-                                      B0_TOPIC2_BYTES_IN * BYTES_IN_KB));
+          metrics.add(new TopicMetric(RawMetricType.TOPIC_BYTES_IN, _time.milliseconds(), BROKER_ID_0, TOPIC_WITH_DOT,
+                                      B0_TOPIC3_BYTES_IN * BYTES_IN_KB));
           break;
         case TOPIC_BYTES_OUT:
           metrics.add(new TopicMetric(RawMetricType.TOPIC_BYTES_OUT, _time.milliseconds(), BROKER_ID_0, TOPIC1,
                                       B0_TOPIC1_BYTES_OUT * BYTES_IN_KB));
           metrics.add(new TopicMetric(RawMetricType.TOPIC_BYTES_OUT, _time.milliseconds(), BROKER_ID_1, TOPIC1,
                                       B1_TOPIC1_BYTES_OUT * BYTES_IN_KB));
-          metrics.add(new TopicMetric(RawMetricType.TOPIC_BYTES_OUT, _time.milliseconds(), BROKER_ID_0, TOPIC2,
-                                      B0_TOPIC2_BYTES_OUT * BYTES_IN_KB));
+          metrics.add(new TopicMetric(RawMetricType.TOPIC_BYTES_OUT, _time.milliseconds(), BROKER_ID_0, TOPIC_WITH_DOT,
+                                      B0_TOPIC3_BYTES_OUT * BYTES_IN_KB));
           break;
         case TOPIC_REPLICATION_BYTES_IN:
           metrics.add(new TopicMetric(RawMetricType.TOPIC_REPLICATION_BYTES_IN, _time.milliseconds(), BROKER_ID_1, TOPIC1,
                                       B1_TOPIC1_REPLICATION_BYTES_IN * BYTES_IN_KB));
           metrics.add(new TopicMetric(RawMetricType.TOPIC_REPLICATION_BYTES_IN, _time.milliseconds(), BROKER_ID_0, TOPIC1,
                                       B0_TOPIC1_REPLICATION_BYTES_IN * BYTES_IN_KB));
-          metrics.add(new TopicMetric(RawMetricType.TOPIC_REPLICATION_BYTES_IN, _time.milliseconds(), BROKER_ID_1, TOPIC2,
-                                      B1_TOPIC2_REPLICATION_BYTES_IN * BYTES_IN_KB));
+          metrics.add(new TopicMetric(RawMetricType.TOPIC_REPLICATION_BYTES_IN, _time.milliseconds(), BROKER_ID_1, TOPIC_WITH_DOT,
+                                      B1_TOPIC3_REPLICATION_BYTES_IN * BYTES_IN_KB));
           break;
         case TOPIC_REPLICATION_BYTES_OUT:
           metrics.add(new TopicMetric(RawMetricType.TOPIC_REPLICATION_BYTES_OUT, _time.milliseconds(), BROKER_ID_0, TOPIC1,
                                       B0_TOPIC1_REPLICATION_BYTES_OUT * BYTES_IN_KB));
           metrics.add(new TopicMetric(RawMetricType.TOPIC_REPLICATION_BYTES_OUT, _time.milliseconds(), BROKER_ID_1, TOPIC1,
                                       B1_TOPIC1_REPLICATION_BYTES_OUT * BYTES_IN_KB));
-          metrics.add(new TopicMetric(RawMetricType.TOPIC_REPLICATION_BYTES_OUT, _time.milliseconds(), BROKER_ID_0, TOPIC2,
-                                      B0_TOPIC2_REPLICATION_BYTES_OUT * BYTES_IN_KB));
+          metrics.add(new TopicMetric(RawMetricType.TOPIC_REPLICATION_BYTES_OUT, _time.milliseconds(), BROKER_ID_0, TOPIC_WITH_DOT,
+                                      B0_TOPIC3_REPLICATION_BYTES_OUT * BYTES_IN_KB));
           break;
         default:
           metrics.add(new TopicMetric(rawMetricType, _time.milliseconds(),  BROKER_ID_0, TOPIC1, i * BYTES_IN_MB));
           metrics.add(new TopicMetric(rawMetricType, _time.milliseconds(),  BROKER_ID_1, TOPIC1, i * BYTES_IN_MB));
-          metrics.add(new TopicMetric(rawMetricType, _time.milliseconds(),  BROKER_ID_0, TOPIC2, i * BYTES_IN_MB));
-          metrics.add(new TopicMetric(rawMetricType, _time.milliseconds(),  BROKER_ID_1, TOPIC2, i * BYTES_IN_MB));
+          metrics.add(new TopicMetric(rawMetricType, _time.milliseconds(),  BROKER_ID_0, TOPIC_WITH_DOT, i * BYTES_IN_MB));
+          metrics.add(new TopicMetric(rawMetricType, _time.milliseconds(),  BROKER_ID_1, TOPIC_WITH_DOT, i * BYTES_IN_MB));
           break;
       }
     }
@@ -424,18 +423,18 @@ public class CruiseControlMetricsProcessorTest {
                                     T1P0_BYTES_SIZE * BYTES_IN_MB));
     metrics.add(new PartitionMetric(RawMetricType.PARTITION_SIZE, _time.milliseconds(), BROKER_ID_0, TOPIC1, P1,
                                     T1P1_BYTES_SIZE * BYTES_IN_MB));
-    metrics.add(new PartitionMetric(RawMetricType.PARTITION_SIZE, _time.milliseconds(), BROKER_ID_0, TOPIC2, P0,
-                                    T2P0_BYTES_SIZE * BYTES_IN_MB));
-    metrics.add(new PartitionMetric(RawMetricType.PARTITION_SIZE, _time.milliseconds(), BROKER_ID_0, TOPIC2, P1,
-                                    T2P1_BYTES_SIZE * BYTES_IN_MB));
+    metrics.add(new PartitionMetric(RawMetricType.PARTITION_SIZE, _time.milliseconds(), BROKER_ID_0, TOPIC_WITH_DOT, P0,
+                                    T3P0_BYTES_SIZE * BYTES_IN_MB));
+    metrics.add(new PartitionMetric(RawMetricType.PARTITION_SIZE, _time.milliseconds(), BROKER_ID_0, TOPIC_WITH_DOT, P1,
+                                    T3P1_BYTES_SIZE * BYTES_IN_MB));
     metrics.add(new PartitionMetric(RawMetricType.PARTITION_SIZE, _time.milliseconds(), BROKER_ID_1, TOPIC1, P0,
                                     T1P0_BYTES_SIZE * BYTES_IN_MB));
     metrics.add(new PartitionMetric(RawMetricType.PARTITION_SIZE, _time.milliseconds(), BROKER_ID_1, TOPIC1, P1,
                                     T1P1_BYTES_SIZE * BYTES_IN_MB));
-    metrics.add(new PartitionMetric(RawMetricType.PARTITION_SIZE, _time.milliseconds(), BROKER_ID_1, TOPIC2, P0,
-                                    T2P0_BYTES_SIZE * BYTES_IN_MB));
-    metrics.add(new PartitionMetric(RawMetricType.PARTITION_SIZE, _time.milliseconds(), BROKER_ID_1, TOPIC2, P1,
-                                    T2P1_BYTES_SIZE * BYTES_IN_MB));
+    metrics.add(new PartitionMetric(RawMetricType.PARTITION_SIZE, _time.milliseconds(), BROKER_ID_1, TOPIC_WITH_DOT, P0,
+                                    T3P0_BYTES_SIZE * BYTES_IN_MB));
+    metrics.add(new PartitionMetric(RawMetricType.PARTITION_SIZE, _time.milliseconds(), BROKER_ID_1, TOPIC_WITH_DOT, P1,
+                                    T3P1_BYTES_SIZE * BYTES_IN_MB));
     return metrics;
   }
 
@@ -458,8 +457,8 @@ public class CruiseControlMetricsProcessorTest {
     Set<PartitionInfo> parts = new HashSet<>();
     parts.add(new PartitionInfo(TOPIC1, P0, node0, nodes, nodes));
     parts.add(new PartitionInfo(TOPIC1, P1, node1, nodes, nodes));
-    parts.add(new PartitionInfo(TOPIC2, P0, node0, nodes, nodes));
-    parts.add(new PartitionInfo(TOPIC2, P1, node0, nodes, nodes));
+    parts.add(new PartitionInfo(TOPIC_WITH_DOT, P0, node0, nodes, nodes));
+    parts.add(new PartitionInfo(TOPIC_WITH_DOT, P1, node0, nodes, nodes));
     return new Cluster("testCluster", allNodes, parts, Collections.emptySet(), Collections.emptySet());
   }
 

@@ -13,8 +13,7 @@ public class TestConstants {
   public static final String TOPIC0 = "topic0";
   public static final String TOPIC1 = "topic1";
   public static final String TOPIC2 = "topic2";
-  public static final String TOPIC3 = "topic.3";
-  public static final String TOPIC3_DOT_HANDLED = "topic_3";
+  public static final String TOPIC_WITH_DOT = "topic.3";
   public static final long SEED_BASE = 3140;
   public static final long REPLICATION_SEED = 5234;
   public static final long LEADER_SEED = 72033;

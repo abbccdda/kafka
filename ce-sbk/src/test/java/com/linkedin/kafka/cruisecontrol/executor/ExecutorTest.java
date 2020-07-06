@@ -77,7 +77,7 @@ import static com.linkedin.kafka.cruisecontrol.KafkaCruiseControlUnitTestUtils.c
 import static com.linkedin.kafka.cruisecontrol.common.TestConstants.TOPIC0;
 import static com.linkedin.kafka.cruisecontrol.common.TestConstants.TOPIC1;
 import static com.linkedin.kafka.cruisecontrol.common.TestConstants.TOPIC2;
-import static com.linkedin.kafka.cruisecontrol.common.TestConstants.TOPIC3;
+import static com.linkedin.kafka.cruisecontrol.common.TestConstants.TOPIC_WITH_DOT;
 import static com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig.AUTO_THROTTLE;
 import static com.linkedin.kafka.cruisecontrol.config.KafkaCruiseControlConfig.NO_THROTTLE;
 import static com.linkedin.kafka.cruisecontrol.executor.ExecutorNotification.ActionAgent.CRUISE_CONTROL;
@@ -97,7 +97,7 @@ public class ExecutorTest extends CCKafkaClientsIntegrationTestHarness {
   private static final TopicPartition TP0 = new TopicPartition(TOPIC0, PARTITION);
   private static final TopicPartition TP1 = new TopicPartition(TOPIC1, PARTITION);
   private static final TopicPartition TP2 = new TopicPartition(TOPIC2, PARTITION);
-  private static final TopicPartition TP3 = new TopicPartition(TOPIC3, PARTITION);
+  private static final TopicPartition TP3 = new TopicPartition(TOPIC_WITH_DOT, PARTITION);
   private static final String RANDOM_UUID = "random_uuid";
   private static final String DESCRIBE_TOPICS_RESPONSE_TIMEOUT_MS = "10000";
   private MetricsRegistry metricsRegistry;

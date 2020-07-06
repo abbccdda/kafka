@@ -13,15 +13,16 @@ import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.BrokerLoad;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.BrokerMetricSample;
 import com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.PartitionMetricSample;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 
 import static com.linkedin.kafka.cruisecontrol.monitor.MonitorUtils.getRackHandleNull;
 import static com.linkedin.kafka.cruisecontrol.monitor.sampling.SamplingUtils.buildBrokerMetricSample;
@@ -111,13 +112,13 @@ public class CruiseControlMetricsProcessor {
    * Process all the added {@link CruiseControlMetric} to get the {@link MetricSampler.Samples}
    *
    * @param cluster Kafka cluster.
-   * @param partitionsDotNotHandled Partitions to construct samples for. The topic partition name may have dots.
+   * @param partitions Partitions to construct samples for.
    * @param samplingMode The sampling mode to indicate which type of samples are needed.
    *
    * @return the constructed metric samples.
    */
   public MetricSampler.Samples process(Cluster cluster,
-                                Set<TopicPartition> partitionsDotNotHandled,
+                                Set<TopicPartition> partitions,
                                 MetricSampler.SamplingMode samplingMode) {
     updateCachedNumCoresByBroker(cluster);
     updateDiskCapacityByBroker(cluster);
@@ -131,7 +132,7 @@ public class CruiseControlMetricsProcessor {
     int skippedPartition = 0;
     Set<PartitionMetricSample> partitionMetricSamples = new HashSet<>();
     if (samplingMode == MetricSampler.SamplingMode.ALL || samplingMode == MetricSampler.SamplingMode.PARTITION_METRICS_ONLY) {
-      skippedPartition = addPartitionMetricSamples(cluster, partitionsDotNotHandled, partitionMetricSamples);
+      skippedPartition = addPartitionMetricSamples(cluster, partitions, partitionMetricSamples);
     }
 
     // Get broker metric samples.
@@ -157,32 +158,32 @@ public class CruiseControlMetricsProcessor {
    * Add the partition metric samples to the provided set.
    *
    * @param cluster Kafka cluster
-   * @param partitionsDotNotHandled The partitions to get samples. The topic partition name may have dots.
+   * @param topicPartitions The partitions to get samples.
    * @param partitionMetricSamples The set to add the partition samples to.
    * @return The number of skipped partitions.
    */
   private int addPartitionMetricSamples(Cluster cluster,
-                                        Set<TopicPartition> partitionsDotNotHandled,
+                                        Set<TopicPartition> topicPartitions,
                                         Set<PartitionMetricSample> partitionMetricSamples) {
     int skippedPartition = 0;
     int loggedPartitionErrors = 0;
     Map<Integer, Map<String, Integer>> leaderDistribution = leaderDistribution(cluster);
-    for (TopicPartition tpDotNotHandled : partitionsDotNotHandled) {
+    for (TopicPartition topicPartition : topicPartitions) {
       try {
-        PartitionMetricSample sample = buildPartitionMetricSample(cluster, leaderDistribution, tpDotNotHandled,
+        PartitionMetricSample sample = buildPartitionMetricSample(cluster, leaderDistribution, topicPartition,
                                                                   _brokerLoad, _maxMetricTimestamp, _cachedNumCoresByBroker);
         if (sample != null) {
-          LOG.trace("Added partition metrics sample for {}.", tpDotNotHandled);
+          LOG.trace("Added partition metrics sample for {}.", topicPartition);
           partitionMetricSamples.add(sample);
         } else {
           skippedPartition++;
         }
       } catch (Exception e) {
         if (loggedPartitionErrors < MAX_PARTITION_ERROR_LOGS) {
-          LOG.error("Error building partition metric sample for {}.", tpDotNotHandled, e);
+          LOG.error("Error building partition metric sample for {}.", topicPartition, e);
           loggedPartitionErrors++;
         } else {
-          LOG.trace("Error building partition metric sample for {}.", tpDotNotHandled, e);
+          LOG.trace("Error building partition metric sample for {}.", topicPartition, e);
         }
         skippedPartition++;
       }

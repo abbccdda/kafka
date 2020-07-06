@@ -8,27 +8,27 @@ import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.CruiseControlMetr
 import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.PartitionMetric;
 import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType;
 import com.linkedin.kafka.cruisecontrol.metricsreporter.metric.TopicMetric;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType.MetricScope.PARTITION;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+
 import static com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType.MetricScope.BROKER;
+import static com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType.MetricScope.PARTITION;
 import static com.linkedin.kafka.cruisecontrol.metricsreporter.metric.RawMetricType.MetricScope.TOPIC;
-import static com.linkedin.kafka.cruisecontrol.monitor.sampling.SamplingUtils.replaceDotsWithUnderscores;
-import static com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.HolderUtils.allowMissingBrokerMetric;
-import static com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.HolderUtils.sanityCheckMetricScope;
-import static com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.HolderUtils.convertUnit;
 import static com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.HolderUtils.METRIC_TYPES_TO_SUM;
 import static com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.HolderUtils.MISSING_BROKER_METRIC_VALUE;
+import static com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.HolderUtils.allowMissingBrokerMetric;
+import static com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.HolderUtils.convertUnit;
+import static com.linkedin.kafka.cruisecontrol.monitor.sampling.holder.HolderUtils.sanityCheckMetricScope;
 
 
 /**
@@ -39,20 +39,20 @@ public class BrokerLoad {
   private static final double MAX_ALLOWED_MISSING_PARTITION_METRIC_PERCENT = 0.05;
   private static final double MAX_ALLOWED_MISSING_TOPIC_METRIC_PERCENT = 0.05;
   private final RawMetricsHolder _brokerMetrics;
-  private final Map<String, RawMetricsHolder> _dotHandledTopicMetrics;
-  private final Map<TopicPartition, RawMetricsHolder> _dotHandledPartitionMetrics;
+  private final Map<String, RawMetricsHolder> _topicMetrics;
+  private final Map<TopicPartition, RawMetricsHolder> _partitionMetrics;
 
   public BrokerLoad() {
     _brokerMetrics = new RawMetricsHolder();
-    _dotHandledTopicMetrics = new HashMap<>();
-    _dotHandledPartitionMetrics = new HashMap<>();
+    _topicMetrics = new HashMap<>();
+    _partitionMetrics = new HashMap<>();
   }
 
   // Remember which topic has partition size reported. Because the topic level IO metrics are only created when
   // there is IO, the topic level IO metrics may be missing if there was no traffic to the topic on the broker.
   // However, because the partition size will always be reported, when we see partition size was reported for
   // a topic but the topic level IO metrics are not reported, we assume there was no traffic to the topic.
-  private final Set<String> _dotHandledTopicsWithPartitionSizeReported = new HashSet<>();
+  private final Set<String> _topicsWithPartitionSizeReported = new HashSet<>();
   private final Set<RawMetricType> _missingBrokerMetricsInMinSupportedVersion = new HashSet<>();
   private boolean _minRequiredBrokerMetricsAvailable = false;
   // Set to the latest possible deserialization version based on the sampled data.
@@ -66,14 +66,14 @@ public class BrokerLoad {
         break;
       case TOPIC:
         TopicMetric tm = (TopicMetric) ccm;
-        _dotHandledTopicMetrics.computeIfAbsent(tm.topic(), t -> new RawMetricsHolder())
+        _topicMetrics.computeIfAbsent(tm.topic(), t -> new RawMetricsHolder())
                                .recordCruiseControlMetric(ccm);
         break;
       case PARTITION:
         PartitionMetric pm = (PartitionMetric) ccm;
-        _dotHandledPartitionMetrics.computeIfAbsent(new TopicPartition(pm.topic(), pm.partition()), tp -> new RawMetricsHolder())
+        _partitionMetrics.computeIfAbsent(new TopicPartition(pm.topic(), pm.partition()), tp -> new RawMetricsHolder())
                                    .recordCruiseControlMetric(ccm);
-        _dotHandledTopicsWithPartitionSizeReported.add(pm.topic());
+        _topicsWithPartitionSizeReported.add(pm.topic());
         break;
       default:
         throw new IllegalStateException(String.format("Should never be here. Unrecognized metric scope %s",
@@ -81,11 +81,9 @@ public class BrokerLoad {
     }
   }
 
-  public boolean allDotHandledTopicMetricsAvailable(String dotHandledTopic) {
+  public boolean topicMetricsAvailable(String topic) {
     // We rely on the partition size metric to determine whether a topic metric is available or not.
-    // The topic names in this set are dot handled -- i.e. dots (".") in topic name is replaced with underscores ("_").
-    // Note that metrics reporter implicitly does this conversion, but the metadata topic names keep the original name.
-    return _dotHandledTopicsWithPartitionSizeReported.contains(dotHandledTopic);
+    return _topicsWithPartitionSizeReported.contains(topic);
   }
 
   public boolean minRequiredBrokerMetricsAvailable() {
@@ -96,8 +94,8 @@ public class BrokerLoad {
     return _brokerMetrics.metricValue(rawMetricType) != null;
   }
 
-  public boolean partitionMetricAvailable(TopicPartition tpWithDotHandled, RawMetricType rawMetricType) {
-    RawMetricsHolder rawMetricsHolder = _dotHandledPartitionMetrics.get(tpWithDotHandled);
+  public boolean partitionMetricAvailable(TopicPartition topic, RawMetricType rawMetricType) {
+    RawMetricsHolder rawMetricsHolder = _partitionMetrics.get(topic);
     return rawMetricsHolder != null && rawMetricsHolder.metricValue(rawMetricType) != null;
   }
 
@@ -115,17 +113,17 @@ public class BrokerLoad {
     }
   }
 
-  public double topicMetrics(String dotHandledTopic, RawMetricType rawMetricType) {
-    return topicMetrics(dotHandledTopic, rawMetricType, true);
+  public double topicMetrics(String topic, RawMetricType rawMetricType) {
+    return topicMetrics(topic, rawMetricType, true);
   }
 
-  private double topicMetrics(String dotHandledTopic, RawMetricType rawMetricType, boolean convertUnit) {
+  private double topicMetrics(String topic, RawMetricType rawMetricType, boolean convertUnit) {
     sanityCheckMetricScope(rawMetricType, TOPIC);
-    if (!allDotHandledTopicMetricsAvailable(dotHandledTopic)) {
-      throw new IllegalArgumentException(String.format("Topic metric %s does not exist for dot handled topic name %s.",
-                                                       rawMetricType, dotHandledTopic));
+    if (!topicMetricsAvailable(topic)) {
+      throw new IllegalArgumentException(String.format("Topic metric %s does not exist for topic name %s.",
+                                                       rawMetricType, topic));
     }
-    RawMetricsHolder rawMetricsHolder = _dotHandledTopicMetrics.get(dotHandledTopic);
+    RawMetricsHolder rawMetricsHolder = _topicMetrics.get(topic);
     if (rawMetricsHolder == null || rawMetricsHolder.metricValue(rawMetricType) == null) {
       return 0.0;
     }
@@ -133,12 +131,12 @@ public class BrokerLoad {
     return convertUnit ? convertUnit(rawMetricValue, rawMetricType) : rawMetricValue;
   }
 
-  public double partitionMetric(String dotHandledTopic, int partition, RawMetricType rawMetricType) {
+  public double partitionMetric(String topic, int partition, RawMetricType rawMetricType) {
     sanityCheckMetricScope(rawMetricType, PARTITION);
-    RawMetricsHolder metricsHolder = _dotHandledPartitionMetrics.get(new TopicPartition(dotHandledTopic, partition));
+    RawMetricsHolder metricsHolder = _partitionMetrics.get(new TopicPartition(topic, partition));
     if (metricsHolder == null || metricsHolder.metricValue(rawMetricType) == null) {
-      throw new IllegalArgumentException(String.format("Partition metric %s does not exist for dot handled topic name %s"
-                                                       + " and partition %d.", rawMetricType, dotHandledTopic, partition));
+      throw new IllegalArgumentException(String.format("Partition metric %s does not exist for topic %s"
+                                                       + " and partition %d.", rawMetricType, topic, partition));
     } else {
       return convertUnit(metricsHolder.metricValue(rawMetricType).value(), rawMetricType);
     }
@@ -172,9 +170,9 @@ public class BrokerLoad {
     // Ensure there are enough topic level metrics.
     if (enoughTopicPartitionMetrics) {
       Map<RawMetricType, Double> sumOfTopicMetrics = new HashMap<>();
-      for (String dotHandledTopic : _dotHandledTopicsWithPartitionSizeReported) {
+      for (String topic : _topicsWithPartitionSizeReported) {
         METRIC_TYPES_TO_SUM.keySet().forEach(type -> {
-          double value = topicMetrics(dotHandledTopic, type, false);
+          double value = topicMetrics(topic, type, false);
           sumOfTopicMetrics.compute(type, (t, v) -> (v == null ? 0 : v) + value);
         });
       }
@@ -268,11 +266,11 @@ public class BrokerLoad {
       return true;
     }
     leaderPartitionsInNode.forEach(info -> {
-      String topicWithDotHandled = replaceDotsWithUnderscores(info.topic());
-      topicsInBroker.add(topicWithDotHandled);
-      if (!_dotHandledTopicsWithPartitionSizeReported.contains(topicWithDotHandled)) {
+      String topic = info.topic();
+      topicsInBroker.add(topic);
+      if (!_topicsWithPartitionSizeReported.contains(topic)) {
         missingPartitions.incrementAndGet();
-        missingTopics.add(topicWithDotHandled);
+        missingTopics.add(topic);
       }
     });
     boolean result = ((double) missingTopics.size() / topicsInBroker.size()) <= MAX_ALLOWED_MISSING_TOPIC_METRIC_PERCENT
@@ -286,7 +284,7 @@ public class BrokerLoad {
 
   public double diskUsage() {
     double result = 0.0;
-    for (RawMetricsHolder rawMetricsHolder : _dotHandledPartitionMetrics.values()) {
+    for (RawMetricsHolder rawMetricsHolder : _partitionMetrics.values()) {
       result += rawMetricsHolder.metricValue(RawMetricType.PARTITION_SIZE).value();
     }
     return convertUnit(result, RawMetricType.PARTITION_SIZE);
