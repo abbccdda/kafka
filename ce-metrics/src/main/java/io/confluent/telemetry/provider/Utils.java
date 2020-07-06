@@ -88,6 +88,16 @@ public class Utils {
         );
   }
 
+  public static Map<String, String> getNonResourceLabels(Map<String, String> metricsCtxMetadata) {
+    Set<String> exclude = ImmutableSet.of(MetricsContext.NAMESPACE);
+    return metricsCtxMetadata.entrySet().stream()
+        .filter(e -> !exclude.contains(e.getKey()) && !e.getKey().startsWith(ConfluentConfigs.RESOURCE_LABEL_PREFIX))
+        .collect(Collectors.toMap(
+            entry -> entry.getKey(),
+            entry -> entry.getValue())
+        );
+  }
+
   /**
    * Build a {@link Resource} from tags in the {@link MetricsContext} metadata.
    * @return
@@ -109,12 +119,27 @@ public class Utils {
   public static ResourceBuilderFacade buildResourceFromLabelsAndClusterId(MetricsContext metricsContext, String clusterId) {
     String type = metricsContext.contextLabels().get(ConfluentConfigs.RESOURCE_LABEL_TYPE);
     String version = metricsContext.contextLabels()
-            .get(ConfluentConfigs.RESOURCE_LABEL_VERSION);
+        .get(ConfluentConfigs.RESOURCE_LABEL_VERSION);
     ResourceBuilderFacade resourceBuilderFacade = new ResourceBuilderFacade(type.toLowerCase(Locale.ROOT))
-            .withVersion(version)
-            .withId(clusterId)
-            // RESOURCE LABELS (prefixed with resource type)
-            .withNamespacedLabels(getResourceLabels(metricsContext.contextLabels()));
+        .withVersion(version)
+        .withId(clusterId)
+        // RESOURCE LABELS (prefixed with resource type)
+        .withNamespacedLabels(getResourceLabels(metricsContext.contextLabels()));
+    return resourceBuilderFacade;
+  }
+
+  public static ResourceBuilderFacade  buildResourceFromAllLabelsWithId(MetricsContext metricsContext, String id) {
+    String type = metricsContext.contextLabels().get(ConfluentConfigs.RESOURCE_LABEL_TYPE);
+    String version = metricsContext.contextLabels()
+        .get(ConfluentConfigs.RESOURCE_LABEL_VERSION);
+    ResourceBuilderFacade resourceBuilderFacade = new ResourceBuilderFacade(type.toLowerCase(Locale.ROOT))
+        .withVersion(version)
+        .withId(id)
+        // RESOURCE LABELS (prefixed with resource type)
+        .withNamespacedLabels(getResourceLabels(metricsContext.contextLabels()))
+        //Non RESOURCE LABELS, this will add apache kafka labels: connect.kafka.cluster.id, connect.group.id
+        .withLabels(getNonResourceLabels(metricsContext.contextLabels()));
+
     return resourceBuilderFacade;
   }
 

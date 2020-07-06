@@ -2,7 +2,7 @@
 
 package io.confluent.telemetry.provider;
 
-import static io.confluent.telemetry.provider.Utils.buildResourceFromLabelsAndClusterId;
+import static io.confluent.telemetry.provider.Utils.buildResourceFromAllLabelsWithId;
 import static io.confluent.telemetry.provider.Utils.notEmptyString;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -51,7 +51,7 @@ public class KafkaClientProvider implements Provider {
     if (clusterId == null) {
       clusterId = metricsContext.contextLabels().get(Utils.CONNECT_KAFKA_CLUSTER_ID);
     }
-    this.resource = buildResourceFromLabelsAndClusterId(metricsContext, clusterId)
+    this.resource = buildResourceFromAllLabelsWithId(metricsContext, clusterId)
         .withNamespacedLabel(LABEL_CLIENT_ID,
             (String) this.config.originals().get(CommonClientConfigs.CLIENT_ID_CONFIG))
         .build();
