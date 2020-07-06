@@ -5,7 +5,6 @@
 package io.confluent.http.server;
 
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -45,17 +44,11 @@ public final class KafkaHttpServerLoader {
     Objects.requireNonNull(configuration);
     Objects.requireNonNull(injector);
 
-    List<KafkaHttpServlet> applications = KafkaHttpServletLoader.load(configuration, injector);
-    if (applications.isEmpty()) {
-      log.info("No Kafka HTTP servlet configured. Not loading Kafka HTTP server.");
-      return Optional.empty();
-    }
-
     HashSet<KafkaHttpServer> implementations = new HashSet<>();
     for (KafkaHttpServerProvider provider : ServiceLoader.load(KafkaHttpServerProvider.class)) {
       Optional<KafkaHttpServer> implementation;
       try {
-        implementation = provider.provide(configuration, applications);
+        implementation = provider.provide(configuration, injector);
       } catch (Throwable error) {
         throw new KafkaHttpServerLoadingException(
             String.format(

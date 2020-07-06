@@ -29,6 +29,28 @@ public interface KafkaHttpServerProvider {
    *
    * @since 6.0.0
    */
-  Optional<KafkaHttpServer> provide(
-      Map<String, Object> configuration, List<KafkaHttpServlet> applications);
+  @SuppressWarnings("deprecation")
+  default Optional<KafkaHttpServer> provide(
+      Map<String, Object> configuration, KafkaHttpServerInjector injector) {
+    List<KafkaHttpServlet> servlets = KafkaHttpServletLoader.load(configuration, injector);
+    if (servlets.isEmpty()) {
+      return Optional.empty();
+    }
+    return provide(configuration, servlets);
+  }
+
+  /**
+   * Returns a new instance of {@link KafkaHttpServer}, or {@link Optional#empty()} if this
+   * implementation is disabled.
+   *
+   * <p>If this method returns a non-empty value, it should always be a <b>NEW</b> instance of
+   * {@code KafkaHttpServer}.
+   *
+   * @since 6.0.0
+   */
+  @Deprecated
+  default Optional<KafkaHttpServer> provide(
+      Map<String, Object> configuration, List<KafkaHttpServlet> servlets) {
+    throw new UnsupportedOperationException("To be deleted.");
+  }
 }

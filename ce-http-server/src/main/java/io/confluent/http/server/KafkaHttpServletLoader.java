@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory;
 /**
  * Static factory used to load {@link KafkaHttpServlet KafkaHttpServlets} from the classpath.
  */
+@Deprecated
 final class KafkaHttpServletLoader {
 
   private static final Logger log = LoggerFactory.getLogger(KafkaHttpServletLoader.class);

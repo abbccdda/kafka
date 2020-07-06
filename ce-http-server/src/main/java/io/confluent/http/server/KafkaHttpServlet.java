@@ -11,6 +11,7 @@ import org.glassfish.jersey.server.ResourceConfig;
 /**
  * An HTTP Servlet to run an application in the {@link KafkaHttpServer}.
  */
+@Deprecated
 public interface KafkaHttpServlet {
 
   /**

@@ -18,6 +18,7 @@ import java.util.Optional;
  *
  * @since 6.0.0
  */
+@Deprecated
 public interface KafkaHttpServletProvider {
 
   /**
