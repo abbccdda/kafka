@@ -7,6 +7,7 @@ import sys
 
 S3_BACKEND = "S3"
 GCS_BACKEND = "GCS"
+AZURE_BLOCK_BLOB_BACKEND = "AzureBlockBlob"
 
 TIER_DATA_LOG_DIR = "/mnt/kafka/kafka-data-logs-1"
 
@@ -54,6 +55,11 @@ def tier_server_props(backend, feature=True, enable=False,
                       [config_property.CONFLUENT_TIER_GCS_CRED_FILE_PATH, "/vagrant/gcs_credentials.json"]]
             if tier_bucket_prefix:
                 props += [[config_property.CONFLUENT_TIER_GCS_PREFIX, tier_bucket_prefix]]
+
+        elif backend == AZURE_BLOCK_BLOB_BACKEND:
+            props += [[config_property.CONFLUENT_TIER_BACKEND, AZURE_BLOCK_BLOB_BACKEND],
+                      [config_property.CONFLUENT_TIER_AZURE_BLOCK_BLOB_CRED_FILE_PATH, "/vagrant/azure_credentials.json"],
+                      [config_property.CONFLUENT_TIER_AZURE_BLOCK_BLOB_CONTAINER, "testcontainer"]]
 
     return props
 

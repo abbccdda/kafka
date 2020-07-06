@@ -29,8 +29,9 @@ class TierBrokerBounceTest(ProduceConsumeValidateTest, TierSupport):
     and GCS credentials are available to the broker at runtime:
     $ docker_args="\
       --build-arg aws_access_key_id=$(aws configure get aws_access_key_id) \
-      --build-arg aws_secret_access_key=$(aws configure get aws_secret_access_key)" \
-      --build-arg gcs_credentials_file=<PATH_TO_GCS_CREDENTIALS>" \
+      --build-arg aws_secret_access_key=$(aws configure get aws_secret_access_key) \
+      --build-arg gcs_credentials_file=<PATH_TO_GCS_CREDENTIALS> \
+      --build-arg azure_credentials_file=<PATH_TO_AZURE_CREDENTIALS>" \
       ./tests/docker/ducker-ak up
     """
 

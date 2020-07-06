@@ -731,6 +731,11 @@ class KafkaConfigTest {
         case KafkaConfig.TierGcsWriteChunkSizeProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "-2")
         case KafkaConfig.TierGcsCredFilePathProp => // ignore string
         case KafkaConfig.TierGcsPrefixProp => // ignore string
+        case KafkaConfig.TierAzureBlockBlobCredFilePathProp => // ignore string
+        case KafkaConfig.TierAzureBlockBlobContainerProp => // ignore string
+        case KafkaConfig.TierAzureBlockBlobEndpointProp => // ignore string
+        case KafkaConfig.TierAzureBlockBlobEndpointDoc => // ignore string
+        case KafkaConfig.TierAzureBlockBlobPrefixProp => //ignore string
         case KafkaConfig.TierBackendProp => assertPropertyInvalid(getBaseProperties(), name, "notanimplementation")
         case KafkaConfig.TierFetcherNumThreadsProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "0", "-2")
         case KafkaConfig.TierFetcherMemoryPoolSizeBytesProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "-1")

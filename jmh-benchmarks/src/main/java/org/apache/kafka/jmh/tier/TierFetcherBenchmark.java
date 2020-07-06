@@ -9,6 +9,8 @@ import kafka.tier.fetcher.TierFetchMetadata;
 import kafka.tier.fetcher.TierFetchResult;
 import kafka.tier.fetcher.TierFetcher;
 import kafka.tier.fetcher.TierFetcherConfig;
+import kafka.tier.store.AzureBlockBlobTierObjectStoreConfig;
+import kafka.tier.store.AzureBlockBlobTierObjectStore;
 import kafka.tier.store.GcsTierObjectStore;
 import kafka.tier.store.GcsTierObjectStoreConfig;
 import kafka.tier.store.MockInMemoryTierObjectStore;
@@ -67,6 +69,9 @@ public class TierFetcherBenchmark {
     @Param({"500000"})
     public static String autoAbortSize;
     @Param({"Mock"})
+    //@Param({"AzureBlockBlob"})
+    //@Param({"S3"})
+    //@Param({"GCS"})
     public static String backend;
     private final static int TARGET_SEGMENT_SIZE = 100_000_000;
     private final static int INDEX_INTERVAL_BYTES = 4096;
@@ -158,6 +163,17 @@ public class TierFetcherBenchmark {
                 KafkaConfig kafkaConfig = new KafkaConfig(props);
                 GcsTierObjectStoreConfig objectStoreConfig = new GcsTierObjectStoreConfig(Optional.of("mycluster"), kafkaConfig);
                 tierObjectStore = new GcsTierObjectStore(objectStoreConfig);
+                break;
+            }
+            case "AzureBlockBlob": {
+                Properties props = new Properties();
+                props.put(KafkaConfig.ZkConnectProp(), "IGNORED");
+                props.put(KafkaConfig.TierAzureBlockBlobCredFilePathProp(), "");
+                props.put(KafkaConfig.TierAzureBlockBlobContainerProp(), "testblobcontainer");
+                KafkaConfig kafkaConfig = new KafkaConfig(props);
+                AzureBlockBlobTierObjectStoreConfig objectStoreConfig = new AzureBlockBlobTierObjectStoreConfig(Optional.of("mycluster"),
+                        kafkaConfig);
+                tierObjectStore = new AzureBlockBlobTierObjectStore(objectStoreConfig);
                 break;
             }
             case "Mock":

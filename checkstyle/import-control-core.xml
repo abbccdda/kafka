@@ -105,7 +105,9 @@
     </subpackage>
     <subpackage name="store">
       <allow pkg="com.amazonaws" />
+      <allow pkg="com.azure" />
       <allow pkg="com.google" />
+      <allow pkg="com.fasterxml.jackson" />
       <allow class="kafka.log.Log" />
       <allow class="kafka.log.LogSegment" />
     </subpackage>

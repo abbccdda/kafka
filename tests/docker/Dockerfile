@@ -108,6 +108,10 @@ aws_secret_access_key=$aws_secret_access_key\n"\
 ARG gcs_credentials_file=
 COPY $gcs_credentials_file /vagrant/gcs_credentials.json
 
+# Set Azure credentials
+ARG azure_credentials_file=
+COPY $azure_credentials_file /vagrant/azure_credentials.json
+
 USER ducker
 
 CMD sudo service ssh start && tail -f /dev/null

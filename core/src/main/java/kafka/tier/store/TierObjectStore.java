@@ -56,6 +56,7 @@ public interface TierObjectStore {
     }
 
     enum Backend {
+        AzureBlockBlob("AzureBlockBlob"),
         GCS("GCS"),
         Mock("Mock"),
         S3("S3"),

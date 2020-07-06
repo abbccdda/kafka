@@ -76,6 +76,8 @@ CONFLUENT_TIER_GCS_BUCKET = "confluent.tier.gcs.bucket"
 CONFLUENT_TIER_GCS_REGION = "confluent.tier.gcs.region"
 CONFLUENT_TIER_GCS_PREFIX = "confluent.tier.gcs.prefix"
 CONFLUENT_TIER_GCS_CRED_FILE_PATH = "confluent.tier.gcs.cred.file.path"
+CONFLUENT_TIER_AZURE_BLOCK_BLOB_CRED_FILE_PATH = "confluent.tier.azure.block.blob.cred.file.path"
+CONFLUENT_TIER_AZURE_BLOCK_BLOB_CONTAINER = "confluent.tier.azure.block.blob.container"
 
 """
 From KafkaConfig.scala

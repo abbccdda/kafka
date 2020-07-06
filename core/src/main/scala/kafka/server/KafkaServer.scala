@@ -43,14 +43,14 @@ import kafka.security.CredentialProvider
 import kafka.server.link.ClusterLinkFactory
 import kafka.tier.fetcher.{TierFetcher, TierFetcherConfig}
 import kafka.tier.state.TierPartitionStateFactory
-import kafka.tier.store.{GcsTierObjectStore, GcsTierObjectStoreConfig, MockInMemoryTierObjectStore, S3TierObjectStore, S3TierObjectStoreConfig, TierObjectStore, TierObjectStoreConfig}
+import kafka.tier.store.{AzureBlockBlobTierObjectStoreConfig, AzureBlockBlobTierObjectStore, GcsTierObjectStore, GcsTierObjectStoreConfig, MockInMemoryTierObjectStore, S3TierObjectStore, S3TierObjectStoreConfig, TierObjectStore, TierObjectStoreConfig}
 import kafka.tier.{TierDeletedPartitionsCoordinator, TierReplicaManager}
 import kafka.tier.fetcher.TierStateFetcher
 import kafka.tier.tasks.{TierTasks, TierTasksConfig}
 import kafka.tier.topic.{TierTopicConsumer, TierTopicManager, TierTopicManagerConfig}
 import kafka.utils._
 import kafka.zk.{AdminZkClient, BrokerInfo, KafkaZkClient}
-import org.apache.kafka.clients.{ApiVersions, ClientDnsLookup, ManualMetadataUpdater, NetworkClient, NetworkClientUtils, CommonClientConfigs}
+import org.apache.kafka.clients.{ApiVersions, ClientDnsLookup, CommonClientConfigs, ManualMetadataUpdater, NetworkClient, NetworkClientUtils}
 import org.apache.kafka.common.internals.ClusterResourceListeners
 import org.apache.kafka.common.message.ControlledShutdownRequestData
 import org.apache.kafka.common.metrics.{JmxReporter, Metrics, MetricsReporter, _}
@@ -410,6 +410,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
           tierObjectStoreOpt = config.tierBackend match {
             case "S3" => Some(new S3TierObjectStore(new S3TierObjectStoreConfig(Optional.of(clusterId), config)))
             case "GCS" => Some(new GcsTierObjectStore(new GcsTierObjectStoreConfig(Optional.of(clusterId), config)))
+            case "AzureBlockBlob" => Some(new AzureBlockBlobTierObjectStore(new AzureBlockBlobTierObjectStoreConfig(Optional.of(clusterId), config)))
             case "mock" => Some(new MockInMemoryTierObjectStore(new TierObjectStoreConfig(Optional.of(clusterId), config)))
             case v => throw new IllegalStateException(s"Unknown TierObjectStore type: %s".format(v))
           }

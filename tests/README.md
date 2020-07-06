@@ -99,10 +99,14 @@ S3: Copies your AWS credentials into the container. Your AWS credentials need to
 
 GCS: A valid GCS credentials file needs to be copied to the container. Replace `<PATH_TO_GCS_CREDENTIALS>` to the file
 path of the credentials json file. File path can be relative to the `docker` directory in which the `Dockerfile` is located.
+
+Azure: A valid credential file containing the blob container name and connection string needs to be copied into the container.
+Replace `<PATH_TO_AZURE_CREDENTIALS>` to the file path of the credentials json file.
 ```
 docker_args="--build-arg aws_access_key_id=$(aws configure get aws_access_key_id) \
 --build-arg aws_secret_access_key=$(aws configure get aws_secret_access_key) \
---build-arg gcs_credentials_file=<PATH_TO_GCS_CREDENTIALS>" ./tests/docker/ducker-ak up
+--build-arg gcs_credentials_file=<PATH_TO_GCS_CREDENTIALS> \
+--build-arg azure_credentials_file=<PATH_TO_AZURE_CREDENTIALS>" ./tests/docker/ducker-ak up
 ```
 
 GCS Bucket and Credentials Management

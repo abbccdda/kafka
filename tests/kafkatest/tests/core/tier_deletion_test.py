@@ -23,7 +23,7 @@ from kafkatest.services.verifiable_producer import VerifiableProducer
 from kafkatest.services.zookeeper import ZookeeperService
 from kafkatest.tests.produce_consume_validate import ProduceConsumeValidateTest
 from kafkatest.utils import is_int
-from kafkatest.utils.tiered_storage import tier_set_configs, TierSupport, TieredStorageMetricsRegistry, S3_BACKEND, GCS_BACKEND
+from kafkatest.utils.tiered_storage import tier_set_configs, TierSupport, TieredStorageMetricsRegistry, S3_BACKEND, GCS_BACKEND, AZURE_BLOCK_BLOB_BACKEND
 from kafkatest.services.kafka import config_property
 
 import uuid
@@ -73,12 +73,12 @@ class TestTierTopicDeletion(ProduceConsumeValidateTest, TierSupport):
             self.kafka.start_node(node)
 
     @cluster(num_nodes=6)
-    @matrix(hard_bounce_broker=[False, True], backend=[S3_BACKEND, GCS_BACKEND])
+    @matrix(hard_bounce_broker=[False, True], backend=[S3_BACKEND, GCS_BACKEND, AZURE_BLOCK_BLOB_BACKEND])
     def test_tier_topic_deletion(self, hard_bounce_broker, backend):
         """
         Test the tier topic deletion pathways by creating a topic with partitions to be archived while bouncing brokers
-        and then deleting the topic and bouncing brokers again. Finally we check whether the S3 bucket contains objects for
-        the topic that we do not expect.
+        and then deleting the topic and bouncing brokers again. Finally we check whether the GCS /S3 bucket or Azure block
+        block container contains objects for the topic that we do not expect.
         """
 
         self.kafka = KafkaService(self.test_context, num_nodes=3, zk=self.zk,

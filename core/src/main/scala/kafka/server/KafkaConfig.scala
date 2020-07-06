@@ -236,6 +236,11 @@ object Defaults {
   val TierTopicDeleteCheckIntervalMs = 3L * 60 * 60 * 1000
   val PreferTierFetchMs = -1L
 
+  val TierAzureBlockBlobContainer = null
+  val TierAzureBlockBlobPrefix = ""
+  val TierAzureBlockBlobCredFilePath = null
+  val TierAzureBlockBlobEndpoint = null
+
   /** Tiered storage retention configs **/
   val TierLocalHotsetBytes = -1L
   val TierLocalHotsetMs = 24 * 60 * 60 * 1000L
@@ -598,6 +603,13 @@ object KafkaConfig {
   val TierGcsRegionProp = ConfluentPrefix + "tier.gcs.region"
   val TierGcsWriteChunkSizeProp = ConfluentPrefix + "tier.gcs.write.chunk.size"
   val TierGcsCredFilePathProp = ConfluentPrefix + "tier.gcs.cred.file.path"
+
+   /** Tiered storage Azure Block Blob configs **/
+  val TierAzureBlockBlobCredFilePathProp = ConfluentPrefix + "tier.azure.block.blob.cred.file.path"
+  val TierAzureBlockBlobContainerProp = ConfluentPrefix + "tier.azure.block.blob.container"
+  val TierAzureBlockBlobEndpointProp = ConfluentPrefix + "tier.azure.block.blob.endpoint"
+  val TierAzureBlockBlobPrefixProp = ConfluentPrefix + "tier.azure.block.blob.prefix"
+  val TierAzureBlockBlobAutoAbortThresholdBytesProp = ConfluentPrefix + "tier.azure.block.blob.auto.abort.threshold.bytes"
 
   /** Tiered storage fetcher configs */
   val TierFetcherNumThreadsProp = ConfluentPrefix + "tier.fetcher.num.threads"
@@ -1084,6 +1096,11 @@ object KafkaConfig {
     "specified, the GCS client will be instantiated using the default service account available."
   val TierTopicDeleteCheckIntervalMsDoc = "Frequency at which tiered objects cleanup is run for deleted topics."
   val PreferTierFetchMsDoc = ConfluentTopicConfig.PREFER_TIER_FETCH_MS_DOC
+  val TierAzureBlockBlobPrefixDoc = "This prefix will be added to tiered storage objects stored in Azure block blob."
+  val TierAzureBlockBlobCredFilePathDoc = "The path to the credentials file used to access the Azure storage account."
+  val TierAzureBlockBlobContainerDoc = "The block blob container to use for tiered storage."
+  val TierAzureBlockBlobEndpointDoc = "The storage account endpoint, in the format of https://{accountName}.blob.core.windows.net."
+  val TierAzureBlockBlobAutoAbortThresholdBytesDoc = "The block blob container client closes any connection that performs GetRequests that are not fully read. To promote connection reuse, the broker will read the remainder of a request if there are fewer bytes remaining than <code>confluent.tier.azure.block.blob.auto.abort.threshold.bytes</code>."
 
   /** Tiered storage retention configs **/
   val TierLocalHotsetBytesDoc = ConfluentTopicConfig.TIER_LOCAL_HOTSET_BYTES_DOC
@@ -1411,7 +1428,7 @@ object KafkaConfig {
       /** ********* Tier management configuration ***********/
       .define(TierFeatureProp, BOOLEAN, Defaults.TierFeature, MEDIUM, TierFeatureDoc)
       .define(TierEnableProp, BOOLEAN, Defaults.TierEnable, MEDIUM, TierEnableDoc)
-      .define(TierBackendProp, STRING, Defaults.TierBackend, in("S3", "GCS", "mock", ""), MEDIUM, TierBackendDoc)
+      .define(TierBackendProp, STRING, Defaults.TierBackend, in("S3", "GCS", "AzureBlockBlob", "mock", ""), MEDIUM, TierBackendDoc)
       .define(TierMetadataBootstrapServersProp, STRING, Defaults.TierMetadataBootstrapServers, MEDIUM, TierMetadataBootstrapServersDoc)
       .defineInternal(TierMetadataMaxPollMsProp, LONG, Defaults.TierMetadataMaxPollMs, atLeast(1), MEDIUM, TierMetadataMaxPollMsDoc)
       .defineInternal(TierMetadataRequestTimeoutMsProp, INT, Defaults.TierMetadataRequestTimeoutMs, atLeast(1), MEDIUM, TierMetadataRequestTimeoutMsDoc)
@@ -1447,6 +1464,12 @@ object KafkaConfig {
       .define(TierTopicDeleteCheckIntervalMsProp, LONG, Defaults.TierTopicDeleteCheckIntervalMs, atLeast(1), LOW, TierTopicDeleteCheckIntervalMsDoc)
       .defineInternal(TierSegmentHotsetRollMinBytesProp, INT, Defaults.TierSegmentHotsetRollMinBytes, atLeast(10 * 1024), MEDIUM, TierSegmentHotsetRollMinBytesDoc)
       .defineInternal(PreferTierFetchMsProp, LONG, Defaults.PreferTierFetchMs, LOW, PreferTierFetchMsDoc)
+
+      .defineInternal(TierAzureBlockBlobCredFilePathProp, STRING, Defaults.TierAzureBlockBlobCredFilePath, HIGH, TierAzureBlockBlobCredFilePathDoc)
+      .defineInternal(TierAzureBlockBlobContainerProp, STRING, Defaults.TierAzureBlockBlobContainer, HIGH, TierAzureBlockBlobContainerDoc)
+      .defineInternal(TierAzureBlockBlobEndpointProp, STRING, Defaults.TierAzureBlockBlobEndpoint, HIGH, TierAzureBlockBlobEndpointDoc)
+      .defineInternal(TierAzureBlockBlobAutoAbortThresholdBytesProp, INT, 500000, atLeast(0), LOW, TierAzureBlockBlobAutoAbortThresholdBytesDoc)
+      .defineInternal(TierAzureBlockBlobPrefixProp, STRING, Defaults.TierAzureBlockBlobPrefix, HIGH, TierAzureBlockBlobPrefixDoc)
 
       /** ********* Replica Placement Constraints **************/
       .define(
@@ -2098,6 +2121,14 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   val tierTopicDeleteCheckIntervalMs = getLong(KafkaConfig.TierTopicDeleteCheckIntervalMsProp)
   def tierSegmentHotsetRollMinBytes = getInt(KafkaConfig.TierSegmentHotsetRollMinBytesProp)
   def preferTierFetchMs = getLong(KafkaConfig.PreferTierFetchMsProp)
+
+
+  /** ********* Azure Blob Storage ***********/
+  val tierAzureBlockBlobCredFilePath = Option(getString(KafkaConfig.TierAzureBlockBlobCredFilePathProp))
+  val tierAzureBlockBlobContainer = getString(KafkaConfig.TierAzureBlockBlobContainerProp)
+  val tierAzureBlockBlobEndpoint = Option(getString(KafkaConfig.TierAzureBlockBlobEndpointProp))
+  val tierAzureBlockBlobConnectionDrainSize = getInt(KafkaConfig.TierAzureBlockBlobAutoAbortThresholdBytesProp)
+  val tierAzureBlockBlobPrefix = getString(KafkaConfig.TierAzureBlockBlobPrefixProp)
 
   /** ********* Segment speculative prefetching optimization ***********/
   def segmentSpeculativePrefetchEnable = getBoolean(KafkaConfig.SegmentSpeculativePrefetchEnableProp)

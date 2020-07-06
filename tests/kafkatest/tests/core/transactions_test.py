@@ -20,7 +20,7 @@ from kafkatest.services.verifiable_producer import VerifiableProducer
 from kafkatest.services.transactional_message_copier import TransactionalMessageCopier
 from kafkatest.services.kafka import config_property
 from kafkatest.services.monitor.jmx import JmxMixin
-from kafkatest.utils.tiered_storage import TierSupport, TieredStorageMetricsRegistry, S3_BACKEND, GCS_BACKEND
+from kafkatest.utils.tiered_storage import TierSupport, TieredStorageMetricsRegistry, S3_BACKEND, GCS_BACKEND, AZURE_BLOCK_BLOB_BACKEND
 from kafkatest.utils import is_int
 
 from ducktape.tests.test import Test
@@ -236,7 +236,7 @@ class TransactionsTest(Test, TierSupport):
             check_order=[True, False],
             use_group_metadata=[True, False],
             tier=[True],
-            backend=[S3_BACKEND, GCS_BACKEND])
+            backend=[S3_BACKEND, GCS_BACKEND, AZURE_BLOCK_BLOB_BACKEND])
     @matrix(failure_mode=["hard_bounce"],
             bounce_target=["brokers", "clients"],
             tier=[True],

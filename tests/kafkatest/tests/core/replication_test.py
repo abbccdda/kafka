@@ -21,7 +21,7 @@ from ducktape.mark.resource import cluster
 
 from kafkatest.tests.end_to_end import EndToEndTest
 from kafkatest.services.kafka import config_property
-from kafkatest.utils.tiered_storage import TierSupport, TieredStorageMetricsRegistry, S3_BACKEND, GCS_BACKEND
+from kafkatest.utils.tiered_storage import TierSupport, TieredStorageMetricsRegistry, S3_BACKEND, GCS_BACKEND, AZURE_BLOCK_BLOB_BACKEND
 
 import signal
 import time
@@ -126,7 +126,7 @@ class ReplicationTest(EndToEndTest, TierSupport):
             broker_type=["leader"],
             security_protocol=["PLAINTEXT"],
             tiered_storage=[True],
-            backend=[S3_BACKEND, GCS_BACKEND])
+            backend=[S3_BACKEND, GCS_BACKEND, AZURE_BLOCK_BLOB_BACKEND])
     @matrix(failure_mode=["clean_shutdown", "hard_shutdown", "clean_bounce", "hard_bounce"],
             broker_type=["leader"],
             security_protocol=["PLAINTEXT", "SASL_SSL"])

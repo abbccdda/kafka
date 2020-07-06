@@ -29,7 +29,7 @@ from kafkatest.services.verifiable_producer import VerifiableProducer
 from kafkatest.services.console_consumer import ConsoleConsumer
 from kafkatest.tests.produce_consume_validate import ProduceConsumeValidateTest
 from kafkatest.utils import is_int
-from kafkatest.utils.tiered_storage import TierSupport, TieredStorageMetricsRegistry, S3_BACKEND, GCS_BACKEND
+from kafkatest.utils.tiered_storage import TierSupport, TieredStorageMetricsRegistry, S3_BACKEND, GCS_BACKEND, AZURE_BLOCK_BLOB_BACKEND
 
 
 class ReassignPartitionsTest(ProduceConsumeValidateTest, TierSupport):
@@ -155,7 +155,7 @@ class ReassignPartitionsTest(ProduceConsumeValidateTest, TierSupport):
             tier_feature=[True, False],
             tier_enable=[True, False],
             reassign_from_offset_zero=[True, False],
-            backend=[S3_BACKEND, GCS_BACKEND])
+            backend=[S3_BACKEND, GCS_BACKEND, AZURE_BLOCK_BLOB_BACKEND])
     def test_reassign_partitions(self, bounce_brokers, tier_feature, tier_enable, reassign_from_offset_zero, backend):
         """Reassign partitions tests.
         Setup: 1 zk, 4 kafka nodes, 1 topic with partitions=20, replication-factor=3,

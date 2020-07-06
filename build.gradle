@@ -794,6 +794,9 @@ project(':core') {
     compile libs.flatbuffers
     compile libs.amazonS3Client
     compile libs.amazonStsClient
+    compile libs.azureIdentity
+    compile libs.azureStorageBlob
+    compile libs.azureStorageBlobBatch
     compile libs.netty
     compile libs.nettyTcNative
     compile(libs.zookeeper) {
