@@ -221,7 +221,9 @@ public class TierTopicManager implements Runnable, TierTopicAppender {
         producer = producerSupplier.get();
 
         // start the consumer
-        tierTopicConsumer.startConsume(startConsumerThread, tierTopic);
+        tierTopicConsumer.initialize(tierTopic);
+        if (startConsumerThread)
+            tierTopicConsumer.start();
 
         // Now that the producers and consumers have been setup, we are ready to accept requests. Reprocess any queued
         // metadata requests.

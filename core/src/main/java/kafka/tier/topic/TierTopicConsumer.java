@@ -153,6 +153,8 @@ public class TierTopicConsumer implements Runnable {
     private final TierCatchupConsumer catchupConsumer;
     private final TierStateFetcher tierStateFetcher;
 
+    private boolean initialized = false;
+
     private volatile Consumer<byte[], byte[]> primaryConsumer;
     private volatile boolean ready = true;
     private volatile boolean shutdown = false;
@@ -259,11 +261,11 @@ public class TierTopicConsumer implements Runnable {
 
     /**
      * Start consuming the tier topic. Caller must ensure that the tier topic has already been created.
-     * @param startConsumeThread Whether to start the background consumption thread. This is mainly exposed so that tests
-     *                           could drive the consumption thread in foreground if needed.
      * @param tierTopic An instance of {@link InitializedTierTopic}.
      */
-    public void startConsume(boolean startConsumeThread, InitializedTierTopic tierTopic) {
+    public void initialize(InitializedTierTopic tierTopic) {
+        this.tierTopic = tierTopic;
+
         Set<TopicPartition> tierTopicPartitions = TierTopicManager.partitions(tierTopic.topicName(), tierTopic.numPartitions().getAsInt());
 
         // startup the primary consumer
@@ -280,12 +282,16 @@ public class TierTopicConsumer implements Runnable {
                 primaryConsumer.seekToBeginning(Collections.singletonList(topicPartition));
             }
         }
+        initialized = true;
+    }
 
-        if (startConsumeThread)
+    public void start() {
+        if (initialized) {
+            ready = true;
             consumerThread.start();
-
-        this.tierTopic = tierTopic;
-        ready = true;
+        } else {
+            throw new IllegalStateException("TierTopicConsumer was started without first calling initialize.");
+        }
     }
 
     /**

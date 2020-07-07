@@ -229,7 +229,8 @@ class TierPartitionStateFencingTriggerTest extends IntegrationTestHarness {
       Optional.empty(),
       new MockTime())
     tpidsToBeFenced.foreach(tpid => addReplica(tpid, tierTopicConsumer))
-    tierTopicConsumer.startConsume(true, tierTopic)
+    tierTopicConsumer.initialize(tierTopic)
+    tierTopicConsumer.start()
     TestUtils.waitUntilTrue(() => {
       tierPartitionStateFiles.forall(state => state.status == TierPartitionStatus.ERROR)
     }, "Timed out waiting for fencing")

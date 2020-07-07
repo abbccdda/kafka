@@ -124,7 +124,7 @@ class TierTopicConsumerTest {
     assertEquals(0, tierTopicConsumer.primaryConsumerErrorPartitions.size)
 
     // tp_1 and tp_2 must be online; tp_3 and tp_4 must be in catchup state
-    tierTopicConsumer.startConsume(false, tierTopic)
+    tierTopicConsumer.initialize(tierTopic)
     tierTopicConsumer.doWork()
     assertEquals(Set(tp_1, tp_2), tierTopicConsumer.primaryConsumerPartitions.keySet.asScala)
     assertEquals(Set(tp_3, tp_4, tp_5), tierTopicConsumer.catchUpConsumerPartitions.keySet.asScala)
@@ -165,7 +165,8 @@ class TierTopicConsumerTest {
       when(tierTopicManagerCommitter.positionFor(tierTopicPartition.partition)).thenReturn(offset)
     }
 
-    tierTopicConsumer.startConsume(false, tierTopic)
+    tierTopicConsumer.initialize(tierTopic)
+    assertNotNull(tierTopicConsumer.tierTopic())
     val primaryConsumer = primaryConsumerSupplier.consumers.get(0)
     assertEquals(tierTopicPartitions, primaryConsumer.assignment)
     committedOffsetMap.foreach { case (tierTopicPartition, offsetAndEpoch) =>
@@ -191,7 +192,7 @@ class TierTopicConsumerTest {
       when(tierTopicManagerCommitter.positionFor(tierTopicPartition.partition)).thenReturn(offset)
     }
 
-    tierTopicConsumer.startConsume(false, tierTopic)
+    tierTopicConsumer.initialize(tierTopic)
     tierTopicConsumer.doWork()
 
     tierTopicConsumer.register(tp_1, ctx_1)
@@ -241,7 +242,7 @@ class TierTopicConsumerTest {
     val tp_4 = new TopicIdPartition("lag_test4", UUID.randomUUID, 0)
     val state_4 = getState(tp_4, tierTopicConsumer, TierPartitionStatus.CATCHUP)
 
-    tierTopicConsumer.startConsume(false, tierTopic)
+    tierTopicConsumer.initialize(tierTopic)
     tierTopicConsumer.doWork()
 
     // there should be no lag before materialize listener is initialized
