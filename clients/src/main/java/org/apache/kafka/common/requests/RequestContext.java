@@ -24,10 +24,13 @@ import org.apache.kafka.common.network.Send;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.types.Struct;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
+import org.apache.kafka.common.security.auth.KafkaPrincipalSerde;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
+import java.util.Optional;
+
 import org.apache.kafka.server.authorizer.AuthorizableRequestContext;
 
 import static org.apache.kafka.common.protocol.ApiKeys.API_VERSIONS;
@@ -42,6 +45,9 @@ public class RequestContext implements AuthorizableRequestContext {
     public final ClientInformation clientInformation;
     public final boolean fromPrivilegedListener;
 
+    public final Optional<KafkaPrincipalSerde> principalSerde;
+    public final Optional<KafkaPrincipal> forwardingPrincipal;
+
     public RequestContext(RequestHeader header,
                           String connectionId,
                           InetAddress clientAddress,
@@ -49,7 +55,9 @@ public class RequestContext implements AuthorizableRequestContext {
                           ListenerName listenerName,
                           SecurityProtocol securityProtocol,
                           ClientInformation clientInformation,
-                          boolean fromPrivilegedListener) {
+                          boolean fromPrivilegedListener,
+                          Optional<KafkaPrincipalSerde> principalSerde,
+                          Optional<KafkaPrincipal> forwardingPrincipal) {
         this.header = header;
         this.connectionId = connectionId;
         this.clientAddress = clientAddress;
@@ -58,6 +66,21 @@ public class RequestContext implements AuthorizableRequestContext {
         this.securityProtocol = securityProtocol;
         this.clientInformation = clientInformation;
         this.fromPrivilegedListener = fromPrivilegedListener;
+        this.principalSerde = principalSerde;
+        this.forwardingPrincipal = forwardingPrincipal;
+    }
+
+    public RequestContext(RequestHeader header,
+                          String connectionId,
+                          InetAddress clientAddress,
+                          KafkaPrincipal principal,
+                          ListenerName listenerName,
+                          SecurityProtocol securityProtocol,
+                          ClientInformation clientInformation,
+                          boolean fromPrivilegedListener) {
+        this(header, connectionId, clientAddress, principal,
+            listenerName, securityProtocol, clientInformation,
+            fromPrivilegedListener, Optional.empty(), Optional.empty());
     }
 
     public RequestAndSize parseRequest(ByteBuffer buffer) {
@@ -78,8 +101,7 @@ public class RequestContext implements AuthorizableRequestContext {
                         ", connectionId: " + connectionId +
                         ", listenerName: " + listenerName +
                         ", principal: " + principal +
-                        ", initialPrincipal: " + initialPrincipalName() +
-                        ", initialClientId: " + header.initialClientId(), ex);
+                        ", forwardingPrincipal: " + forwardingPrincipal, ex);
             }
         }
     }
@@ -87,6 +109,13 @@ public class RequestContext implements AuthorizableRequestContext {
     public Send buildResponse(AbstractResponse body) {
         ResponseHeader responseHeader = header.toResponseHeader();
         return body.toSend(connectionId, responseHeader, apiVersion());
+    }
+
+    public ByteBuffer serializedPrincipal(short version) {
+        if (!principalSerde.isPresent()) {
+            throw new IllegalStateException("The principal serde is undefined");
+        }
+        return ByteBuffer.wrap(principalSerde.get().serialize(principal, version));
     }
 
     private boolean isUnsupportedApiVersionsRequest() {
@@ -116,6 +145,11 @@ public class RequestContext implements AuthorizableRequestContext {
     }
 
     @Override
+    public Optional<KafkaPrincipal> forwardingPrincipal() {
+        return forwardingPrincipal;
+    }
+
+    @Override
     public InetAddress clientAddress() {
         return clientAddress;
     }
@@ -138,10 +172,5 @@ public class RequestContext implements AuthorizableRequestContext {
     @Override
     public int correlationId() {
         return header.correlationId();
-    }
-
-    @Override
-    public String initialPrincipalName() {
-        return header.initialPrincipalName();
     }
 }

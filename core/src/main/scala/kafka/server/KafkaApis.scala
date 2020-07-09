@@ -19,6 +19,7 @@ package kafka.server
 
 import java.lang.{Byte => JByte}
 import java.lang.{Long => JLong}
+import java.net.{InetAddress, UnknownHostException}
 import java.nio.ByteBuffer
 import java.util
 import java.util.{Collections, Optional}
@@ -49,10 +50,9 @@ import org.apache.kafka.common.config.ConfigResource
 import org.apache.kafka.common.errors._
 import org.apache.kafka.common.internals.{FatalExitError, Topic}
 import org.apache.kafka.common.internals.Topic.{GROUP_METADATA_TOPIC_NAME, TRANSACTION_STATE_TOPIC_NAME, isInternal}
-import org.apache.kafka.common.message.AlterConfigsResponseData.AlterConfigsResourceResponse
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopic
 import org.apache.kafka.common.message.CreatePartitionsResponseData.CreatePartitionsTopicResult
-import org.apache.kafka.common.message.{AddOffsetsToTxnResponseData, AlterConfigsResponseData, AlterPartitionReassignmentsResponseData, AlterReplicaLogDirsResponseData, CreateAclsResponseData, CreatePartitionsResponseData, CreateTopicsResponseData, DeleteAclsResponseData, DeleteGroupsResponseData, DeleteRecordsResponseData, DeleteTopicsResponseData, DescribeAclsResponseData, DescribeConfigsResponseData, DescribeGroupsResponseData, DescribeLogDirsResponseData, EndTxnResponseData, ExpireDelegationTokenResponseData, FindCoordinatorResponseData, HeartbeatResponseData, InitProducerIdResponseData, JoinGroupResponseData, LeaveGroupResponseData, ListGroupsResponseData, ListPartitionReassignmentsResponseData, MetadataResponseData, OffsetCommitRequestData, OffsetCommitResponseData, OffsetDeleteResponseData, RenewDelegationTokenResponseData, SaslAuthenticateResponseData, SaslHandshakeResponseData, StopReplicaResponseData, SyncGroupResponseData, UpdateMetadataResponseData}
+import org.apache.kafka.common.message.{AddOffsetsToTxnResponseData, AlterConfigsResponseData, AlterPartitionReassignmentsResponseData, AlterReplicaLogDirsResponseData, CreateAclsResponseData, CreatePartitionsResponseData, CreateTopicsResponseData, DeleteAclsResponseData, DeleteGroupsResponseData, DeleteRecordsResponseData, DeleteTopicsResponseData, DescribeAclsResponseData, DescribeConfigsResponseData, DescribeGroupsResponseData, DescribeLogDirsResponseData, EndTxnResponseData, ExpireDelegationTokenResponseData, FindCoordinatorResponseData, HeartbeatResponseData, InitProducerIdResponseData, JoinGroupResponseData, LeaveGroupResponseData, ListGroupsResponseData, ListOffsetResponseData, ListPartitionReassignmentsResponseData, MetadataResponseData, OffsetCommitRequestData, OffsetCommitResponseData, OffsetDeleteResponseData, RenewDelegationTokenResponseData, SaslAuthenticateResponseData, SaslHandshakeResponseData, StopReplicaResponseData, SyncGroupResponseData, UpdateMetadataResponseData}
 import org.apache.kafka.common.message.CreateTopicsResponseData.{CreatableTopicResult, CreatableTopicResultCollection}
 import org.apache.kafka.common.message.DeleteGroupsResponseData.{DeletableGroupResult, DeletableGroupResultCollection}
 import org.apache.kafka.common.message.AlterPartitionReassignmentsResponseData.{ReassignablePartitionResponse, ReassignableTopicResponse}
@@ -63,7 +63,6 @@ import org.apache.kafka.common.message.ElectLeadersResponseData.PartitionResult
 import org.apache.kafka.common.message.ElectLeadersResponseData.ReplicaElectionResult
 import org.apache.kafka.common.message.LeaveGroupResponseData.MemberResponse
 import org.apache.kafka.common.message.ListOffsetRequestData.ListOffsetPartition
-import org.apache.kafka.common.message.ListOffsetResponseData
 import org.apache.kafka.common.message.ListOffsetResponseData.{ListOffsetPartitionResponse, ListOffsetTopicResponse}
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.network.{ListenerName, Send}
@@ -90,7 +89,8 @@ import scala.collection.mutable.ArrayBuffer
 import scala.collection.{Map, Seq, Set, immutable, mutable}
 import scala.util.{Failure, Success, Try}
 import kafka.coordinator.group.GroupOverview
-
+import kafka.network
+import org.apache.kafka.common.message.AlterConfigsResponseData.AlterConfigsResourceResponse
 
 /**
  * Logic to handle the various Kafka requests
@@ -101,6 +101,7 @@ class KafkaApis(val requestChannel: RequestChannel,
                 val groupCoordinator: GroupCoordinator,
                 val txnCoordinator: TransactionCoordinator,
                 val controller: KafkaController,
+                val redirectionManager: BrokerToControllerChannelManager,
                 val zkClient: KafkaZkClient,
                 val brokerId: Int,
                 val config: KafkaConfig,
@@ -121,6 +122,32 @@ class KafkaApis(val requestChannel: RequestChannel,
   val adminZkClient = new AdminZkClient(zkClient)
   private val alterAclsPurgatory = new DelayedFuturePurgatory(purgatoryName = "AlterAcls", brokerId = config.brokerId)
 
+  /**
+   * The template to create a forward request handler.
+   */
+  private[server] abstract class ForwardRequestHandler(request: RequestChannel.Request, isForwardRequest: Boolean) extends Logging {
+
+    /**
+     * Controller handling logic of the request.
+     */
+    def process(): Unit
+
+    def handle(): Unit = {
+      if (!controller.isActive && isForwardRequest) {
+        sendErrorResponseMaybeThrottle(request, Errors.NOT_CONTROLLER.exception())
+      } else if (!controller.isActive && config.redirectionEnabled &&
+        request.context.principalSerde.isPresent) {
+        redirectionManager.forwardRequest(
+          sendResponseMaybeThrottle,
+          request)
+      } else {
+        // When IBP is smaller than 2.8 or the principal serde is undefined, forwarding is not supported,
+        // therefore requests are handled directly.
+        process()
+      }
+    }
+  }
+
   def close(): Unit = {
     alterAclsPurgatory.shutdown()
     info("Shutdown complete.")
@@ -133,6 +160,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     try {
       trace(s"Handling request:${request.requestDesc(true)} from connection ${request.context.connectionId};" +
         s"securityProtocol:${request.context.securityProtocol},principal:${request.context.principal}")
+
       request.header.apiKey match {
         case ApiKeys.PRODUCE => handleProduceRequest(request)
         case ApiKeys.FETCH => handleFetchRequest(request)
@@ -188,6 +216,8 @@ class KafkaApis(val requestChannel: RequestChannel,
         case ApiKeys.ALTER_USER_SCRAM_CREDENTIALS => handleAlterUserScramCredentialsRequest(request)
         case ApiKeys.ALTER_ISR => handleAlterIsrRequest(request)
         case ApiKeys.UPDATE_FEATURES => handleUpdateFeatures(request)
+        case ApiKeys.ENVELOPE => handleEnvelopeRequest(request)
+
         // Until we are ready to integrate the Raft layer, these APIs are treated as
         // unexpected and we just close the connection.
         case ApiKeys.VOTE => closeConnection(request, util.Collections.emptyMap())
@@ -1753,84 +1783,82 @@ class KafkaApis(val requestChannel: RequestChannel,
     sendResponseMaybeThrottle(request, createResponseCallback)
   }
 
-  def handleCreateTopicsRequest(request: RequestChannel.Request): Unit = {
-    val controllerMutationQuota = quotas.controllerMutation.newQuotaFor(request, strictSinceVersion = 6)
+  def handleCreateTopicsRequest(request: RequestChannel.Request, isForwardRequest: Boolean = false): Unit = {
+    val forwardRequestHandler = new ForwardRequestHandler(request, isForwardRequest) {
+      override def process(): Unit = {
+        val controllerMutationQuota = quotas.controllerMutation.newQuotaFor(request, strictSinceVersion = 6)
 
-    def sendResponseCallback(results: CreatableTopicResultCollection): Unit = {
-      def createResponse(requestThrottleMs: Int): AbstractResponse = {
-        val responseData = new CreateTopicsResponseData()
-          .setThrottleTimeMs(requestThrottleMs)
-          .setTopics(results)
-        val responseBody = new CreateTopicsResponse(responseData)
-        trace(s"Sending create topics response $responseData for correlation id " +
-          s"${request.header.correlationId} to client ${request.header.clientId}.")
-        responseBody
-      }
-      sendResponseMaybeThrottle(controllerMutationQuota, request, createResponse, onComplete = None)
-    }
+        def sendResponseCallback(results: CreatableTopicResultCollection): Unit = {
+          def createResponse(requestThrottleMs: Int): AbstractResponse = {
+            val responseData = new CreateTopicsResponseData()
+              .setThrottleTimeMs(requestThrottleMs)
+              .setTopics(results)
+            val responseBody = new CreateTopicsResponse(responseData)
+            trace(s"Sending create topics response $responseData for correlation id " +
+              s"${request.header.correlationId} to client ${request.header.clientId}.")
+            responseBody
+          }
+          sendResponseMaybeThrottle(controllerMutationQuota, request, createResponse, onComplete = None)
+        }
 
-    val createTopicsRequest = request.body[CreateTopicsRequest]
-    val results = new CreatableTopicResultCollection(createTopicsRequest.data.topics.size)
-    if (!controller.isActive) {
-      createTopicsRequest.data.topics.forEach { topic =>
-        results.add(new CreatableTopicResult().setName(topic.name)
-          .setErrorCode(Errors.NOT_CONTROLLER.code))
-      }
-      sendResponseCallback(results)
-    } else {
-      createTopicsRequest.data.topics.forEach { topic =>
-        results.add(new CreatableTopicResult().setName(topic.name))
-      }
-      val hasClusterAuthorization = authorize(request.context, CREATE, CLUSTER, CLUSTER_NAME,
-        logIfDenied = false)
-      val topics = createTopicsRequest.data.topics.asScala.map(_.name)
-      val authorizedTopics =
-        if (hasClusterAuthorization) topics.toSet
-        else filterByAuthorized(request.context, CREATE, TOPIC, topics)(identity)
-      val authorizedForDescribeConfigs = filterByAuthorized(request.context, DESCRIBE_CONFIGS, TOPIC,
-        topics, logIfDenied = false)(identity).map(name => name -> results.find(name)).toMap
+        val createTopicsRequest = request.body[CreateTopicsRequest]
+        val results = new CreatableTopicResultCollection(createTopicsRequest.data.topics.size)
 
-      results.forEach { topic =>
-        if (results.findAll(topic.name).size > 1) {
-          topic.setErrorCode(Errors.INVALID_REQUEST.code)
-          topic.setErrorMessage("Found multiple entries for this topic.")
-        } else if (!authorizedTopics.contains(topic.name)) {
-          topic.setErrorCode(Errors.TOPIC_AUTHORIZATION_FAILED.code)
-          topic.setErrorMessage("Authorization failed.")
+        createTopicsRequest.data.topics.forEach { topic =>
+          results.add(new CreatableTopicResult().setName(topic.name))
         }
-        if (!authorizedForDescribeConfigs.contains(topic.name)) {
-          topic.setTopicConfigErrorCode(Errors.TOPIC_AUTHORIZATION_FAILED.code)
-        }
-      }
-      val toCreate = mutable.Map[String, CreatableTopic]()
-      createTopicsRequest.data.topics.forEach { topic =>
-        if (results.find(topic.name).errorCode == Errors.NONE.code) {
-          toCreate += topic.name -> topic
-        }
-      }
-      def handleCreateTopicsResults(errors: Map[String, ApiError]): Unit = {
-        errors.forKeyValue { (topicName, error) =>
-          val result = results.find(topicName)
-          result.setErrorCode(error.error.code)
-            .setErrorMessage(error.message)
-          // Reset any configs in the response if Create failed
-          if (error != ApiError.NONE) {
-            result.setConfigs(List.empty.asJava)
-              .setNumPartitions(-1)
-              .setReplicationFactor(-1)
-              .setTopicConfigErrorCode(Errors.NONE.code)
+        val hasClusterAuthorization = authorize(request.context, CREATE, CLUSTER, CLUSTER_NAME,
+          logIfDenied = false)
+        val topics = createTopicsRequest.data.topics.asScala.map(_.name)
+        val authorizedTopics =
+          if (hasClusterAuthorization) topics.toSet
+          else filterByAuthorized(request.context, CREATE, TOPIC, topics)(identity)
+        val authorizedForDescribeConfigs = filterByAuthorized(request.context, DESCRIBE_CONFIGS, TOPIC,
+          topics, logIfDenied = false)(identity).map(name => name -> results.find(name)).toMap
+
+        results.forEach { topic =>
+          if (results.findAll(topic.name).size > 1) {
+            topic.setErrorCode(Errors.INVALID_REQUEST.code)
+            topic.setErrorMessage("Found multiple entries for this topic.")
+          } else if (!authorizedTopics.contains(topic.name)) {
+            topic.setErrorCode(Errors.TOPIC_AUTHORIZATION_FAILED.code)
+            topic.setErrorMessage("Authorization failed.")
+          }
+          if (!authorizedForDescribeConfigs.contains(topic.name)) {
+            topic.setTopicConfigErrorCode(Errors.TOPIC_AUTHORIZATION_FAILED.code)
           }
         }
-        sendResponseCallback(results)
+        val toCreate = mutable.Map[String, CreatableTopic]()
+        createTopicsRequest.data.topics.forEach { topic =>
+          if (results.find(topic.name).errorCode == Errors.NONE.code) {
+            toCreate += topic.name -> topic
+          }
+        }
+        def handleCreateTopicsResults(errors: Map[String, ApiError]): Unit = {
+          errors.foreach { case (topicName, error) =>
+            val result = results.find(topicName)
+            result.setErrorCode(error.error.code)
+              .setErrorMessage(error.message)
+            // Reset any configs in the response if Create failed
+            if (error != ApiError.NONE) {
+              result.setConfigs(List.empty.asJava)
+                .setNumPartitions(-1)
+                .setReplicationFactor(-1)
+                .setTopicConfigErrorCode(Errors.NONE.code)
+            }
+          }
+          sendResponseCallback(results)
+        }
+        adminManager.createTopics(
+          createTopicsRequest.data.timeoutMs,
+          createTopicsRequest.data.validateOnly,
+          toCreate,
+          authorizedForDescribeConfigs,
+          controllerMutationQuota,
+          handleCreateTopicsResults)
       }
-      adminManager.createTopics(
-        createTopicsRequest.data.timeoutMs,
-        createTopicsRequest.data.validateOnly,
-        toCreate,
-        authorizedForDescribeConfigs,
-        controllerMutationQuota,
-        handleCreateTopicsResults)
     }
+    forwardRequestHandler.handle()
   }
 
   def handleCreatePartitionsRequest(request: RequestChannel.Request): Unit = {
@@ -2538,36 +2566,42 @@ class KafkaApis(val requestChannel: RequestChannel,
       new OffsetsForLeaderEpochResponse(requestThrottleMs, endOffsetsForAllPartitions.asJava))
   }
 
-  def handleAlterConfigsRequest(request: RequestChannel.Request): Unit = {
-    val alterConfigsRequest = request.body[AlterConfigsRequest]
-    val (authorizedResources, unauthorizedResources) = alterConfigsRequest.configs.asScala.toMap.partition { case (resource, _) =>
-      resource.`type` match {
-        case ConfigResource.Type.BROKER_LOGGER =>
-          throw new InvalidRequestException(s"AlterConfigs is deprecated and does not support the resource type ${ConfigResource.Type.BROKER_LOGGER}")
-        case ConfigResource.Type.BROKER =>
-          authorize(request.context, ALTER_CONFIGS, CLUSTER, CLUSTER_NAME)
-        case ConfigResource.Type.TOPIC =>
-          authorize(request.context, ALTER_CONFIGS, TOPIC, resource.name)
-        case rt => throw new InvalidRequestException(s"Unexpected resource type $rt")
+  def handleAlterConfigsRequest(request: RequestChannel.Request,
+                                isForwardRequest: Boolean = false): Unit = {
+    val forwardRequestHandler = new ForwardRequestHandler(request, isForwardRequest) {
+      override def process(): Unit = {
+        val alterConfigsRequest = request.body[AlterConfigsRequest]
+        val (authorizedResources, unauthorizedResources) = alterConfigsRequest.configs.asScala.toMap.partition { case (resource, _) =>
+          resource.`type` match {
+            case ConfigResource.Type.BROKER_LOGGER =>
+              throw new InvalidRequestException(s"AlterConfigs is deprecated and does not support the resource type ${ConfigResource.Type.BROKER_LOGGER}")
+            case ConfigResource.Type.BROKER =>
+              authorize(request.context, ALTER_CONFIGS, CLUSTER, CLUSTER_NAME)
+            case ConfigResource.Type.TOPIC =>
+              authorize(request.context, ALTER_CONFIGS, TOPIC, resource.name)
+            case rt => throw new InvalidRequestException(s"Unexpected resource type $rt")
+          }
+        }
+        val authorizedResult = adminManager.alterConfigs(authorizedResources, alterConfigsRequest.validateOnly)
+        val unauthorizedResult = unauthorizedResources.keys.map { resource =>
+          resource -> configsAuthorizationApiError(resource)
+        }
+        def responseCallback(requestThrottleMs: Int): AlterConfigsResponse = {
+          val data = new AlterConfigsResponseData()
+            .setThrottleTimeMs(requestThrottleMs)
+          (authorizedResult ++ unauthorizedResult).foreach{ case (resource, error) =>
+            data.responses().add(new AlterConfigsResourceResponse()
+              .setErrorCode(error.error.code)
+              .setErrorMessage(error.message)
+              .setResourceName(resource.name)
+              .setResourceType(resource.`type`.id))
+          }
+          new AlterConfigsResponse(data)
+        }
+        sendResponseMaybeThrottle(request, responseCallback)
       }
     }
-    val authorizedResult = adminManager.alterConfigs(authorizedResources, alterConfigsRequest.validateOnly)
-    val unauthorizedResult = unauthorizedResources.keys.map { resource =>
-      resource -> configsAuthorizationApiError(resource)
-    }
-    def responseCallback(requestThrottleMs: Int): AlterConfigsResponse = {
-      val data = new AlterConfigsResponseData()
-        .setThrottleTimeMs(requestThrottleMs)
-      (authorizedResult ++ unauthorizedResult).foreach{ case (resource, error) =>
-        data.responses().add(new AlterConfigsResourceResponse()
-          .setErrorCode(error.error.code)
-          .setErrorMessage(error.message)
-          .setResourceName(resource.name)
-          .setResourceType(resource.`type`.id))
-      }
-      new AlterConfigsResponse(data)
-    }
-    sendResponseMaybeThrottle(request, responseCallback)
+    forwardRequestHandler.handle()
   }
 
   def handleAlterPartitionReassignmentsRequest(request: RequestChannel.Request): Unit = {
@@ -2664,40 +2698,48 @@ class KafkaApis(val requestChannel: RequestChannel,
     new ApiError(error, null)
   }
 
-  def handleIncrementalAlterConfigsRequest(request: RequestChannel.Request): Unit = {
-    val alterConfigsRequest = request.body[IncrementalAlterConfigsRequest]
+  def handleIncrementalAlterConfigsRequest(request: RequestChannel.Request, isForwardRequest: Boolean = false): Unit = {
+    val forwardRequestHandler = new ForwardRequestHandler(request, isForwardRequest) {
+      override def process(): Unit = {
+        val alterConfigsRequest = request.body[IncrementalAlterConfigsRequest]
 
-    val configs = alterConfigsRequest.data.resources.iterator.asScala.map { alterConfigResource =>
-      val configResource = new ConfigResource(ConfigResource.Type.forId(alterConfigResource.resourceType),
-        alterConfigResource.resourceName)
-      configResource -> alterConfigResource.configs.iterator.asScala.map {
-        alterConfig => new AlterConfigOp(new ConfigEntry(alterConfig.name, alterConfig.value),
-          OpType.forId(alterConfig.configOperation))
-      }.toBuffer
-    }.toMap
+        val configs = alterConfigsRequest.data.resources.iterator.asScala.map { alterConfigResource =>
+          val configResource = new ConfigResource(ConfigResource.Type.forId(alterConfigResource.resourceType),
+            alterConfigResource.resourceName)
+          configResource -> alterConfigResource.configs.iterator.asScala.map {
+            alterConfig => new AlterConfigOp(new ConfigEntry(alterConfig.name, alterConfig.value),
+              OpType.forId(alterConfig.configOperation))
+          }.toBuffer
+        }.toMap
 
-    val (authorizedResources, unauthorizedResources) = configs.partition { case (resource, _) =>
-      resource.`type` match {
-        case ConfigResource.Type.BROKER | ConfigResource.Type.BROKER_LOGGER =>
-          authorize(request.context, ALTER_CONFIGS, CLUSTER, CLUSTER_NAME)
-        case ConfigResource.Type.TOPIC =>
-          authorize(request.context, ALTER_CONFIGS, TOPIC, resource.name)
-        case rt => throw new InvalidRequestException(s"Unexpected resource type $rt")
+        val (authorizedResources, unauthorizedResources) = configs.partition { case (resource, _) =>
+          resource.`type` match {
+            case ConfigResource.Type.BROKER | ConfigResource.Type.BROKER_LOGGER =>
+              authorize(request.context, ALTER_CONFIGS, CLUSTER, CLUSTER_NAME)
+            case ConfigResource.Type.TOPIC =>
+              authorize(request.context, ALTER_CONFIGS, TOPIC, resource.name)
+            case rt => throw new InvalidRequestException(s"Unexpected resource type $rt")
+          }
+        }
+
+        val authorizedResult = adminManager.incrementalAlterConfigs(authorizedResources, alterConfigsRequest.data.validateOnly)
+        val unauthorizedResult = unauthorizedResources.keys.map { resource =>
+          resource -> configsAuthorizationApiError(resource)
+        }
+
+        def sendResponseCallback(results: Map[ConfigResource, ApiError]): Unit = {
+          sendResponseMaybeThrottle(request, requestThrottleMs =>
+            new IncrementalAlterConfigsResponse(requestThrottleMs, results.asJava))
+        }
+        sendResponseCallback(authorizedResult ++ unauthorizedResult)
       }
     }
-
-    val authorizedResult = adminManager.incrementalAlterConfigs(authorizedResources, alterConfigsRequest.data.validateOnly)
-    val unauthorizedResult = unauthorizedResources.keys.map { resource =>
-      resource -> configsAuthorizationApiError(resource)
-    }
-    sendResponseMaybeThrottle(request, requestThrottleMs =>
-      new IncrementalAlterConfigsResponse(IncrementalAlterConfigsResponse.toResponseData(requestThrottleMs,
-        (authorizedResult ++ unauthorizedResult).asJava)))
+    forwardRequestHandler.handle()
   }
 
   def handleDescribeConfigsRequest(request: RequestChannel.Request): Unit = {
     val describeConfigsRequest = request.body[DescribeConfigsRequest]
-    val (authorizedResources, unauthorizedResources) = describeConfigsRequest.data.resources.asScala.toBuffer.partition { resource =>
+    val (authorizedResources, unauthorizedResources) = describeConfigsRequest.data.resources.asScala.partition { resource =>
       ConfigResource.Type.forId(resource.resourceType) match {
         case ConfigResource.Type.BROKER | ConfigResource.Type.BROKER_LOGGER =>
           authorize(request.context, DESCRIBE_CONFIGS, CLUSTER, CLUSTER_NAME)
@@ -3046,18 +3088,22 @@ class KafkaApis(val requestChannel: RequestChannel,
     }
   }
 
-  def handleAlterClientQuotasRequest(request: RequestChannel.Request): Unit = {
-    val alterClientQuotasRequest = request.body[AlterClientQuotasRequest]
-
-    if (authorize(request.context, ALTER_CONFIGS, CLUSTER, CLUSTER_NAME)) {
-      val result = adminManager.alterClientQuotas(alterClientQuotasRequest.entries().asScala.toSeq,
-        alterClientQuotasRequest.validateOnly()).asJava
-      sendResponseMaybeThrottle(request, requestThrottleMs =>
-        new AlterClientQuotasResponse(result, requestThrottleMs))
-    } else {
-      sendResponseMaybeThrottle(request, requestThrottleMs =>
-        alterClientQuotasRequest.getErrorResponse(requestThrottleMs, Errors.CLUSTER_AUTHORIZATION_FAILED.exception))
+  def handleAlterClientQuotasRequest(request: RequestChannel.Request, isForwardRequest: Boolean = false): Unit = {
+    val forwardRequestHandler = new ForwardRequestHandler(request, isForwardRequest) {
+      override def process(): Unit = {
+        val alterClientQuotasRequest = request.body[AlterClientQuotasRequest]
+        if (authorize(request.context, ALTER_CONFIGS, CLUSTER, CLUSTER_NAME)) {
+          val result = adminManager.alterClientQuotas(alterClientQuotasRequest.entries().asScala.toSeq,
+            alterClientQuotasRequest.validateOnly()).asJava
+          sendResponseMaybeThrottle(request, requestThrottleMs =>
+            new AlterClientQuotasResponse(result, requestThrottleMs))
+        } else {
+          sendResponseMaybeThrottle(request, requestThrottleMs =>
+            alterClientQuotasRequest.getErrorResponse(requestThrottleMs, Errors.CLUSTER_AUTHORIZATION_FAILED.exception))
+        }
+      }
     }
+    forwardRequestHandler.handle()
   }
 
   def handleDescribeUserScramCredentialsRequest(request: RequestChannel.Request): Unit = {
@@ -3127,6 +3173,7 @@ class KafkaApis(val requestChannel: RequestChannel,
               throttleTimeMs)
         }
       }
+
       sendResponseMaybeThrottle(request, requestThrottleMs => createResponse(requestThrottleMs))
     }
 
@@ -3136,6 +3183,52 @@ class KafkaApis(val requestChannel: RequestChannel,
       sendResponseCallback(Left(new ApiError(Errors.INVALID_REQUEST, "Feature versioning system is disabled.")))
     } else {
       controller.updateFeatures(updateFeaturesRequest, sendResponseCallback)
+    }
+  }
+
+  def handleEnvelopeRequest(request: RequestChannel.Request): Unit = {
+    val envelopeRequest = request.body[EnvelopeRequest]
+    if (!request.context.forwardingPrincipal.isPresent ||
+      !authorize(request.context, CLUSTER_ACTION, CLUSTER, CLUSTER_NAME)) {
+      sendResponseMaybeThrottle(request, requestThrottleMs =>
+        envelopeRequest.getErrorResponse(requestThrottleMs, Errors.BROKER_AUTHORIZATION_FAILURE.exception))
+    } else if (!request.context.principalSerde.isPresent || !request.context.fromPrivilegedListener) {
+      // We couldn't handle a forwarding request when the principal serde is undefined, or the request
+      // is not coming from a privileged listener.
+      sendResponseMaybeThrottle(request, requestThrottleMs =>
+        envelopeRequest.getErrorResponse(requestThrottleMs, Errors.INVALID_REQUEST.exception))
+    } else {
+      val embedPrincipal = envelopeRequest.requestPrincipal(request.context.principalSerde.get())
+      val embedHeader = RequestHeader.parse(envelopeRequest.requestData)
+      if (!embedHeader.apiKey.isEnabled) {
+        throw new InvalidRequestException("Received request for disabled api key " + embedHeader.apiKey)
+      }
+
+      try {
+        // The forwarding broker and the active controller should have the same DNS resolution, and we need
+        // to have the original client address for authentication purpose.
+        val originalClientAddress = InetAddress.getByName(envelopeRequest.clientHostName)
+        val reconstructedContext = new RequestContext(embedHeader, request.context.connectionId,
+          originalClientAddress, embedPrincipal, request.context.listenerName,
+          request.context.securityProtocol, request.context.clientInformation, false)
+
+        val reconstructedRequest = new network.RequestChannel.Request(request.processor,
+          reconstructedContext, request.startTimeNanos, request.memoryPool,
+          envelopeRequest.requestData, request.metrics)
+
+        embedHeader.apiKey match {
+          case ApiKeys.ALTER_CONFIGS => handleAlterConfigsRequest(reconstructedRequest, isForwardRequest = true)
+          case ApiKeys.INCREMENTAL_ALTER_CONFIGS => handleIncrementalAlterConfigsRequest(reconstructedRequest, isForwardRequest = true)
+          case ApiKeys.ALTER_CLIENT_QUOTAS => handleAlterClientQuotasRequest(reconstructedRequest, isForwardRequest = true)
+          case ApiKeys.CREATE_TOPICS => handleCreateTopicsRequest(reconstructedRequest, isForwardRequest = true)
+
+          case _ => sendResponseMaybeThrottle(request, requestThrottleMs =>
+            envelopeRequest.getErrorResponse(requestThrottleMs, Errors.INVALID_REQUEST.exception))
+        }
+      } catch {
+        case _: UnknownHostException => sendResponseMaybeThrottle(request, requestThrottleMs =>
+          envelopeRequest.getErrorResponse(requestThrottleMs, Errors.INVALID_REQUEST.exception))
+      }
     }
   }
 
@@ -3152,6 +3245,18 @@ class KafkaApis(val requestChannel: RequestChannel,
       val actions = Collections.singletonList(new Action(operation, resource, refCount, logIfAllowed, logIfDenied))
       authZ.authorize(requestContext, actions).get(0) == AuthorizationResult.ALLOWED
     }
+  }
+
+  private[server] def authorizeAction(requestContext: RequestContext,
+                                      operation: AclOperation,
+                                      resourceType: ResourceType, resourceName: String,
+                                      logIfAllowed: Boolean = true,
+                                      logIfDenied: Boolean = true,
+                                      refCount: Int = 1,
+                                      auth: Authorizer): Boolean = {
+    val resource = new ResourcePattern(resourceType, resourceName, PatternType.LITERAL)
+    val actions = Collections.singletonList(new Action(operation, resource, refCount, logIfAllowed, logIfDenied))
+    auth.authorize(requestContext, actions).get(0) == AuthorizationResult.ALLOWED
   }
 
   // private package for testing

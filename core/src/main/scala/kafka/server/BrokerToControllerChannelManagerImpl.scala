@@ -20,14 +20,15 @@ package kafka.server
 import java.util.concurrent.{LinkedBlockingDeque, TimeUnit}
 
 import kafka.common.{InterBrokerSendThread, RequestAndCompletionHandler}
+import kafka.network.RequestChannel
 import kafka.utils.Logging
 import org.apache.kafka.clients._
-import org.apache.kafka.common.requests.AbstractRequest
+import org.apache.kafka.common.requests.{AbstractRequest, AbstractResponse, EnvelopeRequest}
 import org.apache.kafka.common.utils.{LogContext, Time}
 import org.apache.kafka.common.Node
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.network._
-import org.apache.kafka.common.protocol.Errors
+import org.apache.kafka.common.protocol.{ApiKeys, Errors}
 import org.apache.kafka.common.security.JaasContext
 
 import scala.collection.mutable
@@ -37,6 +38,11 @@ import scala.jdk.CollectionConverters._
 trait BrokerToControllerChannelManager {
   def sendRequest(request: AbstractRequest.Builder[_ <: AbstractRequest],
                   callback: RequestCompletionHandler): Unit
+
+  def forwardRequest(responseToOriginalClient: (RequestChannel.Request, Int => AbstractResponse,
+                       Option[Send => Unit]) => Unit,
+                     originalRequest: RequestChannel.Request,
+                     callback: Option[Send => Unit] = Option.empty): Unit
 
   def start(): Unit
 
@@ -55,6 +61,7 @@ class BrokerToControllerChannelManagerImpl(metadataCache: kafka.server.MetadataC
                                            time: Time,
                                            metrics: Metrics,
                                            config: KafkaConfig,
+                                           channelName: String,
                                            threadNamePrefix: Option[String] = None) extends BrokerToControllerChannelManager with Logging {
   private val requestQueue = new LinkedBlockingDeque[BrokerToControllerQueueItem]
   private val logContext = new LogContext(s"[broker-${config.brokerId}-to-controller] ")
@@ -68,6 +75,7 @@ class BrokerToControllerChannelManagerImpl(metadataCache: kafka.server.MetadataC
   override def shutdown(): Unit = {
     requestThread.shutdown()
     requestThread.awaitShutdown()
+    info("Broker to controller channel manager shutdown")
   }
 
   private[server] def newRequestThread = {
@@ -90,7 +98,7 @@ class BrokerToControllerChannelManagerImpl(metadataCache: kafka.server.MetadataC
         Selector.NO_IDLE_TIMEOUT_MS,
         metrics,
         time,
-        "BrokerToControllerChannel",
+        channelName,
         Map("BrokerId" -> config.brokerId.toString).asJava,
         false,
         channelBuilder,
@@ -129,6 +137,19 @@ class BrokerToControllerChannelManagerImpl(metadataCache: kafka.server.MetadataC
     requestQueue.put(BrokerToControllerQueueItem(request, callback))
     requestThread.wakeup()
   }
+
+  override def forwardRequest(responseToOriginalClient: (RequestChannel.Request, Int =>
+                                AbstractResponse, Option[Send => Unit]) => Unit,
+                              originalRequest: RequestChannel.Request,
+                              callback: Option[Send => Unit] = Option.empty): Unit = {
+    val serializedRequestData = originalRequest.body[AbstractRequest].serialize(originalRequest.header)
+    val envelopeRequest = new EnvelopeRequest.Builder(serializedRequestData, originalRequest.context.serializedPrincipal(
+      ApiKeys.ENVELOPE.latestVersion), originalRequest.context.clientAddress.getHostName)
+    requestQueue.put(BrokerToControllerQueueItem(envelopeRequest,
+      (response: ClientResponse) => responseToOriginalClient(
+        originalRequest, _ => response.responseBody, callback)))
+    requestThread.wakeup()
+  }
 }
 
 case class BrokerToControllerQueueItem(request: AbstractRequest.Builder[_ <: AbstractRequest],
@@ -155,8 +176,9 @@ class BrokerToControllerRequestThread(networkClient: KafkaClient,
       val request = RequestAndCompletionHandler(
         activeController.get,
         topRequest.request,
-        handleResponse(topRequest),
-        )
+        handleResponse(topRequest)
+      )
+
       requestsToSend.enqueue(request)
     }
     requestsToSend

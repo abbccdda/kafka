@@ -77,6 +77,8 @@ import org.apache.kafka.common.message.EndQuorumEpochRequestData;
 import org.apache.kafka.common.message.EndQuorumEpochResponseData;
 import org.apache.kafka.common.message.EndTxnRequestData;
 import org.apache.kafka.common.message.EndTxnResponseData;
+import org.apache.kafka.common.message.EnvelopeRequestData;
+import org.apache.kafka.common.message.EnvelopeResponseData;
 import org.apache.kafka.common.message.ExpireDelegationTokenRequestData;
 import org.apache.kafka.common.message.ExpireDelegationTokenResponseData;
 import org.apache.kafka.common.message.FetchRequestData;
@@ -251,7 +253,8 @@ public enum ApiKeys {
         DescribeQuorumRequestData.SCHEMAS, DescribeQuorumResponseData.SCHEMAS),
     ALTER_ISR(56, "AlterIsr", AlterIsrRequestData.SCHEMAS, AlterIsrResponseData.SCHEMAS),
     UPDATE_FEATURES(57, "UpdateFeatures",
-        UpdateFeaturesRequestData.SCHEMAS, UpdateFeaturesResponseData.SCHEMAS);
+        UpdateFeaturesRequestData.SCHEMAS, UpdateFeaturesResponseData.SCHEMAS),
+    ENVELOPE(58, "Envelope", EnvelopeRequestData.SCHEMAS, EnvelopeResponseData.SCHEMAS);
 
     private static final ApiKeys[] ID_TO_TYPE;
     private static final int MIN_API_KEY = 0;

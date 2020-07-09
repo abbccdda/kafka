@@ -20,7 +20,7 @@ import java.io.File
 import java.net.InetAddress
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.Files
-import java.util.{Collections, UUID}
+import java.util.{Collections, Optional, UUID}
 import java.util.concurrent.{Executors, Semaphore, TimeUnit}
 
 import kafka.Kafka
@@ -200,6 +200,26 @@ class AclAuthorizerTest extends ZooKeeperTestHarness {
 
     assertTrue("User1 should have READ access from host2", authorize(aclAuthorizer, host2Context, READ, resource))
     assertFalse("User1 should not have READ access from host1 due to denyAcl", authorize(aclAuthorizer, host1Context, READ, resource))
+  }
+
+  @Test
+  def testAuthorizeWithForwardingPrincipal(): Unit = {
+    val user = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, username)
+    val customUserPrincipal = new CustomPrincipal(KafkaPrincipal.USER_TYPE, username)
+    val host = InetAddress.getByName("192.168.1.2")
+
+    // user has READ access from host2 but not from host1
+    val acl = new AccessControlEntry(user.toString, host.getHostAddress, READ, ALLOW)
+    val acls = Set(acl)
+    changeAclAndVerify(Set.empty, acls, Set.empty)
+
+    val context = newRequestContext(customUserPrincipal, host)
+    val contextWithForwardingPrincipal = newRequestContext(customUserPrincipal,
+      host, forwardingPrincipal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "unknown"))
+
+    assertTrue("User should have READ access from the host", authorize(aclAuthorizer, context, READ, resource))
+    assertFalse("User with forwarding principal doesn't have READ access from the host",
+      authorize(aclAuthorizer, contextWithForwardingPrincipal, READ, resource))
   }
 
   @Test
@@ -1033,11 +1053,13 @@ class AclAuthorizerTest extends ZooKeeperTestHarness {
     acls
   }
 
-  private def newRequestContext(principal: KafkaPrincipal, clientAddress: InetAddress, apiKey: ApiKeys = ApiKeys.PRODUCE): RequestContext = {
+  private def newRequestContext(principal: KafkaPrincipal, clientAddress: InetAddress, apiKey: ApiKeys = ApiKeys.PRODUCE,
+                                forwardingPrincipal: KafkaPrincipal = null): RequestContext = {
     val securityProtocol = SecurityProtocol.SASL_PLAINTEXT
     val header = new RequestHeader(apiKey, 2, "", 1) //ApiKeys apiKey, short version, String clientId, int correlation
     new RequestContext(header, "", clientAddress, principal, ListenerName.forSecurityProtocol(securityProtocol),
-      securityProtocol, ClientInformation.EMPTY, false)
+      securityProtocol, ClientInformation.EMPTY, false, Optional.empty(), Optional.ofNullable(forwardingPrincipal)
+    )
   }
 
   private def authorize(authorizer: AclAuthorizer, requestContext: RequestContext, operation: AclOperation, resource: ResourcePattern): Boolean = {

@@ -48,7 +48,7 @@ import org.apache.kafka.common.network.{ChannelBuilder, ChannelBuilders, KafkaCh
 import org.apache.kafka.common.protocol.ApiKeys
 import org.apache.kafka.common.requests.ApiVersionsRequest
 import org.apache.kafka.common.requests.{RequestContext, RequestHeader}
-import org.apache.kafka.common.security.auth.SecurityProtocol
+import org.apache.kafka.common.security.auth.{KafkaPrincipal, SecurityProtocol}
 import org.apache.kafka.common.utils.{KafkaThread, LogContext, Time}
 import org.slf4j.event.Level
 
@@ -967,9 +967,16 @@ private[kafka] class Processor(val id: Int,
                 expiredConnectionsKilledCount.record(null, 1, 0)
               } else {
                 val connectionId = receive.source
+
+                // Setup the forward principal if the request is an Envelope
+                val forwardingPrincipal: Optional[KafkaPrincipal] = if (header.apiKey == ApiKeys.ENVELOPE)
+                  Optional.of(channel.principal)
+                else
+                  Optional.empty()
+
                 val context = new RequestContext(header, connectionId, channel.socketAddress,
                   channel.principal, listenerName, securityProtocol,
-                  channel.channelMetadataRegistry.clientInformation, isPrivilegedListener)
+                  channel.channelMetadataRegistry.clientInformation, isPrivilegedListener, channel.principalSerde, forwardingPrincipal)
                 val req = new RequestChannel.Request(processor = id, context = context,
                   startTimeNanos = nowNanos, memoryPool, receive.payload, requestChannel.metrics)
                 // KIP-511: ApiVersionsRequest is intercepted here to catch the client software name

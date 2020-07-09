@@ -14,6 +14,7 @@
 
 package kafka.server
 
+import java.nio.ByteBuffer
 import java.util
 import java.util.concurrent.{Executors, Future, TimeUnit}
 import java.util.{Collections, Optional, Properties}
@@ -584,6 +585,9 @@ class RequestQuotaTest extends BaseRequestTest {
 
         case ApiKeys.UPDATE_FEATURES =>
           new UpdateFeaturesRequest.Builder(new UpdateFeaturesRequestData())
+
+        case ApiKeys.ENVELOPE =>
+          new EnvelopeRequest.Builder(ByteBuffer.allocate(0), "remote-client")
 
         case _ =>
           throw new IllegalArgumentException("Unsupported API key " + apiKey)

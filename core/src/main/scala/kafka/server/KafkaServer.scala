@@ -35,13 +35,14 @@ import kafka.network.SocketServer
 import kafka.security.CredentialProvider
 import kafka.utils._
 import kafka.zk.{BrokerInfo, KafkaZkClient}
-import org.apache.kafka.clients.{ApiVersions, ClientDnsLookup, ManualMetadataUpdater, NetworkClient, NetworkClientUtils, CommonClientConfigs}
+import org.apache.kafka.clients.{ApiVersions, ClientDnsLookup, CommonClientConfigs, ManualMetadataUpdater, NetworkClient, NetworkClientUtils}
 import org.apache.kafka.common.internals.ClusterResourceListeners
 import org.apache.kafka.common.message.ControlledShutdownRequestData
 import org.apache.kafka.common.metrics.{JmxReporter, Metrics, MetricsReporter, _}
 import org.apache.kafka.common.network._
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.{ControlledShutdownRequest, ControlledShutdownResponse}
+//import org.apache.kafka.common.security.auth.KafkaPrincipalSerde
 import org.apache.kafka.common.security.scram.internals.ScramMechanism
 import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache
 import org.apache.kafka.common.security.{JaasContext, JaasUtils}
@@ -168,7 +169,9 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
   var kafkaController: KafkaController = null
 
-  var brokerToControllerChannelManager: BrokerToControllerChannelManager = null
+  var redirectionManager: BrokerToControllerChannelManager = null
+
+  var alterIsrRedirectionManager: BrokerToControllerChannelManager = null
 
   var kafkaScheduler: KafkaScheduler = null
 
@@ -302,11 +305,10 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         socketServer = new SocketServer(config, metrics, time, credentialProvider)
         socketServer.startup(startProcessingRequests = false)
 
+
         /* start replica manager */
-        brokerToControllerChannelManager = new BrokerToControllerChannelManagerImpl(metadataCache, time, metrics, config, threadNamePrefix)
         replicaManager = createReplicaManager(isShuttingDown)
         replicaManager.startup()
-        brokerToControllerChannelManager.start()
 
         val brokerInfo = createBrokerInfo
         val brokerEpoch = zkClient.registerBroker(brokerInfo)
@@ -321,6 +323,12 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         /* start kafka controller */
         kafkaController = new KafkaController(config, zkClient, time, metrics, brokerInfo, brokerEpoch, tokenManager, brokerFeatures, featureCache, threadNamePrefix)
         kafkaController.startup()
+
+        if (config.redirectionEnabled) {
+          /* start redirection manager */
+          redirectionManager = new BrokerToControllerChannelManagerImpl(metadataCache, time, metrics, config, "redirectionChannel", threadNamePrefix)
+          redirectionManager.start()
+        }
 
         adminManager = new AdminManager(config, metrics, metadataCache, zkClient)
 
@@ -354,7 +362,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         /* start processing requests */
         dataPlaneRequestProcessor = new KafkaApis(socketServer.dataPlaneRequestChannel, replicaManager, adminManager, groupCoordinator, transactionCoordinator,
-          kafkaController, zkClient, config.brokerId, config, metadataCache, metrics, authorizer, quotaManagers,
+          kafkaController, redirectionManager, zkClient, config.brokerId, config, metadataCache, metrics, authorizer, quotaManagers,
           fetchManager, brokerTopicStats, clusterId, time, tokenManager, brokerFeatures, featureCache)
 
         dataPlaneRequestHandlerPool = new KafkaRequestHandlerPool(config.brokerId, socketServer.dataPlaneRequestChannel, dataPlaneRequestProcessor, time,
@@ -362,7 +370,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         socketServer.controlPlaneRequestChannelOpt.foreach { controlPlaneRequestChannel =>
           controlPlaneRequestProcessor = new KafkaApis(controlPlaneRequestChannel, replicaManager, adminManager, groupCoordinator, transactionCoordinator,
-            kafkaController, zkClient, config.brokerId, config, metadataCache, metrics, authorizer, quotaManagers,
+            kafkaController, redirectionManager, zkClient, config.brokerId, config, metadataCache, metrics, authorizer, quotaManagers,
             fetchManager, brokerTopicStats, clusterId, time, tokenManager, brokerFeatures, featureCache)
 
           controlPlaneRequestHandlerPool = new KafkaRequestHandlerPool(config.brokerId, socketServer.controlPlaneRequestChannelOpt.get, controlPlaneRequestProcessor, time,
@@ -427,7 +435,9 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
   }
 
   protected def createReplicaManager(isShuttingDown: AtomicBoolean): ReplicaManager = {
-    val alterIsrManager = new AlterIsrManagerImpl(brokerToControllerChannelManager, kafkaScheduler,
+    alterIsrRedirectionManager = new BrokerToControllerChannelManagerImpl(
+      metadataCache, time, metrics, config, "alterIsrChannel", threadNamePrefix)
+    val alterIsrManager = new AlterIsrManagerImpl(alterIsrRedirectionManager, kafkaScheduler,
       time, config.brokerId, () => kafkaController.brokerEpoch)
     new ReplicaManager(config, metrics, time, zkClient, kafkaScheduler, logManager, isShuttingDown, quotaManagers,
       brokerTopicStats, metadataCache, logDirFailureChannel, alterIsrManager)
@@ -709,14 +719,17 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         if (replicaManager != null)
           CoreUtils.swallow(replicaManager.shutdown(), this)
 
-        if (brokerToControllerChannelManager != null)
-          CoreUtils.swallow(brokerToControllerChannelManager.shutdown(), this)
+        if (redirectionManager != null)
+          CoreUtils.swallow(redirectionManager.shutdown(), this)
 
         if (logManager != null)
           CoreUtils.swallow(logManager.shutdown(), this)
 
         if (kafkaController != null)
           CoreUtils.swallow(kafkaController.shutdown(), this)
+
+        if (alterIsrRedirectionManager != null)
+          CoreUtils.swallow(alterIsrRedirectionManager.shutdown(), this)
 
         if (featureChangeListener != null)
           CoreUtils.swallow(featureChangeListener.close(), this)

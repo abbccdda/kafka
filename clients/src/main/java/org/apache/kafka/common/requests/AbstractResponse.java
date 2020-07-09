@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.common.requests;
 
+import org.apache.kafka.common.message.EnvelopeResponseData;
 import org.apache.kafka.common.message.FetchResponseData;
 import org.apache.kafka.common.message.AlterIsrResponseData;
 import org.apache.kafka.common.network.NetworkSend;
@@ -204,6 +205,8 @@ public abstract class AbstractResponse implements AbstractRequestResponse {
                 return new AlterIsrResponse(new AlterIsrResponseData(struct, version));
             case UPDATE_FEATURES:
                 return new UpdateFeaturesResponse(struct, version);
+            case ENVELOPE:
+                return new EnvelopeResponse(new EnvelopeResponseData(struct, version));
             default:
                 throw new AssertionError(String.format("ApiKey %s is not currently handled in `parseResponse`, the " +
                         "code should be updated to do so.", apiKey));

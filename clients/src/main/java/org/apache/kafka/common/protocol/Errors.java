@@ -18,6 +18,7 @@ package org.apache.kafka.common.protocol;
 
 import org.apache.kafka.common.InvalidRecordException;
 import org.apache.kafka.common.errors.ApiException;
+import org.apache.kafka.common.errors.BrokerAuthorizationFailureException;
 import org.apache.kafka.common.errors.BrokerNotAvailableException;
 import org.apache.kafka.common.errors.ClusterAuthorizationException;
 import org.apache.kafka.common.errors.ConcurrentTransactionsException;
@@ -338,7 +339,9 @@ public enum Errors {
     INCONSISTENT_VOTER_SET(94, "Indicates that the either the sender or recipient of a " +
             "voter-only request is not one of the expected voters", InconsistentVoterSetException::new),
     INVALID_UPDATE_VERSION(95, "The given update version was invalid.", InvalidUpdateVersionException::new),
-    FEATURE_UPDATE_FAILED(96, "Unable to update finalized features due to an unexpected server error.", FeatureUpdateFailedException::new);
+    FEATURE_UPDATE_FAILED(96, "Unable to update finalized features due to an unexpected server error.", FeatureUpdateFailedException::new),
+    BROKER_AUTHORIZATION_FAILURE(97, "Authorization failed for the request during forwarding. " +
+        "This indicates an internal error on the broker cluster security setup.", BrokerAuthorizationFailureException::new);
 
     private static final Logger log = LoggerFactory.getLogger(Errors.class);
 
