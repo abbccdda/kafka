@@ -87,6 +87,7 @@ import scala.collection.mutable.ArrayBuffer
 import scala.collection.{Map, Seq, Set, immutable, mutable}
 import scala.util.{Failure, Success, Try}
 import kafka.coordinator.group.GroupOverview
+import org.apache.kafka.clients.{ClientResponse, RequestCompletionHandler}
 
 
 /**
@@ -98,6 +99,7 @@ class KafkaApis(val requestChannel: RequestChannel,
                 val groupCoordinator: GroupCoordinator,
                 val txnCoordinator: TransactionCoordinator,
                 val controller: KafkaController,
+                val brokerToControllerChannelManager: BrokerToControllerChannelManager,
                 val zkClient: KafkaZkClient,
                 val brokerId: Int,
                 val config: KafkaConfig,
@@ -2453,34 +2455,82 @@ class KafkaApis(val requestChannel: RequestChannel,
 
   def handleAlterConfigsRequest(request: RequestChannel.Request): Unit = {
     val alterConfigsRequest = request.body[AlterConfigsRequest]
-    val (authorizedResources, unauthorizedResources) = alterConfigsRequest.configs.asScala.toMap.partition { case (resource, _) =>
-      resource.`type` match {
-        case ConfigResource.Type.BROKER_LOGGER =>
-          throw new InvalidRequestException(s"AlterConfigs is deprecated and does not support the resource type ${ConfigResource.Type.BROKER_LOGGER}")
-        case ConfigResource.Type.BROKER =>
-          authorize(request.context, ALTER_CONFIGS, CLUSTER, CLUSTER_NAME)
-        case ConfigResource.Type.TOPIC =>
-          authorize(request.context, ALTER_CONFIGS, TOPIC, resource.name)
-        case rt => throw new InvalidRequestException(s"Unexpected resource type $rt")
+    val requestResources = alterConfigsRequest.configs.asScala.toMap
+
+    def sendResponseCallback(results: Map[ConfigResource, ApiError]): Unit = {
+      def responseCallback(requestThrottleMs: Int): AlterConfigsResponse = {
+        val data = new AlterConfigsResponseData()
+          .setThrottleTimeMs(requestThrottleMs)
+        results.foreach { case (resource, error) =>
+          data.responses().add(new AlterConfigsResourceResponse()
+            .setErrorCode(error.error.code)
+            .setErrorMessage(error.message)
+            .setResourceName(resource.name)
+            .setResourceType(resource.`type`.id))
+        }
+        new AlterConfigsResponse(data)
       }
+      sendResponseMaybeThrottle(request, responseCallback)
     }
-    val authorizedResult = adminManager.alterConfigs(authorizedResources, alterConfigsRequest.validateOnly)
-    val unauthorizedResult = unauthorizedResources.keys.map { resource =>
-      resource -> configsAuthorizationApiError(resource)
-    }
-    def responseCallback(requestThrottleMs: Int): AlterConfigsResponse = {
-      val data = new AlterConfigsResponseData()
-        .setThrottleTimeMs(requestThrottleMs)
-      (authorizedResult ++ unauthorizedResult).foreach{ case (resource, error) =>
-        data.responses().add(new AlterConfigsResourceResponse()
-          .setErrorCode(error.error.code)
-          .setErrorMessage(error.message)
-          .setResourceName(resource.name)
-          .setResourceType(resource.`type`.id))
+
+    if (shouldBeControllerOnly(alterConfigsRequest.validateOnly) && !isForwardingRequest(request)) {
+      // This is the original forwarded request which needs the handling.
+        brokerToControllerChannelManager.sendRequest(request,
+          new ForwardedRequestCompletionHandler(request))
+    } else if (shouldBeControllerOnly(alterConfigsRequest.validateOnly)) {
+      val requireControllerResult = requestResources.keys.map {
+        resource => resource -> new ApiError(Errors.NOT_CONTROLLER, null)
+      }.toMap
+
+      sendResponseCallback(requireControllerResult)
+    } else {
+      val (authorizedResources, unauthorizedResources) = requestResources.partition { case (resource, _) =>
+        resource.`type` match {
+          case ConfigResource.Type.BROKER_LOGGER =>
+            throw new InvalidRequestException(
+              s"AlterConfigs is deprecated and does not support the resource type ${ConfigResource.Type.BROKER_LOGGER}")
+          case ConfigResource.Type.BROKER =>
+            authorize(request.context, ALTER_CONFIGS, CLUSTER, CLUSTER_NAME)
+          case ConfigResource.Type.TOPIC =>
+            authorize(request.context, ALTER_CONFIGS, TOPIC, resource.name)
+          case rt => throw new InvalidRequestException(s"Unexpected resource type $rt")
+        }
       }
-      new AlterConfigsResponse(data)
+
+      val authorizedResult = adminManager.alterConfigs(
+        authorizedResources, alterConfigsRequest.validateOnly)
+      val unauthorizedResult = unauthorizedResources.keys.map { resource =>
+        resource -> configsAuthorizationApiError(resource)
+      }
+
+      sendResponseCallback(authorizedResult ++ unauthorizedResult)
     }
-    sendResponseMaybeThrottle(request, responseCallback)
+  }
+
+  private def shouldBeControllerOnly(validateOnly: Boolean): Boolean = {
+    !controller.isActive && !validateOnly
+  }
+
+  private def isForwardingRequest(request: RequestChannel.Request): Boolean = {
+    request.header.initialPrincipalName != null
+  }
+
+  private def getForwardingRequestContext(request: RequestChannel.Request): RequestContext = {
+    val originalContext = request.context
+    new RequestContext(originalContext.header,
+      originalContext.connectionId,
+      originalContext.clientAddress,
+      originalContext.principal,
+      originalContext.listenerName,
+      originalContext.securityProtocol,
+      originalContext.clientInformation)
+  }
+
+  private class ForwardedRequestCompletionHandler(originalRequest: RequestChannel.Request)
+    extends RequestCompletionHandler with Logging {
+    override def onComplete(response: ClientResponse): Unit = {
+      sendResponseMaybeThrottle(originalRequest, _ => response.responseBody())
+    }
   }
 
   def handleAlterPartitionReassignmentsRequest(request: RequestChannel.Request): Unit = {
@@ -2578,9 +2628,8 @@ class KafkaApis(val requestChannel: RequestChannel,
   }
 
   def handleIncrementalAlterConfigsRequest(request: RequestChannel.Request): Unit = {
-    val alterConfigsRequest = request.body[IncrementalAlterConfigsRequest]
-
-    val configs = alterConfigsRequest.data.resources.iterator.asScala.map { alterConfigResource =>
+    val incrementalAlterConfigsRequest = request.body[IncrementalAlterConfigsRequest]
+    val configs = incrementalAlterConfigsRequest.data.resources.iterator.asScala.map { alterConfigResource =>
       val configResource = new ConfigResource(ConfigResource.Type.forId(alterConfigResource.resourceType),
         alterConfigResource.resourceName)
       configResource -> alterConfigResource.configs.iterator.asScala.map {
@@ -2589,23 +2638,40 @@ class KafkaApis(val requestChannel: RequestChannel,
       }.toBuffer
     }.toMap
 
-    val (authorizedResources, unauthorizedResources) = configs.partition { case (resource, _) =>
-      resource.`type` match {
-        case ConfigResource.Type.BROKER | ConfigResource.Type.BROKER_LOGGER =>
-          authorize(request.context, ALTER_CONFIGS, CLUSTER, CLUSTER_NAME)
-        case ConfigResource.Type.TOPIC =>
-          authorize(request.context, ALTER_CONFIGS, TOPIC, resource.name)
-        case rt => throw new InvalidRequestException(s"Unexpected resource type $rt")
+    def sendResponseCallback(results: Map[ConfigResource, ApiError]): Unit = {
+      def responseCallback(requestThrottleMs: Int): IncrementalAlterConfigsResponse = {
+        new IncrementalAlterConfigsResponse(IncrementalAlterConfigsResponse.toResponseData(requestThrottleMs, results.asJava))
       }
+      sendResponseMaybeThrottle(request, responseCallback)
     }
 
-    val authorizedResult = adminManager.incrementalAlterConfigs(authorizedResources, alterConfigsRequest.data.validateOnly)
-    val unauthorizedResult = unauthorizedResources.keys.map { resource =>
-      resource -> configsAuthorizationApiError(resource)
+    // This is the original forwarded request which needs the handling.
+    if (shouldBeControllerOnly(incrementalAlterConfigsRequest.data.validateOnly) && !isForwardingRequest(request)) {
+      brokerToControllerChannelManager.sendRequest(request,
+        new ForwardedRequestCompletionHandler(request))
+    } else if (shouldBeControllerOnly(incrementalAlterConfigsRequest.data.validateOnly)) {
+      val requireControllerResult = configs.keys.map {
+        resource => resource -> new ApiError(Errors.NOT_CONTROLLER, null)
+      }.toMap
+
+      sendResponseCallback(requireControllerResult)
+    } else {
+      val (authorizedResources, unauthorizedResources) = configs.partition { case (resource, _) =>
+        resource.`type` match {
+          case ConfigResource.Type.BROKER | ConfigResource.Type.BROKER_LOGGER =>
+            authorize(request.context, ALTER_CONFIGS, CLUSTER, CLUSTER_NAME)
+          case ConfigResource.Type.TOPIC =>
+            authorize(request.context, ALTER_CONFIGS, TOPIC, resource.name)
+          case rt => throw new InvalidRequestException(s"Unexpected resource type $rt")
+        }
+      }
+
+      val authorizedResult = adminManager.incrementalAlterConfigs(authorizedResources, incrementalAlterConfigsRequest.data.validateOnly)
+      val unauthorizedResult = unauthorizedResources.keys.map { resource =>
+        resource -> configsAuthorizationApiError(resource)
+      }
+      sendResponseCallback(authorizedResult ++ unauthorizedResult)
     }
-    sendResponseMaybeThrottle(request, requestThrottleMs =>
-      new IncrementalAlterConfigsResponse(IncrementalAlterConfigsResponse.toResponseData(requestThrottleMs,
-        (authorizedResult ++ unauthorizedResult).asJava)))
   }
 
   def handleDescribeConfigsRequest(request: RequestChannel.Request): Unit = {

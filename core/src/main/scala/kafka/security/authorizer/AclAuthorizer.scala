@@ -450,6 +450,7 @@ class AclAuthorizer extends Authorizer with Logging {
   def logAuditMessage(requestContext: AuthorizableRequestContext, action: Action, authorized: Boolean): Unit = {
     def logMessage: String = {
       val principal = requestContext.principal
+      val initialPrincipalName = requestContext.initialPrincipalName
       val operation = SecurityUtils.operationName(action.operation)
       val host = requestContext.clientAddress.getHostAddress
       val resourceType = SecurityUtils.resourceTypeName(action.resourcePattern.resourceType)
@@ -458,7 +459,7 @@ class AclAuthorizer extends Authorizer with Logging {
       val apiKey = if (ApiKeys.hasId(requestContext.requestType)) ApiKeys.forId(requestContext.requestType).name else requestContext.requestType
       val refCount = action.resourceReferenceCount
 
-      s"Principal = $principal is $authResult Operation = $operation from host = $host on resource = $resource for request = $apiKey with resourceRefCount = $refCount"
+      s"[Principal = $principal, Initial Principal Name = $initialPrincipalName]: is $authResult Operation = $operation from host = $host on resource = $resource for request = $apiKey with resourceRefCount = $refCount"
     }
 
     if (authorized) {

@@ -33,6 +33,7 @@ class InterBrokerSendThreadTest {
   private val time = new MockTime()
   private val networkClient: NetworkClient = EasyMock.createMock(classOf[NetworkClient])
   private val completionHandler = new StubCompletionHandler
+  private val initialPrincipalName = "principalName"
   private val requestTimeoutMs = 1000
 
   @Test
@@ -58,13 +59,13 @@ class InterBrokerSendThreadTest {
   def shouldCreateClientRequestAndSendWhenNodeIsReady(): Unit = {
     val request = new StubRequestBuilder()
     val node = new Node(1, "", 8080)
-    val handler = RequestAndCompletionHandler(node, request, completionHandler)
+    val handler = RequestAndCompletionHandler(node, request, completionHandler, initialPrincipalName)
     val sendThread = new InterBrokerSendThread("name", networkClient, time) {
       override val requestTimeoutMs: Int = InterBrokerSendThreadTest.this.requestTimeoutMs
       override def generateRequests() = List[RequestAndCompletionHandler](handler)
     }
 
-    val clientRequest = new ClientRequest("dest", request, 0, "1", 0, true, requestTimeoutMs, handler.handler)
+    val clientRequest = new ClientRequest("dest", request, 0, "1", 0, true, requestTimeoutMs, handler.handler, initialPrincipalName)
 
     EasyMock.expect(networkClient.newClientRequest(
       EasyMock.eq("1"),
@@ -72,7 +73,8 @@ class InterBrokerSendThreadTest {
       EasyMock.anyLong(),
       EasyMock.eq(true),
       EasyMock.eq(requestTimeoutMs),
-      EasyMock.same(handler.handler)))
+      EasyMock.same(handler.handler),
+      EasyMock.eq(initialPrincipalName)))
       .andReturn(clientRequest)
 
     EasyMock.expect(networkClient.ready(node, time.milliseconds()))
@@ -95,13 +97,13 @@ class InterBrokerSendThreadTest {
   def shouldCallCompletionHandlerWithDisconnectedResponseWhenNodeNotReady(): Unit = {
     val request = new StubRequestBuilder
     val node = new Node(1, "", 8080)
-    val requestAndCompletionHandler = RequestAndCompletionHandler(node, request, completionHandler)
+    val requestAndCompletionHandler = RequestAndCompletionHandler(node, request, completionHandler, initialPrincipalName)
     val sendThread = new InterBrokerSendThread("name", networkClient, time) {
       override val requestTimeoutMs: Int = InterBrokerSendThreadTest.this.requestTimeoutMs
       override def generateRequests() = List[RequestAndCompletionHandler](requestAndCompletionHandler)
     }
 
-    val clientRequest = new ClientRequest("dest", request, 0, "1", 0, true, requestTimeoutMs, requestAndCompletionHandler.handler)
+    val clientRequest = new ClientRequest("dest", request, 0, "1", 0, true, requestTimeoutMs, requestAndCompletionHandler.handler, initialPrincipalName)
 
     EasyMock.expect(networkClient.newClientRequest(
       EasyMock.eq("1"),
@@ -109,7 +111,8 @@ class InterBrokerSendThreadTest {
       EasyMock.anyLong(),
       EasyMock.eq(true),
       EasyMock.eq(requestTimeoutMs),
-      EasyMock.same(requestAndCompletionHandler.handler)))
+      EasyMock.same(requestAndCompletionHandler.handler),
+      EasyMock.eq(initialPrincipalName)))
       .andReturn(clientRequest)
 
     EasyMock.expect(networkClient.ready(node, time.milliseconds()))
@@ -139,7 +142,7 @@ class InterBrokerSendThreadTest {
   def testFailingExpiredRequests(): Unit = {
     val request = new StubRequestBuilder()
     val node = new Node(1, "", 8080)
-    val handler = RequestAndCompletionHandler(node, request, completionHandler)
+    val handler = RequestAndCompletionHandler(node, request, completionHandler, initialPrincipalName)
     val sendThread = new InterBrokerSendThread("name", networkClient, time) {
       override val requestTimeoutMs: Int = InterBrokerSendThreadTest.this.requestTimeoutMs
       override def generateRequests() = List[RequestAndCompletionHandler](handler)
@@ -152,7 +155,8 @@ class InterBrokerSendThreadTest {
       time.milliseconds(),
       true,
       requestTimeoutMs,
-      handler.handler)
+      handler.handler,
+      initialPrincipalName)
     time.sleep(1500)
 
     EasyMock.expect(networkClient.newClientRequest(
@@ -161,7 +165,8 @@ class InterBrokerSendThreadTest {
       EasyMock.eq(time.milliseconds()),
       EasyMock.eq(true),
       EasyMock.eq(requestTimeoutMs),
-      EasyMock.same(handler.handler)))
+      EasyMock.same(handler.handler),
+      EasyMock.eq(initialPrincipalName)))
       .andReturn(clientRequest)
 
     // make the node unready so the request is not cleared

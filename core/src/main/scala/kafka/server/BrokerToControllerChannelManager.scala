@@ -28,6 +28,7 @@ import org.apache.kafka.common.Node
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.network._
 import org.apache.kafka.common.protocol.Errors
+import org.apache.kafka.common.requests.AbstractRequest.NoOpRequestBuilder
 import org.apache.kafka.common.security.JaasContext
 
 import scala.collection.mutable
@@ -117,10 +118,16 @@ class BrokerToControllerChannelManager(metadataCache: kafka.server.MetadataCache
                                   callback: RequestCompletionHandler): Unit = {
     requestQueue.put(BrokerToControllerQueueItem(request, callback))
   }
-}
+
+  private[server] def forwardRequest(originalRequest: RequestChannel.Request,
+                                     callback: RequestCompletionHandler): Unit = {
+    val requestBuilder = new NoOpRequestBuilder(originalRequest.context.header.apiKey, originalRequest.body[AbstractRequest])
+    requestQueue.put(BrokerToControllerQueueItem(requestBuilder, callback, originalRequest.context.principal.getName))
+  }
 
 case class BrokerToControllerQueueItem(request: AbstractRequest.Builder[_ <: AbstractRequest],
-                                       callback: RequestCompletionHandler)
+                                       callback: RequestCompletionHandler,
+                                       initialPrincipalName: String)
 
 class BrokerToControllerRequestThread(networkClient: KafkaClient,
                                       metadataUpdater: ManualMetadataUpdater,
@@ -144,7 +151,8 @@ class BrokerToControllerRequestThread(networkClient: KafkaClient,
         activeController.get,
         topRequest.request,
         handleResponse(topRequest),
-        )
+        topRequest.initialPrincipalName)
+
       requestsToSend.enqueue(request)
     }
     requestsToSend
@@ -154,6 +162,7 @@ class BrokerToControllerRequestThread(networkClient: KafkaClient,
     if (response.wasDisconnected()) {
       activeController = None
       requestQueue.putFirst(request)
+
     } else if (response.responseBody().errorCounts().containsKey(Errors.NOT_CONTROLLER)) {
       // just close the controller connection and wait for metadata cache update in doWork
       networkClient.close(activeController.get.idString)

@@ -40,6 +40,7 @@ public class RequestContext implements AuthorizableRequestContext {
     public final ListenerName listenerName;
     public final SecurityProtocol securityProtocol;
     public final ClientInformation clientInformation;
+    public final String initialPrincipalName;
 
     public RequestContext(RequestHeader header,
                           String connectionId,
@@ -55,6 +56,7 @@ public class RequestContext implements AuthorizableRequestContext {
         this.listenerName = listenerName;
         this.securityProtocol = securityProtocol;
         this.clientInformation = clientInformation;
+        this.initialPrincipalName = header.initialPrincipalName();
     }
 
     public RequestAndSize parseRequest(ByteBuffer buffer) {
@@ -133,5 +135,10 @@ public class RequestContext implements AuthorizableRequestContext {
     @Override
     public int correlationId() {
         return header.correlationId();
+    }
+
+    @Override
+    public String initialPrincipalName() {
+        return header.initialPrincipalName();
     }
 }

@@ -1199,7 +1199,7 @@ public class NetworkClient implements KafkaClient {
                                           AbstractRequest.Builder<?> requestBuilder,
                                           long createdTimeMs,
                                           boolean expectResponse) {
-        return newClientRequest(nodeId, requestBuilder, createdTimeMs, expectResponse, defaultRequestTimeoutMs, null);
+        return newClientRequest(nodeId, requestBuilder, createdTimeMs, expectResponse, defaultRequestTimeoutMs, null, "");
     }
 
     // visible for testing
@@ -1217,9 +1217,10 @@ public class NetworkClient implements KafkaClient {
                                           long createdTimeMs,
                                           boolean expectResponse,
                                           int requestTimeoutMs,
-                                          RequestCompletionHandler callback) {
+                                          RequestCompletionHandler callback,
+                                          String initialPrincipalName) {
         return new ClientRequest(nodeId, requestBuilder, nextCorrelationId(), clientId, createdTimeMs, expectResponse,
-                requestTimeoutMs, callback);
+                requestTimeoutMs, callback, initialPrincipalName);
     }
 
     public boolean discoverBrokerVersions() {

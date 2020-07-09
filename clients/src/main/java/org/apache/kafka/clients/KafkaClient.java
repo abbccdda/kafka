@@ -186,16 +186,18 @@ public interface KafkaClient extends Closeable {
      * @param createdTimeMs the time in milliseconds to use as the creation time of the request
      * @param expectResponse true iff we expect a response
      * @param requestTimeoutMs Upper bound time in milliseconds to await a response before disconnecting the socket and
-     *                         cancelling the request. The request may get cancelled sooner if the socket disconnects
-     *                         for any reason including if another pending request to the same node timed out first.
+*                         cancelling the request. The request may get cancelled sooner if the socket disconnects
+*                         for any reason including if another pending request to the same node timed out first.
      * @param callback the callback to invoke when we get a response
+     * @param initialPrincipalName the initial client principal name, when building a forward request
      */
     ClientRequest newClientRequest(String nodeId,
                                    AbstractRequest.Builder<?> requestBuilder,
                                    long createdTimeMs,
                                    boolean expectResponse,
                                    int requestTimeoutMs,
-                                   RequestCompletionHandler callback);
+                                   RequestCompletionHandler callback,
+                                   String initialPrincipalName);
 
 
 

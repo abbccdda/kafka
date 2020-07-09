@@ -76,6 +76,19 @@ public abstract class AbstractRequest implements AbstractRequestResponse {
         public abstract T build(short version);
     }
 
+    public static class NoOpRequestBuilder extends Builder<AbstractRequest> {
+        private final AbstractRequest request;
+        public NoOpRequestBuilder(ApiKeys apiKey, AbstractRequest request) {
+            super(apiKey);
+            this.request = request;
+        }
+
+        @Override
+        public AbstractRequest build(short version) {
+            return request;
+        }
+    }
+
     private final short version;
     public final ApiKeys api;
 
