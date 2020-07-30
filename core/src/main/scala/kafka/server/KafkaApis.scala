@@ -130,6 +130,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     try {
       trace(s"Handling request:${request.requestDesc(true)} from connection ${request.context.connectionId};" +
         s"securityProtocol:${request.context.securityProtocol},principal:${request.context.principal}")
+
       request.header.apiKey match {
         case ApiKeys.PRODUCE => handleProduceRequest(request)
         case ApiKeys.FETCH => handleFetchRequest(request)
@@ -2457,6 +2458,11 @@ class KafkaApis(val requestChannel: RequestChannel,
     val alterConfigsRequest = request.body[AlterConfigsRequest]
     val requestResources = alterConfigsRequest.configs.asScala.toMap
 
+    // This is a forwarded request
+    if (request.context.fromControlPlane) {
+
+    }
+
     def sendResponseCallback(results: Map[ConfigResource, ApiError]): Unit = {
       def responseCallback(requestThrottleMs: Int): AlterConfigsResponse = {
         val data = new AlterConfigsResponseData()
@@ -2475,8 +2481,8 @@ class KafkaApis(val requestChannel: RequestChannel,
 
     if (shouldBeControllerOnly(alterConfigsRequest.validateOnly) && !isForwardingRequest(request)) {
       // This is the original forwarded request which needs the handling.
-        brokerToControllerChannelManager.sendRequest(request,
-          new ForwardedRequestCompletionHandler(request))
+      brokerToControllerChannelManager.sendRequest(request,
+        new ForwardedRequestCompletionHandler(request))
     } else if (shouldBeControllerOnly(alterConfigsRequest.validateOnly)) {
       val requireControllerResult = requestResources.keys.map {
         resource => resource -> new ApiError(Errors.NOT_CONTROLLER, null)

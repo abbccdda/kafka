@@ -1220,7 +1220,7 @@ public class NetworkClient implements KafkaClient {
                                           RequestCompletionHandler callback,
                                           String initialPrincipalName) {
         return new ClientRequest(nodeId, requestBuilder, nextCorrelationId(), clientId, createdTimeMs, expectResponse,
-                requestTimeoutMs, callback, initialPrincipalName);
+                requestTimeoutMs, callback, initialPrincipalName, null);
     }
 
     public boolean discoverBrokerVersions() {

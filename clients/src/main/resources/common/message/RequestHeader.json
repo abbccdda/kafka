@@ -41,6 +41,9 @@
     // Could not set default to null, because not all versions of this field are nullable.
     { "name": "InitialPrincipalName", "type": "string", "tag": 0, "taggedVersions": "2+",
       "nullableVersions": "2+", "ignorable": true,
-      "about": "Optional value of the initial principal name when the request is redirected by a broker." }
+      "about": "Optional value of the initial principal name when the request is redirected by a broker, for audit logging purpose." },
+    { "name": "InitialClientId", "type": "string", "tag": 1, "taggedVersions": "2+",
+      "nullableVersions": "2+", "ignorable": true,
+      "about": "Optional value of the initial client id when the request is redirected by a broker, for throttling purpose." }
   ]
 }

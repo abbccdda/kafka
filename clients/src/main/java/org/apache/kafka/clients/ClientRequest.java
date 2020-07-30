@@ -35,6 +35,7 @@ public final class ClientRequest {
     private final int requestTimeoutMs;
     private final RequestCompletionHandler callback;
     private final String initialPrincipalName;
+    private final String initialClientId;
 
     /**
      * @param destination The brokerId to send the request to
@@ -44,7 +45,8 @@ public final class ClientRequest {
      * @param createdTimeMs The unix timestamp in milliseconds for the time at which this request was created.
      * @param expectResponse Should we expect a response message or is this request complete once it is sent?
      * @param callback A callback to execute when the response has been received (or null if no callback is necessary)
-     * @param initialPrincipalName The initial principal name
+     * @param initialPrincipalName The initial principal name if this is a redirect request
+     * @param initialClientId The initial client id if this is a redirect request
      */
     public ClientRequest(String destination,
                          AbstractRequest.Builder<?> requestBuilder,
@@ -54,7 +56,8 @@ public final class ClientRequest {
                          boolean expectResponse,
                          int requestTimeoutMs,
                          RequestCompletionHandler callback,
-                         String initialPrincipalName) {
+                         String initialPrincipalName,
+                         String initialClientId) {
         this.destination = destination;
         this.requestBuilder = requestBuilder;
         this.correlationId = correlationId;
@@ -64,6 +67,7 @@ public final class ClientRequest {
         this.requestTimeoutMs = requestTimeoutMs;
         this.callback = callback;
         this.initialPrincipalName = initialPrincipalName;
+        this.initialClientId = initialClientId;
     }
 
     @Override

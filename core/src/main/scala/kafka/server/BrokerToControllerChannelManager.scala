@@ -20,6 +20,7 @@ package kafka.server
 import java.util.concurrent.{LinkedBlockingDeque, TimeUnit}
 
 import kafka.common.{InterBrokerSendThread, RequestAndCompletionHandler}
+import kafka.network.RequestChannel
 import kafka.utils.Logging
 import org.apache.kafka.clients._
 import org.apache.kafka.common.requests.AbstractRequest
@@ -116,7 +117,7 @@ class BrokerToControllerChannelManager(metadataCache: kafka.server.MetadataCache
 
   private[server] def sendRequest(request: AbstractRequest.Builder[_ <: AbstractRequest],
                                   callback: RequestCompletionHandler): Unit = {
-    requestQueue.put(BrokerToControllerQueueItem(request, callback))
+    requestQueue.put(BrokerToControllerQueueItem(request, callback, null))
   }
 
   private[server] def forwardRequest(originalRequest: RequestChannel.Request,

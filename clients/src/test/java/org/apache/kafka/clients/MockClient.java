@@ -511,7 +511,7 @@ public class MockClient implements KafkaClient {
                                           RequestCompletionHandler callback,
                                           String initialPrincipalName) {
         return new ClientRequest(nodeId, requestBuilder, correlation++, "mockClientId", createdTimeMs,
-                expectResponse, requestTimeoutMs, callback, initialPrincipalName);
+                expectResponse, requestTimeoutMs, callback, initialPrincipalName, null);
     }
 
     @Override

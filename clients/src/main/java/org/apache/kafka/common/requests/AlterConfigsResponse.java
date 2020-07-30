@@ -29,7 +29,7 @@ import java.util.stream.Collectors;
 
 public class AlterConfigsResponse extends AbstractResponse {
 
-    public final AlterConfigsResponseData data;
+    private final AlterConfigsResponseData data;
 
     public AlterConfigsResponse(AlterConfigsResponseData data) {
         this.data = data;
@@ -37,6 +37,10 @@ public class AlterConfigsResponse extends AbstractResponse {
 
     public AlterConfigsResponse(Struct struct, short version) {
         this.data = new AlterConfigsResponseData(struct, version);
+    }
+
+    public AlterConfigsResponseData data() {
+        return data;
     }
 
     public Map<ConfigResource, ApiError> errors() {

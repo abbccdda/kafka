@@ -39,6 +39,7 @@ public class RequestContext implements AuthorizableRequestContext {
     public final KafkaPrincipal principal;
     public final ListenerName listenerName;
     public final SecurityProtocol securityProtocol;
+    public final boolean fromControlPlane;
     public final ClientInformation clientInformation;
     public final String initialPrincipalName;
 
@@ -48,13 +49,15 @@ public class RequestContext implements AuthorizableRequestContext {
                           KafkaPrincipal principal,
                           ListenerName listenerName,
                           SecurityProtocol securityProtocol,
-                          ClientInformation clientInformation) {
+                          ClientInformation clientInformation,
+                          boolean fromControlPlane) {
         this.header = header;
         this.connectionId = connectionId;
         this.clientAddress = clientAddress;
         this.principal = principal;
         this.listenerName = listenerName;
         this.securityProtocol = securityProtocol;
+        this.fromControlPlane = fromControlPlane;
         this.clientInformation = clientInformation;
         this.initialPrincipalName = header.initialPrincipalName();
     }
