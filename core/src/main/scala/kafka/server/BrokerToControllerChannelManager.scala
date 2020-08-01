@@ -20,7 +20,6 @@ package kafka.server
 import java.util.concurrent.{LinkedBlockingDeque, TimeUnit}
 
 import kafka.common.{InterBrokerSendThread, RequestAndCompletionHandler}
-import kafka.network.RequestChannel
 import kafka.utils.Logging
 import org.apache.kafka.clients._
 import org.apache.kafka.common.requests.AbstractRequest
@@ -29,7 +28,6 @@ import org.apache.kafka.common.Node
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.network._
 import org.apache.kafka.common.protocol.Errors
-import org.apache.kafka.common.requests.AbstractRequest.NoOpRequestBuilder
 import org.apache.kafka.common.security.JaasContext
 
 import scala.collection.mutable
@@ -116,19 +114,16 @@ class BrokerToControllerChannelManager(metadataCache: kafka.server.MetadataCache
   }
 
   private[server] def sendRequest(request: AbstractRequest.Builder[_ <: AbstractRequest],
-                                  callback: RequestCompletionHandler): Unit = {
-    requestQueue.put(BrokerToControllerQueueItem(request, callback, null))
+                                  callback: RequestCompletionHandler,
+                                  initialPrincipalName: String = null,
+                                  initialClientId: String = null): Unit = {
+    requestQueue.put(BrokerToControllerQueueItem(request, callback, initialPrincipalName, initialClientId))
   }
-
-  private[server] def forwardRequest(originalRequest: RequestChannel.Request,
-                                     callback: RequestCompletionHandler): Unit = {
-    val requestBuilder = new NoOpRequestBuilder(originalRequest.context.header.apiKey, originalRequest.body[AbstractRequest])
-    requestQueue.put(BrokerToControllerQueueItem(requestBuilder, callback, originalRequest.context.principal.getName))
-  }
-
+}
 case class BrokerToControllerQueueItem(request: AbstractRequest.Builder[_ <: AbstractRequest],
                                        callback: RequestCompletionHandler,
-                                       initialPrincipalName: String)
+                                       initialPrincipalName: String = null,
+                                       initialClientId: String = null)
 
 class BrokerToControllerRequestThread(networkClient: KafkaClient,
                                       metadataUpdater: ManualMetadataUpdater,
@@ -152,7 +147,8 @@ class BrokerToControllerRequestThread(networkClient: KafkaClient,
         activeController.get,
         topRequest.request,
         handleResponse(topRequest),
-        topRequest.initialPrincipalName)
+        topRequest.initialPrincipalName,
+        topRequest.initialClientId)
 
       requestsToSend.enqueue(request)
     }
@@ -163,7 +159,6 @@ class BrokerToControllerRequestThread(networkClient: KafkaClient,
     if (response.wasDisconnected()) {
       activeController = None
       requestQueue.putFirst(request)
-
     } else if (response.responseBody().errorCounts().containsKey(Errors.NOT_CONTROLLER)) {
       // just close the controller connection and wait for metadata cache update in doWork
       networkClient.close(activeController.get.idString)

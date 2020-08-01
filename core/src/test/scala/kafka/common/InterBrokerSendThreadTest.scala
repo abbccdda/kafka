@@ -67,14 +67,7 @@ class InterBrokerSendThreadTest {
 
     val clientRequest = new ClientRequest("dest", request, 0, "1", 0, true, requestTimeoutMs, handler.handler, initialPrincipalName, null)
 
-    EasyMock.expect(networkClient.newClientRequest(
-      EasyMock.eq("1"),
-      EasyMock.same(handler.request),
-      EasyMock.anyLong(),
-      EasyMock.eq(true),
-      EasyMock.eq(requestTimeoutMs),
-      EasyMock.same(handler.handler),
-      EasyMock.eq(initialPrincipalName)))
+    EasyMock.expect(networkClient.newClientRequest(EasyMock.eq("1"), EasyMock.same(handler.request), EasyMock.anyLong(), EasyMock.eq(true), EasyMock.eq(requestTimeoutMs), EasyMock.same(handler.handler), null, null))
       .andReturn(clientRequest)
 
     EasyMock.expect(networkClient.ready(node, time.milliseconds()))
@@ -105,14 +98,7 @@ class InterBrokerSendThreadTest {
 
     val clientRequest = new ClientRequest("dest", request, 0, "1", 0, true, requestTimeoutMs, requestAndCompletionHandler.handler, initialPrincipalName, null)
 
-    EasyMock.expect(networkClient.newClientRequest(
-      EasyMock.eq("1"),
-      EasyMock.same(requestAndCompletionHandler.request),
-      EasyMock.anyLong(),
-      EasyMock.eq(true),
-      EasyMock.eq(requestTimeoutMs),
-      EasyMock.same(requestAndCompletionHandler.handler),
-      EasyMock.eq(initialPrincipalName)))
+    EasyMock.expect(networkClient.newClientRequest(EasyMock.eq("1"), EasyMock.same(requestAndCompletionHandler.request), EasyMock.anyLong(), EasyMock.eq(true), EasyMock.eq(requestTimeoutMs), EasyMock.same(requestAndCompletionHandler.handler), null, null))
       .andReturn(clientRequest)
 
     EasyMock.expect(networkClient.ready(node, time.milliseconds()))
@@ -151,14 +137,7 @@ class InterBrokerSendThreadTest {
     val clientRequest = new ClientRequest("dest", request, 0, "1", time.milliseconds(), true, requestTimeoutMs, handler.handler, initialPrincipalName, null)
     time.sleep(1500)
 
-    EasyMock.expect(networkClient.newClientRequest(
-      EasyMock.eq("1"),
-      EasyMock.same(handler.request),
-      EasyMock.eq(time.milliseconds()),
-      EasyMock.eq(true),
-      EasyMock.eq(requestTimeoutMs),
-      EasyMock.same(handler.handler),
-      EasyMock.eq(initialPrincipalName)))
+    EasyMock.expect(networkClient.newClientRequest(EasyMock.eq("1"), EasyMock.same(handler.request), EasyMock.eq(time.milliseconds()), EasyMock.eq(true), EasyMock.eq(requestTimeoutMs), EasyMock.same(handler.handler), null, null))
       .andReturn(clientRequest)
 
     // make the node unready so the request is not cleared

@@ -98,7 +98,8 @@ public final class ClientRequest {
                 .setRequestApiVersion(version)
                 .setClientId(clientId)
                 .setCorrelationId(correlationId)
-                .setInitialPrincipalName(initialPrincipalName),
+                .setInitialPrincipalName(initialPrincipalName)
+                .setInitialClientId(initialClientId),
             ApiKeys.forId(requestApiKey).requestHeaderVersion(version));
     }
 

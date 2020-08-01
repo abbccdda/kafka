@@ -195,7 +195,7 @@ public class NetworkClientTest {
                 null);
         TestCallbackHandler handler = new TestCallbackHandler();
         ClientRequest request = networkClient.newClientRequest(
-                node.idString(), builder, time.milliseconds(), true, defaultRequestTimeoutMs, handler, "");
+                node.idString(), builder, time.milliseconds(), true, defaultRequestTimeoutMs, handler, null, null);
         networkClient.send(request, time.milliseconds());
         networkClient.poll(1, time.milliseconds());
         assertEquals(1, networkClient.inFlightRequestCount());
@@ -440,7 +440,7 @@ public class NetworkClientTest {
         TestCallbackHandler handler = new TestCallbackHandler();
         int requestTimeoutMs = defaultRequestTimeoutMs + 5000;
         ClientRequest request = client.newClientRequest(node.idString(), builder, time.milliseconds(), true,
-                requestTimeoutMs, handler, "");
+                requestTimeoutMs, handler, null, null);
         assertEquals(requestTimeoutMs, request.requestTimeoutMs());
         testRequestTimeout(request);
     }
@@ -508,7 +508,7 @@ public class NetworkClientTest {
             null);
         TestCallbackHandler handler = new TestCallbackHandler();
         ClientRequest request = client.newClientRequest(node.idString(), builder, time.milliseconds(), true,
-                defaultRequestTimeoutMs, handler, "");
+                defaultRequestTimeoutMs, handler, null, null);
         client.send(request, time.milliseconds());
         client.poll(1, time.milliseconds());
         ResponseHeader respHeader =
@@ -594,7 +594,7 @@ public class NetworkClientTest {
                 Collections.emptyMap());
         TestCallbackHandler handler = new TestCallbackHandler();
         ClientRequest request = client.newClientRequest(nodeId, builder, time.milliseconds(), true,
-                defaultRequestTimeoutMs, handler, "");
+                defaultRequestTimeoutMs, handler, null, null);
         client.send(request, time.milliseconds());
         return request.correlationId();
     }
@@ -875,11 +875,11 @@ public class NetworkClientTest {
             }
         };
 
-        ClientRequest request1 = client.newClientRequest(node.idString(), builder, now, true, defaultRequestTimeoutMs, callback, "");
+        ClientRequest request1 = client.newClientRequest(node.idString(), builder, now, true, defaultRequestTimeoutMs, callback, null, null);
         client.send(request1, now);
         client.poll(0, now);
 
-        ClientRequest request2 = client.newClientRequest(node.idString(), builder, now, true, defaultRequestTimeoutMs, callback, "");
+        ClientRequest request2 = client.newClientRequest(node.idString(), builder, now, true, defaultRequestTimeoutMs, callback, null, null);
         client.send(request2, now);
         client.poll(0, now);
 

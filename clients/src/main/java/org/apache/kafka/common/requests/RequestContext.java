@@ -41,7 +41,6 @@ public class RequestContext implements AuthorizableRequestContext {
     public final SecurityProtocol securityProtocol;
     public final boolean fromControlPlane;
     public final ClientInformation clientInformation;
-    public final String initialPrincipalName;
 
     public RequestContext(RequestHeader header,
                           String connectionId,
@@ -59,7 +58,6 @@ public class RequestContext implements AuthorizableRequestContext {
         this.securityProtocol = securityProtocol;
         this.fromControlPlane = fromControlPlane;
         this.clientInformation = clientInformation;
-        this.initialPrincipalName = header.initialPrincipalName();
     }
 
     public RequestAndSize parseRequest(ByteBuffer buffer) {
@@ -79,7 +77,9 @@ public class RequestContext implements AuthorizableRequestContext {
                         ", apiVersion: " + header.apiVersion() +
                         ", connectionId: " + connectionId +
                         ", listenerName: " + listenerName +
-                        ", principal: " + principal, ex);
+                        ", principal: " + principal +
+                        ", initial principal: " + initialPrincipalName() +
+                        ", initial client id: " + header.initialClientId(), ex);
             }
         }
     }
