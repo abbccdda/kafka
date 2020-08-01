@@ -2475,18 +2475,31 @@ class KafkaApis(val requestChannel: RequestChannel,
         new AlterConfigsResponse(results.asJava, requestThrottleMs))
     }
 
+    def errorResponse(error: Errors): Unit = {
+      val errorResult = requestResources.keys.map {
+        resource => resource -> new ApiError(error, null)
+      }.toMap
+
+      sendResponseCallback(errorResult)
+    }
+
     if (isForwardingRequest(request)) {
       if (!controller.isActive) {
-        val redirectRequestBuilder = new AlterConfigsRequest.Builder(
-          authorizedResources.asJava, alterConfigsRequest.validateOnly()
-        )
-        brokerToControllerChannelManager.sendRequest(redirectRequestBuilder,
-          new ForwardedAlterConfigsRequestCompletionHandler(request,
-            unauthorizedResources.keys.map { resource =>
-              resource -> configsAuthorizationApiError(resource)
-            }.toMap),
-          request.header.initialPrincipalName,
-          request.header.initialClientId)
+        if (config.redirectionEnabled) {
+          val redirectRequestBuilder = new AlterConfigsRequest.Builder(
+            authorizedResources.asJava, alterConfigsRequest.validateOnly()
+          )
+          brokerToControllerChannelManager.sendRequest(redirectRequestBuilder,
+            new ForwardedAlterConfigsRequestCompletionHandler(request,
+              unauthorizedResources.keys.map { resource =>
+                resource -> configsAuthorizationApiError(resource)
+              }.toMap),
+            request.header.initialPrincipalName,
+            request.header.initialClientId)
+        } else {
+          // We received a redirect request unexpectedly when IBP is low.
+          errorResponse(Errors.INVALID_REQUEST)
+        }
       } else {
         val authorizedResult = adminManager.alterConfigs(
           authorizedResources, alterConfigsRequest.validateOnly)
@@ -2500,11 +2513,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       }
     } else {
       if (!controller.isActive) {
-        val requireControllerResult = requestResources.keys.map {
-          resource => resource -> new ApiError(Errors.NOT_CONTROLLER, null)
-        }.toMap
-
-        sendResponseCallback(requireControllerResult)
+        errorResponse(Errors.NOT_CONTROLLER)
       } else {
         val authorizedResult = adminManager.alterConfigs(
           authorizedResources, alterConfigsRequest.validateOnly)
@@ -2665,20 +2674,32 @@ class KafkaApis(val requestChannel: RequestChannel,
         new IncrementalAlterConfigsResponse(requestThrottleMs, results.asJava))
     }
 
+    def errorResponse(error: Errors): Unit = {
+      val errorResult = configs.keys.map {
+        resource => resource -> new ApiError(error, null)
+      }.toMap
+
+      sendResponseCallback(errorResult)
+    }
+
     if (isForwardingRequest(request)) {
       if (!controller.isActive) {
-        val redirectRequestBuilder = new IncrementalAlterConfigsRequest.Builder(
-          authorizedResources.map {
-            case (resource, ops) => resource -> ops.asJavaCollection
-          }.asJava, incrementalAlterConfigsRequest.data().validateOnly()
-        )
-        brokerToControllerChannelManager.sendRequest(redirectRequestBuilder,
-          new ForwardedIncrementalAlterConfigsRequestCompletionHandler(request,
-            unauthorizedResources.keys.map { resource =>
-              resource -> configsAuthorizationApiError(resource)
-            }.toMap),
-          request.header.initialPrincipalName,
-          request.header.initialClientId)
+        if (config.redirectionEnabled) {
+          val redirectRequestBuilder = new IncrementalAlterConfigsRequest.Builder(
+            authorizedResources.map {
+              case (resource, ops) => resource -> ops.asJavaCollection
+            }.asJava, incrementalAlterConfigsRequest.data().validateOnly()
+          )
+          brokerToControllerChannelManager.sendRequest(redirectRequestBuilder,
+            new ForwardedIncrementalAlterConfigsRequestCompletionHandler(request,
+              unauthorizedResources.keys.map { resource =>
+                resource -> configsAuthorizationApiError(resource)
+              }.toMap),
+            request.header.initialPrincipalName,
+            request.header.initialClientId)
+        } else {
+          errorResponse(Errors.INVALID_REQUEST)
+        }
       } else {
         val authorizedResult = adminManager.incrementalAlterConfigs(
           authorizedResources, incrementalAlterConfigsRequest.data.validateOnly)
@@ -2693,11 +2714,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       }
     } else {
       if (!controller.isActive) {
-        val requireControllerResult = configs.keys.map {
-          resource => resource -> new ApiError(Errors.NOT_CONTROLLER, null)
-        }.toMap
-
-        sendResponseCallback(requireControllerResult)
+        errorResponse(Errors.NOT_CONTROLLER)
       } else {
         val authorizedResult = adminManager.incrementalAlterConfigs(
           authorizedResources, incrementalAlterConfigsRequest.data.validateOnly)

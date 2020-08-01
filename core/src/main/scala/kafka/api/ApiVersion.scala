@@ -361,6 +361,14 @@ case object KAFKA_2_7_IV0 extends DefaultApiVersion {
   val id: Int = 28
 }
 
+// Redirection
+case object KAFKA_2_7_IV1 extends DefaultApiVersion {
+  val shortVersion: String = "2.7"
+  val subVersion = "IV0"
+  val recordVersion = RecordVersion.V2
+  val id: Int = 29
+}
+
 object ApiVersionValidator extends Validator {
 
   override def ensureValid(name: String, value: Any): Unit = {
