@@ -2475,9 +2475,9 @@ class KafkaApis(val requestChannel: RequestChannel,
         new AlterConfigsResponse(results.asJava, requestThrottleMs))
     }
 
-    def errorResponse(error: Errors): Unit = {
+    def notControllerResponse(): Unit = {
       val errorResult = requestResources.keys.map {
-        resource => resource -> new ApiError(error, null)
+        resource => resource -> new ApiError(Errors.NOT_CONTROLLER, null)
       }.toMap
 
       sendResponseCallback(errorResult)
@@ -2485,21 +2485,7 @@ class KafkaApis(val requestChannel: RequestChannel,
 
     if (isForwardingRequest(request)) {
       if (!controller.isActive) {
-        if (config.redirectionEnabled) {
-          val redirectRequestBuilder = new AlterConfigsRequest.Builder(
-            authorizedResources.asJava, alterConfigsRequest.validateOnly()
-          )
-          brokerToControllerChannelManager.sendRequest(redirectRequestBuilder,
-            new ForwardedAlterConfigsRequestCompletionHandler(request,
-              unauthorizedResources.keys.map { resource =>
-                resource -> configsAuthorizationApiError(resource)
-              }.toMap),
-            request.header.initialPrincipalName,
-            request.header.initialClientId)
-        } else {
-          // We received a redirect request unexpectedly when IBP is low.
-          errorResponse(Errors.INVALID_REQUEST)
-        }
+        notControllerResponse()
       } else {
         val authorizedResult = adminManager.alterConfigs(
           authorizedResources, alterConfigsRequest.validateOnly)
@@ -2511,18 +2497,28 @@ class KafkaApis(val requestChannel: RequestChannel,
 
         sendResponseCallback(authorizedResult ++ unauthorizedResult)
       }
-    } else {
-      if (!controller.isActive) {
-        errorResponse(Errors.NOT_CONTROLLER)
-      } else {
-        val authorizedResult = adminManager.alterConfigs(
-          authorizedResources, alterConfigsRequest.validateOnly)
-        val unauthorizedResult = unauthorizedResources.keys.map { resource =>
-          resource -> configsAuthorizationApiError(resource)
-        }
 
-        sendResponseCallback(authorizedResult ++ unauthorizedResult)
+    } else if (!controller.isActive && config.redirectionEnabled) {
+      val redirectRequestBuilder = new AlterConfigsRequest.Builder(
+        authorizedResources.asJava, alterConfigsRequest.validateOnly()
+      )
+      brokerToControllerChannelManager.sendRequest(redirectRequestBuilder,
+        new ForwardedAlterConfigsRequestCompletionHandler(request,
+          unauthorizedResources.keys.map { resource =>
+            resource -> configsAuthorizationApiError(resource)
+          }.toMap),
+        request.header.initialPrincipalName,
+        request.header.initialClientId)
+    } else {
+      // When IBP is low, we would just handle the config request, as admin client doesn't know
+      // how to find the controller.
+      val authorizedResult = adminManager.alterConfigs(
+        authorizedResources, alterConfigsRequest.validateOnly)
+      val unauthorizedResult = unauthorizedResources.keys.map { resource =>
+        resource -> configsAuthorizationApiError(resource)
       }
+
+      sendResponseCallback(authorizedResult ++ unauthorizedResult)
     }
   }
 
@@ -2674,9 +2670,9 @@ class KafkaApis(val requestChannel: RequestChannel,
         new IncrementalAlterConfigsResponse(requestThrottleMs, results.asJava))
     }
 
-    def errorResponse(error: Errors): Unit = {
+    def notControllerResponse(): Unit = {
       val errorResult = configs.keys.map {
-        resource => resource -> new ApiError(error, null)
+        resource => resource -> new ApiError(Errors.NOT_CONTROLLER, null)
       }.toMap
 
       sendResponseCallback(errorResult)
@@ -2684,22 +2680,7 @@ class KafkaApis(val requestChannel: RequestChannel,
 
     if (isForwardingRequest(request)) {
       if (!controller.isActive) {
-        if (config.redirectionEnabled) {
-          val redirectRequestBuilder = new IncrementalAlterConfigsRequest.Builder(
-            authorizedResources.map {
-              case (resource, ops) => resource -> ops.asJavaCollection
-            }.asJava, incrementalAlterConfigsRequest.data().validateOnly()
-          )
-          brokerToControllerChannelManager.sendRequest(redirectRequestBuilder,
-            new ForwardedIncrementalAlterConfigsRequestCompletionHandler(request,
-              unauthorizedResources.keys.map { resource =>
-                resource -> configsAuthorizationApiError(resource)
-              }.toMap),
-            request.header.initialPrincipalName,
-            request.header.initialClientId)
-        } else {
-          errorResponse(Errors.INVALID_REQUEST)
-        }
+        notControllerResponse()
       } else {
         val authorizedResult = adminManager.incrementalAlterConfigs(
           authorizedResources, incrementalAlterConfigsRequest.data.validateOnly)
@@ -2709,21 +2690,31 @@ class KafkaApis(val requestChannel: RequestChannel,
         val unauthorizedResult = unauthorizedResources.keys.map { resource =>
           resource -> new ApiError(Errors.BROKER_AUTHORIZATION_FAILURE, null)
         }
-
         sendResponseCallback(authorizedResult ++ unauthorizedResult)
       }
+    } else if (!controller.isActive && config.redirectionEnabled) {
+      val redirectRequestBuilder = new IncrementalAlterConfigsRequest.Builder(
+        authorizedResources.map {
+          case (resource, ops) => resource -> ops.asJavaCollection
+        }.asJava, incrementalAlterConfigsRequest.data().validateOnly()
+      )
+      brokerToControllerChannelManager.sendRequest(redirectRequestBuilder,
+        new ForwardedIncrementalAlterConfigsRequestCompletionHandler(request,
+          unauthorizedResources.keys.map { resource =>
+            resource -> configsAuthorizationApiError(resource)
+          }.toMap),
+        request.header.initialPrincipalName,
+        request.header.initialClientId)
     } else {
-      if (!controller.isActive) {
-        errorResponse(Errors.NOT_CONTROLLER)
-      } else {
-        val authorizedResult = adminManager.incrementalAlterConfigs(
-          authorizedResources, incrementalAlterConfigsRequest.data.validateOnly)
-        val unauthorizedResult = unauthorizedResources.keys.map { resource =>
-          resource -> configsAuthorizationApiError(resource)
-        }
-
-        sendResponseCallback(authorizedResult ++ unauthorizedResult)
+      // When IBP is low, we would just handle the config request even if we are not the controller,
+      // as admin client doesn't know how to find the controller.
+      val authorizedResult = adminManager.incrementalAlterConfigs(
+        authorizedResources, incrementalAlterConfigsRequest.data.validateOnly)
+      val unauthorizedResult = unauthorizedResources.keys.map { resource =>
+        resource -> configsAuthorizationApiError(resource)
       }
+
+      sendResponseCallback(authorizedResult ++ unauthorizedResult)
     }
   }
 
