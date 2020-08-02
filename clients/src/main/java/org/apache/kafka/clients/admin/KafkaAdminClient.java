@@ -2117,7 +2117,8 @@ public class KafkaAdminClient extends AdminClient {
 
             @Override
             public AlterConfigsRequest.Builder createRequest(int timeoutMs) {
-                return new AlterConfigsRequest.Builder(requestMap, options.shouldValidateOnly());
+                return new AlterConfigsRequest.Builder(AlterConfigsUtil.generateRequestData(
+                    requestMap, options.shouldValidateOnly()));
             }
 
             @Override
@@ -2179,7 +2180,8 @@ public class KafkaAdminClient extends AdminClient {
             @Override
             public IncrementalAlterConfigsRequest.Builder createRequest(int timeoutMs) {
                 return new IncrementalAlterConfigsRequest.Builder(
-                    resources, configs, options.shouldValidateOnly());
+                    AlterConfigsUtil.generateIncrementalRequestData(resources, configs, options.shouldValidateOnly())
+                );
             }
 
             @Override

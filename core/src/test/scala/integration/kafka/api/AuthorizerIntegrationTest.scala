@@ -24,7 +24,7 @@ import kafka.security.authorizer.AclEntry
 import kafka.security.authorizer.AclEntry.WildcardHost
 import kafka.server.{BaseRequestTest, KafkaConfig}
 import kafka.utils.TestUtils
-import org.apache.kafka.clients.admin.{Admin, AdminClientConfig, AlterConfigOp}
+import org.apache.kafka.clients.admin.{Admin, AdminClientConfig, AlterConfigOp, AlterConfigsUtil}
 import org.apache.kafka.clients.consumer._
 import org.apache.kafka.clients.consumer.internals.NoOpConsumerRebalanceListener
 import org.apache.kafka.clients.producer._
@@ -497,10 +497,12 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
 
   private def alterConfigsRequest =
     new AlterConfigsRequest.Builder(
-      Collections.singletonMap(new ConfigResource(ConfigResource.Type.TOPIC, tp.topic),
-        new AlterConfigsRequest.Config(Collections.singleton(
-          new AlterConfigsRequest.ConfigEntry(LogConfig.MaxMessageBytesProp, "1000000")
-        ))), true).build()
+      AlterConfigsUtil.generateRequestData(
+        Collections.singletonMap(new ConfigResource(ConfigResource.Type.TOPIC, tp.topic),
+          new AlterConfigsRequest.Config(Collections.singleton(
+            new AlterConfigsRequest.ConfigEntry(LogConfig.MaxMessageBytesProp, "1000000")
+          ))), true)
+    ).build()
 
   private def incrementalAlterConfigsRequest = {
     val data = new IncrementalAlterConfigsRequestData

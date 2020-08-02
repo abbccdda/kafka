@@ -41,6 +41,8 @@ import kafka.server.QuotaFactory.QuotaManagers
 import kafka.utils.{MockTime, TestUtils}
 import kafka.zk.KafkaZkClient
 import org.apache.kafka.clients.RequestCompletionHandler
+import org.apache.kafka.clients.admin.AlterConfigOp.OpType
+import org.apache.kafka.clients.admin.{AlterConfigOp, AlterConfigsUtil, ConfigEntry}
 import org.apache.kafka.common.acl.AclOperation
 import org.apache.kafka.common.config.ConfigResource
 import org.apache.kafka.common.{IsolationLevel, Node, TopicPartition}
@@ -307,7 +309,8 @@ class KafkaApisTest {
     val configs = Map(
       configResource -> new AlterConfigsRequest.Config(
         Seq(new AlterConfigsRequest.ConfigEntry("foo", "bar")).asJava))
-    val request = buildRequest(new AlterConfigsRequest.Builder(configs.asJava, false)
+    val request = buildRequest(new AlterConfigsRequest.Builder(
+      AlterConfigsUtil.generateRequestData(configs.asJava, false))
       .build(requestHeader.apiVersion))
     createKafkaApis(authorizer = Some(authorizer)).handleAlterConfigsRequest(request)
 
@@ -342,7 +345,8 @@ class KafkaApisTest {
       unauthorizedResource -> new AlterConfigsRequest.Config(
         Seq(new AlterConfigsRequest.ConfigEntry("foo-1", "bar-1")).asJava)
     )
-    val alterConfigsRequest = new AlterConfigsRequest.Builder(configs.asJava, false)
+    val alterConfigsRequest = new AlterConfigsRequest.Builder(
+      AlterConfigsUtil.generateRequestData(configs.asJava, false))
       .build(topicHeader.apiVersion)
     val request = buildRequest(alterConfigsRequest)
 
@@ -378,7 +382,8 @@ class KafkaApisTest {
       authorizedResource -> new AlterConfigsRequest.Config(
         Seq(new AlterConfigsRequest.ConfigEntry("foo", "bar")).asJava),
     )
-    val redirectRequestBuilder = new AlterConfigsRequest.Builder(redirectConfigs.asJava, false)
+    val redirectRequestBuilder = new AlterConfigsRequest.Builder(
+      AlterConfigsUtil.generateRequestData(redirectConfigs.asJava, false))
 
     EasyMock.expect(brokerToControllerChannelManager.sendRequest(
       EasyMock.eq(redirectRequestBuilder), anyObject[RequestCompletionHandler],
@@ -394,7 +399,8 @@ class KafkaApisTest {
       unauthorizedResource -> new AlterConfigsRequest.Config(
         Seq(new AlterConfigsRequest.ConfigEntry("foo-1", "bar-1")).asJava)
     )
-    val alterConfigsRequest = new AlterConfigsRequest.Builder(configs.asJava, false)
+    val alterConfigsRequest = new AlterConfigsRequest.Builder(
+      AlterConfigsUtil.generateRequestData(configs.asJava, false))
       .build(topicHeader.apiVersion)
     val request = buildRequest(alterConfigsRequest)
 
@@ -425,7 +431,8 @@ class KafkaApisTest {
     val configs = Map(
       configResource -> new AlterConfigsRequest.Config(
         Seq(new AlterConfigsRequest.ConfigEntry("foo", "bar")).asJava))
-    val alterConfigsRequest = new AlterConfigsRequest.Builder(configs.asJava, false)
+    val alterConfigsRequest = new AlterConfigsRequest.Builder(
+      AlterConfigsUtil.generateRequestData(configs.asJava, false))
       .build(requestHeader.apiVersion)
     val request = buildRequest(alterConfigsRequest,
       fromControlPlane = true, requestHeader = Option(requestHeader))
@@ -469,7 +476,8 @@ class KafkaApisTest {
       unauthorizedResource -> new AlterConfigsRequest.Config(
         Seq(new AlterConfigsRequest.ConfigEntry("foo-1", "bar-1")).asJava)
     )
-    val alterConfigsRequest = new AlterConfigsRequest.Builder(configs.asJava, false)
+    val alterConfigsRequest = new AlterConfigsRequest.Builder(
+      AlterConfigsUtil.generateRequestData(configs.asJava, false))
       .build(requestHeader.apiVersion)
     val request = buildRequest(alterConfigsRequest,
       fromControlPlane = true, requestHeader = Option(requestHeader))
@@ -714,17 +722,25 @@ class KafkaApisTest {
   }
 
   private def getIncrementalAlterConfigRequestData(configResources: Seq[ConfigResource]): IncrementalAlterConfigsRequestData = {
-    val requestData = new IncrementalAlterConfigsRequestData()
-    configResources.foreach(configResource => {
-      val alterResource = new IncrementalAlterConfigsRequestData.AlterConfigsResource()
-        .setResourceName(configResource.name)
-        .setResourceType(configResource.`type`.id)
-      alterResource.configs.add(new AlterableConfig()
-        .setName("foo")
-        .setValue("bar"))
-      requestData.resources.add(alterResource)
-    })
-    requestData
+//    val requestData = new IncrementalAlterConfigsRequestData()
+//    configResources.foreach( configResource => {
+//      val alterResource = new IncrementalAlterConfigsRequestData.AlterConfigsResource()
+//        .setResourceName(configResource.name)
+//        .setResourceType(configResource.`type`.id)
+//      alterResource.configs.add(new AlterableConfig()
+//        .setName("foo")
+//        .setValue("bar"))
+//      requestData.resources.add(alterResource)
+//    })
+//    requestData
+//
+    val resourceMap = configResources.map( configResource => {
+      configResource -> Set(
+        new AlterConfigOp(new ConfigEntry("foo", "bar"),
+        OpType.forId(configResource.`type`.id))).asJavaCollection
+    }).toMap.asJava
+
+    AlterConfigsUtil.generateIncrementalRequestData(resourceMap, false)
   }
 
   private def verifyIncrementalAlterConfigResult(incrementalAlterConfigsRequest: IncrementalAlterConfigsRequest,

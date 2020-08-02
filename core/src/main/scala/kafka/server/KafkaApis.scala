@@ -40,7 +40,7 @@ import kafka.security.authorizer.{AclEntry, AuthorizerUtils}
 import kafka.server.QuotaFactory.{QuotaManagers, UnboundedQuota}
 import kafka.utils.{CoreUtils, Logging}
 import kafka.zk.{AdminZkClient, KafkaZkClient}
-import org.apache.kafka.clients.admin.{AlterConfigOp, ConfigEntry}
+import org.apache.kafka.clients.admin.{AlterConfigOp, AlterConfigsUtil, ConfigEntry}
 import org.apache.kafka.clients.admin.AlterConfigOp.OpType
 import org.apache.kafka.common.acl.{AclBinding, AclOperation}
 import org.apache.kafka.common.acl.AclOperation._
@@ -2498,9 +2498,9 @@ class KafkaApis(val requestChannel: RequestChannel,
         sendResponseCallback(authorizedResult ++ unauthorizedResult)
       }
     } else if (!controller.isActive && config.redirectionEnabled) {
-      val redirectRequestBuilder = new AlterConfigsRequest.Builder(
-        authorizedResources.asJava, alterConfigsRequest.validateOnly()
-      )
+      val redirectRequestBuilder = new AlterConfigsRequest.Builder(AlterConfigsUtil.generateRequestData(
+        authorizedResources.asJava, alterConfigsRequest.validateOnly()))
+
       brokerToControllerChannelManager.sendRequest(redirectRequestBuilder,
         new ForwardedAlterConfigsRequestCompletionHandler(request,
           unauthorizedResources.keys.map { resource =>
@@ -2693,10 +2693,10 @@ class KafkaApis(val requestChannel: RequestChannel,
       }
     } else if (!controller.isActive && config.redirectionEnabled) {
       val redirectRequestBuilder = new IncrementalAlterConfigsRequest.Builder(
-        authorizedResources.map {
+        AlterConfigsUtil.generateIncrementalRequestData( authorizedResources.map {
           case (resource, ops) => resource -> ops.asJavaCollection
-        }.asJava, incrementalAlterConfigsRequest.data().validateOnly()
-      )
+        }.asJava, incrementalAlterConfigsRequest.data().validateOnly()))
+
       brokerToControllerChannelManager.sendRequest(redirectRequestBuilder,
         new ForwardedIncrementalAlterConfigsRequestCompletionHandler(request,
           unauthorizedResources.keys.map { resource =>
