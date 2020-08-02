@@ -125,6 +125,8 @@ public class RequestHeader implements AbstractRequestResponse {
                 ", apiVersion=" + apiVersion() +
                 ", clientId=" + clientId() +
                 ", correlationId=" + correlationId() +
+                ", initialPrincipalName=" + initialPrincipalName() +
+                ", initialClientId=" + initialClientId() +
                 ")";
     }
 

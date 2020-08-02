@@ -35,7 +35,6 @@ import org.apache.kafka.common.errors.UnknownServerException;
 import org.apache.kafka.common.errors.UnsupportedVersionException;
 import org.apache.kafka.common.message.AddOffsetsToTxnRequestData;
 import org.apache.kafka.common.message.AddOffsetsToTxnResponseData;
-import org.apache.kafka.common.message.AlterConfigsRequestData;
 import org.apache.kafka.common.message.AlterConfigsResponseData;
 import org.apache.kafka.common.message.AlterPartitionReassignmentsRequestData;
 import org.apache.kafka.common.message.AlterPartitionReassignmentsResponseData;
@@ -2014,27 +2013,15 @@ public class RequestResponseTest {
     }
 
     private AlterConfigsRequest createAlterConfigsRequest() {
-        AlterConfigsRequestData data = new AlterConfigsRequestData().setValidateOnly(false);
-
-        AlterConfigsRequestData.AlterConfigsResource topicResource =
-            new AlterConfigsRequestData.AlterConfigsResource()
-                .setResourceName("topic")
-                .setResourceType(ConfigResource.Type.TOPIC.id());
-        data.resources().add(topicResource);
-
-        AlterConfigsRequestData.AlterConfigsResource brokerResource =
-            new AlterConfigsRequestData.AlterConfigsResource()
-                .setResourceName("0")
-                .setResourceType(ConfigResource.Type.BROKER.id());
-        brokerResource.configs().add(new AlterConfigsRequestData.AlterableConfig()
-                                         .setName("config_name")
-                                         .setValue("config_value"));
-        brokerResource.configs().add(new AlterConfigsRequestData.AlterableConfig()
-                                         .setName("another_name")
-                                         .setValue("another_value"));
-        data.resources().add(brokerResource);
-
-        return new AlterConfigsRequest.Builder(data).build((short) 0);
+        Map<ConfigResource, AlterConfigsRequest.Config> configs = new HashMap<>();
+        List<AlterConfigsRequest.ConfigEntry> configEntries = asList(
+            new AlterConfigsRequest.ConfigEntry("config_name", "config_value"),
+            new AlterConfigsRequest.ConfigEntry("another_name", "another value")
+        );
+        configs.put(new ConfigResource(ConfigResource.Type.BROKER, "0"), new AlterConfigsRequest.Config(configEntries));
+        configs.put(new ConfigResource(ConfigResource.Type.TOPIC, "topic"),
+            new AlterConfigsRequest.Config(Collections.<AlterConfigsRequest.ConfigEntry>emptyList()));
+        return new AlterConfigsRequest.Builder(configs, false).build((short) 0);
     }
 
     private AlterConfigsResponse createAlterConfigsResponse() {

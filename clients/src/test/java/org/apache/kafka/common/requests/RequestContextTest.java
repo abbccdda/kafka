@@ -29,6 +29,7 @@ import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.junit.Test;
 
 import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 
 import static org.junit.Assert.assertEquals;
@@ -79,4 +80,13 @@ public class RequestContextTest {
         assertTrue(response.data.apiKeys().isEmpty());
     }
 
+    @Test
+    public void testInitialPrincipalName() throws UnknownHostException {
+        final String initialPrincipalName = "initial-principal";
+        RequestHeader header = new RequestHeader(ApiKeys.API_VERSIONS, Short.MAX_VALUE, "", 1, initialPrincipalName, null);
+        RequestContext context = new RequestContext(header, "0", InetAddress.getLocalHost(), KafkaPrincipal.ANONYMOUS,
+            new ListenerName("ssl"), SecurityProtocol.SASL_SSL, ClientInformation.EMPTY, false);
+
+        assertEquals(initialPrincipalName, context.initialPrincipalName());
+    }
 }

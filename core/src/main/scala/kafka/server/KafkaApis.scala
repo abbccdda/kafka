@@ -2498,8 +2498,8 @@ class KafkaApis(val requestChannel: RequestChannel,
         sendResponseCallback(authorizedResult ++ unauthorizedResult)
       }
     } else if (!controller.isActive && config.redirectionEnabled) {
-      val redirectRequestBuilder = new AlterConfigsRequest.Builder(AlterConfigsUtil.generateRequestData(
-        authorizedResources.asJava, alterConfigsRequest.validateOnly()))
+      val redirectRequestBuilder = new AlterConfigsRequest.Builder(
+        authorizedResources.asJava, alterConfigsRequest.validateOnly())
 
       brokerToControllerChannelManager.sendRequest(redirectRequestBuilder,
         new ForwardedAlterConfigsRequestCompletionHandler(request,

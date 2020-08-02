@@ -27,7 +27,6 @@ import kafka.log.LogConfig
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.KafkaConfig
 import kafka.utils.{Logging, NotNothing, Pool}
-import org.apache.kafka.clients.admin.AlterConfigsUtil
 import org.apache.kafka.common.config.types.Password
 import org.apache.kafka.common.config.ConfigResource
 import org.apache.kafka.common.memory.MemoryPool
@@ -136,8 +135,8 @@ object RequestChannel extends Logging {
             }.asJavaCollection)
             (resource, loggableEntries)
           }.asJava
-          new AlterConfigsRequest.Builder(AlterConfigsUtil.generateRequestData(
-            loggableConfigs, alterConfigs.validateOnly)).build(alterConfigs.version())
+          new AlterConfigsRequest.Builder(loggableConfigs, alterConfigs.validateOnly)
+            .build(alterConfigs.version())
 
         case alterConfigs: IncrementalAlterConfigsRequest =>
           val resources = new AlterConfigsResourceCollection(alterConfigs.data.resources.size)

@@ -309,8 +309,7 @@ class KafkaApisTest {
     val configs = Map(
       configResource -> new AlterConfigsRequest.Config(
         Seq(new AlterConfigsRequest.ConfigEntry("foo", "bar")).asJava))
-    val request = buildRequest(new AlterConfigsRequest.Builder(
-      AlterConfigsUtil.generateRequestData(configs.asJava, false))
+    val request = buildRequest(new AlterConfigsRequest.Builder(configs.asJava, false)
       .build(requestHeader.apiVersion))
     createKafkaApis(authorizer = Some(authorizer)).handleAlterConfigsRequest(request)
 
@@ -345,8 +344,7 @@ class KafkaApisTest {
       unauthorizedResource -> new AlterConfigsRequest.Config(
         Seq(new AlterConfigsRequest.ConfigEntry("foo-1", "bar-1")).asJava)
     )
-    val alterConfigsRequest = new AlterConfigsRequest.Builder(
-      AlterConfigsUtil.generateRequestData(configs.asJava, false))
+    val alterConfigsRequest = new AlterConfigsRequest.Builder(configs.asJava, false)
       .build(topicHeader.apiVersion)
     val request = buildRequest(alterConfigsRequest)
 
@@ -382,8 +380,7 @@ class KafkaApisTest {
       authorizedResource -> new AlterConfigsRequest.Config(
         Seq(new AlterConfigsRequest.ConfigEntry("foo", "bar")).asJava),
     )
-    val redirectRequestBuilder = new AlterConfigsRequest.Builder(
-      AlterConfigsUtil.generateRequestData(redirectConfigs.asJava, false))
+    val redirectRequestBuilder = new AlterConfigsRequest.Builder(redirectConfigs.asJava, false)
 
     EasyMock.expect(brokerToControllerChannelManager.sendRequest(
       EasyMock.eq(redirectRequestBuilder), anyObject[RequestCompletionHandler],
@@ -399,8 +396,7 @@ class KafkaApisTest {
       unauthorizedResource -> new AlterConfigsRequest.Config(
         Seq(new AlterConfigsRequest.ConfigEntry("foo-1", "bar-1")).asJava)
     )
-    val alterConfigsRequest = new AlterConfigsRequest.Builder(
-      AlterConfigsUtil.generateRequestData(configs.asJava, false))
+    val alterConfigsRequest = new AlterConfigsRequest.Builder(configs.asJava, false)
       .build(topicHeader.apiVersion)
     val request = buildRequest(alterConfigsRequest)
 
@@ -431,8 +427,7 @@ class KafkaApisTest {
     val configs = Map(
       configResource -> new AlterConfigsRequest.Config(
         Seq(new AlterConfigsRequest.ConfigEntry("foo", "bar")).asJava))
-    val alterConfigsRequest = new AlterConfigsRequest.Builder(
-      AlterConfigsUtil.generateRequestData(configs.asJava, false))
+    val alterConfigsRequest = new AlterConfigsRequest.Builder(configs.asJava, false)
       .build(requestHeader.apiVersion)
     val request = buildRequest(alterConfigsRequest,
       fromControlPlane = true, requestHeader = Option(requestHeader))
@@ -476,8 +471,7 @@ class KafkaApisTest {
       unauthorizedResource -> new AlterConfigsRequest.Config(
         Seq(new AlterConfigsRequest.ConfigEntry("foo-1", "bar-1")).asJava)
     )
-    val alterConfigsRequest = new AlterConfigsRequest.Builder(
-      AlterConfigsUtil.generateRequestData(configs.asJava, false))
+    val alterConfigsRequest = new AlterConfigsRequest.Builder(configs.asJava, false)
       .build(requestHeader.apiVersion)
     val request = buildRequest(alterConfigsRequest,
       fromControlPlane = true, requestHeader = Option(requestHeader))

@@ -23,7 +23,6 @@ import kafka.log.LogConfig
 import kafka.network.RequestChannel.Session
 import kafka.security.authorizer.AclAuthorizer
 import kafka.utils.TestUtils
-import org.apache.kafka.clients.admin.AlterConfigsUtil
 import org.apache.kafka.common.acl._
 import org.apache.kafka.common.config.ConfigResource
 import org.apache.kafka.common.message.AddOffsetsToTxnRequestData
@@ -460,11 +459,10 @@ class RequestQuotaTest extends BaseRequestTest {
 
         case ApiKeys.ALTER_CONFIGS =>
           new AlterConfigsRequest.Builder(
-            AlterConfigsUtil.generateRequestData(
               Collections.singletonMap(new ConfigResource(ConfigResource.Type.TOPIC, tp.topic),
               new AlterConfigsRequest.Config(Collections.singleton(
                 new AlterConfigsRequest.ConfigEntry(LogConfig.MaxMessageBytesProp, "1000000")
-              ))), true))
+              ))), true)
 
         case ApiKeys.ALTER_REPLICA_LOG_DIRS =>
           val dir = new AlterReplicaLogDirsRequestData.AlterReplicaLogDir()

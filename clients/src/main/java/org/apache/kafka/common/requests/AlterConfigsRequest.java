@@ -64,11 +64,23 @@ public class AlterConfigsRequest extends AbstractRequest {
 
     public static class Builder extends AbstractRequest.Builder<AlterConfigsRequest> {
 
-        private final AlterConfigsRequestData data;
+        private final AlterConfigsRequestData data = new AlterConfigsRequestData();
 
-        public Builder(AlterConfigsRequestData data) {
+        public Builder(Map<ConfigResource, Config> configs, boolean validateOnly) {
             super(ApiKeys.ALTER_CONFIGS);
-            this.data = data;
+            Objects.requireNonNull(configs, "configs");
+            for (Map.Entry<ConfigResource, Config> entry : configs.entrySet()) {
+                AlterConfigsRequestData.AlterConfigsResource resource = new AlterConfigsRequestData.AlterConfigsResource()
+                                                                            .setResourceName(entry.getKey().name())
+                                                                            .setResourceType(entry.getKey().type().id());
+                for (ConfigEntry x : entry.getValue().entries) {
+                    resource.configs().add(new AlterConfigsRequestData.AlterableConfig()
+                                               .setName(x.name())
+                                               .setValue(x.value()));
+                }
+                this.data.resources().add(resource);
+            }
+            this.data.setValidateOnly(validateOnly);
         }
 
         @Override

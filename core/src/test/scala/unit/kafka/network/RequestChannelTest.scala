@@ -24,7 +24,6 @@ import java.util.Collections
 
 import kafka.network
 import org.apache.kafka.clients.admin.AlterConfigOp.OpType
-import org.apache.kafka.clients.admin.AlterConfigsUtil
 import org.apache.kafka.common.config.types.Password
 import org.apache.kafka.common.config.{ConfigResource, SaslConfigs, SslConfigs, TopicConfig}
 import org.apache.kafka.common.memory.MemoryPool
@@ -48,9 +47,7 @@ class RequestChannelTest {
     val sensitiveValue = "secret"
     def verifyConfig(resource: ConfigResource, entries: Seq[ConfigEntry], expectedValues: Map[String, String]): Unit = {
       val alterConfigs = request(new AlterConfigsRequest.Builder(
-        AlterConfigsUtil.generateRequestData(
-          Collections.singletonMap(resource,
-            new Config(entries.asJavaCollection)), true)).build())
+          Collections.singletonMap(resource, new Config(entries.asJavaCollection)), true).build())
 
       val loggableAlterConfigs = alterConfigs.loggableRequest.asInstanceOf[AlterConfigsRequest]
       val loggedConfig = loggableAlterConfigs.configs.get(resource)
@@ -90,8 +87,7 @@ class RequestChannelTest {
 
     // Verify empty request
     val alterConfigs = request(new AlterConfigsRequest.Builder(
-      AlterConfigsUtil.generateRequestData(
-        Collections.emptyMap[ConfigResource, Config], true)).build())
+        Collections.emptyMap[ConfigResource, Config], true).build())
     assertEquals(Collections.emptyMap, alterConfigs.loggableRequest.asInstanceOf[AlterConfigsRequest].configs)
   }
 

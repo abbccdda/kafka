@@ -17,32 +17,12 @@
 package org.apache.kafka.clients.admin;
 
 import org.apache.kafka.common.config.ConfigResource;
-import org.apache.kafka.common.message.AlterConfigsRequestData;
 import org.apache.kafka.common.message.IncrementalAlterConfigsRequestData;
-import org.apache.kafka.common.requests.AlterConfigsRequest;
 
 import java.util.Collection;
 import java.util.Map;
 
 public class AlterConfigsUtil {
-
-    public static AlterConfigsRequestData generateRequestData(Map<ConfigResource, AlterConfigsRequest.Config> configs,
-                                                              boolean validateOnly) {
-        AlterConfigsRequestData data = new AlterConfigsRequestData()
-            .setValidateOnly(validateOnly);
-        for (Map.Entry<ConfigResource, AlterConfigsRequest.Config> entry : configs.entrySet()) {
-            AlterConfigsRequestData.AlterConfigsResource resource = new AlterConfigsRequestData.AlterConfigsResource()
-                                                                        .setResourceName(entry.getKey().name())
-                                                                        .setResourceType(entry.getKey().type().id());
-            for (AlterConfigsRequest.ConfigEntry configEntry : entry.getValue().entries()) {
-                resource.configs().add(new AlterConfigsRequestData.AlterableConfig()
-                                           .setName(configEntry.name())
-                                           .setValue(configEntry.value()));
-            }
-            data.resources().add(resource);
-        }
-        return data;
-    }
 
     public static IncrementalAlterConfigsRequestData generateIncrementalRequestData(final Map<ConfigResource, Collection<AlterConfigOp>> configs,
                                                                                     final boolean validateOnly) {
