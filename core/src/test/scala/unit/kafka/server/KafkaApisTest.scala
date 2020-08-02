@@ -716,19 +716,7 @@ class KafkaApisTest {
   }
 
   private def getIncrementalAlterConfigRequestData(configResources: Seq[ConfigResource]): IncrementalAlterConfigsRequestData = {
-//    val requestData = new IncrementalAlterConfigsRequestData()
-//    configResources.foreach( configResource => {
-//      val alterResource = new IncrementalAlterConfigsRequestData.AlterConfigsResource()
-//        .setResourceName(configResource.name)
-//        .setResourceType(configResource.`type`.id)
-//      alterResource.configs.add(new AlterableConfig()
-//        .setName("foo")
-//        .setValue("bar"))
-//      requestData.resources.add(alterResource)
-//    })
-//    requestData
-//
-    val resourceMap = configResources.map( configResource => {
+    val resourceMap = configResources.map(configResource => {
       configResource -> Set(
         new AlterConfigOp(new ConfigEntry("foo", "bar"),
         OpType.forId(configResource.`type`.id))).asJavaCollection
