@@ -2523,7 +2523,7 @@ class KafkaApis(val requestChannel: RequestChannel,
   private def isForwardingRequest(request: RequestChannel.Request): Boolean = {
     request.header.initialPrincipalName != null &&
       request.header.initialClientId != null &&
-      request.context.fromControlPlane
+      request.context.maybeFromControlPlane
   }
 
   private class ForwardedAlterConfigsRequestCompletionHandler(originalRequest: RequestChannel.Request,
@@ -3095,7 +3095,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       } else {
         operation match {
           case ALTER | ALTER_CONFIGS | CREATE | DELETE =>
-            requestContext.fromControlPlane &&
+            requestContext.maybeFromControlPlane &&
               authorizeAction(requestContext, CLUSTER_ACTION,
                 resourceType, resourceName, logIfAllowed, logIfDenied, refCount, authZ)
           case _ => false
