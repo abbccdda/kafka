@@ -46,7 +46,6 @@ public class AlterConfigsUtil {
             alterConfigsResource.setResourceType(resource.type().id())
                 .setResourceName(resource.name()).setConfigs(alterableConfigSet);
             data.resources().add(alterConfigsResource);
-
         }
         return data;
     }

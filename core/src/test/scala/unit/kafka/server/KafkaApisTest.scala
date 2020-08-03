@@ -24,7 +24,7 @@ import java.util.Arrays.asList
 import java.util.{Collections, Optional, Random}
 import java.util.concurrent.TimeUnit
 
-import kafka.api.{ApiVersion, KAFKA_0_10_2_IV0, KAFKA_2_2_IV1, KAFKA_2_7_IV0, LeaderAndIsr}
+import kafka.api.{ApiVersion, KAFKA_0_10_2_IV0, KAFKA_2_2_IV1, KAFKA_2_6_IV0, LeaderAndIsr}
 import kafka.cluster.Partition
 import kafka.controller.KafkaController
 import kafka.coordinator.group.GroupOverview
@@ -349,7 +349,7 @@ class KafkaApisTest {
     val request = buildRequest(alterConfigsRequest)
 
     // Should just handle the config change since IBP is low
-    createKafkaApis(interBrokerProtocolVersion = KAFKA_2_7_IV0,
+    createKafkaApis(interBrokerProtocolVersion = KAFKA_2_6_IV0,
       authorizer = Some(authorizer)).handleAlterConfigsRequest(request)
 
     verifyAlterConfigResult(alterConfigsRequest,
@@ -590,7 +590,7 @@ class KafkaApisTest {
     val request = buildRequest(incrementalAlterConfigsRequest)
 
     // Should just handle the config change since IBP is low
-    createKafkaApis(interBrokerProtocolVersion = KAFKA_2_7_IV0,
+    createKafkaApis(interBrokerProtocolVersion = KAFKA_2_6_IV0,
       authorizer = Some(authorizer)).handleIncrementalAlterConfigsRequest(request)
 
     verifyIncrementalAlterConfigResult(incrementalAlterConfigsRequest,

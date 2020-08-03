@@ -2509,8 +2509,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         request.header.initialPrincipalName,
         request.header.initialClientId)
     } else {
-      // When IBP is low, we would just handle the config request, as admin client doesn't know
-      // how to find the controller.
+      // When IBP is smaller than 2.7, forwarding is not supported therefore requests are handled directly
       val authorizedResult = adminManager.alterConfigs(
         authorizedResources, alterConfigsRequest.validateOnly)
       val unauthorizedResult = unauthorizedResources.keys.map { resource =>
@@ -2693,7 +2692,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       }
     } else if (!controller.isActive && config.redirectionEnabled) {
       val redirectRequestBuilder = new IncrementalAlterConfigsRequest.Builder(
-        AlterConfigsUtil.generateIncrementalRequestData( authorizedResources.map {
+        AlterConfigsUtil.generateIncrementalRequestData(authorizedResources.map {
           case (resource, ops) => resource -> ops.asJavaCollection
         }.asJava, incrementalAlterConfigsRequest.data().validateOnly()))
 
@@ -2705,8 +2704,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         request.header.initialPrincipalName,
         request.header.initialClientId)
     } else {
-      // When IBP is low, we would just handle the config request even if we are not the controller,
-      // as admin client doesn't know how to find the controller.
+      // When IBP is smaller than 2.7, forwarding is not supported therefore requests are handled directly
       val authorizedResult = adminManager.incrementalAlterConfigs(
         authorizedResources, incrementalAlterConfigsRequest.data.validateOnly)
       val unauthorizedResult = unauthorizedResources.keys.map { resource =>

@@ -39,8 +39,8 @@ public class RequestContext implements AuthorizableRequestContext {
     public final KafkaPrincipal principal;
     public final ListenerName listenerName;
     public final SecurityProtocol securityProtocol;
-    public final boolean fromControlPlane;
     public final ClientInformation clientInformation;
+    public final boolean fromControlPlane;
 
     public RequestContext(RequestHeader header,
                           String connectionId,

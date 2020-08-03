@@ -311,7 +311,7 @@ object RequestChannel extends Logging {
 }
 
 class RequestChannel(val queueSize: Int,
-                     val metricNamePrefix : String,
+                     val metricNamePrefix: String,
                      time: Time,
                      val isControlPlane: Boolean) extends KafkaMetricsGroup {
   import RequestChannel._
