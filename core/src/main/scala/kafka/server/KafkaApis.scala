@@ -3097,7 +3097,7 @@ class KafkaApis(val requestChannel: RequestChannel,
           case ALTER | ALTER_CONFIGS | CREATE | DELETE =>
             requestContext.maybeFromControlPlane &&
               authorizeAction(requestContext, CLUSTER_ACTION,
-                resourceType, resourceName, logIfAllowed, logIfDenied, refCount, authZ)
+                CLUSTER, CLUSTER_NAME, logIfAllowed, logIfDenied, refCount, authZ)
           case _ => false
         }
       }

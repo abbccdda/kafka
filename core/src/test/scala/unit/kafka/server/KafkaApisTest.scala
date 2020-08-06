@@ -66,9 +66,7 @@ import org.apache.kafka.common.replica.ClientMetadata
 import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
 import org.apache.kafka.common.requests.WriteTxnMarkersRequest.TxnMarkerEntry
 import org.apache.kafka.common.requests.{FetchMetadata => JFetchMetadata, _}
-import org.apache.kafka.common.resource.PatternType
-import org.apache.kafka.common.resource.ResourcePattern
-import org.apache.kafka.common.resource.ResourceType
+import org.apache.kafka.common.resource.{PatternType, Resource, ResourcePattern, ResourceType}
 import org.apache.kafka.common.security.auth.{KafkaPrincipal, SecurityProtocol}
 import org.apache.kafka.server.authorizer.Action
 import org.apache.kafka.server.authorizer.AuthorizationResult
@@ -489,12 +487,16 @@ class KafkaApisTest {
                         operation: AclOperation,
                         topicName: String,
                         result: AuthorizationResult): Unit = {
-    val expectedAuthorizedAction = Seq(
-      new Action(operation, new ResourcePattern(ResourceType.TOPIC, topicName, PatternType.LITERAL),
+    val expectedAuthorizedAction = if (operation == AclOperation.CLUSTER_ACTION)
+      new Action(operation,
+        new ResourcePattern(ResourceType.CLUSTER, Resource.CLUSTER_NAME, PatternType.LITERAL),
         1, true, true)
-    )
+    else
+      new Action(operation,
+        new ResourcePattern(ResourceType.TOPIC, topicName, PatternType.LITERAL),
+        1, true, true)
 
-    EasyMock.expect(authorizer.authorize(anyObject[RequestContext], EasyMock.eq(expectedAuthorizedAction.asJava)))
+    EasyMock.expect(authorizer.authorize(anyObject[RequestContext], EasyMock.eq(Seq(expectedAuthorizedAction).asJava)))
       .andReturn(Seq(result).asJava)
       .once()
   }
