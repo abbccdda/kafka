@@ -615,7 +615,7 @@ class KafkaApisTest {
 
     expectNoThrottling()
 
-    val topicHeader = new RequestHeader(ApiKeys.ALTER_CONFIGS, ApiKeys.ALTER_CONFIGS.latestVersion,
+    val topicHeader = new RequestHeader(ApiKeys.INCREMENTAL_ALTER_CONFIGS, ApiKeys.INCREMENTAL_ALTER_CONFIGS.latestVersion,
       clientId, 0)
 
     // Should only contain authorized resource
@@ -687,8 +687,8 @@ class KafkaApisTest {
     authTopic(authorizer, AclOperation.CLUSTER_ACTION, unauthorizedTopic, AuthorizationResult.DENIED)
 
     // Include extra header fields for forwarding request check
-    val requestHeader = new RequestHeader(
-      ApiKeys.INCREMENTAL_ALTER_CONFIGS, ApiKeys.INCREMENTAL_ALTER_CONFIGS.latestVersion,
+    val requestHeader = new RequestHeader(ApiKeys.INCREMENTAL_ALTER_CONFIGS,
+      ApiKeys.INCREMENTAL_ALTER_CONFIGS.latestVersion,
       clientId, 0, "initial-principal", "initial-client")
 
     EasyMock.expect(controller.isActive).andReturn(true)
