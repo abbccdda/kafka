@@ -497,10 +497,10 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
 
   private def alterConfigsRequest =
     new AlterConfigsRequest.Builder(
-        Collections.singletonMap(new ConfigResource(ConfigResource.Type.TOPIC, tp.topic),
-          new AlterConfigsRequest.Config(Collections.singleton(
-            new AlterConfigsRequest.ConfigEntry(LogConfig.MaxMessageBytesProp, "1000000")
-          ))), true).build()
+      Collections.singletonMap(new ConfigResource(ConfigResource.Type.TOPIC, tp.topic),
+        new AlterConfigsRequest.Config(Collections.singleton(
+          new AlterConfigsRequest.ConfigEntry(LogConfig.MaxMessageBytesProp, "1000000")
+        ))), true).build()
 
   private def incrementalAlterConfigsRequest = {
     val data = new IncrementalAlterConfigsRequestData

@@ -86,8 +86,6 @@ import scala.collection.mutable.ArrayBuffer
 import scala.collection.{Map, Seq, Set, immutable, mutable}
 import scala.util.{Failure, Success, Try}
 import kafka.coordinator.group.GroupOverview
-import org.apache.kafka.clients.{ClientResponse, RequestCompletionHandler}
-
 
 /**
  * Logic to handle the various Kafka requests
@@ -2501,13 +2499,17 @@ class KafkaApis(val requestChannel: RequestChannel,
       val redirectRequestBuilder = new AlterConfigsRequest.Builder(
         authorizedResources.asJava, alterConfigsRequest.validateOnly())
 
-      brokerToControllerChannelManager.sendRequest(redirectRequestBuilder,
-        new ForwardedAlterConfigsRequestCompletionHandler(request,
-          unauthorizedResources.keys.map { resource =>
+      brokerToControllerChannelManager.forwardRequest(
+        redirectRequestBuilder,
+        sendResponseMaybeThrottle,
+        request,
+        response => {
+          val forwardResponse = response.responseBody().asInstanceOf[AlterConfigsResponse]
+          forwardResponse.addResults(
+            unauthorizedResources.keys.map { resource =>
             resource -> configsAuthorizationApiError(resource)
-          }.toMap),
-        request.header.initialPrincipalName,
-        request.header.initialClientId)
+            }.toMap.asJava)
+        })
     } else {
       // When IBP is smaller than 2.7, forwarding is not supported therefore requests are handled directly
       val authorizedResult = adminManager.alterConfigs(
@@ -2524,28 +2526,6 @@ class KafkaApis(val requestChannel: RequestChannel,
     request.header.initialPrincipalName != null &&
       request.header.initialClientId != null &&
       request.context.maybeFromControlPlane
-  }
-
-  private class ForwardedAlterConfigsRequestCompletionHandler(originalRequest: RequestChannel.Request,
-                                                              unauthorizedResources: Map[ConfigResource, ApiError])
-    extends RequestCompletionHandler with Logging {
-    override def onComplete(response: ClientResponse): Unit = {
-      sendResponseMaybeThrottle(originalRequest, _ => {
-        val forwardResponse = response.responseBody().asInstanceOf[AlterConfigsResponse]
-        forwardResponse.addResults(unauthorizedResources.asJava)
-      })
-    }
-  }
-
-  private class ForwardedIncrementalAlterConfigsRequestCompletionHandler(originalRequest: RequestChannel.Request,
-                                                                         unauthorizedResources: Map[ConfigResource, ApiError])
-    extends RequestCompletionHandler with Logging {
-    override def onComplete(response: ClientResponse): Unit = {
-      sendResponseMaybeThrottle(originalRequest, _ => {
-        val forwardResponse = response.responseBody().asInstanceOf[IncrementalAlterConfigsResponse]
-        forwardResponse.addResults(unauthorizedResources.asJava)
-      })
-    }
   }
 
   def handleAlterPartitionReassignmentsRequest(request: RequestChannel.Request): Unit = {
@@ -2696,13 +2676,15 @@ class KafkaApis(val requestChannel: RequestChannel,
           case (resource, ops) => resource -> ops.asJavaCollection
         }.asJava, incrementalAlterConfigsRequest.data().validateOnly()))
 
-      brokerToControllerChannelManager.sendRequest(redirectRequestBuilder,
-        new ForwardedIncrementalAlterConfigsRequestCompletionHandler(request,
-          unauthorizedResources.keys.map { resource =>
+      brokerToControllerChannelManager.forwardRequest(redirectRequestBuilder,
+        sendResponseMaybeThrottle,
+        request,
+        response => {
+          val forwardResponse = response.responseBody().asInstanceOf[IncrementalAlterConfigsResponse]
+          forwardResponse.addResults(unauthorizedResources.keys.map { resource =>
             resource -> configsAuthorizationApiError(resource)
-          }.toMap),
-        request.header.initialPrincipalName,
-        request.header.initialClientId)
+          }.toMap.asJava)
+        })
     } else {
       // When IBP is smaller than 2.7, forwarding is not supported therefore requests are handled directly
       val authorizedResult = adminManager.incrementalAlterConfigs(

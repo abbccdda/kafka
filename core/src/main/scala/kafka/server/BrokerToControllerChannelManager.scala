@@ -20,9 +20,10 @@ package kafka.server
 import java.util.concurrent.{LinkedBlockingDeque, TimeUnit}
 
 import kafka.common.{InterBrokerSendThread, RequestAndCompletionHandler}
+import kafka.network.RequestChannel
 import kafka.utils.Logging
 import org.apache.kafka.clients._
-import org.apache.kafka.common.requests.AbstractRequest
+import org.apache.kafka.common.requests.{AbstractRequest, AbstractResponse}
 import org.apache.kafka.common.utils.{LogContext, Time}
 import org.apache.kafka.common.Node
 import org.apache.kafka.common.metrics.Metrics
@@ -113,13 +114,20 @@ class BrokerToControllerChannelManager(metadataCache: kafka.server.MetadataCache
       brokerToControllerListenerName, time, threadName)
   }
 
-  private[server] def sendRequest(request: AbstractRequest.Builder[_ <: AbstractRequest],
-                                  callback: RequestCompletionHandler,
-                                  initialPrincipalName: String = null,
-                                  initialClientId: String = null): Unit = {
-    requestQueue.put(BrokerToControllerQueueItem(request, callback, initialPrincipalName, initialClientId))
+  private[server] def forwardRequest(requestBuilder: AbstractRequest.Builder[_ <: AbstractRequest],
+                                     responseToOriginalClient: (RequestChannel.Request, Int => AbstractResponse,
+                                       Option[Send => Unit]) => Unit,
+                                     originalRequest: RequestChannel.Request,
+                                     combineResponse: ClientResponse => AbstractResponse,
+                                     callback: Option[Send => Unit] = Option.empty): Unit = {
+    requestQueue.put(BrokerToControllerQueueItem(requestBuilder,
+      (response: ClientResponse) => responseToOriginalClient(
+        originalRequest, _ => combineResponse(response), callback),
+      originalRequest.header.initialPrincipalName,
+      originalRequest.header.initialClientId))
   }
 }
+
 case class BrokerToControllerQueueItem(request: AbstractRequest.Builder[_ <: AbstractRequest],
                                        callback: RequestCompletionHandler,
                                        initialPrincipalName: String = null,

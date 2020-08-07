@@ -40,7 +40,6 @@ import kafka.network.RequestChannel.SendResponse
 import kafka.server.QuotaFactory.QuotaManagers
 import kafka.utils.{MockTime, TestUtils}
 import kafka.zk.KafkaZkClient
-import org.apache.kafka.clients.RequestCompletionHandler
 import org.apache.kafka.clients.admin.AlterConfigOp.OpType
 import org.apache.kafka.clients.admin.{AlterConfigOp, AlterConfigsUtil, ConfigEntry}
 import org.apache.kafka.common.acl.AclOperation
@@ -57,8 +56,7 @@ import org.apache.kafka.common.message.StopReplicaRequestData.{StopReplicaPartit
 import org.apache.kafka.common.message.UpdateMetadataRequestData.{UpdateMetadataBroker, UpdateMetadataEndpoint, UpdateMetadataPartitionState}
 import org.apache.kafka.common.message._
 import org.apache.kafka.common.metrics.Metrics
-import org.apache.kafka.common.network.ClientInformation
-import org.apache.kafka.common.network.ListenerName
+import org.apache.kafka.common.network.{ClientInformation, ListenerName, Send}
 import org.apache.kafka.common.protocol.{ApiKeys, Errors}
 import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
 import org.apache.kafka.common.record._
@@ -380,25 +378,32 @@ class KafkaApisTest {
     )
     val redirectRequestBuilder = new AlterConfigsRequest.Builder(redirectConfigs.asJava, false)
 
-    EasyMock.expect(brokerToControllerChannelManager.sendRequest(
-      EasyMock.eq(redirectRequestBuilder), anyObject[RequestCompletionHandler],
-      EasyMock.eq(null), EasyMock.eq(null)
-    )).once()
-
-    EasyMock.replay(replicaManager, clientRequestQuotaManager, requestChannel,
-      authorizer, controller, brokerToControllerChannelManager)
-
     val configs = Map(
       authorizedResource -> new AlterConfigsRequest.Config(
         Seq(new AlterConfigsRequest.ConfigEntry("foo", "bar")).asJava),
       unauthorizedResource -> new AlterConfigsRequest.Config(
         Seq(new AlterConfigsRequest.ConfigEntry("foo-1", "bar-1")).asJava)
     )
+
     val alterConfigsRequest = new AlterConfigsRequest.Builder(configs.asJava, false)
       .build(topicHeader.apiVersion)
     val request = buildRequest(alterConfigsRequest)
 
+    EasyMock.expect(brokerToControllerChannelManager.forwardRequest(
+      EasyMock.eq(redirectRequestBuilder),
+      anyObject[(RequestChannel.Request, Int => AbstractResponse,
+        Option[Send => Unit]) => Unit](),
+      EasyMock.eq(request),
+      anyObject(),
+      anyObject()
+    )).once()
+
+    EasyMock.replay(replicaManager, clientRequestQuotaManager, requestChannel,
+      authorizer, controller, brokerToControllerChannelManager)
+
     createKafkaApis(authorizer = Some(authorizer)).handleAlterConfigsRequest(request)
+
+    EasyMock.verify(controller, brokerToControllerChannelManager)
   }
 
   @Test
@@ -622,21 +627,27 @@ class KafkaApisTest {
     val redirectRequestBuilder = new IncrementalAlterConfigsRequest.Builder(
       getIncrementalAlterConfigRequestData(Seq(authorizedResource)))
 
-    EasyMock.expect(brokerToControllerChannelManager.sendRequest(
-      EasyMock.eq(redirectRequestBuilder), anyObject[RequestCompletionHandler],
-      EasyMock.eq(null), EasyMock.eq(null)
-    )).once()
-
-    EasyMock.replay(replicaManager, clientRequestQuotaManager, requestChannel,
-      authorizer, controller, brokerToControllerChannelManager)
-
     val incrementalAlterConfigsRequest = new IncrementalAlterConfigsRequest.Builder(
       getIncrementalAlterConfigRequestData(
         Seq(authorizedResource, unauthorizedResource)))
       .build(topicHeader.apiVersion)
     val request = buildRequest(incrementalAlterConfigsRequest)
 
+    EasyMock.expect(brokerToControllerChannelManager.forwardRequest(
+      EasyMock.eq(redirectRequestBuilder),
+      anyObject[(RequestChannel.Request, Int => AbstractResponse,
+        Option[Send => Unit]) => Unit](),
+      EasyMock.eq(request),
+      anyObject(),
+      anyObject()
+    )).once()
+
+    EasyMock.replay(replicaManager, clientRequestQuotaManager, requestChannel,
+      authorizer, controller, brokerToControllerChannelManager)
+
     createKafkaApis(authorizer = Some(authorizer)).handleIncrementalAlterConfigsRequest(request)
+
+    EasyMock.verify(controller, brokerToControllerChannelManager)
   }
 
   @Test
