@@ -1714,7 +1714,7 @@ class KafkaApis(val requestChannel: RequestChannel,
           s"${request.header.correlationId} to client ${request.header.clientId}.")
         responseBody
       }
-      sendResponseMaybeThrottle(controllerMutationQuota, request, createResponse, onComplete = None)
+      sendResponseMaybeThrottleByControllerMutationQuota(controllerMutationQuota, request, createResponse, onComplete = None)
     }
 
     val createTopicsRequest = request.body[CreateTopicsRequest]
@@ -1800,7 +1800,7 @@ class KafkaApis(val requestChannel: RequestChannel,
           s"client ${request.header.clientId}.")
         responseBody
       }
-      sendResponseMaybeThrottle(controllerMutationQuota, request, createResponse, onComplete = None)
+      sendResponseMaybeThrottleByControllerMutationQuota(controllerMutationQuota, request, createResponse, onComplete = None)
     }
 
     if (!controller.isActive) {
@@ -1847,7 +1847,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         trace(s"Sending delete topics response $responseBody for correlation id ${request.header.correlationId} to client ${request.header.clientId}.")
         responseBody
       }
-      sendResponseMaybeThrottle(controllerMutationQuota, request, createResponse, onComplete = None)
+      sendResponseMaybeThrottleByControllerMutationQuota(controllerMutationQuota, request, createResponse, onComplete = None)
     }
 
     val deleteTopicRequest = request.body[DeleteTopicsRequest]
@@ -3232,10 +3232,10 @@ class KafkaApis(val requestChannel: RequestChannel,
    * Throttle the channel if the controller mutations quota or the request quota have been violated.
    * Regardless of throttling, send the response immediately.
    */
-  private def sendResponseMaybeThrottle(controllerMutationQuota: ControllerMutationQuota,
-                                        request: RequestChannel.Request,
-                                        createResponse: Int => AbstractResponse,
-                                        onComplete: Option[Send => Unit]): Unit = {
+  private def sendResponseMaybeThrottleByControllerMutationQuota(controllerMutationQuota: ControllerMutationQuota,
+                                                                 request: RequestChannel.Request,
+                                                                 createResponse: Int => AbstractResponse,
+                                                                 onComplete: Option[Send => Unit]): Unit = {
     val timeMs = time.milliseconds
     val controllerThrottleTimeMs = controllerMutationQuota.throttleTime
     val requestThrottleTimeMs = quotas.request.maybeRecordAndGetThrottleTimeMs(request, timeMs)
