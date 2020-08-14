@@ -209,7 +209,7 @@ class AclAuthorizer extends Authorizer with Logging {
         aclsToCreate.foreach { case (resource, aclsWithIndex) =>
           try {
             updateResourceAcls(resource) { currentAcls =>
-              val newAcls = aclsWithIndex.map { case (acl, index) => new AclEntry(acl.entry) }
+              val newAcls = aclsWithIndex.map { case (acl, _) => new AclEntry(acl.entry) }
               currentAcls ++ newAcls
             }
             aclsWithIndex.foreach { case (_, index) => results(index) = AclCreateResult.SUCCESS }

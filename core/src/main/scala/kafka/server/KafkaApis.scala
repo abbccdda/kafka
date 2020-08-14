@@ -115,6 +115,63 @@ class KafkaApis(val requestChannel: RequestChannel,
   val adminZkClient = new AdminZkClient(zkClient)
   private val alterAclsPurgatory = new DelayedFuturePurgatory(purgatoryName = "AlterAcls", brokerId = config.brokerId)
 
+  /**
+   *
+   * @tparam R resource type
+   */
+  private[server] abstract class ForwardRequestHandler[T, R](resourceMap: Map[String, R]) extends Logging {
+
+    def authorize()
+
+    def process()
+
+    def singletonErrorResponse(error: Errors)
+
+    def sendResponseCallback()
+
+    def merge(redirectResult: Map[String, R], unauthorizedResource: Map[String, R]): T
+
+    def handle(resourceMap: Map[String, R], request: RequestChannel.Request, isForwardingRequest: Boolean): Unit = {
+      val authorizedResource, unauthorizedResource = authorize()
+      if (isForwardingRequest) {
+          if (!controller.isActive) {
+            singletonErrorResponse(Errors.NOT_CONTROLLER)
+          } else {
+            val authorizedResult = process()
+            // For forwarding requests, the authentication failure is not caused by
+            // the original client, but by the broker.
+            val unauthorizedResult = singletonErrorResponse(Errors.BROKER_AUTHORIZATION_FAILURE, unauthorizedResource)
+
+            sendResponseCallback(authorizedResult ++ unauthorizedResult)
+          }
+        } else if (!controller.isActive && config.redirectionEnabled) {
+          val redirectRequestBuilder = new IncrementalAlterConfigsRequest.Builder(
+            AlterConfigsUtil.generateIncrementalRequestData(authorizedResources.map {
+              case (resource, ops) => resource -> ops.asJavaCollection
+            }.asJava, incrementalAlterConfigsRequest.data().validateOnly()))
+
+          brokerToControllerChannelManager.forwardRequest(redirectRequestBuilder,
+            sendResponseMaybeThrottle,
+            request,
+            response => {
+              val forwardResponse = response.responseBody().asInstanceOf[IncrementalAlterConfigsResponse]
+              forwardResponse.addResults(unauthorizedResources.keys.map { resource =>
+                resource -> configsAuthorizationApiError(resource)
+              }.toMap.asJava)
+            })
+        } else {
+          // When IBP is smaller than 2.7, forwarding is not supported therefore requests are handled directly
+          val authorizedResult = adminManager.incrementalAlterConfigs(
+            authorizedResources, incrementalAlterConfigsRequest.data.validateOnly)
+          val unauthorizedResult = unauthorizedResources.keys.map { resource =>
+            resource -> configsAuthorizationApiError(resource)
+          }
+
+          sendResponseCallback(authorizedResult ++ unauthorizedResult)
+        }
+      }
+    }
+
   def close(): Unit = {
     alterAclsPurgatory.shutdown()
     info("Shutdown complete.")
