@@ -50,7 +50,7 @@ import org.apache.kafka.common.internals.{FatalExitError, Topic}
 import org.apache.kafka.common.internals.Topic.{GROUP_METADATA_TOPIC_NAME, TRANSACTION_STATE_TOPIC_NAME, isInternal}
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopic
 import org.apache.kafka.common.message.CreatePartitionsResponseData.CreatePartitionsTopicResult
-import org.apache.kafka.common.message.{AddOffsetsToTxnResponseData, AlterPartitionReassignmentsResponseData, AlterReplicaLogDirsResponseData, CreateAclsResponseData, CreatePartitionsResponseData, CreateTopicsResponseData, DeleteAclsResponseData, DeleteGroupsResponseData, DeleteRecordsResponseData, DeleteTopicsResponseData, DescribeAclsResponseData, DescribeConfigsResponseData, DescribeGroupsResponseData, DescribeLogDirsResponseData, EndTxnResponseData, ExpireDelegationTokenResponseData, FindCoordinatorResponseData, HeartbeatResponseData, InitProducerIdResponseData, JoinGroupResponseData, LeaveGroupResponseData, ListGroupsResponseData, ListPartitionReassignmentsResponseData, OffsetCommitRequestData, OffsetCommitResponseData, OffsetDeleteResponseData, RenewDelegationTokenResponseData, SaslAuthenticateResponseData, SaslHandshakeResponseData, StopReplicaResponseData, SyncGroupResponseData, UpdateMetadataResponseData}
+import org.apache.kafka.common.message.{AddOffsetsToTxnResponseData, AlterPartitionReassignmentsResponseData, AlterReplicaLogDirsResponseData, CreateAclsResponseData, CreatePartitionsResponseData, CreateTopicsRequestData, CreateTopicsResponseData, DeleteAclsResponseData, DeleteGroupsResponseData, DeleteRecordsResponseData, DeleteTopicsResponseData, DescribeAclsResponseData, DescribeConfigsResponseData, DescribeGroupsResponseData, DescribeLogDirsResponseData, EndTxnResponseData, ExpireDelegationTokenResponseData, FindCoordinatorResponseData, HeartbeatResponseData, InitProducerIdResponseData, JoinGroupResponseData, LeaveGroupResponseData, ListGroupsResponseData, ListPartitionReassignmentsResponseData, MetadataResponseData, OffsetCommitRequestData, OffsetCommitResponseData, OffsetDeleteResponseData, RenewDelegationTokenResponseData, SaslAuthenticateResponseData, SaslHandshakeResponseData, StopReplicaResponseData, SyncGroupResponseData, UpdateMetadataResponseData}
 import org.apache.kafka.common.message.CreateTopicsResponseData.{CreatableTopicResult, CreatableTopicResultCollection}
 import org.apache.kafka.common.message.DeleteGroupsResponseData.{DeletableGroupResult, DeletableGroupResultCollection}
 import org.apache.kafka.common.message.AlterPartitionReassignmentsResponseData.{ReassignablePartitionResponse, ReassignableTopicResponse}
@@ -76,7 +76,6 @@ import org.apache.kafka.common.security.auth.{KafkaPrincipal, SecurityProtocol}
 import org.apache.kafka.common.security.token.delegation.{DelegationToken, TokenInformation}
 import org.apache.kafka.common.utils.{ProducerIdAndEpoch, Time, Utils}
 import org.apache.kafka.common.{Node, TopicPartition}
-import org.apache.kafka.common.message.MetadataResponseData
 import org.apache.kafka.common.message.MetadataResponseData.{MetadataResponsePartition, MetadataResponseTopic}
 import org.apache.kafka.server.authorizer.{Authorizer, _}
 
@@ -1785,86 +1784,161 @@ class KafkaApis(val requestChannel: RequestChannel,
         val authorizedTopics =
           if (hasClusterAuthorization) topics.toSet
           else filterByAuthorized(request.context, CREATE, TOPIC, topics)(identity)
-        val authorizedForDescribeConfigs = filterByAuthorized(request.context, DESCRIBE_CONFIGS, TOPIC,
-          topics, logIfDenied = false)(identity)
 
-        authorizedTopics
-
-      }
-
-      override def process(authorizedResources: Map[String, CreatableTopic], unauthorizedResult: Map[String, ApiError], request: CreateTopicsRequest): Unit = ???
-
-      override def createRequestBuilder(authorizedResource: Map[String, CreatableTopic], request: CreateTopicsRequest): AbstractRequest.Builder[CreateTopicsRequest] = ???
-
-      override def customizedAuthorizationError(unauthorizedResource: Map[String, CreatableTopic]): Map[String, ApiError] = ???
-
-      override def mergeResponse(forwardResponse: CreateTopicsResponse, unauthorizedResult: Map[String, ApiError]): CreateTopicsResponse = ???
-    }
-
-
-
-    val createTopicsRequest = request.body[CreateTopicsRequest]
-    val results = new CreatableTopicResultCollection(createTopicsRequest.data.topics.size)
-    if (!controller.isActive) {
-      createTopicsRequest.data.topics.forEach { topic =>
-        results.add(new CreatableTopicResult().setName(topic.name)
-          .setErrorCode(Errors.NOT_CONTROLLER.code))
-      }
-      sendResponseCallback(results)
-    } else {
-      createTopicsRequest.data.topics.forEach { topic =>
-        results.add(new CreatableTopicResult().setName(topic.name))
-      }
-      val hasClusterAuthorization = authorize(request.context, CREATE, CLUSTER, CLUSTER_NAME,
-        logIfDenied = false)
-      val topics = createTopicsRequest.data.topics.asScala.map(_.name)
-      val authorizedTopics =
-        if (hasClusterAuthorization) topics.toSet
-        else filterByAuthorized(request.context, CREATE, TOPIC, topics)(identity)
-      val authorizedForDescribeConfigs = filterByAuthorized(request.context, DESCRIBE_CONFIGS, TOPIC,
-        topics, logIfDenied = false)(identity).map(name => name -> results.find(name)).toMap
-
-      results.forEach { topic =>
-        if (results.findAll(topic.name).size > 1) {
-          topic.setErrorCode(Errors.INVALID_REQUEST.code)
-          topic.setErrorMessage("Found multiple entries for this topic.")
-        } else if (!authorizedTopics.contains(topic.name)) {
-          topic.setErrorCode(Errors.TOPIC_AUTHORIZATION_FAILED.code)
-          topic.setErrorMessage("Authorization failed.")
-        }
-        if (!authorizedForDescribeConfigs.contains(topic.name)) {
-          topic.setTopicConfigErrorCode(Errors.TOPIC_AUTHORIZATION_FAILED.code)
-        }
-      }
-      val toCreate = mutable.Map[String, CreatableTopic]()
-      createTopicsRequest.data.topics.forEach { topic =>
-        if (results.find(topic.name).errorCode == Errors.NONE.code) {
-          toCreate += topic.name -> topic
-        }
-      }
-      def handleCreateTopicsResults(errors: Map[String, ApiError]): Unit = {
-        errors.foreach { case (topicName, error) =>
-          val result = results.find(topicName)
-          result.setErrorCode(error.error.code)
-            .setErrorMessage(error.message)
-          // Reset any configs in the response if Create failed
-          if (error != ApiError.NONE) {
-            result.setConfigs(List.empty.asJava)
-              .setNumPartitions(-1)
-              .setReplicationFactor(-1)
-              .setTopicConfigErrorCode(Errors.NONE.code)
+        val toCreate = mutable.Map[String, CreatableTopic]()
+        val unauthorizedTopics = mutable.Map[String, CreatableTopic]()
+        createTopicsRequest.data.topics.forEach { topic =>
+          if (authorizedTopics.contains(topic.name)) {
+            toCreate += topic.name -> topic
+          } else {
+            unauthorizedTopics += topic.name -> topic
           }
         }
-        sendResponseCallback(results)
+
+        (toCreate, unauthorizedTopics)
       }
-      adminManager.createTopics(
-        createTopicsRequest.data.timeoutMs,
-        createTopicsRequest.data.validateOnly,
-        toCreate,
-        authorizedForDescribeConfigs,
-        controllerMutationQuota,
-        handleCreateTopicsResults)
+
+      override def process(authorizedTopics: Map[String, CreatableTopic], unauthorizedResult: Map[String, ApiError], createTopicsRequest: CreateTopicsRequest): Unit = {
+        val results = new CreatableTopicResultCollection(createTopicsRequest.data.topics.size)
+        createTopicsRequest.data.topics.forEach { topic =>
+          results.add(new CreatableTopicResult().setName(topic.name))
+        }
+
+        val authorizedForDescribeConfigs = filterByAuthorized(request.context, DESCRIBE_CONFIGS, TOPIC,
+          authorizedTopics.keys, logIfDenied = false)(identity).map(name => name -> results.find(name)).toMap
+
+        results.forEach { topic =>
+          if (results.findAll(topic.name).size > 1) {
+            topic.setErrorCode(Errors.INVALID_REQUEST.code)
+            topic.setErrorMessage("Found multiple entries for this topic.")
+          } else if (unauthorizedResult.contains(topic.name)) {
+            topic.setErrorCode(unauthorizedResult(topic.name()).error.code)
+            topic.setErrorMessage("Authorization failed.")
+          }
+          if (!authorizedForDescribeConfigs.contains(topic.name)) {
+            topic.setTopicConfigErrorCode(Errors.TOPIC_AUTHORIZATION_FAILED.code)
+          }
+        }
+
+        def handleCreateTopicsResults(errors: Map[String, ApiError]): Unit = {
+          errors.foreach { case (topicName, error) =>
+            val result = results.find(topicName)
+            result.setErrorCode(error.error.code)
+              .setErrorMessage(error.message)
+            // Reset any configs in the response if Create failed
+            if (error != ApiError.NONE) {
+              result.setConfigs(List.empty.asJava)
+                .setNumPartitions(-1)
+                .setReplicationFactor(-1)
+                .setTopicConfigErrorCode(Errors.NONE.code)
+            }
+          }
+          sendResponseCallback(results)
+        }
+
+        adminManager.createTopics(
+          createTopicsRequest.data.timeoutMs,
+          createTopicsRequest.data.validateOnly,
+          authorizedTopics,
+          authorizedForDescribeConfigs,
+          controllerMutationQuota,
+          handleCreateTopicsResults)
+      }
+
+      override def createRequestBuilder(authorizedResource: Map[String, CreatableTopic],
+                                        createTopicsRequest: CreateTopicsRequest): AbstractRequest.Builder[CreateTopicsRequest] = {
+        val topicsAuthorized = new CreateTopicsRequestData.CreatableTopicCollection(authorizedResource.size)
+        createTopicsRequest.data.topics.forEach(topic =>
+        if (authorizedResource.contains(topic.name)) {
+          topicsAuthorized.add(topic)
+        })
+
+        new CreateTopicsRequest.Builder(new CreateTopicsRequestData()
+          .setTopics(topicsAuthorized)
+          .setTimeoutMs(createTopicsRequest.data.timeoutMs)
+          .setValidateOnly(createTopicsRequest.data.validateOnly))
+      }
+
+      override def customizedAuthorizationError(unauthorizedResource: Map[String, CreatableTopic]): Map[String, ApiError] = {
+        unauthorizedResource.keys.map(topicName => topicName -> new ApiError(Errors.TOPIC_AUTHORIZATION_FAILED)).toMap
+      }
+
+      override def mergeResponse(forwardResponse: CreateTopicsResponse, unauthorizedResult: Map[String, ApiError]): CreateTopicsResponse = {
+        val forwardTopics = forwardResponse.data.topics
+        unauthorizedResult.foreach{ case (topicName, error) => {
+          forwardTopics.add(new CreateTopicsResponseData.CreatableTopicResult()
+            .setName(topicName)
+            .setErrorCode(error.error.code)
+            .setErrorMessage("Authorization failed."))
+        }}
+        forwardResponse
+      }
     }
+    forwardRequestHandler.handle(request)
+
+//
+//    val createTopicsRequest = request.body[CreateTopicsRequest]
+//    val results = new CreatableTopicResultCollection(createTopicsRequest.data.topics.size)
+//    if (!controller.isActive) {
+//      createTopicsRequest.data.topics.forEach { topic =>
+//        results.add(new CreatableTopicResult().setName(topic.name)
+//          .setErrorCode(Errors.NOT_CONTROLLER.code))
+//      }
+//      sendResponseCallback(results)
+//    } else {
+//      createTopicsRequest.data.topics.forEach { topic =>
+//        results.add(new CreatableTopicResult().setName(topic.name))
+//      }
+//      val hasClusterAuthorization = authorize(request.context, CREATE, CLUSTER, CLUSTER_NAME,
+//        logIfDenied = false)
+//      val topics = createTopicsRequest.data.topics.asScala.map(_.name)
+//      val authorizedTopics =
+//        if (hasClusterAuthorization) topics.toSet
+//        else filterByAuthorized(request.context, CREATE, TOPIC, topics)(identity)
+//      val authorizedForDescribeConfigs = filterByAuthorized(request.context, DESCRIBE_CONFIGS, TOPIC,
+//        topics, logIfDenied = false)(identity).map(name => name -> results.find(name)).toMap
+//
+//      results.forEach { topic =>
+//        if (results.findAll(topic.name).size > 1) {
+//          topic.setErrorCode(Errors.INVALID_REQUEST.code)
+//          topic.setErrorMessage("Found multiple entries for this topic.")
+//        } else if (!authorizedTopics.contains(topic.name)) {
+//          topic.setErrorCode(Errors.TOPIC_AUTHORIZATION_FAILED.code)
+//          topic.setErrorMessage("Authorization failed.")
+//        }
+//        if (!authorizedForDescribeConfigs.contains(topic.name)) {
+//          topic.setTopicConfigErrorCode(Errors.TOPIC_AUTHORIZATION_FAILED.code)
+//        }
+//      }
+//      val toCreate = mutable.Map[String, CreatableTopic]()
+//      createTopicsRequest.data.topics.forEach { topic =>
+//        if (results.find(topic.name).errorCode == Errors.NONE.code) {
+//          toCreate += topic.name -> topic
+//        }
+//      }
+//      def handleCreateTopicsResults(errors: Map[String, ApiError]): Unit = {
+//        errors.foreach { case (topicName, error) =>
+//          val result = results.find(topicName)
+//          result.setErrorCode(error.error.code)
+//            .setErrorMessage(error.message)
+//          // Reset any configs in the response if Create failed
+//          if (error != ApiError.NONE) {
+//            result.setConfigs(List.empty.asJava)
+//              .setNumPartitions(-1)
+//              .setReplicationFactor(-1)
+//              .setTopicConfigErrorCode(Errors.NONE.code)
+//          }
+//        }
+//        sendResponseCallback(results)
+//      }
+//      adminManager.createTopics(
+//        createTopicsRequest.data.timeoutMs,
+//        createTopicsRequest.data.validateOnly,
+//        toCreate,
+//        authorizedForDescribeConfigs,
+//        controllerMutationQuota,
+//        handleCreateTopicsResults)
+//    }
   }
 
   def handleCreatePartitionsRequest(request: RequestChannel.Request): Unit = {
