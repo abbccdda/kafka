@@ -132,9 +132,9 @@ class KafkaApis(val requestChannel: RequestChannel,
 
     def process(authorizedResources: Map[RK, RV], unauthorizedResult: Map[RK, ApiError], request: T): Unit
 
-    def createRequestBuilder(authorizedResource: Map[RK, RV], request: T): AbstractRequest.Builder[T]
+    def createRequestBuilder(authorizedResources: Map[RK, RV], request: T): AbstractRequest.Builder[T]
 
-    def customizedAuthorizationError(unauthorizedResource: Map[RK, RV]): Map[RK, ApiError]
+    def customizedAuthorizationError(unauthorizedResources: Map[RK, RV]): Map[RK, ApiError]
 
     /**
      * Merge the forward response with the previous unauthorized results.
@@ -2664,72 +2664,6 @@ class KafkaApis(val requestChannel: RequestChannel,
       }
     }
     forwardRequestHandler.handle(request)
-
-//    val (authorizedResources, unauthorizedResources) = requestResources.partition { case (resource, _) =>
-//      resource.`type` match {
-//        case ConfigResource.Type.BROKER_LOGGER =>
-//          throw new InvalidRequestException(
-//            s"AlterConfigs is deprecated and does not support the resource type ${ConfigResource.Type.BROKER_LOGGER}")
-//        case ConfigResource.Type.BROKER =>
-//          authorize(request.context, ALTER_CONFIGS, CLUSTER, CLUSTER_NAME)
-//        case ConfigResource.Type.TOPIC =>
-//          authorize(request.context, ALTER_CONFIGS, TOPIC, resource.name)
-//        case rt => throw new InvalidRequestException(s"Unexpected resource type $rt")
-//      }
-//    }
-//
-//    def sendResponseCallback(results: Map[ConfigResource, ApiError]): Unit = {
-//      sendResponseMaybeThrottle(request, requestThrottleMs =>
-//        new AlterConfigsResponse(results.asJava, requestThrottleMs))
-//    }
-//
-//    def notControllerResponse(): Unit = {
-//      val errorResult = requestResources.keys.map {
-//        resource => resource -> new ApiError(Errors.NOT_CONTROLLER, null)
-//      }.toMap
-//
-//      sendResponseCallback(errorResult)
-//    }
-//
-//    if (isForwardingRequest(request)) {
-//      if (!controller.isActive) {
-//        notControllerResponse()
-//      } else {
-//        val authorizedResult = adminManager.alterConfigs(
-//          authorizedResources, alterConfigsRequest.validateOnly)
-//        // For forwarding requests, the authentication failure is not caused by
-//        // the original client, but by the broker.
-//        val unauthorizedResult = unauthorizedResources.keys.map { resource =>
-//          resource -> new ApiError(Errors.BROKER_AUTHORIZATION_FAILURE, null)
-//        }
-//
-//        sendResponseCallback(authorizedResult ++ unauthorizedResult)
-//      }
-//    } else if (!controller.isActive && config.redirectionEnabled) {
-//      val redirectRequestBuilder = new AlterConfigsRequest.Builder(
-//        authorizedResources.asJava, alterConfigsRequest.validateOnly())
-//
-//      brokerToControllerChannelManager.forwardRequest(
-//        redirectRequestBuilder,
-//        sendResponseMaybeThrottle,
-//        request,
-//        response => {
-//          val forwardResponse = response.responseBody().asInstanceOf[AlterConfigsResponse]
-//          forwardResponse.addResults(
-//            unauthorizedResources.keys.map { resource =>
-//            resource -> configsAuthorizationApiError(resource)
-//            }.toMap.asJava)
-//        })
-//    } else {
-//      // When IBP is smaller than 2.7, forwarding is not supported therefore requests are handled directly
-//      val authorizedResult = adminManager.alterConfigs(
-//        authorizedResources, alterConfigsRequest.validateOnly)
-//      val unauthorizedResult = unauthorizedResources.keys.map { resource =>
-//        resource -> configsAuthorizationApiError(resource)
-//      }
-//
-//      sendResponseCallback(authorizedResult ++ unauthorizedResult)
-//    }
   }
 
   private def isForwardingRequest(request: RequestChannel.Request): Boolean = {
@@ -2833,78 +2767,68 @@ class KafkaApis(val requestChannel: RequestChannel,
   }
 
   def handleIncrementalAlterConfigsRequest(request: RequestChannel.Request): Unit = {
-    val incrementalAlterConfigsRequest = request.body[IncrementalAlterConfigsRequest]
-    val configs = incrementalAlterConfigsRequest.data.resources.iterator.asScala.map { alterConfigResource =>
-      val configResource = new ConfigResource(ConfigResource.Type.forId(alterConfigResource.resourceType),
-        alterConfigResource.resourceName)
-      configResource -> alterConfigResource.configs.iterator.asScala.map {
-        alterConfig => new AlterConfigOp(new ConfigEntry(alterConfig.name, alterConfig.value),
-          OpType.forId(alterConfig.configOperation))
-      }.toBuffer
-    }.toMap
-
-    val (authorizedResources, unauthorizedResources) = configs.partition { case (resource, _) =>
-      resource.`type` match {
-        case ConfigResource.Type.BROKER | ConfigResource.Type.BROKER_LOGGER =>
-          authorize(request.context, ALTER_CONFIGS, CLUSTER, CLUSTER_NAME)
-        case ConfigResource.Type.TOPIC =>
-          authorize(request.context, ALTER_CONFIGS, TOPIC, resource.name)
-        case rt => throw new InvalidRequestException(s"Unexpected resource type $rt")
-      }
-    }
-
     def sendResponseCallback(results: Map[ConfigResource, ApiError]): Unit = {
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         new IncrementalAlterConfigsResponse(requestThrottleMs, results.asJava))
     }
 
-    def notControllerResponse(): Unit = {
-      val errorResult = configs.keys.map {
-        resource => resource -> new ApiError(Errors.NOT_CONTROLLER, null)
-      }.toMap
+    val forwardRequestHandler = new ForwardRequestHandler[IncrementalAlterConfigsRequest, IncrementalAlterConfigsResponse, ConfigResource, Seq[AlterConfigOp]] {
+      /**
+       * Split the given resource into authorized and unauthorized sets.
+       *
+       * @return authorized resources and unauthorized resources
+       */
+      override def resourceSplitByAuthorization(incrementalAlterConfigsRequest: IncrementalAlterConfigsRequest): (Map[ConfigResource, Seq[AlterConfigOp]], Map[ConfigResource, Seq[AlterConfigOp]]) = {
+        val configs = incrementalAlterConfigsRequest.data.resources.iterator.asScala.map { alterConfigResource =>
+          val configResource = new ConfigResource(ConfigResource.Type.forId(alterConfigResource.resourceType),
+            alterConfigResource.resourceName)
+          configResource -> alterConfigResource.configs.iterator.asScala.map {
+            alterConfig => new AlterConfigOp(new ConfigEntry(alterConfig.name, alterConfig.value),
+              OpType.forId(alterConfig.configOperation))
+          }.toBuffer
+        }.toMap
 
-      sendResponseCallback(errorResult)
-    }
+        configs.partition { case (resource, _) =>
+          resource.`type` match {
+            case ConfigResource.Type.BROKER | ConfigResource.Type.BROKER_LOGGER =>
+              authorize(request.context, ALTER_CONFIGS, CLUSTER, CLUSTER_NAME)
+            case ConfigResource.Type.TOPIC =>
+              authorize(request.context, ALTER_CONFIGS, TOPIC, resource.name)
+            case rt => throw new InvalidRequestException(s"Unexpected resource type $rt")
+          }
+        }
+      }
 
-    if (isForwardingRequest(request)) {
-      if (!controller.isActive) {
-        notControllerResponse()
-      } else {
+      override def process(authorizedResources: Map[ConfigResource, Seq[AlterConfigOp]],
+                           unauthorizedResult: Map[ConfigResource, ApiError],
+                           incrementalAlterConfigsRequest: IncrementalAlterConfigsRequest): Unit = {
         val authorizedResult = adminManager.incrementalAlterConfigs(
           authorizedResources, incrementalAlterConfigsRequest.data.validateOnly)
 
-        // For forwarding requests, the authentication failure is not caused by
-        // the original client, but by the broker.
-        val unauthorizedResult = unauthorizedResources.keys.map { resource =>
-          resource -> new ApiError(Errors.BROKER_AUTHORIZATION_FAILURE, null)
-        }
         sendResponseCallback(authorizedResult ++ unauthorizedResult)
       }
-    } else if (!controller.isActive && config.redirectionEnabled) {
-      val redirectRequestBuilder = new IncrementalAlterConfigsRequest.Builder(
-        AlterConfigsUtil.generateIncrementalRequestData(authorizedResources.map {
-          case (resource, ops) => resource -> ops.asJavaCollection
-        }.asJava, incrementalAlterConfigsRequest.data().validateOnly()))
 
-      brokerToControllerChannelManager.forwardRequest(redirectRequestBuilder,
-        sendResponseMaybeThrottle,
-        request,
-        response => {
-          val forwardResponse = response.responseBody().asInstanceOf[IncrementalAlterConfigsResponse]
-          forwardResponse.addResults(unauthorizedResources.keys.map { resource =>
-            resource -> configsAuthorizationApiError(resource)
-          }.toMap.asJava)
-        })
-    } else {
-      // When IBP is smaller than 2.7, forwarding is not supported therefore requests are handled directly
-      val authorizedResult = adminManager.incrementalAlterConfigs(
-        authorizedResources, incrementalAlterConfigsRequest.data.validateOnly)
-      val unauthorizedResult = unauthorizedResources.keys.map { resource =>
-        resource -> configsAuthorizationApiError(resource)
+      override def createRequestBuilder(authorizedResources: Map[ConfigResource, Seq[AlterConfigOp]],
+                                        incrementalAlterConfigsRequest: IncrementalAlterConfigsRequest): AbstractRequest.Builder[IncrementalAlterConfigsRequest] = {
+        new IncrementalAlterConfigsRequest.Builder(
+          AlterConfigsUtil.generateIncrementalRequestData(authorizedResources.map {
+            case (resource, ops) => resource -> ops.asJavaCollection
+          }.asJava, incrementalAlterConfigsRequest.data().validateOnly()))
       }
 
-      sendResponseCallback(authorizedResult ++ unauthorizedResult)
+      override def customizedAuthorizationError(unauthorizedResources: Map[ConfigResource, Seq[AlterConfigOp]]): Map[ConfigResource, ApiError] = {
+        unauthorizedResources.keys.map { resource =>
+          resource -> configsAuthorizationApiError(resource)
+        }.toMap
+      }
+
+      override def mergeResponse(forwardResponse: IncrementalAlterConfigsResponse,
+                                 unauthorizedResult: Map[ConfigResource, ApiError]): IncrementalAlterConfigsResponse = {
+        forwardResponse.addResults(unauthorizedResult.asJava)
+      }
     }
+
+    forwardRequestHandler.handle(request)
   }
 
   def handleDescribeConfigsRequest(request: RequestChannel.Request): Unit = {
