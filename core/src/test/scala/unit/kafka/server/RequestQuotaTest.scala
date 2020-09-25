@@ -14,6 +14,7 @@
 
 package kafka.server
 
+import java.nio.ByteBuffer
 import java.util
 import java.util.concurrent.{Executors, Future, TimeUnit}
 import java.util.{Collections, Optional, Properties}
@@ -581,6 +582,9 @@ class RequestQuotaTest extends BaseRequestTest {
 
         case ApiKeys.ALTER_ISR =>
           new AlterIsrRequest.Builder(new AlterIsrRequestData())
+
+        case ApiKeys.ENVELOPE =>
+          new EnvelopeRequest.Builder(ByteBuffer.allocate(0))
 
         case _ =>
           throw new IllegalArgumentException("Unsupported API key " + apiKey)

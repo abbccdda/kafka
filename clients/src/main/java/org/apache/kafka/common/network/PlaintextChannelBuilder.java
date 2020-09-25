@@ -20,6 +20,7 @@ import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.memory.MemoryPool;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.KafkaPrincipalBuilder;
+import org.apache.kafka.common.security.auth.KafkaPrincipalSerde;
 import org.apache.kafka.common.security.auth.PlaintextAuthenticationContext;
 import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
@@ -97,6 +98,11 @@ public class PlaintextChannelBuilder implements ChannelBuilder {
             if (listenerName == null)
                 throw new IllegalStateException("Unexpected call to principal() when listenerName is null");
             return principalBuilder.build(new PlaintextAuthenticationContext(clientAddress, listenerName.value()));
+        }
+
+        @Override
+        public KafkaPrincipalSerde principalSerde() {
+            return principalBuilder instanceof KafkaPrincipalSerde ? (KafkaPrincipalSerde) principalBuilder : null;
         }
 
         @Override

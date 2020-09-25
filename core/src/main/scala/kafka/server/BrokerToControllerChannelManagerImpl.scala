@@ -23,12 +23,12 @@ import kafka.common.{InitialPrincipal, InterBrokerSendThread, RequestAndCompleti
 import kafka.network.RequestChannel
 import kafka.utils.Logging
 import org.apache.kafka.clients._
-import org.apache.kafka.common.requests.{AbstractRequest, AbstractResponse}
+import org.apache.kafka.common.requests.{AbstractRequest, AbstractResponse, EnvelopeRequest}
 import org.apache.kafka.common.utils.{LogContext, Time}
 import org.apache.kafka.common.Node
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.network._
-import org.apache.kafka.common.protocol.Errors
+import org.apache.kafka.common.protocol.{ApiKeys, Errors}
 import org.apache.kafka.common.security.JaasContext
 
 import scala.collection.mutable
@@ -138,7 +138,9 @@ class BrokerToControllerChannelManagerImpl(metadataCache: kafka.server.MetadataC
                                      originalRequest: RequestChannel.Request,
                                      combineResponse: ClientResponse => AbstractResponse,
                                      callback: Option[Send => Unit] = Option.empty): Unit = {
-    requestQueue.put(BrokerToControllerQueueItem(requestBuilder,
+    val serializedRequestData = originalRequest.body[AbstractRequest].serialize(originalRequest.header)
+    val envelopeRequest = new EnvelopeRequest.Builder(serializedRequestData,  originalRequest.context.serializedPrincipal(ApiKeys.ENVELOPE.latestVersion))
+    requestQueue.put(BrokerToControllerQueueItem(envelopeRequest,
       (response: ClientResponse) => responseToOriginalClient(
         originalRequest, _ => combineResponse(response), callback),
       InitialPrincipal(originalRequest.context.principal.getName,

@@ -183,7 +183,7 @@ class KafkaApis(val requestChannel: RequestChannel,
           process(authorizedResources, unauthorizedResult, requestBody)
         }
       } else if (!controller.isActive && config.redirectionEnabled &&
-        authorizedResources.nonEmpty) {
+        request.context.couldSerializePrincipal) {
         redirectionManager.forwardRequest(
           createRequestBuilder(authorizedResources, requestBody),
           sendResponseMaybeThrottle,
@@ -272,6 +272,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         case ApiKeys.DESCRIBE_USER_SCRAM_CREDENTIALS => handleDescribeUserScramCredentialsRequest(request)
         case ApiKeys.ALTER_USER_SCRAM_CREDENTIALS => handleAlterUserScramCredentialsRequest(request)
         case ApiKeys.ALTER_ISR => handleAlterIsrRequest(request)
+        case ApiKeys.ENVELOPE => closeConnection(request, util.Collections.emptyMap())
 
         // Until we are ready to integrate the Raft layer, these APIs are treated as
         // unexpected and we just close the connection.
