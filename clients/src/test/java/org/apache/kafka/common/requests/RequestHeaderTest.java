@@ -78,8 +78,8 @@ public class RequestHeaderTest {
     public void testRequestHeaderWithInitialPrincipalAndClientId() {
         final String initialPrincipalName = "initial-principal";
         final String initialClientId = "initial-client";
-        RequestHeader header = new RequestHeader(ApiKeys.CREATE_DELEGATION_TOKEN, (short) 2, "", 10,
-            initialPrincipalName, initialClientId);
+        RequestHeader header = new RequestHeader(ApiKeys.CREATE_DELEGATION_TOKEN, (short) 2, "", 10
+        );
         assertEquals(2, header.headerVersion());
         ByteBuffer buffer = toBuffer(header.toStruct());
         assertEquals(17 + initialPrincipalName.length() + initialClientId.length(), buffer.remaining());

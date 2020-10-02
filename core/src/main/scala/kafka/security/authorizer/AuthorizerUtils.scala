@@ -18,6 +18,7 @@
 package kafka.security.authorizer
 
 import java.net.InetAddress
+import java.util.Optional
 
 import kafka.network.RequestChannel.Session
 import kafka.security.auth.{Authorizer => LegacyAuthorizer}
@@ -59,6 +60,7 @@ object AuthorizerUtils {
       override def securityProtocol(): SecurityProtocol = null
       override def correlationId(): Int = -1
       override def requestVersion(): Int = -1
+      override def forwardingPrincipal(): Optional[KafkaPrincipal] = Optional.empty()
     }
   }
 }

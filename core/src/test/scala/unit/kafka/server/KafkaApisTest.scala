@@ -378,12 +378,10 @@ class KafkaApisTest {
     val capturedCallback = EasyMock.newCapture[ClientResponse => AbstractResponse]()
 
     EasyMock.expect(redirectionManager.forwardRequest(
-      EasyMock.eq(redirectRequestBuilder),
       anyObject[(RequestChannel.Request, Int => AbstractResponse,
         Option[Send => Unit]) => Unit](),
       EasyMock.eq(request),
-      EasyMock.capture(capturedCallback),
-      anyObject()
+      EasyMock.capture(capturedCallback)
     )).once()
 
     val clientResponse: ClientResponse = EasyMock.createNiceMock(classOf[ClientResponse])
@@ -413,8 +411,7 @@ class KafkaApisTest {
     val quotas = Seq(new ClientQuotaAlteration(quotaEntity, Seq.empty.asJavaCollection))
 
     // Include extra header fields for forwarding request check
-    val requestHeader = new RequestHeader(ApiKeys.ALTER_CLIENT_QUOTAS, ApiKeys.ALTER_CLIENT_QUOTAS.latestVersion,
-      clientId, 0, "initial-principal", "initial-client")
+    val requestHeader = new RequestHeader(ApiKeys.ALTER_CLIENT_QUOTAS, ApiKeys.ALTER_CLIENT_QUOTAS.latestVersion, clientId, 0)
 
     val alterClientQuotasRequest = new AlterClientQuotasRequest.Builder(quotas.asJavaCollection, false)
       .build(requestHeader.apiVersion)
@@ -450,8 +447,7 @@ class KafkaApisTest {
     val quotas = Seq(new ClientQuotaAlteration(quotaEntity, Seq.empty.asJavaCollection))
 
     // Include extra header fields for forwarding request check
-    val requestHeader = new RequestHeader(ApiKeys.ALTER_CLIENT_QUOTAS, ApiKeys.ALTER_CLIENT_QUOTAS.latestVersion,
-      clientId, 0, "initial-principal", "initial-client")
+    val requestHeader = new RequestHeader(ApiKeys.ALTER_CLIENT_QUOTAS, ApiKeys.ALTER_CLIENT_QUOTAS.latestVersion, clientId, 0)
 
     val alterClientQuotasRequest = new AlterClientQuotasRequest.Builder(quotas.asJavaCollection, false)
       .build(requestHeader.apiVersion)
@@ -676,11 +672,9 @@ class KafkaApisTest {
     val capturedCallback = EasyMock.newCapture[ClientResponse => AbstractResponse]()
 
     EasyMock.expect(redirectionManager.forwardRequest(
-      EasyMock.eq(redirectRequestBuilder),
       anyObject[(RequestChannel.Request, Int => AbstractResponse,
         Option[Send => Unit]) => Unit](),
       EasyMock.eq(request),
-      EasyMock.capture(capturedCallback),
       anyObject()
     )).once()
 
@@ -722,8 +716,7 @@ class KafkaApisTest {
       authorizedTopic, unauthorizedTopic)
 
     // Include extra header fields for forwarding request check
-    val requestHeader = new RequestHeader(ApiKeys.CREATE_TOPICS, ApiKeys.CREATE_TOPICS.latestVersion,
-      clientId, 0, "initial-principal", "initial-client")
+    val requestHeader = new RequestHeader(ApiKeys.CREATE_TOPICS, ApiKeys.CREATE_TOPICS.latestVersion, clientId, 0)
 
     EasyMock.expect(controller.isActive).andReturn(false)
 
@@ -784,8 +777,7 @@ class KafkaApisTest {
       authorizedTopic, unauthorizedTopic, logIfDenied = false)
 
     // Include extra header fields for forwarding request check
-    val requestHeader = new RequestHeader(ApiKeys.CREATE_TOPICS, ApiKeys.CREATE_TOPICS.latestVersion,
-      clientId, 0, "initial-principal", "initial-client")
+    val requestHeader = new RequestHeader(ApiKeys.CREATE_TOPICS, ApiKeys.CREATE_TOPICS.latestVersion, clientId, 0)
 
     EasyMock.expect(controller.isActive).andReturn(true)
 
@@ -1017,11 +1009,9 @@ class KafkaApisTest {
     val capturedCallback = EasyMock.newCapture[ClientResponse => AbstractResponse]()
 
     EasyMock.expect(redirectionManager.forwardRequest(
-      EasyMock.eq(redirectRequestBuilder),
       anyObject[(RequestChannel.Request, Int => AbstractResponse,
         Option[Send => Unit]) => Unit](),
       EasyMock.eq(request),
-      EasyMock.capture(capturedCallback),
       anyObject()
     )).once()
 
@@ -1059,8 +1049,7 @@ class KafkaApisTest {
         Seq(new AlterConfigsRequest.ConfigEntry("foo", "bar")).asJava))
 
     // Include extra header fields for forwarding request check
-    val requestHeader = new RequestHeader(ApiKeys.ALTER_CONFIGS, ApiKeys.ALTER_CONFIGS.latestVersion,
-      clientId, 0, "initial-principal", "initial-client")
+    val requestHeader = new RequestHeader(ApiKeys.ALTER_CONFIGS, ApiKeys.ALTER_CONFIGS.latestVersion, clientId, 0)
 
     val alterConfigsRequest = new AlterConfigsRequest.Builder(configs.asJava, false)
       .build(requestHeader.apiVersion)
@@ -1101,8 +1090,7 @@ class KafkaApisTest {
     )
 
     // Include extra header fields for forwarding request check
-    val requestHeader = new RequestHeader(ApiKeys.ALTER_CONFIGS, ApiKeys.ALTER_CONFIGS.latestVersion,
-      clientId, 0, "initial-principal", "initial-client")
+    val requestHeader = new RequestHeader(ApiKeys.ALTER_CONFIGS, ApiKeys.ALTER_CONFIGS.latestVersion, clientId, 0)
 
     val alterConfigsRequest = new AlterConfigsRequest.Builder(configs.asJava, false)
       .build(requestHeader.apiVersion)
@@ -1292,11 +1280,9 @@ class KafkaApisTest {
     val capturedCallback = EasyMock.newCapture[ClientResponse => AbstractResponse]()
 
     EasyMock.expect(redirectionManager.forwardRequest(
-      EasyMock.eq(redirectRequestBuilder),
       anyObject[(RequestChannel.Request, Int => AbstractResponse,
         Option[Send => Unit]) => Unit](),
       EasyMock.eq(request),
-      EasyMock.capture(capturedCallback),
       anyObject()
     )).once()
 
@@ -1328,9 +1314,7 @@ class KafkaApisTest {
     val configResource = new ConfigResource(ConfigResource.Type.TOPIC, resourceName)
 
     // Include extra header fields for forwarding request check
-    val requestHeader = new RequestHeader(ApiKeys.INCREMENTAL_ALTER_CONFIGS,
-      ApiKeys.INCREMENTAL_ALTER_CONFIGS.latestVersion,
-      clientId, 0, "initial-principal", "initial-client")
+    val requestHeader = new RequestHeader(ApiKeys.INCREMENTAL_ALTER_CONFIGS, ApiKeys.INCREMENTAL_ALTER_CONFIGS.latestVersion, clientId, 0)
 
     val incrementalAlterConfigsRequest = getIncrementalAlterConfigRequestBuilder(Seq(configResource))
       .build(requestHeader.apiVersion)
@@ -1367,9 +1351,7 @@ class KafkaApisTest {
     authorizeResource(authorizer, AclOperation.CLUSTER_ACTION, ResourceType.TOPIC, unauthorizedTopic, AuthorizationResult.DENIED)
 
     // Include extra header fields for forwarding request check
-    val requestHeader = new RequestHeader(ApiKeys.INCREMENTAL_ALTER_CONFIGS,
-      ApiKeys.INCREMENTAL_ALTER_CONFIGS.latestVersion,
-      clientId, 0, "initial-principal", "initial-client")
+    val requestHeader = new RequestHeader(ApiKeys.INCREMENTAL_ALTER_CONFIGS, ApiKeys.INCREMENTAL_ALTER_CONFIGS.latestVersion, clientId, 0)
 
     val incrementalAlterConfigsRequest = getIncrementalAlterConfigRequestBuilder(Seq(authorizedResource, unauthorizedResource))
       .build(requestHeader.apiVersion)

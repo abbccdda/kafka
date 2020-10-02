@@ -21,6 +21,8 @@ import org.apache.kafka.common.message.EnvelopeResponseData;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.types.Struct;
+import org.apache.kafka.common.security.auth.KafkaPrincipal;
+import org.apache.kafka.common.security.auth.KafkaPrincipalSerde;
 
 import java.nio.ByteBuffer;
 
@@ -58,6 +60,18 @@ public class EnvelopeRequest extends AbstractRequest {
     public EnvelopeRequest(EnvelopeRequestData data, short version) {
         super(ApiKeys.ENVELOPE, version);
         this.data = data;
+    }
+
+    public ByteBuffer requestData() {
+        return data.requestData();
+    }
+
+    public String clientHostName() {
+        return data.clientHostName();
+    }
+
+    public KafkaPrincipal requestPrincipal(KafkaPrincipalSerde principalSerde) {
+        return principalSerde.deserialize(data.requestPrincipal().array(), version());
     }
 
     @Override

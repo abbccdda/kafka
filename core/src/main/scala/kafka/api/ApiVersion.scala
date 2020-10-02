@@ -107,7 +107,7 @@ object ApiVersion {
     KAFKA_2_7_IV2,
     // Enable redirection (KIP-590)
     // TODO: remove this IBP in the 2.7 release if redirection work could not be done before the freeze
-    KAFKA_2_7_IV3
+    KAFKA_2_8_IV0
   )
 
   // Map keys are the union of the short and full versions
@@ -382,9 +382,9 @@ case object KAFKA_2_7_IV2 extends DefaultApiVersion {
   val id: Int = 30
 }
 
-case object KAFKA_2_7_IV3 extends DefaultApiVersion {
-  val shortVersion: String = "2.7"
-  val subVersion = "IV3"
+case object KAFKA_2_8_IV0 extends DefaultApiVersion {
+  val shortVersion: String = "2.8"
+  val subVersion = "IV0"
   val recordVersion = RecordVersion.V2
   val id: Int = 31
 }

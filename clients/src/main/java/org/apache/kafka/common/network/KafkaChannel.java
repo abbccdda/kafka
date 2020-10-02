@@ -162,7 +162,7 @@ public class KafkaChannel implements AutoCloseable {
         return authenticator.principal();
     }
 
-    public KafkaPrincipalSerde principalSerde() {
+    public Optional<KafkaPrincipalSerde> principalSerde() {
         return authenticator.principalSerde();
     }
 

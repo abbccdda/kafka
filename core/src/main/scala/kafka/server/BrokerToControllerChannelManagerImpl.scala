@@ -19,7 +19,7 @@ package kafka.server
 
 import java.util.concurrent.{LinkedBlockingDeque, TimeUnit}
 
-import kafka.common.{InitialPrincipal, InterBrokerSendThread, RequestAndCompletionHandler}
+import kafka.common.{InterBrokerSendThread, RequestAndCompletionHandler}
 import kafka.network.RequestChannel
 import kafka.utils.Logging
 import org.apache.kafka.clients._
@@ -38,6 +38,11 @@ import scala.jdk.CollectionConverters._
 trait BrokerToControllerChannelManager {
   def sendRequest(request: AbstractRequest.Builder[_ <: AbstractRequest],
                   callback: RequestCompletionHandler): Unit
+
+  def forwardRequest(responseToOriginalClient: (RequestChannel.Request, Int => AbstractResponse,
+                       Option[Send => Unit]) => Unit,
+                     originalRequest: RequestChannel.Request,
+                     callback: Option[Send => Unit] = Option.empty): Unit
 
   def start(): Unit
 
@@ -132,26 +137,22 @@ class BrokerToControllerChannelManagerImpl(metadataCache: kafka.server.MetadataC
     requestThread.wakeup()
   }
 
-  private[server] def forwardRequest(requestBuilder: AbstractRequest.Builder[_ <: AbstractRequest],
-                                     responseToOriginalClient: (RequestChannel.Request, Int => AbstractResponse,
-                                       Option[Send => Unit]) => Unit,
-                                     originalRequest: RequestChannel.Request,
-                                     combineResponse: ClientResponse => AbstractResponse,
-                                     callback: Option[Send => Unit] = Option.empty): Unit = {
+  override def forwardRequest(responseToOriginalClient: (RequestChannel.Request, Int =>
+                                AbstractResponse, Option[Send => Unit]) => Unit,
+                              originalRequest: RequestChannel.Request,
+                              callback: Option[Send => Unit] = Option.empty): Unit = {
     val serializedRequestData = originalRequest.body[AbstractRequest].serialize(originalRequest.header)
-    val envelopeRequest = new EnvelopeRequest.Builder(serializedRequestData,  originalRequest.context.serializedPrincipal(ApiKeys.ENVELOPE.latestVersion))
+    val envelopeRequest = new EnvelopeRequest.Builder(serializedRequestData, originalRequest.context.serializedPrincipal(
+      ApiKeys.ENVELOPE.latestVersion))
     requestQueue.put(BrokerToControllerQueueItem(envelopeRequest,
       (response: ClientResponse) => responseToOriginalClient(
-        originalRequest, _ => combineResponse(response), callback),
-      InitialPrincipal(originalRequest.context.principal.getName,
-        originalRequest.context.clientId)))
+        originalRequest, _ => response.responseBody, callback)))
     requestThread.wakeup()
   }
 }
 
 case class BrokerToControllerQueueItem(request: AbstractRequest.Builder[_ <: AbstractRequest],
-                                       callback: RequestCompletionHandler,
-                                       initialPrincipal: InitialPrincipal = InitialPrincipal(null, null))
+                                       callback: RequestCompletionHandler)
 
 class BrokerToControllerRequestThread(networkClient: KafkaClient,
                                       metadataUpdater: ManualMetadataUpdater,
@@ -174,10 +175,7 @@ class BrokerToControllerRequestThread(networkClient: KafkaClient,
       val request = RequestAndCompletionHandler(
         activeController.get,
         topRequest.request,
-        handleResponse(topRequest),
-        InitialPrincipal(
-          topRequest.initialPrincipal.name,
-          topRequest.initialPrincipal.clientId)
+        handleResponse(topRequest)
       )
 
       requestsToSend.enqueue(request)

@@ -313,9 +313,17 @@ class AclAuthorizer extends Authorizer with Logging {
       throw new IllegalArgumentException("Only literal resources are supported. Got: " + resource.patternType)
     }
 
+    // If forwarding principal is defined, we need to validate the request as impersonated.
+    val forwardingPrincipal = requestContext.forwardingPrincipal
+    if (forwardingPrincipal.isPresent && action.operation != CLUSTER_ACTION) {
+
+    }
+
     // ensure we compare identical classes
     val sessionPrincipal = requestContext.principal
-    val principal = if (classOf[KafkaPrincipal] != sessionPrincipal.getClass)
+    val principal = if (forwardingPrincipal.isPresent)
+      forwardingPrincipal.get
+    else if (classOf[KafkaPrincipal] != sessionPrincipal.getClass)
       new KafkaPrincipal(sessionPrincipal.getPrincipalType, sessionPrincipal.getName)
     else
       sessionPrincipal
@@ -349,8 +357,8 @@ class AclAuthorizer extends Authorizer with Logging {
     }
 
     def aclsAllowAccess = {
-      //we allow an operation if no acls are found and user has configured to allow all users
-      //when no acls are found or if no deny acls are found and at least one allow acls matches.
+      // we allow an operation if no acls are found and user has configured to allow all users
+      // when no acls are found or if no deny acls are found and at least one allow acls matches.
       val acls = matchingAcls(resource.resourceType, resource.name)
       isEmptyAclAndAuthorized(acls) || (!denyAclExists(acls) && allowAclExists(acls))
     }
@@ -459,9 +467,12 @@ class AclAuthorizer extends Authorizer with Logging {
       val apiKey = if (ApiKeys.hasId(requestContext.requestType)) ApiKeys.forId(requestContext.requestType).name else requestContext.requestType
       val refCount = action.resourceReferenceCount
 
-      val initialPrincipalName = requestContext.initialPrincipalName
-      val initialPrincipalMessage = if (initialPrincipalName != null) s", on behalf of initial principal =$initialPrincipalName," else ""
-      s"Principal = $principal $initialPrincipalMessage is $authResult Operation = $operation " +
+      // Forwarding principal authorization takes precedence.
+      val principalMessage = if (requestContext.forwardingPrincipal.isPresent)
+        s"Forward principal =${requestContext.forwardingPrincipal.get} " else
+        s"Principal = $principal "
+
+      s"$principalMessage is $authResult Operation = $operation " +
         s"from host = $host on resource = $resource for request = $apiKey with resourceRefCount = $refCount"
     }
 

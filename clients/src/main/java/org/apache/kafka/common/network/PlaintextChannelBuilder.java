@@ -31,6 +31,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.channels.SelectionKey;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 public class PlaintextChannelBuilder implements ChannelBuilder {
@@ -101,8 +102,8 @@ public class PlaintextChannelBuilder implements ChannelBuilder {
         }
 
         @Override
-        public KafkaPrincipalSerde principalSerde() {
-            return principalBuilder instanceof KafkaPrincipalSerde ? (KafkaPrincipalSerde) principalBuilder : null;
+        public Optional<KafkaPrincipalSerde> principalSerde() {
+            return principalBuilder instanceof KafkaPrincipalSerde ? Optional.of((KafkaPrincipalSerde) principalBuilder) : Optional.empty();
         }
 
         @Override

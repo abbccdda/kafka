@@ -17,6 +17,7 @@
 package org.apache.kafka.common.network;
 
 import org.apache.kafka.common.errors.AuthenticationException;
+import org.apache.kafka.common.quota.ClientQuotaAlteration;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.KafkaPrincipalBuilder;
 import org.apache.kafka.common.security.auth.KafkaPrincipalSerde;
@@ -57,9 +58,7 @@ public interface Authenticator extends Closeable {
     /**
      * Returns the serializer/deserializer interface for principal
      */
-    default KafkaPrincipalSerde principalSerde() {
-        return null;
-    }
+    Optional<KafkaPrincipalSerde> principalSerde();
 
     /**
      * returns true if authentication is complete otherwise returns false;
