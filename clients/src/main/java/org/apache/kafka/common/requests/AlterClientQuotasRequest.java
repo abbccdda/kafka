@@ -77,16 +77,6 @@ public class AlterClientQuotasRequest extends AbstractRequest {
         public String toString() {
             return data.toString();
         }
-
-        @Override
-        public boolean equals(Object other) {
-            return other instanceof Builder && this.data.equals(((Builder) other).data);
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(data);
-        }
     }
 
     private final AlterClientQuotasRequestData data;

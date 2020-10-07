@@ -45,47 +45,7 @@ public class IncrementalAlterConfigsRequest extends AbstractRequest {
                        final Map<ConfigResource, Collection<AlterConfigOp>> configs,
                        final boolean validateOnly) {
             super(ApiKeys.INCREMENTAL_ALTER_CONFIGS);
-            this.data = initializeConfigData(resources, configs, validateOnly);
-        }
-
-        public Builder(final Map<ConfigResource, Collection<AlterConfigOp>> configs,
-                       final boolean validateOnly) {
-            super(ApiKeys.INCREMENTAL_ALTER_CONFIGS);
-            this.data = initializeConfigData(configs.keySet(), configs, validateOnly);
-        }
-
-        public Builder(final Map<ConfigResource, Collection<AlterConfigOp>> configs,
-                       final boolean validateOnly,
-                       final short allowedVersion) {
-            super(ApiKeys.INCREMENTAL_ALTER_CONFIGS, allowedVersion);
-            this.data = initializeConfigData(configs.keySet(), configs, validateOnly);
-        }
-
-        @Override
-        public IncrementalAlterConfigsRequest build(short version) {
-            return new IncrementalAlterConfigsRequest(data, version);
-        }
-
-        @Override
-        public String toString() {
-            return data.toString();
-        }
-
-        @Override
-        public boolean equals(Object other) {
-            return other instanceof Builder && this.data.equals(((Builder) other).data);
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(data);
-        }
-
-        private static IncrementalAlterConfigsRequestData initializeConfigData(
-            final Collection<ConfigResource> resources,
-            final Map<ConfigResource, Collection<AlterConfigOp>> configs,
-            final boolean validateOnly) {
-            IncrementalAlterConfigsRequestData data = new IncrementalAlterConfigsRequestData()
+            this.data = new IncrementalAlterConfigsRequestData()
                             .setValidateOnly(validateOnly);
             for (ConfigResource resource : resources) {
                 IncrementalAlterConfigsRequestData.AlterableConfigCollection alterableConfigSet =
@@ -100,7 +60,21 @@ public class IncrementalAlterConfigsRequest extends AbstractRequest {
                     .setResourceName(resource.name()).setConfigs(alterableConfigSet);
                 data.resources().add(alterConfigsResource);
             }
-            return data;
+        }
+
+        public Builder(final Map<ConfigResource, Collection<AlterConfigOp>> configs,
+                       final boolean validateOnly) {
+           this(configs.keySet(), configs, validateOnly);
+        }
+
+        @Override
+        public IncrementalAlterConfigsRequest build(short version) {
+            return new IncrementalAlterConfigsRequest(data, version);
+        }
+
+        @Override
+        public String toString() {
+            return data.toString();
         }
     }
 
