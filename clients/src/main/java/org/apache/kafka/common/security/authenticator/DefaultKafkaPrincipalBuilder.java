@@ -20,9 +20,11 @@ import javax.security.auth.x500.X500Principal;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.message.DefaultPrincipalData;
+import org.apache.kafka.common.message.EnvelopeRequestData;
 import org.apache.kafka.common.network.Authenticator;
 import org.apache.kafka.common.network.TransportLayer;
 import org.apache.kafka.common.protocol.types.Struct;
+import org.apache.kafka.common.requests.EnvelopeRequest;
 import org.apache.kafka.common.security.auth.AuthenticationContext;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.auth.KafkaPrincipalBuilder;
@@ -63,8 +65,6 @@ public class DefaultKafkaPrincipalBuilder implements KafkaPrincipalBuilder, Kafk
     private final TransportLayer transportLayer;
     private final KerberosShortNamer kerberosShortNamer;
     private final SslPrincipalMapper sslPrincipalMapper;
-
-    private static final short PRINCIPAL_DATA_VERSION = 0;
 
     /**
      * Construct a new instance which wraps an instance of the older {@link org.apache.kafka.common.security.auth.PrincipalBuilder}.
@@ -189,7 +189,7 @@ public class DefaultKafkaPrincipalBuilder implements KafkaPrincipalBuilder, Kafk
     public KafkaPrincipal deserialize(byte[] bytes, short version) {
         DefaultPrincipalData data = new DefaultPrincipalData(
             DefaultPrincipalData.SCHEMAS[version].read(ByteBuffer.wrap(bytes)),
-            PRINCIPAL_DATA_VERSION);
+            DefaultPrincipalData.HIGHEST_SUPPORTED_VERSION);
         return new KafkaPrincipal(data.type(), data.name(), data.tokenAuthenticated());
     }
 }

@@ -24,20 +24,6 @@ import java.util.Map;
 
 public class EnvelopeResponse extends AbstractResponse {
 
-    @Override
-    public Map<Errors, Integer> errorCounts() {
-        return errorCounts(error());
-    }
-
-    @Override
-    protected Struct toStruct(short version) {
-        return data.toStruct(version);
-    }
-
-    public Errors error() {
-        return Errors.forCode(data.errorCode());
-    }
-
     private final EnvelopeResponseData data;
 
     public EnvelopeResponse(EnvelopeResponseData data) {
@@ -50,5 +36,24 @@ public class EnvelopeResponse extends AbstractResponse {
 
     public EnvelopeResponse(Struct struct,  short version) {
         this.data = new EnvelopeResponseData(struct, version);
+    }
+
+    @Override
+    public Map<Errors, Integer> errorCounts() {
+        return errorCounts(error());
+    }
+
+    @Override
+    protected Struct toStruct(short version) {
+        return data.toStruct(version);
+    }
+
+    @Override
+    public int throttleTimeMs() {
+        return data.throttleTimeMs();
+    }
+
+    public Errors error() {
+        return Errors.forCode(data.errorCode());
     }
 }

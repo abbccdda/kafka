@@ -929,7 +929,6 @@ class KafkaApisTest {
     verify(authorizer, adminManager)
   }
 
-
   @Test
   def testAlterConfigsWithAuthorizer(): Unit = {
     val authorizer: Authorizer = EasyMock.niceMock(classOf[Authorizer])

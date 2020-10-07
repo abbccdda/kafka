@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.common.requests;
 
+import org.apache.kafka.common.message.DefaultPrincipalData;
 import org.apache.kafka.common.message.EnvelopeRequestData;
 import org.apache.kafka.common.message.EnvelopeResponseData;
 import org.apache.kafka.common.protocol.ApiKeys;
@@ -81,7 +82,7 @@ public class EnvelopeRequest extends AbstractRequest {
         if (data.requestPrincipal() == null) {
             return KafkaPrincipal.ANONYMOUS;
         }
-        return principalSerde.deserialize(data.requestPrincipal().array(), version());
+        return principalSerde.deserialize(data.requestPrincipal().array(), DefaultPrincipalData.HIGHEST_SUPPORTED_VERSION);
     }
 
     @Override
@@ -92,7 +93,8 @@ public class EnvelopeRequest extends AbstractRequest {
     @Override
     public AbstractResponse getErrorResponse(int throttleTimeMs, Throwable e) {
         return new EnvelopeResponse(new EnvelopeResponseData()
-                                        .setErrorCode(Errors.forException(e).code()));
+                                        .setErrorCode(Errors.forException(e).code())
+                                        .setThrottleTimeMs(throttleTimeMs));
     }
 
     public static EnvelopeRequest parse(ByteBuffer buffer, short version) {

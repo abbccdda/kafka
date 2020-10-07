@@ -3247,18 +3247,6 @@ class KafkaApis(val requestChannel: RequestChannel,
     }
   }
 
-  private[server] def authorizeAction(requestContext: RequestContext,
-                                      operation: AclOperation,
-                                      resourceType: ResourceType, resourceName: String,
-                                      logIfAllowed: Boolean = true,
-                                      logIfDenied: Boolean = true,
-                                      refCount: Int = 1,
-                                      auth: Authorizer): Boolean = {
-    val resource = new ResourcePattern(resourceType, resourceName, PatternType.LITERAL)
-    val actions = Collections.singletonList(new Action(operation, resource, refCount, logIfAllowed, logIfDenied))
-    auth.authorize(requestContext, actions).get(0) == AuthorizationResult.ALLOWED
-  }
-
   // private package for testing
   private[server] def filterByAuthorized[T](requestContext: RequestContext,
                                             operation: AclOperation,

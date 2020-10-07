@@ -29,7 +29,6 @@ import org.apache.kafka.common.protocol.types.Struct;
 import java.nio.ByteBuffer;
 import java.util.Collection;
 import java.util.Map;
-import java.util.Objects;
 
 public class IncrementalAlterConfigsRequest extends AbstractRequest {
 
@@ -64,7 +63,7 @@ public class IncrementalAlterConfigsRequest extends AbstractRequest {
 
         public Builder(final Map<ConfigResource, Collection<AlterConfigOp>> configs,
                        final boolean validateOnly) {
-           this(configs.keySet(), configs, validateOnly);
+            this(configs.keySet(), configs, validateOnly);
         }
 
         @Override

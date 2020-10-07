@@ -18,6 +18,7 @@ package org.apache.kafka.common.security.auth;
 
 import javax.security.auth.x500.X500Principal;
 import org.apache.kafka.common.config.SaslConfigs;
+import org.apache.kafka.common.message.DefaultPrincipalData;
 import org.apache.kafka.common.network.Authenticator;
 import org.apache.kafka.common.network.TransportLayer;
 import org.apache.kafka.common.security.authenticator.DefaultKafkaPrincipalBuilder;
@@ -204,6 +205,33 @@ public class DefaultKafkaPrincipalBuilderTest {
                 SecurityProtocol.SASL_PLAINTEXT, InetAddress.getLocalHost(), SecurityProtocol.SASL_PLAINTEXT.name()));
         assertEquals(KafkaPrincipal.USER_TYPE, principal.getPrincipalType());
         assertEquals("foo", principal.getName());
+
+        builder.close();
+
+        verify(server, atLeastOnce()).getMechanismName();
+        verify(server, atLeastOnce()).getAuthorizationID();
+        verify(kerberosShortNamer, atLeastOnce()).shortName(any());
+    }
+
+    @Test
+    public void testPrincipalBuilderSerde() throws Exception {
+        SaslServer server = mock(SaslServer.class);
+        KerberosShortNamer kerberosShortNamer = mock(KerberosShortNamer.class);
+
+        when(server.getMechanismName()).thenReturn(SaslConfigs.GSSAPI_MECHANISM);
+        when(server.getAuthorizationID()).thenReturn("foo/host@REALM.COM");
+        when(kerberosShortNamer.shortName(any())).thenReturn("foo");
+
+        DefaultKafkaPrincipalBuilder builder = new DefaultKafkaPrincipalBuilder(kerberosShortNamer, null);
+
+        KafkaPrincipal principal = builder.build(new SaslAuthenticationContext(server,
+            SecurityProtocol.SASL_PLAINTEXT, InetAddress.getLocalHost(), SecurityProtocol.SASL_PLAINTEXT.name()));
+        assertEquals(KafkaPrincipal.USER_TYPE, principal.getPrincipalType());
+        assertEquals("foo", principal.getName());
+
+        byte[] serializedPrincipal = builder.serialize(principal, DefaultPrincipalData.HIGHEST_SUPPORTED_VERSION);
+        KafkaPrincipal deserializedPrincipal = builder.deserialize(serializedPrincipal, DefaultPrincipalData.HIGHEST_SUPPORTED_VERSION);
+        assertEquals(principal, deserializedPrincipal);
 
         builder.close();
 

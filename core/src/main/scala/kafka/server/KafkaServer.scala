@@ -42,7 +42,6 @@ import org.apache.kafka.common.metrics.{JmxReporter, Metrics, MetricsReporter, _
 import org.apache.kafka.common.network._
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.{ControlledShutdownRequest, ControlledShutdownResponse}
-//import org.apache.kafka.common.security.auth.KafkaPrincipalSerde
 import org.apache.kafka.common.security.scram.internals.ScramMechanism
 import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache
 import org.apache.kafka.common.security.{JaasContext, JaasUtils}
@@ -304,7 +303,6 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         // that credentials have been loaded before processing authentications.
         socketServer = new SocketServer(config, metrics, time, credentialProvider)
         socketServer.startup(startProcessingRequests = false)
-
 
         /* start replica manager */
         replicaManager = createReplicaManager(isShuttingDown)
@@ -719,6 +717,9 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         if (replicaManager != null)
           CoreUtils.swallow(replicaManager.shutdown(), this)
 
+        if (alterIsrRedirectionManager != null)
+          CoreUtils.swallow(alterIsrRedirectionManager.shutdown(), this)
+
         if (redirectionManager != null)
           CoreUtils.swallow(redirectionManager.shutdown(), this)
 
@@ -727,9 +728,6 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         if (kafkaController != null)
           CoreUtils.swallow(kafkaController.shutdown(), this)
-
-        if (alterIsrRedirectionManager != null)
-          CoreUtils.swallow(alterIsrRedirectionManager.shutdown(), this)
 
         if (featureChangeListener != null)
           CoreUtils.swallow(featureChangeListener.close(), this)

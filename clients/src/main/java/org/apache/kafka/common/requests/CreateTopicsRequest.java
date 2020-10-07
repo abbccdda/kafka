@@ -18,7 +18,6 @@ package org.apache.kafka.common.requests;
 
 import java.nio.ByteBuffer;
 import java.util.List;
-import java.util.Objects;
 import java.util.stream.Collectors;
 import org.apache.kafka.common.errors.UnsupportedVersionException;
 import org.apache.kafka.common.message.CreateTopicsRequestData;
