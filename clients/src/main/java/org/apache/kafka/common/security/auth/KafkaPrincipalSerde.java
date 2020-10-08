@@ -16,12 +16,14 @@
  */
 package org.apache.kafka.common.security.auth;
 
+import java.nio.ByteBuffer;
+
 /**
  * Serializer/Deserializer interface for {@link KafkaPrincipal} for the forwarding purpose.
  */
 public interface KafkaPrincipalSerde {
 
-    byte[] serialize(KafkaPrincipal principal, short version);
+    ByteBuffer serialize(KafkaPrincipal principal, short version);
 
-    KafkaPrincipal deserialize(byte[] bytes, short version);
+    KafkaPrincipal deserialize(ByteBuffer bytes, short version);
 }

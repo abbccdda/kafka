@@ -969,7 +969,8 @@ private[kafka] class Processor(val id: Int,
                 val connectionId = receive.source
 
                 // Setup the forward principal if the request is an Envelope
-                val forwardingPrincipal: Optional[KafkaPrincipal] = if (header.apiKey == ApiKeys.ENVELOPE)
+                val isForwardingRequest = header.apiKey == ApiKeys.ENVELOPE
+                val forwardingPrincipal: Optional[KafkaPrincipal] = if (isForwardingRequest)
                   Optional.of(channel.principal)
                 else
                   Optional.empty()
@@ -978,7 +979,7 @@ private[kafka] class Processor(val id: Int,
                   channel.principal, listenerName, securityProtocol,
                   channel.channelMetadataRegistry.clientInformation, isPrivilegedListener, channel.principalSerde, forwardingPrincipal)
                 val req = new RequestChannel.Request(processor = id, context = context,
-                  startTimeNanos = nowNanos, memoryPool, receive.payload, requestChannel.metrics)
+                  startTimeNanos = nowNanos, memoryPool, receive.payload, requestChannel.metrics, retainDuplicates = isForwardingRequest)
                 // KIP-511: ApiVersionsRequest is intercepted here to catch the client software name
                 // and version. It is done here to avoid wiring things up to the api layer.
                 if (header.apiKey == ApiKeys.API_VERSIONS) {

@@ -82,7 +82,7 @@ public class EnvelopeRequest extends AbstractRequest {
         if (data.requestPrincipal() == null) {
             return KafkaPrincipal.ANONYMOUS;
         }
-        return principalSerde.deserialize(data.requestPrincipal().array(), DefaultPrincipalData.HIGHEST_SUPPORTED_VERSION);
+        return principalSerde.deserialize(data.requestPrincipal(), DefaultPrincipalData.HIGHEST_SUPPORTED_VERSION);
     }
 
     @Override

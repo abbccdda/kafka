@@ -81,7 +81,8 @@ object RequestChannel extends Logging {
                 val startTimeNanos: Long,
                 val memoryPool: MemoryPool,
                 @volatile private var buffer: ByteBuffer,
-                val metrics: RequestChannel.Metrics) extends BaseRequest {
+                val metrics: RequestChannel.Metrics,
+                retainDuplicates: Boolean = false) extends BaseRequest {
     // These need to be volatile because the readers are in the network thread and the writers are in the request
     // handler threads or the purgatory threads
     @volatile var requestDequeueTimeNanos = -1L
@@ -94,6 +95,13 @@ object RequestChannel extends Logging {
     @volatile var recordNetworkThreadTimeCallback: Option[Long => Unit] = None
 
     val session = Session(context.principal, context.clientAddress)
+
+    private val duplicateBuffer = if (retainDuplicates) buffer.duplicate() else null
+
+    def getOriginalBuffer(): ByteBuffer = {
+      duplicateBuffer
+    }
+
     private val bodyAndSize: RequestAndSize = context.parseRequest(buffer)
 
     def header: RequestHeader = context.header

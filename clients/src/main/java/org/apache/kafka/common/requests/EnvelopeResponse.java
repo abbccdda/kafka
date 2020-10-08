@@ -17,15 +17,27 @@
 package org.apache.kafka.common.requests;
 
 import org.apache.kafka.common.message.EnvelopeResponseData;
+import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.types.Struct;
 
+import java.nio.ByteBuffer;
 import java.util.Map;
 
 public class EnvelopeResponse extends AbstractResponse {
 
     private final EnvelopeResponseData data;
 
+    public EnvelopeResponse(int throttleTimeMs, AbstractResponse innerResponse, short innerApiVersion) {
+        Struct dataStruct = innerResponse.toStruct(innerApiVersion);
+        ByteBuffer buffer = ByteBuffer.allocate(dataStruct.sizeOf());
+        dataStruct.writeTo(buffer);
+        buffer.flip();
+
+       this.data = new EnvelopeResponseData()
+           .setThrottleTimeMs(throttleTimeMs)
+           .setResponseData(buffer);
+    }
     public EnvelopeResponse(EnvelopeResponseData data) {
         this.data = data;
     }
@@ -36,6 +48,13 @@ public class EnvelopeResponse extends AbstractResponse {
 
     public EnvelopeResponse(Struct struct,  short version) {
         this.data = new EnvelopeResponseData(struct, version);
+    }
+
+    public AbstractResponse embedResponse(RequestHeader originalHeader) {
+        ApiKeys apiKey = originalHeader.apiKey();
+        short apiVersion = originalHeader.apiVersion();
+        Struct struct = apiKey.parseResponse(apiVersion, data.responseData());
+        return AbstractResponse.parseResponse(apiKey, struct, apiVersion);
     }
 
     @Override

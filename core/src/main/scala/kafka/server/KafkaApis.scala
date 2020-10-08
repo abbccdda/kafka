@@ -89,7 +89,6 @@ import scala.collection.mutable.ArrayBuffer
 import scala.collection.{Map, Seq, Set, immutable, mutable}
 import scala.util.{Failure, Success, Try}
 import kafka.coordinator.group.GroupOverview
-import kafka.network
 import org.apache.kafka.common.message.AlterConfigsResponseData.AlterConfigsResourceResponse
 
 /**
@@ -2567,7 +2566,11 @@ class KafkaApis(val requestChannel: RequestChannel,
   }
 
   def handleAlterConfigsRequest(request: RequestChannel.Request,
-                                isForwardRequest: Boolean = false): Unit = {
+                                isForwardRequest: Boolean = false,
+                                sendResponse: (
+                                  RequestChannel.Request,
+                                    Int => AbstractResponse,
+                                    Option[Send => Unit]) => Unit = sendResponseMaybeThrottle): Unit = {
     val forwardRequestHandler = new ForwardRequestHandler(request, isForwardRequest) {
       override def process(): Unit = {
         val alterConfigsRequest = request.body[AlterConfigsRequest]
@@ -2598,7 +2601,7 @@ class KafkaApis(val requestChannel: RequestChannel,
           }
           new AlterConfigsResponse(data)
         }
-        sendResponseMaybeThrottle(request, responseCallback)
+        sendResponse(request, responseCallback, None)
       }
     }
     forwardRequestHandler.handle()
@@ -2698,7 +2701,12 @@ class KafkaApis(val requestChannel: RequestChannel,
     new ApiError(error, null)
   }
 
-  def handleIncrementalAlterConfigsRequest(request: RequestChannel.Request, isForwardRequest: Boolean = false): Unit = {
+  def handleIncrementalAlterConfigsRequest(request: RequestChannel.Request,
+                                           isForwardRequest: Boolean = false,
+                                           sendResponse: (
+                                             RequestChannel.Request,
+                                               Int => AbstractResponse,
+                                               Option[Send => Unit]) => Unit = sendResponseMaybeThrottle): Unit = {
     val forwardRequestHandler = new ForwardRequestHandler(request, isForwardRequest) {
       override def process(): Unit = {
         val alterConfigsRequest = request.body[IncrementalAlterConfigsRequest]
@@ -2727,11 +2735,8 @@ class KafkaApis(val requestChannel: RequestChannel,
           resource -> configsAuthorizationApiError(resource)
         }
 
-        def sendResponseCallback(results: Map[ConfigResource, ApiError]): Unit = {
-          sendResponseMaybeThrottle(request, requestThrottleMs =>
-            new IncrementalAlterConfigsResponse(requestThrottleMs, results.asJava))
-        }
-        sendResponseCallback(authorizedResult ++ unauthorizedResult)
+        sendResponse(request, requestThrottleMs => new IncrementalAlterConfigsResponse(
+          requestThrottleMs, (authorizedResult ++ unauthorizedResult).asJava), None)
       }
     }
     forwardRequestHandler.handle()
@@ -3208,17 +3213,26 @@ class KafkaApis(val requestChannel: RequestChannel,
         // The forwarding broker and the active controller should have the same DNS resolution, and we need
         // to have the original client address for authentication purpose.
         val originalClientAddress = InetAddress.getByName(envelopeRequest.clientHostName)
-        val reconstructedContext = new RequestContext(embedHeader, request.context.connectionId,
-          originalClientAddress, embedPrincipal, request.context.listenerName,
-          request.context.securityProtocol, request.context.clientInformation, false)
+        val reconstructedRequest = rebuildRequest(request, embedHeader,
+          originalClientAddress, embedPrincipal, envelopeRequest.requestData)
 
-        val reconstructedRequest = new network.RequestChannel.Request(request.processor,
-          reconstructedContext, request.startTimeNanos, request.memoryPool,
-          envelopeRequest.requestData, request.metrics)
+        def sendEnvelopeResponse(innerRequest: RequestChannel.Request,
+                                 createResponse: Int => AbstractResponse,
+                                 onComplete: Option[Send => Unit]): Unit = {
+          def createEnvelopeResponse(throttleTimeMs: Int): AbstractResponse = {
+            val innerResponse = createResponse(throttleTimeMs)
+            new EnvelopeResponse(throttleTimeMs, innerResponse, embedHeader.apiVersion)
+          }
+
+          // We ned to bring back the original request header
+          val outerRequest = rebuildRequest(innerRequest, request.header,
+            innerRequest.context.clientAddress, innerRequest.context.principal, request.getOriginalBuffer())
+          sendResponseMaybeThrottle(outerRequest, createEnvelopeResponse, onComplete)
+        }
 
         embedHeader.apiKey match {
-          case ApiKeys.ALTER_CONFIGS => handleAlterConfigsRequest(reconstructedRequest, isForwardRequest = true)
-          case ApiKeys.INCREMENTAL_ALTER_CONFIGS => handleIncrementalAlterConfigsRequest(reconstructedRequest, isForwardRequest = true)
+          case ApiKeys.ALTER_CONFIGS => handleAlterConfigsRequest(reconstructedRequest, isForwardRequest = true, sendEnvelopeResponse)
+          case ApiKeys.INCREMENTAL_ALTER_CONFIGS => handleIncrementalAlterConfigsRequest(reconstructedRequest, isForwardRequest = true, sendEnvelopeResponse)
           case ApiKeys.ALTER_CLIENT_QUOTAS => handleAlterClientQuotasRequest(reconstructedRequest, isForwardRequest = true)
           case ApiKeys.CREATE_TOPICS => handleCreateTopicsRequest(reconstructedRequest, isForwardRequest = true)
 
@@ -3230,6 +3244,20 @@ class KafkaApis(val requestChannel: RequestChannel,
           envelopeRequest.getErrorResponse(requestThrottleMs, Errors.INVALID_REQUEST.exception))
       }
     }
+  }
+
+  private def rebuildRequest(request: RequestChannel.Request,
+                             requestHeader: RequestHeader,
+                             clientAddress: InetAddress,
+                             requestPrincipal: KafkaPrincipal,
+                             requestData: ByteBuffer): RequestChannel.Request = {
+    val reconstructedContext = new RequestContext(requestHeader, request.context.connectionId,
+      clientAddress, requestPrincipal, request.context.listenerName,
+      request.context.securityProtocol, request.context.clientInformation, request.context.fromPrivilegedListener)
+
+    new RequestChannel.Request(request.processor,
+      reconstructedContext, request.startTimeNanos, request.memoryPool,
+      requestData, request.metrics)
   }
 
   // private package for testing

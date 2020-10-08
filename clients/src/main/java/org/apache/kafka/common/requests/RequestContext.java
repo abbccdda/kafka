@@ -115,7 +115,7 @@ public class RequestContext implements AuthorizableRequestContext {
         if (!principalSerde.isPresent()) {
             throw new IllegalStateException("The principal serde is undefined");
         }
-        return ByteBuffer.wrap(principalSerde.get().serialize(principal, version));
+        return principalSerde.get().serialize(principal, version);
     }
 
     private boolean isUnsupportedApiVersionsRequest() {

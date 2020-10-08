@@ -23,7 +23,7 @@ import kafka.common.{InterBrokerSendThread, RequestAndCompletionHandler}
 import kafka.network.RequestChannel
 import kafka.utils.Logging
 import org.apache.kafka.clients._
-import org.apache.kafka.common.requests.{AbstractRequest, AbstractResponse, EnvelopeRequest}
+import org.apache.kafka.common.requests.{AbstractRequest, AbstractResponse, EnvelopeRequest, EnvelopeResponse}
 import org.apache.kafka.common.utils.{LogContext, Time}
 import org.apache.kafka.common.Node
 import org.apache.kafka.common.metrics.Metrics
@@ -147,7 +147,10 @@ class BrokerToControllerChannelManagerImpl(metadataCache: kafka.server.MetadataC
       ApiKeys.ENVELOPE.latestVersion), originalRequest.context.clientAddress.getHostName)
     requestQueue.put(BrokerToControllerQueueItem(envelopeRequest,
       (response: ClientResponse) => responseToOriginalClient(
-        originalRequest, _ => response.responseBody, callback)))
+        originalRequest, _ => {
+          val envelopeResponse = response.responseBody.asInstanceOf[EnvelopeResponse]
+          envelopeResponse.embedResponse(originalRequest.header)
+        }, callback)))
     requestThread.wakeup()
   }
 }

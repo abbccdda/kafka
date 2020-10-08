@@ -34,7 +34,7 @@ public class EnvelopeRequestTest {
         DefaultKafkaPrincipalBuilder kafkaPrincipalBuilder = new DefaultKafkaPrincipalBuilder(null, null);
 
         EnvelopeRequest.Builder requestBuilder = new EnvelopeRequest.Builder(ByteBuffer.allocate(0),
-            ByteBuffer.wrap(kafkaPrincipalBuilder.serialize(kafkaPrincipal, DefaultPrincipalData.HIGHEST_SUPPORTED_VERSION)), "client-address");
+            kafkaPrincipalBuilder.serialize(kafkaPrincipal, DefaultPrincipalData.HIGHEST_SUPPORTED_VERSION), "client-address");
         EnvelopeRequest request = requestBuilder.build(EnvelopeRequestData.HIGHEST_SUPPORTED_VERSION);
         KafkaPrincipal deserializedPrincipal = request.requestPrincipal(kafkaPrincipalBuilder);
         assertEquals(kafkaPrincipal, deserializedPrincipal);
