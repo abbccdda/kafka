@@ -739,10 +739,8 @@ public class NetworkClient implements KafkaClient {
                                                                     Sensor throttleTimeSensor, long now) {
         ResponseHeader responseHeader = ResponseHeader.parse(responseBuffer,
             requestHeader.apiKey().responseHeaderVersion(requestHeader.apiVersion()));
-        if (requestHeader.apiKey() == ApiKeys.ENVELOPE) {
-            System.out.println("parse envelope response");
-        }
         // Always expect the response version id to be the same as the request version id
+        System.out.println("Handling response " + requestHeader.apiKey() + " with buffer " + responseBuffer.limit());
         Struct responseBody = requestHeader.apiKey().parseResponse(requestHeader.apiVersion(), responseBuffer);
         correlate(requestHeader, responseHeader);
         if (throttleTimeSensor != null && responseBody.hasField(CommonFields.THROTTLE_TIME_MS))

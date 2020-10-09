@@ -3297,7 +3297,7 @@ class KafkaApisTest {
       listenerName, SecurityProtocol.PLAINTEXT, ClientInformation.EMPTY,
       fromPrivilegedListener, Optional.ofNullable(principalSerde), Optional.ofNullable(forwardingPrincipal))
     new RequestChannel.Request(processor = 1, context = context, startTimeNanos = 0, MemoryPool.NONE, buffer,
-      requestChannelMetrics)
+      requestChannelMetrics, retainDuplicates = header.apiKey == ApiKeys.ENVELOPE)
   }
 
   private def readResponse(api: ApiKeys, request: AbstractRequest, capturedResponse: Capture[RequestChannel.Response]): AbstractResponse = {

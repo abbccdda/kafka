@@ -98,7 +98,7 @@ object RequestChannel extends Logging {
 
     private val duplicateBuffer = if (retainDuplicates) buffer.duplicate() else null
 
-    def getOriginalBuffer(): ByteBuffer = {
+    def getOriginalBuffer: ByteBuffer = {
       duplicateBuffer
     }
 

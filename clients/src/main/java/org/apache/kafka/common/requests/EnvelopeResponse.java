@@ -34,10 +34,11 @@ public class EnvelopeResponse extends AbstractResponse {
         dataStruct.writeTo(buffer);
         buffer.flip();
 
-       this.data = new EnvelopeResponseData()
-           .setThrottleTimeMs(throttleTimeMs)
-           .setResponseData(buffer);
+        this.data = new EnvelopeResponseData()
+                        .setThrottleTimeMs(throttleTimeMs)
+                        .setResponseData(buffer);
     }
+
     public EnvelopeResponse(EnvelopeResponseData data) {
         this.data = data;
     }

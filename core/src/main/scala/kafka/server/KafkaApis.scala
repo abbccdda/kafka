@@ -124,7 +124,8 @@ class KafkaApis(val requestChannel: RequestChannel,
   /**
    * The template to create a forward request handler.
    */
-  private[server] abstract class ForwardRequestHandler(request: RequestChannel.Request, isForwardRequest: Boolean) extends Logging {
+  private[server] abstract class ForwardRequestHandler(request: RequestChannel.Request, isForwardRequest: Boolean,
+                                                       sendResponse: (RequestChannel.Request, Throwable) => Unit) extends Logging {
 
     /**
      * Controller handling logic of the request.
@@ -133,9 +134,10 @@ class KafkaApis(val requestChannel: RequestChannel,
 
     def handle(): Unit = {
       if (!controller.isActive && isForwardRequest) {
-        sendErrorResponseMaybeThrottle(request, Errors.NOT_CONTROLLER.exception())
+        sendResponse(request, Errors.NOT_CONTROLLER.exception())
       } else if (!controller.isActive && config.redirectionEnabled &&
         request.context.principalSerde.isPresent) {
+        info(s"Forward request from $brokerId as active controller ${controller.isActive} with controller id ${controller.getControllerId}")
         redirectionManager.forwardRequest(
           sendResponseMaybeThrottle,
           request)
@@ -1782,8 +1784,16 @@ class KafkaApis(val requestChannel: RequestChannel,
     sendResponseMaybeThrottle(request, createResponseCallback)
   }
 
-  def handleCreateTopicsRequest(request: RequestChannel.Request, isForwardRequest: Boolean = false): Unit = {
-    val forwardRequestHandler = new ForwardRequestHandler(request, isForwardRequest) {
+  def handleCreateTopicsRequest(request: RequestChannel.Request,
+                                isForwardRequest: Boolean = false,
+                                sendErrorResponse: (RequestChannel.Request, Throwable) => Unit = sendErrorResponseMaybeThrottle,
+                                sendResponse: (
+                                  ControllerMutationQuota,
+                                  RequestChannel.Request,
+                                    Int => AbstractResponse,
+                                    Option[Send => Unit]) => Unit = sendResponseMaybeThrottle): Unit = {
+    val forwardRequestHandler = new ForwardRequestHandler(request,
+      isForwardRequest, sendErrorResponse) {
       override def process(): Unit = {
         val controllerMutationQuota = quotas.controllerMutation.newQuotaFor(request, strictSinceVersion = 6)
 
@@ -1797,7 +1807,7 @@ class KafkaApis(val requestChannel: RequestChannel,
               s"${request.header.correlationId} to client ${request.header.clientId}.")
             responseBody
           }
-          sendResponseMaybeThrottle(controllerMutationQuota, request, createResponse, onComplete = None)
+          sendResponse(controllerMutationQuota, request, createResponse, None)
         }
 
         val createTopicsRequest = request.body[CreateTopicsRequest]
@@ -2567,11 +2577,13 @@ class KafkaApis(val requestChannel: RequestChannel,
 
   def handleAlterConfigsRequest(request: RequestChannel.Request,
                                 isForwardRequest: Boolean = false,
+                                sendErrorResponse: (RequestChannel.Request, Throwable) => Unit = sendErrorResponseMaybeThrottle,
                                 sendResponse: (
                                   RequestChannel.Request,
                                     Int => AbstractResponse,
                                     Option[Send => Unit]) => Unit = sendResponseMaybeThrottle): Unit = {
-    val forwardRequestHandler = new ForwardRequestHandler(request, isForwardRequest) {
+    val forwardRequestHandler = new ForwardRequestHandler(request,
+      isForwardRequest, sendErrorResponse) {
       override def process(): Unit = {
         val alterConfigsRequest = request.body[AlterConfigsRequest]
         val (authorizedResources, unauthorizedResources) = alterConfigsRequest.configs.asScala.toMap.partition { case (resource, _) =>
@@ -2703,11 +2715,13 @@ class KafkaApis(val requestChannel: RequestChannel,
 
   def handleIncrementalAlterConfigsRequest(request: RequestChannel.Request,
                                            isForwardRequest: Boolean = false,
+                                           sendErrorResponse: (RequestChannel.Request, Throwable) => Unit = sendErrorResponseMaybeThrottle,
                                            sendResponse: (
                                              RequestChannel.Request,
                                                Int => AbstractResponse,
                                                Option[Send => Unit]) => Unit = sendResponseMaybeThrottle): Unit = {
-    val forwardRequestHandler = new ForwardRequestHandler(request, isForwardRequest) {
+    val forwardRequestHandler = new ForwardRequestHandler(request,
+      isForwardRequest, sendErrorResponse) {
       override def process(): Unit = {
         val alterConfigsRequest = request.body[IncrementalAlterConfigsRequest]
 
@@ -3093,18 +3107,25 @@ class KafkaApis(val requestChannel: RequestChannel,
     }
   }
 
-  def handleAlterClientQuotasRequest(request: RequestChannel.Request, isForwardRequest: Boolean = false): Unit = {
-    val forwardRequestHandler = new ForwardRequestHandler(request, isForwardRequest) {
+  def handleAlterClientQuotasRequest(request: RequestChannel.Request,
+                                     isForwardRequest: Boolean = false,
+                                     sendErrorResponse: (RequestChannel.Request, Throwable) => Unit = sendErrorResponseMaybeThrottle,
+                                     sendResponse: (
+                                       RequestChannel.Request,
+                                         Int => AbstractResponse,
+                                         Option[Send => Unit]) => Unit = sendResponseMaybeThrottle): Unit = {
+    val forwardRequestHandler = new ForwardRequestHandler(request,
+      isForwardRequest, sendErrorResponse) {
       override def process(): Unit = {
         val alterClientQuotasRequest = request.body[AlterClientQuotasRequest]
         if (authorize(request.context, ALTER_CONFIGS, CLUSTER, CLUSTER_NAME)) {
           val result = adminManager.alterClientQuotas(alterClientQuotasRequest.entries().asScala.toSeq,
             alterClientQuotasRequest.validateOnly()).asJava
-          sendResponseMaybeThrottle(request, requestThrottleMs =>
-            new AlterClientQuotasResponse(result, requestThrottleMs))
+          sendResponse(request, requestThrottleMs =>
+            new AlterClientQuotasResponse(result, requestThrottleMs), None)
         } else {
-          sendResponseMaybeThrottle(request, requestThrottleMs =>
-            alterClientQuotasRequest.getErrorResponse(requestThrottleMs, Errors.CLUSTER_AUTHORIZATION_FAILED.exception))
+          sendResponse(request, requestThrottleMs =>
+            alterClientQuotasRequest.getErrorResponse(requestThrottleMs, Errors.CLUSTER_AUTHORIZATION_FAILED.exception), None)
         }
       }
     }
@@ -3192,6 +3213,7 @@ class KafkaApis(val requestChannel: RequestChannel,
   }
 
   def handleEnvelopeRequest(request: RequestChannel.Request): Unit = {
+    val controllerId = controller.getControllerId
     val envelopeRequest = request.body[EnvelopeRequest]
     if (!request.context.forwardingPrincipal.isPresent ||
       !authorize(request.context, CLUSTER_ACTION, CLUSTER, CLUSTER_NAME)) {
@@ -3208,6 +3230,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       if (!embedHeader.apiKey.isEnabled) {
         throw new InvalidRequestException("Received request for disabled api key " + embedHeader.apiKey)
       }
+      info(s"Handle redirect with controller.id $controllerId on broker $brokerId for RPC ${embedHeader.apiKey}")
 
       try {
         // The forwarding broker and the active controller should have the same DNS resolution, and we need
@@ -3216,25 +3239,48 @@ class KafkaApis(val requestChannel: RequestChannel,
         val reconstructedRequest = rebuildRequest(request, embedHeader,
           originalClientAddress, embedPrincipal, envelopeRequest.requestData)
 
+        def generateOuterRequest(innerRequest: RequestChannel.Request): RequestChannel.Request = {
+          rebuildRequest(innerRequest, request.header,
+            innerRequest.context.clientAddress, innerRequest.context.principal, request.getOriginalBuffer)
+        }
+
+        def sendEnvelopeErrorResponse(innerRequest: RequestChannel.Request,
+                                      throwable: Throwable): Unit = {
+          sendErrorResponseMaybeThrottle(generateOuterRequest(innerRequest), throwable)
+        }
+
         def sendEnvelopeResponse(innerRequest: RequestChannel.Request,
                                  createResponse: Int => AbstractResponse,
                                  onComplete: Option[Send => Unit]): Unit = {
+         sendEnvelopeResponseWithQuota(null, innerRequest, createResponse, onComplete)
+        }
+
+        def sendEnvelopeResponseWithQuota(controllerMutationQuota: ControllerMutationQuota,
+                                          innerRequest: RequestChannel.Request,
+                                          createResponse: Int => AbstractResponse,
+                                          onComplete: Option[Send => Unit]): Unit = {
           def createEnvelopeResponse(throttleTimeMs: Int): AbstractResponse = {
             val innerResponse = createResponse(throttleTimeMs)
             new EnvelopeResponse(throttleTimeMs, innerResponse, embedHeader.apiVersion)
           }
 
-          // We ned to bring back the original request header
-          val outerRequest = rebuildRequest(innerRequest, request.header,
-            innerRequest.context.clientAddress, innerRequest.context.principal, request.getOriginalBuffer())
-          sendResponseMaybeThrottle(outerRequest, createEnvelopeResponse, onComplete)
+          // We need to bring back the original request header
+          val outerRequest = generateOuterRequest(innerRequest)
+          if (controllerMutationQuota != null)
+            sendResponseMaybeThrottle(controllerMutationQuota, outerRequest, createEnvelopeResponse, onComplete)
+          else
+            sendResponseMaybeThrottle(outerRequest, createEnvelopeResponse, onComplete)
         }
 
         embedHeader.apiKey match {
-          case ApiKeys.ALTER_CONFIGS => handleAlterConfigsRequest(reconstructedRequest, isForwardRequest = true, sendEnvelopeResponse)
-          case ApiKeys.INCREMENTAL_ALTER_CONFIGS => handleIncrementalAlterConfigsRequest(reconstructedRequest, isForwardRequest = true, sendEnvelopeResponse)
-          case ApiKeys.ALTER_CLIENT_QUOTAS => handleAlterClientQuotasRequest(reconstructedRequest, isForwardRequest = true)
-          case ApiKeys.CREATE_TOPICS => handleCreateTopicsRequest(reconstructedRequest, isForwardRequest = true)
+          case ApiKeys.ALTER_CONFIGS => handleAlterConfigsRequest(reconstructedRequest, isForwardRequest = true,
+            sendEnvelopeErrorResponse, sendEnvelopeResponse)
+          case ApiKeys.INCREMENTAL_ALTER_CONFIGS => handleIncrementalAlterConfigsRequest(reconstructedRequest, isForwardRequest = true,
+            sendEnvelopeErrorResponse, sendEnvelopeResponse)
+          case ApiKeys.ALTER_CLIENT_QUOTAS => handleAlterClientQuotasRequest(reconstructedRequest, isForwardRequest = true,
+            sendEnvelopeErrorResponse, sendEnvelopeResponse)
+          case ApiKeys.CREATE_TOPICS => handleCreateTopicsRequest(reconstructedRequest, isForwardRequest = true,
+            sendEnvelopeErrorResponse, sendEnvelopeResponseWithQuota)
 
           case _ => sendResponseMaybeThrottle(request, requestThrottleMs =>
             envelopeRequest.getErrorResponse(requestThrottleMs, Errors.INVALID_REQUEST.exception))
