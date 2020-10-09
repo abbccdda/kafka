@@ -43,14 +43,6 @@ public class EnvelopeResponse extends AbstractResponse {
         this.data = data;
     }
 
-    public EnvelopeResponse(Struct struct) {
-        this(struct, (short) (EnvelopeResponseData.SCHEMAS.length - 1));
-    }
-
-    public EnvelopeResponse(Struct struct,  short version) {
-        this.data = new EnvelopeResponseData(struct, version);
-    }
-
     public AbstractResponse embedResponse(RequestHeader originalHeader) {
         ApiKeys apiKey = originalHeader.apiKey();
         short apiVersion = originalHeader.apiVersion();

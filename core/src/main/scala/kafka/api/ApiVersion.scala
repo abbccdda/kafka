@@ -106,7 +106,6 @@ object ApiVersion {
     // Introduced AlterIsr (KIP-497)
     KAFKA_2_7_IV2,
     // Enable redirection (KIP-590)
-    // TODO: remove this IBP in the 2.7 release if redirection work could not be done before the freeze
     KAFKA_2_8_IV0
   )
 

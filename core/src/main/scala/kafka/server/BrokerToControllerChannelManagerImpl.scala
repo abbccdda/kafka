@@ -75,7 +75,7 @@ class BrokerToControllerChannelManagerImpl(metadataCache: kafka.server.MetadataC
   override def shutdown(): Unit = {
     requestThread.shutdown()
     requestThread.awaitShutdown()
-    info("Broker to controller channel manager shutdown")
+    info(s"Broker to controller channel manager for $channelName shutdown")
   }
 
   private[server] def newRequestThread = {

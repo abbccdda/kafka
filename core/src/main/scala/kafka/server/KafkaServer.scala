@@ -170,7 +170,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
   var redirectionManager: BrokerToControllerChannelManager = null
 
-  var alterIsrRedirectionManager: BrokerToControllerChannelManager = null
+  var alterIsrChannelManager: BrokerToControllerChannelManager = null
 
   var kafkaScheduler: KafkaScheduler = null
 
@@ -305,8 +305,11 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         socketServer.startup(startProcessingRequests = false)
 
         /* start replica manager */
+        alterIsrChannelManager = new BrokerToControllerChannelManagerImpl(
+          metadataCache, time, metrics, config, "alterIsrChannel", threadNamePrefix)
         replicaManager = createReplicaManager(isShuttingDown)
         replicaManager.startup()
+        alterIsrChannelManager.start()
 
         val brokerInfo = createBrokerInfo
         val brokerEpoch = zkClient.registerBroker(brokerInfo)
@@ -433,9 +436,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
   }
 
   protected def createReplicaManager(isShuttingDown: AtomicBoolean): ReplicaManager = {
-    alterIsrRedirectionManager = new BrokerToControllerChannelManagerImpl(
-      metadataCache, time, metrics, config, "alterIsrChannel", threadNamePrefix)
-    val alterIsrManager = new AlterIsrManagerImpl(alterIsrRedirectionManager, kafkaScheduler,
+    val alterIsrManager = new AlterIsrManagerImpl(alterIsrChannelManager, kafkaScheduler,
       time, config.brokerId, () => kafkaController.brokerEpoch)
     new ReplicaManager(config, metrics, time, zkClient, kafkaScheduler, logManager, isShuttingDown, quotaManagers,
       brokerTopicStats, metadataCache, logDirFailureChannel, alterIsrManager)
@@ -717,8 +718,8 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         if (replicaManager != null)
           CoreUtils.swallow(replicaManager.shutdown(), this)
 
-        if (alterIsrRedirectionManager != null)
-          CoreUtils.swallow(alterIsrRedirectionManager.shutdown(), this)
+        if (alterIsrChannelManager != null)
+          CoreUtils.swallow(alterIsrChannelManager.shutdown(), this)
 
         if (redirectionManager != null)
           CoreUtils.swallow(redirectionManager.shutdown(), this)

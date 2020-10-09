@@ -137,7 +137,6 @@ class KafkaApis(val requestChannel: RequestChannel,
         sendResponse(request, Errors.NOT_CONTROLLER.exception())
       } else if (!controller.isActive && config.redirectionEnabled &&
         request.context.principalSerde.isPresent) {
-        info(s"Forward request from $brokerId as active controller ${controller.isActive} with controller id ${controller.getControllerId}")
         redirectionManager.forwardRequest(
           sendResponseMaybeThrottle,
           request)
@@ -3213,7 +3212,6 @@ class KafkaApis(val requestChannel: RequestChannel,
   }
 
   def handleEnvelopeRequest(request: RequestChannel.Request): Unit = {
-    val controllerId = controller.getControllerId
     val envelopeRequest = request.body[EnvelopeRequest]
     if (!request.context.forwardingPrincipal.isPresent ||
       !authorize(request.context, CLUSTER_ACTION, CLUSTER, CLUSTER_NAME)) {
@@ -3230,7 +3228,6 @@ class KafkaApis(val requestChannel: RequestChannel,
       if (!embedHeader.apiKey.isEnabled) {
         throw new InvalidRequestException("Received request for disabled api key " + embedHeader.apiKey)
       }
-      info(s"Handle redirect with controller.id $controllerId on broker $brokerId for RPC ${embedHeader.apiKey}")
 
       try {
         // The forwarding broker and the active controller should have the same DNS resolution, and we need

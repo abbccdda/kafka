@@ -70,9 +70,12 @@ public class CreateTopicsResponse extends AbstractResponse {
     @Override
     public Map<Errors, Integer> errorCounts() {
         HashMap<Errors, Integer> counts = new HashMap<>();
-        data.topics().forEach(result ->
-            updateErrorCounts(counts, Errors.forCode(result.errorCode()))
-        );
+        for (CreateTopicsResponseData.CreatableTopicResult result : data.topics()) {
+            Errors error = Errors.forCode(result.errorCode());
+            if (error != Errors.NONE) {
+                updateErrorCounts(counts, error);
+            }
+        }
         return counts;
     }
 

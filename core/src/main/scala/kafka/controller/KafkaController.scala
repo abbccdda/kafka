@@ -118,9 +118,6 @@ class KafkaController(val config: KafkaConfig,
   private val logDirEventNotificationHandler = new LogDirEventNotificationHandler(eventManager)
 
   @volatile private var activeControllerId = -1
-
-  def getControllerId: Int = activeControllerId
-
   @volatile private var offlinePartitionCount = 0
   @volatile private var preferredReplicaImbalanceCount = 0
   @volatile private var globalTopicCount = 0
