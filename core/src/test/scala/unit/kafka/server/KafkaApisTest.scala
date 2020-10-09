@@ -25,7 +25,7 @@ import java.util.Arrays.asList
 import java.util.{Collections, Optional, Random}
 import java.util.concurrent.TimeUnit
 
-import kafka.api.{ApiVersion, KAFKA_0_10_2_IV0, KAFKA_2_2_IV1, KAFKA_2_6_IV0, KAFKA_2_7_IV2, LeaderAndIsr}
+import kafka.api.{ApiVersion, KAFKA_0_10_2_IV0, KAFKA_2_2_IV1, KAFKA_2_7_IV2, LeaderAndIsr}
 import kafka.cluster.Partition
 import kafka.controller.KafkaController
 import kafka.coordinator.group.GroupOverview
@@ -351,7 +351,7 @@ class KafkaApisTest {
       adminManager, controller)
 
     // Should just handle the config change since IBP is low
-    createKafkaApis(interBrokerProtocolVersion = KAFKA_2_6_IV0,
+    createKafkaApis(interBrokerProtocolVersion = KAFKA_2_7_IV2,
       authorizer = Some(authorizer)).handleAlterClientQuotasRequest(request)
 
     verifyAlterClientQuotaResult(alterClientQuotasRequest,
@@ -870,8 +870,8 @@ class KafkaApisTest {
 
   @Test
   def testEnvelopeRequestWithNotFromPrivilegedListener(): Unit = {
-    testInvalidEnvelopeRequest(envelopeRequest => buildRequest(envelopeRequest, fromPrivilegedListener = false,
-      principalSerde = principalSerde, forwardingPrincipal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "forwarding")), Errors.INVALID_REQUEST)
+    testInvalidEnvelopeRequest(envelopeRequest => buildRequest(envelopeRequest, principalSerde = principalSerde,
+      forwardingPrincipal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "forwarding")), Errors.INVALID_REQUEST)
   }
 
   @Test
@@ -887,10 +887,18 @@ class KafkaApisTest {
       Errors.BROKER_AUTHORIZATION_FAILURE, authorizeResult = AuthorizationResult.DENIED)
   }
 
+  @Test
+  def testEnvelopeRequestWithUnknownHost(): Unit = {
+    testInvalidEnvelopeRequest(envelopeRequest => buildRequest(envelopeRequest, fromPrivilegedListener = true,
+      principalSerde = principalSerde, forwardingPrincipal = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "forwarding")),
+      Errors.INVALID_REQUEST, clientHostName = "unknown-host")
+  }
+
   private def testInvalidEnvelopeRequest(buildRequest: EnvelopeRequest => RequestChannel.Request,
                                          expectedError: Errors,
                                          authorize: Boolean = true,
-                                         authorizeResult: AuthorizationResult = AuthorizationResult.ALLOWED): Unit = {
+                                         authorizeResult: AuthorizationResult = AuthorizationResult.ALLOWED,
+                                         clientHostName: String = "192.168.1.1"): Unit = {
     val authorizer: Authorizer = EasyMock.niceMock(classOf[Authorizer])
 
     if (authorize) {
@@ -918,7 +926,7 @@ class KafkaApisTest {
 
     val envelopeHeader = new RequestHeader(ApiKeys.ENVELOPE, ApiKeys.ENVELOPE.latestVersion,
       clientId, 0)
-    val envelopeRequest = new EnvelopeRequest.Builder(serializedRequestData, null, "192.168.1.1")
+    val envelopeRequest = new EnvelopeRequest.Builder(serializedRequestData, null, clientHostName)
       .build(envelopeHeader.apiVersion)
     val request = buildRequest(envelopeRequest)
     createKafkaApis(authorizer = Some(authorizer)).handleEnvelopeRequest(request)
@@ -1249,7 +1257,7 @@ class KafkaApisTest {
       adminManager, controller)
 
     // Should just handle the config change since IBP is low
-    createKafkaApis(interBrokerProtocolVersion = KAFKA_2_6_IV0,
+    createKafkaApis(interBrokerProtocolVersion = KAFKA_2_7_IV2,
       authorizer = Some(authorizer)).handleIncrementalAlterConfigsRequest(request)
 
     verifyIncrementalAlterConfigResult(incrementalAlterConfigsRequest,

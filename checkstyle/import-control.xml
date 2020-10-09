@@ -102,6 +102,7 @@
       <allow pkg="org.apache.kafka.common.network" />
       <allow pkg="org.apache.kafka.common.config" />
       <allow pkg="org.apache.kafka.common.protocol" />
+      <!-- To access DefaultPrincipalData -->
       <allow pkg="org.apache.kafka.common.errors" />
       <allow pkg="org.apache.kafka.common.message" />
       <subpackage name="authenticator">

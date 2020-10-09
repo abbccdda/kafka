@@ -208,7 +208,6 @@ class AclAuthorizerTest extends ZooKeeperTestHarness {
     val customUserPrincipal = new CustomPrincipal(KafkaPrincipal.USER_TYPE, username)
     val host = InetAddress.getByName("192.168.1.2")
 
-    // user has READ access from host2 but not from host1
     val acl = new AccessControlEntry(user.toString, host.getHostAddress, READ, ALLOW)
     val acls = Set(acl)
     changeAclAndVerify(Set.empty, acls, Set.empty)
