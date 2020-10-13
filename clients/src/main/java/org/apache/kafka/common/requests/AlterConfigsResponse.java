@@ -46,29 +46,6 @@ public class AlterConfigsResponse extends AbstractResponse {
         return data;
     }
 
-    public AlterConfigsResponse(Map<ConfigResource, ApiError> results, int requestThrottleMs) {
-        this.data = new AlterConfigsResponseData()
-                       .setThrottleTimeMs(requestThrottleMs);
-        addResults(results);
-    }
-
-    public AlterConfigsResponse addResults(final Map<ConfigResource, ApiError> results) {
-        List<AlterConfigsResourceResponse> originalResults = data.responses();
-        final List<AlterConfigsResourceResponse> newResults = new ArrayList<>(originalResults);
-
-        results.forEach(
-            (resource, error) -> newResults.add(
-                new AlterConfigsResourceResponse()
-                    .setErrorCode(error.error().code())
-                    .setErrorMessage(error.message())
-                    .setResourceName(resource.name())
-                    .setResourceType(resource.type().id()))
-        );
-        this.data.setResponses(newResults);
-
-        return this;
-    }
-
     public Map<ConfigResource, ApiError> errors() {
         return data.responses().stream().collect(Collectors.toMap(
             response -> new ConfigResource(
