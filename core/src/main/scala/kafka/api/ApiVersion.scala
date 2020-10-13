@@ -105,7 +105,7 @@ object ApiVersion {
     KAFKA_2_7_IV1,
     // Introduced AlterIsr (KIP-497)
     KAFKA_2_7_IV2,
-    // Enable redirection (KIP-590)
+    // Enable redirection and introduced IBP based constraints for ApiVersion (KIP-590)
     KAFKA_2_8_IV0
   )
 
