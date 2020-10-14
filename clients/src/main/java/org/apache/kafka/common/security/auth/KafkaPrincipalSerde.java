@@ -23,7 +23,7 @@ import java.nio.ByteBuffer;
  */
 public interface KafkaPrincipalSerde {
 
-    ByteBuffer serialize(KafkaPrincipal principal, short version);
+    ByteBuffer serialize(KafkaPrincipal principal);
 
-    KafkaPrincipal deserialize(ByteBuffer bytes, short version);
+    KafkaPrincipal deserialize(ByteBuffer bytes);
 }

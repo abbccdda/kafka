@@ -87,6 +87,22 @@ public abstract class AbstractResponse implements AbstractRequestResponse {
 
     protected abstract Struct toStruct(short version);
 
+    public ByteBuffer serializeBody(short version) {
+        Struct dataStruct = toStruct(version);
+        ByteBuffer buffer = ByteBuffer.allocate(dataStruct.sizeOf());
+        dataStruct.writeTo(buffer);
+        buffer.flip();
+
+        return buffer;
+    }
+
+    public static AbstractResponse deserializeBody(ByteBuffer byteBuffer, RequestHeader header) {
+        ApiKeys apiKey = header.apiKey();
+        short apiVersion = header.apiVersion();
+        Struct struct = apiKey.parseResponse(apiVersion, byteBuffer);
+        return AbstractResponse.parseResponse(apiKey, struct, apiVersion);
+    }
+
     public static AbstractResponse parseResponse(ApiKeys apiKey, Struct struct, short version) {
         switch (apiKey) {
             case PRODUCE:

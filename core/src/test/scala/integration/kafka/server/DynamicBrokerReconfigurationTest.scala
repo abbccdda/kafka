@@ -447,7 +447,7 @@ class DynamicBrokerReconfigurationTest extends ZooKeeperTestHarness with SaslSet
     TestUtils.incrementalAlterConfigs(servers, adminClients.head, oldTruststoreProps, perBrokerConfig = true).all.get()
     verifySslProduceConsume(sslProperties1, "alter-truststore-4")
     // Sleep a short time to wait for config changes propagation
-    Thread.sleep(100)
+    Thread.sleep(1000)
     verifySslProduceConsume(sslProperties2, "alter-truststore-5")
 
     // Update internal keystore/truststore and validate new client connections from broker (e.g. controller).

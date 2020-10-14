@@ -18,7 +18,6 @@ package org.apache.kafka.common.security.auth;
 
 import javax.security.auth.x500.X500Principal;
 import org.apache.kafka.common.config.SaslConfigs;
-import org.apache.kafka.common.message.DefaultPrincipalData;
 import org.apache.kafka.common.network.Authenticator;
 import org.apache.kafka.common.network.TransportLayer;
 import org.apache.kafka.common.security.authenticator.DefaultKafkaPrincipalBuilder;
@@ -230,8 +229,8 @@ public class DefaultKafkaPrincipalBuilderTest {
         assertEquals(KafkaPrincipal.USER_TYPE, principal.getPrincipalType());
         assertEquals("foo", principal.getName());
 
-        ByteBuffer serializedPrincipal = builder.serialize(principal, DefaultPrincipalData.HIGHEST_SUPPORTED_VERSION);
-        KafkaPrincipal deserializedPrincipal = builder.deserialize(serializedPrincipal, DefaultPrincipalData.HIGHEST_SUPPORTED_VERSION);
+        ByteBuffer serializedPrincipal = builder.serialize(principal);
+        KafkaPrincipal deserializedPrincipal = builder.deserialize(serializedPrincipal);
         assertEquals(principal, deserializedPrincipal);
 
         builder.close();

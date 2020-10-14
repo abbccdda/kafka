@@ -3225,7 +3225,13 @@ class KafkaApis(val requestChannel: RequestChannel,
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         envelopeRequest.getErrorResponse(requestThrottleMs, Errors.INVALID_REQUEST.exception))
     } else {
-      val embedPrincipal = envelopeRequest.requestPrincipal(request.context.principalSerde.get())
+      val principalData = envelopeRequest.principalData
+
+      val embedPrincipal = if (principalData != null)
+        request.context.principalSerde.get().deserialize(principalData)
+      else
+        KafkaPrincipal.ANONYMOUS
+
       val embedHeader = RequestHeader.parse(envelopeRequest.requestData)
       if (!embedHeader.apiKey.isEnabled) {
         throw new InvalidRequestException("Received request for disabled api key " + embedHeader.apiKey)
@@ -3260,7 +3266,8 @@ class KafkaApis(val requestChannel: RequestChannel,
                                           onComplete: Option[Send => Unit]): Unit = {
           def createEnvelopeResponse(throttleTimeMs: Int): AbstractResponse = {
             val innerResponse = createResponse(throttleTimeMs)
-            new EnvelopeResponse(throttleTimeMs, innerResponse, embedHeader.apiVersion)
+            new EnvelopeResponse(throttleTimeMs,
+              innerResponse.serializeBody(innerRequest.context.header.apiVersion))
           }
 
           // We need to bring back the original request header

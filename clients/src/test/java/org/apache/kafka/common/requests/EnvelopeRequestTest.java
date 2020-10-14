@@ -16,7 +16,6 @@
  */
 package org.apache.kafka.common.requests;
 
-import org.apache.kafka.common.message.DefaultPrincipalData;
 import org.apache.kafka.common.message.EnvelopeRequestData;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.authenticator.DefaultKafkaPrincipalBuilder;
@@ -34,9 +33,8 @@ public class EnvelopeRequestTest {
         DefaultKafkaPrincipalBuilder kafkaPrincipalBuilder = new DefaultKafkaPrincipalBuilder(null, null);
 
         EnvelopeRequest.Builder requestBuilder = new EnvelopeRequest.Builder(ByteBuffer.allocate(0),
-            kafkaPrincipalBuilder.serialize(kafkaPrincipal, DefaultPrincipalData.HIGHEST_SUPPORTED_VERSION), "client-address");
+            kafkaPrincipalBuilder.serialize(kafkaPrincipal), "client-address");
         EnvelopeRequest request = requestBuilder.build(EnvelopeRequestData.HIGHEST_SUPPORTED_VERSION);
-        KafkaPrincipal deserializedPrincipal = request.requestPrincipal(kafkaPrincipalBuilder);
-        assertEquals(kafkaPrincipal, deserializedPrincipal);
+        assertEquals(kafkaPrincipal, kafkaPrincipalBuilder.deserialize(request.principalData()));
     }
 }

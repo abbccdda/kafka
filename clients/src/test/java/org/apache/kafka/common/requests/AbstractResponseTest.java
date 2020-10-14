@@ -17,33 +17,35 @@
 package org.apache.kafka.common.requests;
 
 import org.apache.kafka.common.message.CreateTopicsResponseData;
-import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicResultCollection;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
 
-public class EnvelopeResponseTest {
+public class AbstractResponseTest {
 
     @Test
-    public void testGetEmbedResponse() {
-        CreatableTopicResultCollection collection = new CreatableTopicResultCollection();
+    public void testResponseSerde() {
+        CreateTopicsResponseData.CreatableTopicResultCollection collection =
+            new CreateTopicsResponseData.CreatableTopicResultCollection();
         collection.add(new CreateTopicsResponseData.CreatableTopicResult()
                            .setTopicConfigErrorCode(Errors.CLUSTER_AUTHORIZATION_FAILED.code())
                            .setNumPartitions(5));
         CreateTopicsResponse createTopicsResponse = new CreateTopicsResponse(
             new CreateTopicsResponseData()
-            .setThrottleTimeMs(10)
-            .setTopics(collection)
+                .setThrottleTimeMs(10)
+                .setTopics(collection)
         );
         final int throttleTimeMs = 5;
         final short version = (short) (CreateTopicsResponseData.SCHEMAS.length - 1);
-        EnvelopeResponse envelopeResponse = new EnvelopeResponse(throttleTimeMs, createTopicsResponse,
-            version);
+        EnvelopeResponse envelopeResponse = new EnvelopeResponse(throttleTimeMs,
+            createTopicsResponse.serializeBody(version));
 
         RequestHeader header = new RequestHeader(ApiKeys.CREATE_TOPICS, version, "client", 4);
-        CreateTopicsResponse extractedResponse = (CreateTopicsResponse) envelopeResponse.embedResponse(header);
+
+        CreateTopicsResponse extractedResponse = (CreateTopicsResponse) CreateTopicsResponse.deserializeBody(
+            envelopeResponse.embedResponseData(), header);
         assertEquals(createTopicsResponse.data(), extractedResponse.data());
     }
 }

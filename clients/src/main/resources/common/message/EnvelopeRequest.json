@@ -23,7 +23,6 @@
   "fields": [
     { "name": "RequestData", "type": "bytes", "versions": "0+", "zeroCopy": true,
       "about": "The embedded request header and data."},
-    { "name": "PrincipalIdToken", "type": "bytes", "tag": 0, "taggedVersions": "0+" },
     { "name": "RequestPrincipal", "type": "bytes", "versions": "0+", "zeroCopy": true,
       "ignorable": true, "nullableVersions": "0+", "default": "null",
       "about": "Value of the initial client principal when the request is redirected by a broker." },

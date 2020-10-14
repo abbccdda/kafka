@@ -149,7 +149,7 @@ class BrokerToControllerChannelManagerImpl(metadataCache: kafka.server.MetadataC
       (response: ClientResponse) => responseToOriginalClient(
         originalRequest, _ => {
           val envelopeResponse = response.responseBody.asInstanceOf[EnvelopeResponse]
-          envelopeResponse.embedResponse(originalRequest.header)
+          AbstractResponse.deserializeBody(envelopeResponse.embedResponseData, originalRequest.header)
         }, callback)))
     requestThread.wakeup()
   }

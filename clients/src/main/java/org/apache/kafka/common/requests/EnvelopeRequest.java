@@ -16,7 +16,6 @@
  */
 package org.apache.kafka.common.requests;
 
-import org.apache.kafka.common.message.DefaultPrincipalData;
 import org.apache.kafka.common.message.EnvelopeRequestData;
 import org.apache.kafka.common.message.EnvelopeResponseData;
 import org.apache.kafka.common.protocol.ApiKeys;
@@ -33,16 +32,16 @@ public class EnvelopeRequest extends AbstractRequest {
 
         private final EnvelopeRequestData data;
 
-        public Builder(ByteBuffer embedData, String clientHostName) {
-            this(embedData, null, clientHostName);
+        public Builder(ByteBuffer requestData, String clientHostName) {
+            this(requestData, null, clientHostName);
         }
 
-        public Builder(ByteBuffer embedData,
+        public Builder(ByteBuffer requestData,
                        ByteBuffer serializedPrincipal,
                        String clientHostName) {
             super(ApiKeys.ENVELOPE);
             this.data = new EnvelopeRequestData()
-                            .setRequestData(embedData)
+                            .setRequestData(requestData)
                             .setRequestPrincipal(serializedPrincipal)
                             .setClientHostName(clientHostName);
         }
@@ -82,8 +81,13 @@ public class EnvelopeRequest extends AbstractRequest {
         if (data.requestPrincipal() == null) {
             return KafkaPrincipal.ANONYMOUS;
         }
-        return principalSerde.deserialize(data.requestPrincipal(), DefaultPrincipalData.HIGHEST_SUPPORTED_VERSION);
+        return principalSerde.deserialize(data.requestPrincipal());
     }
+
+    public ByteBuffer principalData() {
+        return data.requestPrincipal();
+    }
+
 
     @Override
     protected Struct toStruct() {

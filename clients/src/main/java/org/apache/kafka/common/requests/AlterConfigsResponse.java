@@ -19,14 +19,11 @@ package org.apache.kafka.common.requests;
 
 import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.message.AlterConfigsResponseData;
-import org.apache.kafka.common.message.AlterConfigsResponseData.AlterConfigsResourceResponse;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.types.Struct;
 
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
