@@ -17,12 +17,17 @@
 
 package kafka.api
 
-import org.apache.kafka.common.feature.Features
+import java.util
+
+import org.apache.kafka.common.feature.{Features, FinalizedVersionRange, SupportedVersionRange}
 import org.apache.kafka.common.protocol.ApiKeys
 import org.apache.kafka.common.record.{RecordBatch, RecordVersion}
-import org.apache.kafka.common.requests.ApiVersionsResponse
+import org.apache.kafka.common.requests.{AbstractResponse, ApiVersionsResponse}
+import org.apache.kafka.common.utils.Utils
 import org.junit.Test
 import org.junit.Assert._
+
+import scala.jdk.CollectionConverters._
 
 class ApiVersionTest {
 
@@ -121,7 +126,7 @@ class ApiVersionTest {
       apiVersion.id
     })
 
-    val uniqueIds: Set[Int] = allIds.toSet
+    val uniqueIds: Predef.Set[Int] = allIds.toSet
 
     assertEquals(allIds.size, uniqueIds.size)
   }
@@ -172,9 +177,8 @@ class ApiVersionTest {
 
   @Test
   def testInterBrokerProtocolVersionConstraint(): Unit = {
-    val response = ApiVersionsResponse.apiVersionsResponse(
+    val response = ApiVersion.apiVersionsResponse(
       10,
-      ApiVersion.latestVersion.id,
       RecordBatch.MAGIC_VALUE_V2,
       Features.emptySupportedFeatures())
     response.data.apiKeys().forEach(
@@ -261,6 +265,75 @@ class ApiVersionTest {
       s"expected version $expectedVersion. If you recently " +
       s"bumped this RPC version, you should also bump IBP and update this test correspondingly.",
       expectedVersion, apiKeys.latestVersion())
+  }
+
+  @Test
+  def shouldCreateApiResponseOnlyWithKeysSupportedByMagicValue(): Unit = {
+    val response = ApiVersion.apiVersionsResponse(
+      10,
+      RecordBatch.MAGIC_VALUE_V1,
+      Features.emptySupportedFeatures
+    )
+    verifyApiKeysForMagic(response, RecordBatch.MAGIC_VALUE_V1)
+    assertEquals(10, response.throttleTimeMs)
+    assertTrue(response.data.supportedFeatures.isEmpty)
+    assertTrue(response.data.finalizedFeatures.isEmpty)
+    assertEquals(ApiVersionsResponse.UNKNOWN_FINALIZED_FEATURES_EPOCH, response.data.finalizedFeaturesEpoch)
+  }
+
+  @Test
+  def shouldReturnFeatureKeysWhenMagicIsCurrentValueAndThrottleMsIsDefaultThrottle(): Unit = {
+    val response = ApiVersion.apiVersionsResponse(
+      10,
+      RecordBatch.MAGIC_VALUE_V1,
+      Features.supportedFeatures(
+        Utils.mkMap(Utils.mkEntry("feature", new SupportedVersionRange(1.toShort, 4.toShort)))),
+      Features.finalizedFeatures(
+        Utils.mkMap(Utils.mkEntry("feature", new FinalizedVersionRange(2.toShort, 3.toShort)))),
+      10
+    )
+
+    verifyApiKeysForMagic(response, RecordBatch.MAGIC_VALUE_V1)
+    assertEquals(10, response.throttleTimeMs)
+    assertEquals(1, response.data.supportedFeatures.size)
+    val sKey = response.data.supportedFeatures.find("feature")
+    assertNotNull(sKey)
+    assertEquals(1, sKey.minVersion)
+    assertEquals(4, sKey.maxVersion)
+    assertEquals(1, response.data.finalizedFeatures.size)
+    val fKey = response.data.finalizedFeatures.find("feature")
+    assertNotNull(fKey)
+    assertEquals(2, fKey.minVersionLevel)
+    assertEquals(3, fKey.maxVersionLevel)
+    assertEquals(10, response.data.finalizedFeaturesEpoch)
+  }
+
+  private def verifyApiKeysForMagic(response: ApiVersionsResponse, maxMagic: Byte): Unit = {
+    for (version <- response.data.apiKeys.asScala) {
+      assertTrue(ApiKeys.forId(version.apiKey).minRequiredInterBrokerMagic <= maxMagic)
+    }
+  }
+
+  @Test
+  def shouldReturnAllKeysWhenMagicIsCurrentValueAndThrottleMsIsDefaultThrottle(): Unit = {
+    val response = ApiVersion.apiVersionsResponse(
+      AbstractResponse.DEFAULT_THROTTLE_TIME,
+      RecordBatch.CURRENT_MAGIC_VALUE,
+      Features.emptySupportedFeatures
+    )
+    assertEquals(new util.HashSet[ApiKeys](ApiKeys.enabledApis), apiKeysInResponse(response))
+    assertEquals(AbstractResponse.DEFAULT_THROTTLE_TIME, response.throttleTimeMs)
+    assertTrue(response.data.supportedFeatures.isEmpty)
+    assertTrue(response.data.finalizedFeatures.isEmpty)
+    assertEquals(ApiVersionsResponse.UNKNOWN_FINALIZED_FEATURES_EPOCH, response.data.finalizedFeaturesEpoch)
+  }
+
+  private def apiKeysInResponse(apiVersions: ApiVersionsResponse) = {
+    val apiKeys = new util.HashSet[ApiKeys]
+    for (version <- apiVersions.data.apiKeys.asScala) {
+      apiKeys.add(ApiKeys.forId(version.apiKey))
+    }
+    apiKeys
   }
 }
 

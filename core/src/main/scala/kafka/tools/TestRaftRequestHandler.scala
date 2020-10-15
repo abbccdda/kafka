@@ -19,6 +19,7 @@ package kafka.tools
 
 import java.util.Collections
 
+import kafka.api.ApiVersion
 import kafka.network.RequestChannel
 import kafka.raft.KafkaNetworkChannel
 import kafka.server.ApiRequestHandler
@@ -29,7 +30,7 @@ import org.apache.kafka.common.internals.FatalExitError
 import org.apache.kafka.common.message.MetadataResponseData
 import org.apache.kafka.common.message.MetadataResponseData.{MetadataResponsePartition, MetadataResponseTopic}
 import org.apache.kafka.common.protocol.{ApiKeys, Errors}
-import org.apache.kafka.common.requests.{AbstractRequest, AbstractResponse, ApiVersionsResponse, MetadataRequest, MetadataResponse, ProduceRequest, ProduceResponse}
+import org.apache.kafka.common.requests.{AbstractRequest, AbstractResponse, MetadataRequest, MetadataResponse, ProduceRequest, ProduceResponse}
 import org.apache.kafka.common.utils.Time
 import org.apache.kafka.raft.{AckMode, RaftClient}
 
@@ -62,8 +63,7 @@ class TestRaftRequestHandler(
             response => sendResponse(request, Some(response)))
 
         case ApiKeys.API_VERSIONS =>
-          sendResponse(request, Option(ApiVersionsResponse.apiVersionsResponse(0,
-            ApiVersionsResponse.MIN_CONSTRAINT_IBP_VERSION, 2, Features.emptySupportedFeatures())))
+          sendResponse(request, Option(ApiVersion.apiVersionsResponse(0, 2, Features.emptySupportedFeatures())))
 
         case ApiKeys.METADATA =>
           val metadataRequest = request.body[MetadataRequest]

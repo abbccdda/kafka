@@ -1767,16 +1767,14 @@ class KafkaApis(val requestChannel: RequestChannel,
         val supportedFeatures = brokerFeatures.supportedFeatures
         val finalizedFeaturesOpt = finalizedFeatureCache.get
         finalizedFeaturesOpt match {
-          case Some(finalizedFeatures) => ApiVersionsResponse.apiVersionsResponse(
+          case Some(finalizedFeatures) => ApiVersion.apiVersionsResponse(
             requestThrottleMs,
-            config.interBrokerProtocolVersion.id,
             config.interBrokerProtocolVersion.recordVersion.value,
             supportedFeatures,
             finalizedFeatures.features,
             finalizedFeatures.epoch)
-          case None => ApiVersionsResponse.apiVersionsResponse(
+          case None => ApiVersion.apiVersionsResponse(
             requestThrottleMs,
-            config.interBrokerProtocolVersion.id,
             config.interBrokerProtocolVersion.recordVersion.value,
             supportedFeatures)
         }

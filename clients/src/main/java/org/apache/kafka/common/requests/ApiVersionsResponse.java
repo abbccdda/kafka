@@ -43,38 +43,11 @@ import java.util.Map;
  */
 public class ApiVersionsResponse extends AbstractResponse {
 
-    public static final int MIN_CONSTRAINT_IBP_VERSION = 31;
-
-    // Starting from inter.broker.protocol = 2.8, controller directed RPCs need to bump the inter.broker.protocol
-    // whenever there is a request version bump.
-    private enum InterBrokerProtocolVersion {
-        KAFKA_2_8_IV0(MIN_CONSTRAINT_IBP_VERSION);
-
-        public final int id;
-
-        InterBrokerProtocolVersion(int id) {
-            this.id = id;
-        }
-
-        static InterBrokerProtocolVersion forId(int id) {
-            switch (id) {
-                case MIN_CONSTRAINT_IBP_VERSION:
-                    return KAFKA_2_8_IV0;
-                default:
-                    if (id < MIN_CONSTRAINT_IBP_VERSION) {
-                        return KAFKA_2_8_IV0;
-                    }
-                    throw new IllegalArgumentException("Unexpected inter.broker.protocol version " + id);
-            }
-        }
-    }
-
     public static final long UNKNOWN_FINALIZED_FEATURES_EPOCH = -1L;
 
     public static final ApiVersionsResponse DEFAULT_API_VERSIONS_RESPONSE =
         createApiVersionsResponse(
             DEFAULT_THROTTLE_TIME,
-            InterBrokerProtocolVersion.KAFKA_2_8_IV0,
             RecordBatch.CURRENT_MAGIC_VALUE,
             Features.emptySupportedFeatures(),
             Features.emptyFinalizedFeatures(),
@@ -159,53 +132,11 @@ public class ApiVersionsResponse extends AbstractResponse {
         }
     }
 
-    public static ApiVersionsResponse apiVersionsResponse(
-        int throttleTimeMs,
-        int interBrokerProtocolVersionId,
-        byte maxMagic,
-        Features<SupportedVersionRange> latestSupportedFeatures) {
-        return apiVersionsResponse(
-            throttleTimeMs,
-            interBrokerProtocolVersionId,
-            maxMagic,
-            latestSupportedFeatures,
-            Features.emptyFinalizedFeatures(),
-            UNKNOWN_FINALIZED_FEATURES_EPOCH);
-    }
-
-    public static ApiVersionsResponse apiVersionsResponse(
-        int throttleTimeMs,
-        int interBrokerProtocolVersionId,
-        byte maxMagic,
-        Features<SupportedVersionRange> latestSupportedFeatures,
-        Features<FinalizedVersionRange> finalizedFeatures,
-        long finalizedFeaturesEpoch) {
-        if (maxMagic == RecordBatch.CURRENT_MAGIC_VALUE && throttleTimeMs == DEFAULT_THROTTLE_TIME) {
-            return new ApiVersionsResponse(createApiVersionsResponseData(
-                DEFAULT_API_VERSIONS_RESPONSE.throttleTimeMs(),
-                Errors.forCode(DEFAULT_API_VERSIONS_RESPONSE.data().errorCode()),
-                DEFAULT_API_VERSIONS_RESPONSE.data().apiKeys(),
-                latestSupportedFeatures,
-                finalizedFeatures,
-                finalizedFeaturesEpoch));
-        }
-        return createApiVersionsResponse(
-            throttleTimeMs,
-            InterBrokerProtocolVersion.forId(interBrokerProtocolVersionId),
-            maxMagic,
-            latestSupportedFeatures,
-            finalizedFeatures,
-            finalizedFeaturesEpoch
-        );
-    }
-
     public static ApiVersionsResponse createApiVersionsResponse(
         final int throttleTimeMs,
-        final int interBrokerProtocolVersionId,
         final byte minMagic) {
         return createApiVersionsResponse(
             throttleTimeMs,
-            InterBrokerProtocolVersion.forId(interBrokerProtocolVersionId),
             minMagic,
             Features.emptySupportedFeatures(),
             Features.emptyFinalizedFeatures(),
@@ -215,29 +146,31 @@ public class ApiVersionsResponse extends AbstractResponse {
 
     private static ApiVersionsResponse createApiVersionsResponse(
         final int throttleTimeMs,
-        InterBrokerProtocolVersion interBrokerProtocolVersion,
         final byte minMagic,
         final Features<SupportedVersionRange> latestSupportedFeatures,
         final Features<FinalizedVersionRange> finalizedFeatures,
         final long finalizedFeaturesEpoch) {
-        ApiVersionsResponseKeyCollection apiKeys = new ApiVersionsResponseKeyCollection();
-        for (ApiKeys apiKey : ApiKeys.enabledApis()) {
-            if (apiKey.minRequiredInterBrokerMagic <= minMagic) {
-                apiKeys.add(new ApiVersionsResponseKey()
-                    .setApiKey(apiKey.id)
-                    .setMinVersion(apiKey.oldestVersion())
-                    .setMaxVersion(apiKey.latestVersion()));
-            }
-        }
-
         return new ApiVersionsResponse(
             createApiVersionsResponseData(
                 throttleTimeMs,
                 Errors.NONE,
-                apiKeys,
+                defaultApiKeys(minMagic),
                 latestSupportedFeatures,
                 finalizedFeatures,
                 finalizedFeaturesEpoch));
+    }
+
+    public static ApiVersionsResponseKeyCollection defaultApiKeys(final byte minMagic) {
+        ApiVersionsResponseKeyCollection apiKeys = new ApiVersionsResponseKeyCollection();
+        for (ApiKeys apiKey : ApiKeys.enabledApis()) {
+            if (apiKey.minRequiredInterBrokerMagic <= minMagic) {
+                apiKeys.add(new ApiVersionsResponseKey()
+                                .setApiKey(apiKey.id)
+                                .setMinVersion(apiKey.oldestVersion())
+                                .setMaxVersion(apiKey.latestVersion()));
+            }
+        }
+        return apiKeys;
     }
 
     public static ApiVersionsResponseData createApiVersionsResponseData(
