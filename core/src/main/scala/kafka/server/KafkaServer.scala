@@ -306,7 +306,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         /* start replica manager */
         alterIsrChannelManager = new BrokerToControllerChannelManagerImpl(
-          metadataCache, time, metrics, config, "alterIsrChannel", threadNamePrefix)
+          metadataCache, time, metrics, config, AlterIsr, threadNamePrefix)
         replicaManager = createReplicaManager(isShuttingDown)
         replicaManager.startup()
         alterIsrChannelManager.start()
@@ -327,7 +327,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         if (config.forwardingEnabled) {
           /* start forwarding manager */
-          forwardingManager = new BrokerToControllerChannelManagerImpl(metadataCache, time, metrics, config, "forwardingChannel", threadNamePrefix)
+          forwardingManager = new BrokerToControllerChannelManagerImpl(metadataCache, time, metrics, config, Forwarding, threadNamePrefix)
           forwardingManager.start()
         }
 

@@ -19,7 +19,7 @@ package kafka.metrics
 
 import java.util.concurrent.TimeUnit
 
-import com.yammer.metrics.core.{Gauge, MetricName, Meter, Histogram, Timer}
+import com.yammer.metrics.core.{Counter, Gauge, Histogram, Meter, MetricName, Timer}
 import kafka.utils.Logging
 import org.apache.kafka.common.utils.Sanitizer
 
@@ -75,6 +75,9 @@ trait KafkaMetricsGroup extends Logging {
 
   def newTimer(name: String, durationUnit: TimeUnit, rateUnit: TimeUnit, tags: scala.collection.Map[String, String] = Map.empty): Timer =
     KafkaYammerMetrics.defaultRegistry().newTimer(metricName(name, tags), durationUnit, rateUnit)
+
+  def newCounter(name: String, tags: scala.collection.Map[String, String] = Map.empty): Counter =
+    KafkaYammerMetrics.defaultRegistry().newCounter(metricName(name, tags))
 
   def removeMetric(name: String, tags: scala.collection.Map[String, String] = Map.empty): Unit =
     KafkaYammerMetrics.defaultRegistry().removeMetric(metricName(name, tags))

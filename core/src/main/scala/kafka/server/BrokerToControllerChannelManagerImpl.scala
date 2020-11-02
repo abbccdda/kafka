@@ -17,9 +17,12 @@
 
 package kafka.server
 
+import java.util.concurrent.locks.ReentrantReadWriteLock
 import java.util.concurrent.{LinkedBlockingDeque, TimeUnit}
 
+import com.yammer.metrics.core.Counter
 import kafka.common.{InterBrokerSendThread, RequestAndCompletionHandler}
+import kafka.metrics.KafkaMetricsGroup
 import kafka.network.RequestChannel
 import kafka.utils.Logging
 import org.apache.kafka.clients._
@@ -47,6 +50,9 @@ trait BrokerToControllerChannelManager {
   def shutdown(): Unit
 }
 
+sealed trait BrokerToControllerChannelType
+case object Forwarding extends BrokerToControllerChannelType
+case object AlterIsr extends BrokerToControllerChannelType
 
 /**
  * This class manages the connection between a broker and the controller. It runs a single
@@ -59,12 +65,27 @@ class BrokerToControllerChannelManagerImpl(metadataCache: kafka.server.MetadataC
                                            time: Time,
                                            metrics: Metrics,
                                            config: KafkaConfig,
-                                           channelName: String,
-                                           threadNamePrefix: Option[String] = None) extends BrokerToControllerChannelManager with Logging {
+                                           channelType: BrokerToControllerChannelType,
+                                           threadNamePrefix: Option[String] = None) extends BrokerToControllerChannelManager with Logging with KafkaMetricsGroup {
   private val requestQueue = new LinkedBlockingDeque[BrokerToControllerQueueItem]
   private val logContext = new LogContext(s"[broker-${config.brokerId}-to-controller] ")
   private val manualMetadataUpdater = new ManualMetadataUpdater()
   private val requestThread = newRequestThread
+  private val numRequestsForwardingToControllerPerSecMetrics: Option[Counter] =
+    channelType match {
+      case Forwarding => Some(newCounter("NumRequestsForwardingToControllerPerSec"))
+      case _ => None
+    }
+
+  private val lock = new ReentrantReadWriteLock()
+  private val sensorAccess = new SensorAccess(lock, metrics)
+
+  private val channelName: String =
+    channelType match {
+      case Forwarding => "forwardingChannel"
+      case AlterIsr => "alterIsrChannel"
+      case _ => throw new IllegalStateException(s"Given channel type $channelType should have a corresponding name")
+    }
 
   override def start(): Unit = {
     requestThread.start()
@@ -146,11 +167,18 @@ class BrokerToControllerChannelManagerImpl(metadataCache: kafka.server.MetadataC
       serializedPrincipal,
       request.context.clientAddress.getAddress
     )
+    numRequestsForwardingToControllerPerSecMetrics match {
+      case Some(counter) => counter.inc()
+    }
 
     requestQueue.put(BrokerToControllerQueueItem(envelopeRequest,
       (response: ClientResponse) => responseToOriginalClient(
         request, _ => {
           val envelopeResponse = response.responseBody.asInstanceOf[EnvelopeResponse]
+          numRequestsForwardingToControllerPerSecMetrics match {
+            case Some(counter) => counter.dec()
+          }
+
           val internalError = envelopeResponse.error()
           if (internalError!= Errors.NONE) {
             debug(s"Encountered error $internalError during request forwarding, returning unknown server " +
