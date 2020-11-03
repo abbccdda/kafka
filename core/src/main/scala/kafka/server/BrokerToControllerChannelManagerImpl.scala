@@ -17,16 +17,12 @@
 
 package kafka.server
 
-import java.util.concurrent.locks.ReentrantReadWriteLock
 import java.util.concurrent.{LinkedBlockingDeque, TimeUnit}
 
-import com.yammer.metrics.core.Counter
 import kafka.common.{InterBrokerSendThread, RequestAndCompletionHandler}
-import kafka.metrics.KafkaMetricsGroup
-import kafka.network.RequestChannel
 import kafka.utils.Logging
 import org.apache.kafka.clients._
-import org.apache.kafka.common.requests.{AbstractRequest, AbstractResponse, EnvelopeRequest, EnvelopeResponse}
+import org.apache.kafka.common.requests.AbstractRequest
 import org.apache.kafka.common.utils.{LogContext, Time}
 import org.apache.kafka.common.Node
 import org.apache.kafka.common.metrics.Metrics
@@ -41,9 +37,6 @@ import scala.jdk.CollectionConverters._
 trait BrokerToControllerChannelManager {
   def sendRequest(request: AbstractRequest.Builder[_ <: AbstractRequest],
                   callback: RequestCompletionHandler): Unit
-
-  def forwardRequest(responseToOriginalClient: (RequestChannel.Request, Int => AbstractResponse) => Unit,
-                     originalRequest: RequestChannel.Request): Unit
 
   def start(): Unit
 
@@ -66,19 +59,11 @@ class BrokerToControllerChannelManagerImpl(metadataCache: kafka.server.MetadataC
                                            metrics: Metrics,
                                            config: KafkaConfig,
                                            channelType: BrokerToControllerChannelType,
-                                           threadNamePrefix: Option[String] = None) extends BrokerToControllerChannelManager with Logging with KafkaMetricsGroup {
+                                           threadNamePrefix: Option[String] = None) extends BrokerToControllerChannelManager with Logging {
   private val requestQueue = new LinkedBlockingDeque[BrokerToControllerQueueItem]
   private val logContext = new LogContext(s"[broker-${config.brokerId}-to-controller] ")
   private val manualMetadataUpdater = new ManualMetadataUpdater()
   private val requestThread = newRequestThread
-  private val numRequestsForwardingToControllerPerSecMetrics: Option[Counter] =
-    channelType match {
-      case Forwarding => Some(newCounter("NumRequestsForwardingToControllerPerSec"))
-      case _ => None
-    }
-
-  private val lock = new ReentrantReadWriteLock()
-  private val sensorAccess = new SensorAccess(lock, metrics)
 
   private val channelName: String =
     channelType match {
@@ -154,40 +139,6 @@ class BrokerToControllerChannelManagerImpl(metadataCache: kafka.server.MetadataC
   override def sendRequest(request: AbstractRequest.Builder[_ <: AbstractRequest],
                            callback: RequestCompletionHandler): Unit = {
     requestQueue.put(BrokerToControllerQueueItem(request, callback))
-    requestThread.wakeup()
-  }
-
-  override def forwardRequest(responseToOriginalClient: (RequestChannel.Request, Int => AbstractResponse) => Unit,
-                              request: RequestChannel.Request): Unit = {
-    val serializedPrincipal = request.principalSerde.get.serialize(request.context.principal)
-    val forwardRequestBuffer = request.buffer.duplicate()
-    forwardRequestBuffer.flip()
-    val envelopeRequest = new EnvelopeRequest.Builder(
-      forwardRequestBuffer,
-      serializedPrincipal,
-      request.context.clientAddress.getAddress
-    )
-    numRequestsForwardingToControllerPerSecMetrics match {
-      case Some(counter) => counter.inc()
-    }
-
-    requestQueue.put(BrokerToControllerQueueItem(envelopeRequest,
-      (response: ClientResponse) => responseToOriginalClient(
-        request, _ => {
-          val envelopeResponse = response.responseBody.asInstanceOf[EnvelopeResponse]
-          numRequestsForwardingToControllerPerSecMetrics match {
-            case Some(counter) => counter.dec()
-          }
-
-          val internalError = envelopeResponse.error()
-          if (internalError!= Errors.NONE) {
-            debug(s"Encountered error $internalError during request forwarding, returning unknown server " +
-              s"error to the client to indicate that the failure is caused by the inter-broker communication.")
-            request.body[AbstractRequest].getErrorResponse(Errors.UNKNOWN_SERVER_ERROR.exception())
-          } else {
-            AbstractResponse.deserializeBody(envelopeResponse.embedResponseData, request.header)
-          }
-        })))
     requestThread.wakeup()
   }
 }
