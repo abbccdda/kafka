@@ -2801,7 +2801,7 @@ class KafkaApisTest {
 
     val metadataRequest = MetadataRequest.Builder.allTopics.build()
     val requestChannelRequest = buildRequest(metadataRequest, requestListener)
-    createKafkaApis().handleTopicMetadataRequest(requestChannelRequest)
+    createKafkaApis().handleMetadataRequest(requestChannelRequest)
 
     readResponse(metadataRequest, capturedResponse).asInstanceOf[MetadataResponse]
   }

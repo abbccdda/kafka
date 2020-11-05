@@ -18,10 +18,12 @@ package org.apache.kafka.clients;
 
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.errors.AuthenticationException;
+import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.requests.AbstractRequest;
 
 import java.io.Closeable;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * The interface for {@link NetworkClient}
@@ -213,4 +215,8 @@ public interface KafkaClient extends Closeable {
      */
     boolean active();
 
+    default Optional<Short> getUsableApiVersion(String nodeId, ApiKeys apiKey) {
+        return Optional.empty();
+    }
 }
+

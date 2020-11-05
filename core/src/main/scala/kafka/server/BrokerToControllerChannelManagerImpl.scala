@@ -24,10 +24,11 @@ import kafka.network.RequestChannel
 import kafka.utils.Logging
 import org.apache.kafka.clients._
 import org.apache.kafka.common.Node
+import org.apache.kafka.common.message.RequestHeaderData
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.network._
-import org.apache.kafka.common.protocol.Errors
-import org.apache.kafka.common.requests.{AbstractRequest, AbstractResponse, EnvelopeRequest, EnvelopeResponse}
+import org.apache.kafka.common.protocol.{ApiKeys, Errors}
+import org.apache.kafka.common.requests.{AbstractRequest, AbstractResponse, EnvelopeRequest, EnvelopeResponse, RequestHeader}
 import org.apache.kafka.common.security.JaasContext
 import org.apache.kafka.common.utils.{LogContext, Time}
 
@@ -40,7 +41,9 @@ trait BrokerToControllerChannelManager {
   def sendRequest(request: AbstractRequest.Builder[_ <: AbstractRequest],
                   callback: RequestCompletionHandler): Unit
 
-  def forwardRequest(request: RequestChannel.Request, responseCallback: AbstractResponse => Unit): Unit
+  def forwardRequest(request: RequestChannel.Request,
+                     responseCallback: AbstractResponse => Unit,
+                     customizedRequest: Option[AbstractRequest.Builder[_ <: AbstractRequest]] = None): Unit
 
   def start(): Unit
 
@@ -116,7 +119,7 @@ class BrokerToControllerChannelManagerImpl(metadataCache: kafka.server.MetadataC
         config.connectionSetupTimeoutMaxMs,
         ClientDnsLookup.USE_ALL_DNS_IPS,
         time,
-        false,
+        true, // Need to get the active controller ApiVersion for sending CreateTopicsRequest
         new ApiVersions,
         logContext
       )
@@ -138,14 +141,42 @@ class BrokerToControllerChannelManagerImpl(metadataCache: kafka.server.MetadataC
 
   def forwardRequest(
     request: RequestChannel.Request,
-    responseCallback: AbstractResponse => Unit
+    responseCallback: AbstractResponse => Unit,
+    customizedRequest: Option[AbstractRequest.Builder[_ <: AbstractRequest]] = None
   ): Unit = {
     val principalSerde = request.context.principalSerde.asScala.getOrElse(
       throw new IllegalArgumentException(s"Cannot deserialize principal from request $request " +
         "since there is no serde defined")
     )
-    val serializedPrincipal = principalSerde.serialize(request.context.principal)
-    val forwardRequestBuffer = request.buffer.duplicate()
+
+    val (forwardRequestBuffer, serializedPrincipal) = customizedRequest match {
+      case None =>
+        // just normal forwarding request
+        (request.buffer.duplicate(), principalSerde.serialize(request.context.principal))
+      case Some(builder) =>
+        val forwardingPrincipal =
+        if (builder.apiKey() == ApiKeys.FIND_COORDINATOR) {
+          
+        } else {
+          principalSerde.serialize(request.context.principal)
+        }
+        val activeController = requestThread.activeController.getOrElse(null)
+        val controllerApiVersion = requestThread.networkClient.getUsableApiVersion(activeController.idString(), builder.apiKey()).asScala
+        controllerApiVersion match {
+          case None => throw new IllegalStateException("")
+          case Some(apiVersion) =>
+          val requestHeader = new RequestHeader(
+            new RequestHeaderData()
+              .setRequestApiKey(builder.apiKey().id)
+              .setRequestApiVersion(apiVersion)
+              .setClientId(request.context.clientId())
+              .setCorrelationId(request.context.correlationId()),
+            ApiKeys.forId(builder.apiKey().id).requestHeaderVersion(apiVersion))
+            (builder.build(apiVersion).serialize(requestHeader), forwardingPrincipal)
+        }
+
+    }
+
     forwardRequestBuffer.flip()
     val envelopeRequest = new EnvelopeRequest.Builder(
       forwardRequestBuffer,
@@ -170,15 +201,14 @@ class BrokerToControllerChannelManagerImpl(metadataCache: kafka.server.MetadataC
       responseCallback(response)
     }
 
-    requestQueue.put(BrokerToControllerQueueItem(envelopeRequest, onClientResponse))
-    requestThread.wakeup()
+    sendRequest(envelopeRequest, onClientResponse)
   }
 }
 
 case class BrokerToControllerQueueItem(request: AbstractRequest.Builder[_ <: AbstractRequest],
                                        callback: RequestCompletionHandler)
 
-class BrokerToControllerRequestThread(networkClient: KafkaClient,
+class BrokerToControllerRequestThread(val networkClient: KafkaClient,
                                       metadataUpdater: ManualMetadataUpdater,
                                       requestQueue: LinkedBlockingDeque[BrokerToControllerQueueItem],
                                       metadataCache: kafka.server.MetadataCache,
@@ -188,7 +218,7 @@ class BrokerToControllerRequestThread(networkClient: KafkaClient,
                                       threadName: String)
   extends InterBrokerSendThread(threadName, networkClient, time, isInterruptible = false) {
 
-  private var activeController: Option[Node] = None
+  var activeController: Option[Node] = None
 
   override def requestTimeoutMs: Int = config.controllerSocketTimeoutMs
 

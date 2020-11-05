@@ -450,6 +450,12 @@ public class NetworkClient implements KafkaClient {
             inFlightRequests.canSendMore(node);
     }
 
+    @Override
+    public Optional<Short> getUsableApiVersion(String nodeId, ApiKeys apiKey) {
+        NodeApiVersions nodeApiVersions = apiVersions.get(nodeId);
+        return nodeApiVersions == null ? Optional.empty() : Optional.of(nodeApiVersions.latestUsableVersion(apiKey));
+    }
+
     /**
      * Queue up the given request for sending. Requests can only be sent out to ready nodes.
      * @param request The request

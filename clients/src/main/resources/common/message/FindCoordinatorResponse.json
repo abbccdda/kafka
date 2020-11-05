@@ -22,7 +22,9 @@
   // Starting in version 2, on quota violation, brokers send out responses before throttling.
   //
   // Version 3 is the first flexible version.
-  "validVersions": "0-3",
+  //
+  // Version 4 supports internal topic creation forwarding and topic policy.
+  "validVersions": "0-4",
   "flexibleVersions": "3+",
   "fields": [
     { "name": "ThrottleTimeMs", "type": "int32", "versions": "1+", "ignorable": true,

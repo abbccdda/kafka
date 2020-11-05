@@ -21,7 +21,7 @@ import java.lang.{Byte => JByte}
 import java.lang.{Long => JLong}
 import java.nio.ByteBuffer
 import java.util
-import java.util.{Collections, Optional}
+import java.util.{Collections, Optional, Properties}
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -49,9 +49,9 @@ import org.apache.kafka.common.config.ConfigResource
 import org.apache.kafka.common.errors._
 import org.apache.kafka.common.internals.{FatalExitError, Topic}
 import org.apache.kafka.common.internals.Topic.{GROUP_METADATA_TOPIC_NAME, TRANSACTION_STATE_TOPIC_NAME, isInternal}
-import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopic
+import org.apache.kafka.common.message.CreateTopicsRequestData.{CreatableTopic, CreateableTopicConfig, CreateableTopicConfigCollection}
 import org.apache.kafka.common.message.CreatePartitionsResponseData.CreatePartitionsTopicResult
-import org.apache.kafka.common.message.{AddOffsetsToTxnResponseData, AlterConfigsResponseData, AlterPartitionReassignmentsResponseData, AlterReplicaLogDirsResponseData, CreateAclsResponseData, CreatePartitionsResponseData, CreateTopicsResponseData, DeleteAclsResponseData, DeleteGroupsResponseData, DeleteRecordsResponseData, DeleteTopicsResponseData, DescribeAclsResponseData, DescribeConfigsResponseData, DescribeGroupsResponseData, DescribeLogDirsResponseData, EndTxnResponseData, ExpireDelegationTokenResponseData, FindCoordinatorResponseData, HeartbeatResponseData, InitProducerIdResponseData, JoinGroupResponseData, LeaveGroupResponseData, ListGroupsResponseData, ListOffsetResponseData, ListPartitionReassignmentsResponseData, MetadataResponseData, OffsetCommitRequestData, OffsetCommitResponseData, OffsetDeleteResponseData, RenewDelegationTokenResponseData, SaslAuthenticateResponseData, SaslHandshakeResponseData, StopReplicaResponseData, SyncGroupResponseData, UpdateMetadataResponseData}
+import org.apache.kafka.common.message.{AddOffsetsToTxnResponseData, AlterConfigsResponseData, AlterPartitionReassignmentsResponseData, AlterReplicaLogDirsResponseData, CreateAclsResponseData, CreatePartitionsResponseData, CreateTopicsRequestData, CreateTopicsResponseData, DeleteAclsResponseData, DeleteGroupsResponseData, DeleteRecordsResponseData, DeleteTopicsResponseData, DescribeAclsResponseData, DescribeConfigsResponseData, DescribeGroupsResponseData, DescribeLogDirsResponseData, EndTxnResponseData, ExpireDelegationTokenResponseData, FindCoordinatorResponseData, HeartbeatResponseData, InitProducerIdResponseData, JoinGroupResponseData, LeaveGroupResponseData, ListGroupsResponseData, ListOffsetResponseData, ListPartitionReassignmentsResponseData, MetadataResponseData, OffsetCommitRequestData, OffsetCommitResponseData, OffsetDeleteResponseData, RenewDelegationTokenResponseData, SaslAuthenticateResponseData, SaslHandshakeResponseData, StopReplicaResponseData, SyncGroupResponseData, UpdateMetadataResponseData}
 import org.apache.kafka.common.message.CreateTopicsResponseData.{CreatableTopicResult, CreatableTopicResultCollection}
 import org.apache.kafka.common.message.DeleteGroupsResponseData.{DeletableGroupResult, DeletableGroupResultCollection}
 import org.apache.kafka.common.message.AlterPartitionReassignmentsResponseData.{ReassignablePartitionResponse, ReassignableTopicResponse}
@@ -192,7 +192,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         case ApiKeys.PRODUCE => handleProduceRequest(request)
         case ApiKeys.FETCH => handleFetchRequest(request)
         case ApiKeys.LIST_OFFSETS => handleListOffsetRequest(request)
-        case ApiKeys.METADATA => handleTopicMetadataRequest(request)
+        case ApiKeys.METADATA => handleMetadataRequest(request)
         case ApiKeys.LEADER_AND_ISR => handleLeaderAndIsrRequest(request)
         case ApiKeys.STOP_REPLICA => handleStopReplicaRequest(request)
         case ApiKeys.UPDATE_METADATA => handleUpdateMetadataRequest(request)
@@ -1180,6 +1180,37 @@ class KafkaApis(val requestChannel: RequestChannel,
       .setPartitions(partitionData)
   }
 
+  private def hasEnoughAliveBrokers(topic: String): Boolean = {
+    if (topic == null)
+      throw new IllegalArgumentException("topic must not be null")
+
+    val aliveBrokers = metadataCache.getAliveBrokers
+
+    topic match {
+      case GROUP_METADATA_TOPIC_NAME =>
+        if (aliveBrokers.size < config.offsetsTopicReplicationFactor) {
+          error(s"Number of alive brokers '${aliveBrokers.size}' does not meet the required replication factor " +
+            s"'${config.offsetsTopicReplicationFactor}' for the offsets topic (configured via " +
+            s"'${KafkaConfig.OffsetsTopicReplicationFactorProp}'). This error can be ignored if the cluster is starting up " +
+            s"and not all brokers are up yet.")
+          false
+        } else {
+          true
+        }
+      case TRANSACTION_STATE_TOPIC_NAME =>
+        if (aliveBrokers.size < config.transactionTopicReplicationFactor) {
+          error(s"Number of alive brokers '${aliveBrokers.size}' does not meet the required replication factor " +
+            s"'${config.transactionTopicReplicationFactor}' for the transactions state topic (configured via " +
+            s"'${KafkaConfig.TransactionsTopicReplicationFactorProp}'). This error can be ignored if the cluster is starting up " +
+            s"and not all brokers are up yet.")
+          false
+        } else {
+          true
+        }
+      case _ => throw new IllegalArgumentException(s"Unexpected internal topic name: $topic")
+    }
+  }
+
   private def createInternalTopic(topic: String): MetadataResponseTopic = {
     if (topic == null)
       throw new IllegalArgumentException("topic must not be null")
@@ -1213,12 +1244,18 @@ class KafkaApis(val requestChannel: RequestChannel,
     }
   }
 
-  private def getOrCreateInternalTopic(topic: String, listenerName: ListenerName): MetadataResponseData.MetadataResponseTopic = {
-    val topicMetadata = metadataCache.getTopicMetadata(Set(topic), listenerName)
-    topicMetadata.headOption.getOrElse(createInternalTopic(topic))
+  private def getInternalTopicMetadata(topic: String, listenerName: ListenerName): Seq[MetadataResponseData.MetadataResponseTopic] = {
+    createInternalTopic(topic)
+    metadataCache.getTopicMetadata(Set(topic), listenerName)
+
+//    topicMetadata.headOption.getOrElse(
+//
+//    )
   }
 
-  private def getTopicMetadata(allowAutoTopicCreation: Boolean, topics: Set[String], listenerName: ListenerName,
+  private def getTopicMetadata(allowAutoTopicCreation: Boolean,
+                               topics: Set[String],
+                               listenerName: ListenerName,
                                errorUnavailableEndpoints: Boolean,
                                errorUnavailableListeners: Boolean): Seq[MetadataResponseTopic] = {
     val topicResponses = metadataCache.getTopicMetadata(topics, listenerName,
@@ -1240,14 +1277,12 @@ class KafkaApis(val requestChannel: RequestChannel,
           metadataResponseTopic(Errors.UNKNOWN_TOPIC_OR_PARTITION, topic, false, util.Collections.emptyList())
         }
       }
+
       topicResponses ++ responsesForNonExistentTopics
     }
   }
 
-  /**
-   * Handle a topic metadata request
-   */
-  def handleTopicMetadataRequest(request: RequestChannel.Request): Unit = {
+  def handleMetadataRequest(request: RequestChannel.Request): Unit = {
     val metadataRequest = request.body[MetadataRequest]
     val requestVersion = request.header.apiVersion
 
@@ -1264,6 +1299,8 @@ class KafkaApis(val requestChannel: RequestChannel,
     if (authorizedTopics.nonEmpty) {
       val nonExistingTopics = metadataCache.getNonExistingTopics(authorizedTopics)
       if (metadataRequest.allowAutoTopicCreation && config.autoCreateTopicsEnable && nonExistingTopics.nonEmpty) {
+        // If the request does not have cluster CREATE permission, try to
+        // authorize topic CREATE permission by every single topic.
         if (!authorize(request.context, CREATE, CLUSTER, CLUSTER_NAME, logIfDenied = false)) {
           val authorizedForCreateTopics = filterByAuthorized(request.context, CREATE, TOPIC,
             nonExistingTopics)(identity)
@@ -1423,56 +1460,140 @@ class KafkaApis(val requestChannel: RequestChannel,
         !authorize(request.context, DESCRIBE, TRANSACTIONAL_ID, findCoordinatorRequest.data.key))
       sendErrorResponseMaybeThrottle(request, Errors.TRANSACTIONAL_ID_AUTHORIZATION_FAILED.exception)
     else {
-      // get metadata (and create the topic if necessary)
-      val (partition, topicMetadata) = CoordinatorType.forId(findCoordinatorRequest.data.keyType) match {
+      val internalTopicName = CoordinatorType.forId(findCoordinatorRequest.data.keyType) match {
         case CoordinatorType.GROUP =>
-          val partition = groupCoordinator.partitionFor(findCoordinatorRequest.data.key)
-          val metadata = getOrCreateInternalTopic(GROUP_METADATA_TOPIC_NAME, request.context.listenerName)
-          (partition, metadata)
+         GROUP_METADATA_TOPIC_NAME
 
         case CoordinatorType.TRANSACTION =>
-          val partition = txnCoordinator.partitionFor(findCoordinatorRequest.data.key)
-          val metadata = getOrCreateInternalTopic(TRANSACTION_STATE_TOPIC_NAME, request.context.listenerName)
-          (partition, metadata)
+          TRANSACTION_STATE_TOPIC_NAME
 
         case _ =>
           throw new InvalidRequestException("Unknown coordinator type in FindCoordinator request")
       }
 
-      def createResponse(requestThrottleMs: Int): AbstractResponse = {
-        def createFindCoordinatorResponse(error: Errors, node: Node): FindCoordinatorResponse = {
-          new FindCoordinatorResponse(
-              new FindCoordinatorResponseData()
-                .setErrorCode(error.code)
-                .setErrorMessage(error.message)
-                .setNodeId(node.id)
-                .setHost(node.host)
-                .setPort(node.port)
-                .setThrottleTimeMs(requestThrottleMs))
-        }
-        val responseBody = if (topicMetadata.errorCode != Errors.NONE.code) {
-          createFindCoordinatorResponse(Errors.COORDINATOR_NOT_AVAILABLE, Node.noNode)
-        } else {
-          val coordinatorEndpoint = topicMetadata.partitions.asScala
-            .find(_.partitionIndex == partition)
-            .filter(_.leaderId != MetadataResponse.NO_LEADER_ID)
-            .flatMap(metadata => metadataCache.getAliveBroker(metadata.leaderId))
-            .flatMap(_.getNode(request.context.listenerName))
-            .filterNot(_.isEmpty)
+      val partition = groupCoordinator.partitionFor(findCoordinatorRequest.data.key)
+      val topicMetadata = getInternalTopicMetadata(internalTopicName, request.context.listenerName)
 
-          coordinatorEndpoint match {
-            case Some(endpoint) =>
-              createFindCoordinatorResponse(Errors.NONE, endpoint)
-            case _ =>
-              createFindCoordinatorResponse(Errors.COORDINATOR_NOT_AVAILABLE, Node.noNode)
-          }
-        }
-        trace("Sending FindCoordinator response %s for correlation id %d to client %s."
-          .format(responseBody, request.header.correlationId, request.header.clientId))
-        responseBody
+      def createFindCoordinatorResponse(error: Errors,
+                                        node: Node,
+                                        requestThrottleMs: Int,
+                                        errorMessage: Option[String] = None): FindCoordinatorResponse = {
+        new FindCoordinatorResponse(
+          new FindCoordinatorResponseData()
+            .setErrorCode(error.code)
+            .setErrorMessage(errorMessage.getOrElse(error.message))
+            .setNodeId(node.id)
+            .setHost(node.host)
+            .setPort(node.port)
+            .setThrottleTimeMs(requestThrottleMs))
       }
-      sendResponseMaybeThrottle(request, createResponse)
+
+      topicMetadata.headOption match {
+        case Some(topicMetadata) =>
+          def createResponse(requestThrottleMs: Int): AbstractResponse = {
+            val responseBody = if (topicMetadata.errorCode != Errors.NONE.code) {
+              createFindCoordinatorResponse(Errors.COORDINATOR_NOT_AVAILABLE, Node.noNode, requestThrottleMs)
+            } else {
+              val coordinatorEndpoint = topicMetadata.partitions.asScala
+                .find(_.partitionIndex == partition)
+                .filter(_.leaderId != MetadataResponse.NO_LEADER_ID)
+                .flatMap(metadata => metadataCache.getAliveBroker(metadata.leaderId))
+                .flatMap(_.getNode(request.context.listenerName))
+                .filterNot(_.isEmpty)
+
+              coordinatorEndpoint match {
+                case Some(endpoint) =>
+                  createFindCoordinatorResponse(Errors.NONE, endpoint, requestThrottleMs)
+                case _ =>
+                  createFindCoordinatorResponse(Errors.COORDINATOR_NOT_AVAILABLE, Node.noNode, requestThrottleMs)
+              }
+            }
+            trace("Sending FindCoordinator response %s for correlation id %d to client %s."
+              .format(responseBody, request.header.correlationId, request.header.clientId))
+            responseBody
+          }
+          sendResponseMaybeThrottle(request, createResponse)
+        case None =>
+          if (!controller.isActive && isForwardingEnabled(request)) {
+            val createTopicsRequest = new CreateTopicsRequest.Builder(
+              new CreateTopicsRequestData()
+                .setTimeoutMs(config.requestTimeoutMs)
+                .setTopics(getInternalTopicConfigs(internalTopicName))
+            )
+
+            forwardingManager.forwardRequest(request)
+          } else if (!hasEnoughAliveBrokers(internalTopicName)) {
+            sendResponseMaybeThrottle(request, requestThrottleMs => createFindCoordinatorResponse(
+              Errors.COORDINATOR_NOT_AVAILABLE, Node.noNode, requestThrottleMs))
+          } else {
+            val controllerMutationQuota = quotas.controllerMutation.newQuotaFor(request, strictSinceVersion = 6)
+
+            def handleCreateTopicsResults(errors: Map[String, ApiError]): Unit = {
+              val topicCreationError = Errors.forException(errors.headOption.getOrElse(
+                throw new IllegalStateException(s"There should be the topic creation result for $internalTopicName")
+              )._2.exception())
+
+              // If client version is older than v4, we would always use COORDINATOR_NOT_AVAILABLE
+              // to ask client for retry. For clients newer than v4, we should propagate topic creation
+              // error such as POLICY_VIOLATION to let client know about the configuration issue.
+              val (finalError, customizedErrorMessage) = if (topicCreationError == Errors.POLICY_VIOLATION && request.context.apiVersion() >= 4) {
+                error(s"Internal topic $internalTopicName creation failed due to topic creation policy violation")
+                (Errors.POLICY_VIOLATION, Option(s"violation of topic creation policy when attempting " +
+                  s"to auto create internal topic $internalTopicName through FindCoordinator."))
+              } else
+                (Errors.COORDINATOR_NOT_AVAILABLE, None)
+
+              sendResponseMaybeThrottle(request, requestThrottleMs => {
+                createFindCoordinatorResponse(
+                  Errors.forException(finalError.exception()),
+                  Node.noNode,
+                  requestThrottleMs,
+                  customizedErrorMessage)
+              } )
+            }
+
+            adminManager.createTopics(
+              config.requestTimeoutMs,
+              validateOnly = false,
+              Map(internalTopicName -> getInternalTopicConfigs(internalTopicName)),
+              Map.empty,
+              controllerMutationQuota,
+              handleCreateTopicsResults)
+          }
+      }
+
+
+
+
     }
+  }
+
+  private def getInternalTopicConfigs(topic: String): CreatableTopic = {
+    topic match {
+      case GROUP_METADATA_TOPIC_NAME =>
+        new CreatableTopic()
+            .setNumPartitions(config.offsetsTopicPartitions)
+            .setReplicationFactor(config.offsetsTopicReplicationFactor)
+            .setConfigs(convertToTopicConfigCollections(groupCoordinator.offsetsTopicConfigs))
+      case TRANSACTION_STATE_TOPIC_NAME =>
+        new CreatableTopic()
+          .setNumPartitions(config.transactionTopicPartitions)
+          .setReplicationFactor(config.transactionTopicReplicationFactor)
+          .setConfigs(convertToTopicConfigCollections(
+            txnCoordinator.transactionTopicConfigs))
+      case _ => throw new IllegalArgumentException(s"Unexpected internal topic name: $topic")
+    }
+  }
+
+  private def convertToTopicConfigCollections(config: Properties): CreateableTopicConfigCollection = {
+    val topicConfigs = new CreateableTopicConfigCollection()
+    config.forEach {
+      case (name, value) =>
+        topicConfigs.add(new CreateableTopicConfig()
+          .setName(name.toString)
+          .setValue(value.toString))
+    }
+    topicConfigs
   }
 
   def handleDescribeGroupRequest(request: RequestChannel.Request): Unit = {

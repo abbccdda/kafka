@@ -212,6 +212,6 @@ public class MetadataRequestBenchmark {
 
     @Benchmark
     public void testMetadataRequestForAllTopics() {
-        kafkaApis.handleTopicMetadataRequest(allTopicMetadataRequest);
+        kafkaApis.handleMetadataRequest(allTopicMetadataRequest);
     }
 }

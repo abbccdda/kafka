@@ -982,7 +982,7 @@ private[kafka] class Processor(val id: Int,
 
                   req = parseForwardedPrincipal(req, channel.principalSerde.asScala) match {
                     case Some(forwardedPrincipal) =>
-                      buildForwardedRequestContext(req, forwardedPrincipal)
+                      buildForwardedRequestContext(req, forwardedPrincipal, channel.principal)
 
                     case None =>
                       val envelopeResponse = new EnvelopeResponse(Errors.PRINCIPAL_DESERIALIZATION_FAILURE)
@@ -1053,12 +1053,16 @@ private[kafka] class Processor(val id: Int,
 
   private def buildForwardedRequestContext(
     envelopeRequest: RequestChannel.Request,
-    forwardedPrincipal: KafkaPrincipal
-  ): RequestChannel.Request = {
+    forwardedPrincipal: KafkaPrincipal,
+    brokerPrincipal: KafkaPrincipal): RequestChannel.Request = {
     val envelope = envelopeRequest.body[EnvelopeRequest]
     val forwardedRequestBuffer = envelope.requestData.duplicate()
     val forwardedHeader = parseRequestHeader(forwardedRequestBuffer)
     val forwardedClientAddress = InetAddress.getByAddress(envelope.clientAddress)
+    val finalPrincipal = if (forwardedHeader.apiKey() == ApiKeys.FIND_COORDINATOR)
+      brokerPrincipal
+    else
+
 
     val forwardedContext = new RequestContext(
       forwardedHeader,

@@ -36,7 +36,9 @@
   // Starting in version 8, brokers can send authorized operations for topic and cluster.
   //
   // Version 9 is the first flexible version.
-  "validVersions": "0-9",
+  //
+  // Version 10 will propagate POLICY_VIOLATION when internal topic creation fails due to policy violation.
+  "validVersions": "0-10",
   "flexibleVersions": "9+",
   "fields": [
     { "name": "ThrottleTimeMs", "type": "int32", "versions": "3+", "ignorable": true,

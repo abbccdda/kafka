@@ -22,7 +22,9 @@
   // Version 2 is the same as version 1.
   //
   // Version 3 is the first flexible version.
-  "validVersions": "0-3",
+  //
+  // Version 4 supports internal topic creation forwarding and topic policy.
+  "validVersions": "0-4",
   "flexibleVersions": "3+",
   "fields": [
     { "name": "Key", "type": "string", "versions": "0+",
