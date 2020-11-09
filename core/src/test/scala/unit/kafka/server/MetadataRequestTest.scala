@@ -139,7 +139,7 @@ class MetadataRequestTest extends BaseRequestTest {
     val topic3 = "t3"
     val topic4 = "t4"
     val topic5 = "t5"
-    createTopic(topic1, numPartitions = 1, replicationFactor = 1)
+    createTopic(topic1)
 
     val response1 = sendMetadataRequest(new MetadataRequest.Builder(Seq(topic1, topic2).asJava, true).build())
     assertNull(response1.errors.get(topic1))
@@ -185,7 +185,8 @@ class MetadataRequestTest extends BaseRequestTest {
     val topicMetadata2 = response1.topicMetadata.asScala.toSeq(1)
     assertEquals(Errors.LEADER_NOT_AVAILABLE, topicMetadata1.error)
     assertEquals(topic1, topicMetadata1.topic)
-    assertEquals(Errors.INVALID_TOPIC_EXCEPTION, topicMetadata2.error)
+    // The topic creation will be delayed, and the name collision error will be swallowed.
+    assertEquals(Errors.LEADER_NOT_AVAILABLE, topicMetadata2.error)
     assertEquals(topic2, topicMetadata2.topic)
 
     TestUtils.waitUntilLeaderIsElectedOrChanged(zkClient, topic1, 0)

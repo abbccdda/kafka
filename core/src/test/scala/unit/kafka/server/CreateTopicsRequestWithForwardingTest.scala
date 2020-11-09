@@ -23,7 +23,7 @@ import org.junit.jupiter.api.Test
 
 import scala.jdk.CollectionConverters._
 
-class CreateTopicsRequestWithForwardingTest extends AbstractCreateTopicsRequestTest {
+class CreateTopicsRequestWithForwardingTest extends CreateTopicsRequestTest {
 
   override def enableForwarding: Boolean = true
 
@@ -35,4 +35,25 @@ class CreateTopicsRequestWithForwardingTest extends AbstractCreateTopicsRequestT
     assertEquals(Map(Errors.NONE -> 1), response.errorCounts().asScala)
   }
 
+  /* the rest of tests are not enabled */
+
+  @Test
+  override def testNotController(): Unit = {
+  }
+
+  @Test
+  override def testValidCreateTopicsRequests(): Unit = {
+  }
+
+  @Test
+  override def testErrorCreateTopicsRequests(): Unit = {
+  }
+
+  @Test
+  override def testInvalidCreateTopicsRequests(): Unit = {
+  }
+
+  @Test
+  override def testCreateTopicsRequestVersions(): Unit = {
+  }
 }
