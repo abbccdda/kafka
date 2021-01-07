@@ -983,7 +983,7 @@ public class NetworkClient implements KafkaClient {
         try {
             connectionStates.connecting(nodeConnectionId, now, node.host(), clientDnsLookup);
             InetAddress address = connectionStates.currentAddress(nodeConnectionId);
-            log.debug("Initiating connection to node {} using address {}", node, address);
+            log.info("Initiating connection to node {} using address {}", node, address);
             selector.connect(nodeConnectionId,
                     new InetSocketAddress(address, node.port()),
                     this.socketSendBuffer,

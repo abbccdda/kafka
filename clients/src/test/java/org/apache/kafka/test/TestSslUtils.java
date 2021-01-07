@@ -579,6 +579,9 @@ public class TestSslUtils {
 
         DefaultSslEngineFactory defaultSslEngineFactory = new DefaultSslEngineFactory();
 
+        public TestSslEngineFactory() throws IOException {
+        }
+
         @Override
         public SSLEngine createClientSslEngine(String peerHost, int peerPort, String endpointIdentification) {
             return defaultSslEngineFactory.createClientSslEngine(peerHost, peerPort, endpointIdentification);
@@ -610,7 +613,7 @@ public class TestSslUtils {
         }
 
         @Override
-        public void close() throws IOException {
+        public void close() {
             defaultSslEngineFactory.close();
             closed = true;
         }
