@@ -175,6 +175,7 @@ public class MetadataRequestBenchmark {
             transactionCoordinator,
             kafkaController,
             Option.empty(),
+            Option.empty(),
             kafkaZkClient,
             brokerId,
             new KafkaConfig(kafkaProps),

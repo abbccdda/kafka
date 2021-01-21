@@ -17,6 +17,12 @@
 
 package kafka.api
 
+import java.lang.{Boolean => JBoolean}
+import java.time.Duration
+import java.util
+import java.util.Collections
+
+import kafka.api
 import kafka.server.KafkaConfig
 import kafka.utils.TestUtils
 import org.apache.kafka.clients.admin.NewTopic
@@ -25,14 +31,6 @@ import org.apache.kafka.clients.producer.{ProducerConfig, ProducerRecord}
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.{Arguments, MethodSource}
-import java.lang.{Boolean => JBoolean}
-import java.time.Duration
-import java.util
-import java.util.{Collections, Properties}
-
-import kafka.api
-
-import scala.collection.Seq
 
 /**
  * Tests behavior of specifying auto topic creation configuration for the consumer and broker
@@ -63,11 +61,6 @@ object ConsumerTopicCreationTest {
 
     override protected def brokerCount: Int = 3
 
-    override def modifyConfigs(properties: Seq[Properties]): Unit = {
-      super.modifyConfigs(properties)
-      properties.foreach(prop => prop.setProperty(KafkaConfig.EnableMetadataQuorumProp, true.toString))
-    }
-
   }
 
   private class TestCase(brokerAutoTopicCreationEnable: JBoolean, consumerAllowAutoCreateTopics: JBoolean) extends IntegrationTestHarness {
@@ -75,6 +68,8 @@ object ConsumerTopicCreationTest {
     private val topic_2 = "topic-2"
     private val producerClientId = "ConsumerTestProducer"
     private val consumerClientId = "ConsumerTestConsumer"
+
+    override def enableForwarding: Boolean = true
 
     // configure server properties
     this.serverConfig.setProperty(KafkaConfig.ControlledShutdownEnableProp, "false") // speed up shutdown

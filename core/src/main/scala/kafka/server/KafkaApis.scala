@@ -101,6 +101,7 @@ class KafkaApis(val requestChannel: RequestChannel,
                 val txnCoordinator: TransactionCoordinator,
                 val controller: KafkaController,
                 val forwardingManager: Option[ForwardingManager],
+                val autoTopicCreationManager: Option[AutoTopicCreationManager],
                 val zkClient: KafkaZkClient,
                 val brokerId: Int,
                 val config: KafkaConfig,
@@ -127,10 +128,6 @@ class KafkaApis(val requestChannel: RequestChannel,
   def close(): Unit = {
     alterAclsPurgatory.shutdown()
     info("Shutdown complete.")
-  }
-
-  private def shouldForwardRequest(request: RequestChannel.Request): Boolean = {
-    !request.isForwarded && !controller.isActive && isForwardingEnabled(request)
   }
 
   private def isForwardingEnabled(request: RequestChannel.Request): Boolean = {
@@ -1099,8 +1096,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       .setPartitions(partitionData)
   }
 
-  private def getTopicMetadata(allowAutoTopicCreation: Boolean,
-                               isFetchAllMetadata: Boolean,
+  private def getTopicMetadata(isFetchAllMetadata: Boolean,
                                topics: Set[String],
                                listenerName: ListenerName,
                                errorUnavailableEndpoints: Boolean,
@@ -1118,12 +1114,10 @@ class KafkaApis(val requestChannel: RequestChannel,
           // in between the creation of the topics parameter and topicResponses, so make sure to return None for this case.
           None
        } else {
-        Some(metadataResponseTopic(
+         Some(metadataResponseTopic(
           if (!hasEnoughAliveBrokers(topic))
             Errors.INVALID_REPLICATION_FACTOR
-          else if (allowAutoTopicCreation && config.autoCreateTopicsEnable)
-            Errors.LEADER_NOT_AVAILABLE
-        else
+          else
             Errors.UNKNOWN_TOPIC_OR_PARTITION,
           topic, isInternal(topic), util.Collections.emptyList()))
         }
@@ -1148,7 +1142,7 @@ class KafkaApis(val requestChannel: RequestChannel,
 
     if (authorizedTopics.nonEmpty) {
       val nonExistingTopics = metadataCache.getNonExistingTopics(authorizedTopics)
-      if (metadataRequest.allowAutoTopicCreation && config.autoCreateTopicsEnable && nonExistingTopics.nonEmpty) {
+      if (metadataRequest.allowAutoTopicCreation && autoTopicCreationManager.isDefined && nonExistingTopics.nonEmpty) {
         if (!authHelper.authorize(request.context, CREATE, CLUSTER, CLUSTER_NAME, logIfDenied = false)) {
           val authorizedForCreateTopics = authHelper.filterByAuthorized(request.context, CREATE, TOPIC,
             nonExistingTopics)(identity)
@@ -1181,9 +1175,8 @@ class KafkaApis(val requestChannel: RequestChannel,
       if (authorizedTopics.isEmpty)
         (Seq.empty[MetadataResponseTopic], Seq.empty[MetadataResponseTopic])
       else
-        getTopicMetadata(metadataRequest.allowAutoTopicCreation,
-          metadataRequest.isAllTopics, authorizedTopics, request.context.listenerName,
-          errorUnavailableEndpoints, errorUnavailableListeners)
+        getTopicMetadata(metadataRequest.isAllTopics, authorizedTopics,
+          request.context.listenerName, errorUnavailableEndpoints, errorUnavailableListeners)
 
     nonExistTopicMetadata.foreach(metadata =>
       try {
@@ -1195,26 +1188,10 @@ class KafkaApis(val requestChannel: RequestChannel,
       }
     )
 
-    if (nonExistTopicMetadata.nonEmpty &&
-      metadataRequest.allowAutoTopicCreation && config.autoCreateTopicsEnable) {
-      if (shouldForwardRequest(request)) {
-        forwardingManager.sendInterBrokerRequest(
-          getCreateTopicsRequest(
-            nonExistTopicMetadata.map(metadata => metadata.name())),
-          _ => ())
-      } else {
-        val controllerMutationQuota = quotas.controllerMutation.newQuotaFor(request, strictSinceVersion = 6)
-
-        val topicConfigs = nonExistTopicMetadata.map(
-          metadata => metadata.name() -> getTopicConfigs(metadata.name())).toMap
-        adminManager.createTopics(
-          config.requestTimeoutMs,
-          validateOnly = false,
-          topicConfigs,
-          Map.empty,
-          controllerMutationQuota,
-          _ => ())
-      }
+    if (nonExistTopicMetadata.nonEmpty && metadataRequest.allowAutoTopicCreation) {
+      val controllerMutationQuota = quotas.controllerMutation.newQuotaFor(request, strictSinceVersion = 6)
+      autoTopicCreationManager.foreach(mgr => mgr.createTopics(
+        nonExistTopicMetadata.map(metadata => getTopicConfigs(metadata.name())).toSet, controllerMutationQuota))
     }
 
     var clusterAuthorizedOperations = Int.MinValue // Default value in the schema
@@ -1372,25 +1349,10 @@ class KafkaApis(val requestChannel: RequestChannel,
       }
 
       val topicCreationNeeded = topicMetadata.headOption.isEmpty
-      if (topicCreationNeeded) {
-        if (hasEnoughAliveBrokers(internalTopicName)) {
-          if (shouldForwardRequest(request)) {
-            forwardingManager.sendInterBrokerRequest(
-              getCreateTopicsRequest(Seq(internalTopicName)),
-              _ => ())
-          } else {
-            val controllerMutationQuota = quotas.controllerMutation.newQuotaFor(request, strictSinceVersion = 6)
-
-            val topicConfigs = Map(internalTopicName -> getTopicConfigs(internalTopicName))
-            adminManager.createTopics(
-              config.requestTimeoutMs,
-              validateOnly = false,
-              topicConfigs,
-              Map.empty,
-              controllerMutationQuota,
-              _ => ())
-          }
-        }
+      if (topicCreationNeeded && hasEnoughAliveBrokers(internalTopicName)) {
+        val controllerMutationQuota = quotas.controllerMutation.newQuotaFor(request, strictSinceVersion = 6)
+        autoTopicCreationManager.foreach(mgr => mgr.createTopics(
+          Seq(getTopicConfigs(internalTopicName)).toSet, controllerMutationQuota))
 
         requestHelper.sendResponseMaybeThrottle(request, requestThrottleMs => createFindCoordinatorResponse(
           Errors.COORDINATOR_NOT_AVAILABLE, Node.noNode, requestThrottleMs))
@@ -1421,19 +1383,6 @@ class KafkaApis(val requestChannel: RequestChannel,
         requestHelper.sendResponseMaybeThrottle(request, createResponse)
       }
     }
-  }
-
-  private def getCreateTopicsRequest(topics: Seq[String]): CreateTopicsRequest.Builder = {
-    val topicCollection = new CreateTopicsRequestData.CreatableTopicCollection
-    topics.foreach(topic => {
-      topicCollection.add(getTopicConfigs(topic))
-    })
-
-    new CreateTopicsRequest.Builder(
-      new CreateTopicsRequestData()
-        .setTimeoutMs(config.requestTimeoutMs)
-        .setTopics(topicCollection)
-    )
   }
 
   private def getTopicConfigs(topic: String): CreatableTopic = {
@@ -1497,15 +1446,16 @@ class KafkaApis(val requestChannel: RequestChannel,
         } else {
           true
         }
-      case _ => if (aliveBrokers.size < config.defaultReplicationFactor) {
-        error(s"Number of alive brokers '${aliveBrokers.size}' does not meet the required replication factor " +
-          s"'${config.defaultReplicationFactor}' for the auto created topic " +
-          s"'$topic'. This error can be ignored if the cluster is starting up " +
-          s"and not all brokers are up yet.")
-        false
-      } else {
-        true
-      }
+      case _ =>
+        if (aliveBrokers.size < config.defaultReplicationFactor) {
+          error(s"Number of alive brokers '${aliveBrokers.size}' does not meet the required replication factor " +
+            s"'${config.defaultReplicationFactor}' for the auto created topic " +
+            s"'$topic'. This error can be ignored if the cluster is starting up " +
+            s"and not all brokers are up yet.")
+          false
+        } else {
+          true
+        }
     }
   }
 

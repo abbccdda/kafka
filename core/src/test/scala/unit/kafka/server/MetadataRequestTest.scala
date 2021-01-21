@@ -17,30 +17,22 @@
 
 package kafka.server
 
-import java.util.{Optional, Properties}
+import java.util.Optional
 
-import kafka.network.SocketServer
 import kafka.utils.TestUtils
 import org.apache.kafka.common.Uuid
 import org.apache.kafka.common.errors.UnsupportedVersionException
 import org.apache.kafka.common.internals.Topic
-import org.apache.kafka.common.message.MetadataRequestData
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.{MetadataRequest, MetadataResponse}
 import org.apache.kafka.test.TestUtils.isValidClusterId
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.{BeforeEach, Test}
 
-import scala.jdk.CollectionConverters._
 import scala.collection.Seq
+import scala.jdk.CollectionConverters._
 
-class MetadataRequestTest extends BaseRequestTest {
-
-  override def brokerPropertyOverrides(properties: Properties): Unit = {
-    properties.setProperty(KafkaConfig.OffsetsTopicPartitionsProp, "1")
-    properties.setProperty(KafkaConfig.DefaultReplicationFactorProp, "2")
-    properties.setProperty(KafkaConfig.RackProp, s"rack/${properties.getProperty(KafkaConfig.BrokerIdProp)}")
-  }
+class MetadataRequestTest extends AbstractMetadataRequestTest {
 
   @BeforeEach
   override def setUp(): Unit = {
@@ -127,13 +119,6 @@ class MetadataRequestTest extends BaseRequestTest {
 
   @Test
   def testAutoTopicCreation(): Unit = {
-    def checkAutoCreatedTopic(autoCreatedTopic: String, response: MetadataResponse): Unit = {
-      assertEquals(Errors.LEADER_NOT_AVAILABLE, response.errors.get(autoCreatedTopic))
-      assertEquals(Some(servers.head.config.numPartitions), zkClient.getTopicPartitionCount(autoCreatedTopic))
-      for (i <- 0 until servers.head.config.numPartitions)
-        TestUtils.waitUntilMetadataIsPropagated(servers, autoCreatedTopic, i)
-    }
-
     val topic1 = "t1"
     val topic2 = "t2"
     val topic3 = "t3"
@@ -183,10 +168,10 @@ class MetadataRequestTest extends BaseRequestTest {
     assertEquals(2, response1.topicMetadata.size)
     var topicMetadata1 = response1.topicMetadata.asScala.head
     val topicMetadata2 = response1.topicMetadata.asScala.toSeq(1)
-    assertEquals(Errors.LEADER_NOT_AVAILABLE, topicMetadata1.error)
+    assertEquals(Errors.UNKNOWN_TOPIC_OR_PARTITION, topicMetadata1.error)
     assertEquals(topic1, topicMetadata1.topic)
     // The topic creation will be delayed, and the name collision error will be swallowed.
-    assertEquals(Errors.LEADER_NOT_AVAILABLE, topicMetadata2.error)
+    assertEquals(Errors.UNKNOWN_TOPIC_OR_PARTITION, topicMetadata2.error)
     assertEquals(topic2, topicMetadata2.topic)
 
     TestUtils.waitUntilLeaderIsElectedOrChanged(zkClient, topic1, 0)
@@ -273,15 +258,6 @@ class MetadataRequestTest extends BaseRequestTest {
         assertEquals(Optional.of(assignment.head), partitionMetadata.leaderId)
       }
     }
-  }
-
-  def requestData(topics: List[String], allowAutoTopicCreation: Boolean): MetadataRequestData = {
-    val data = new MetadataRequestData
-    if (topics == null) data.setTopics(null)
-    else topics.foreach(topic => data.topics.add(new MetadataRequestData.MetadataRequestTopic().setName(topic)))
-
-    data.setAllowAutoTopicCreation(allowAutoTopicCreation)
-    data
   }
 
   @Test
@@ -398,9 +374,4 @@ class MetadataRequestTest extends BaseRequestTest {
     serverToShutdown.startup()
     checkMetadata(servers, servers.size)
   }
-
-  private def sendMetadataRequest(request: MetadataRequest, destination: Option[SocketServer] = None): MetadataResponse = {
-    connectAndReceive[MetadataResponse](request, destination = destination.getOrElse(anySocketServer))
-  }
-
 }

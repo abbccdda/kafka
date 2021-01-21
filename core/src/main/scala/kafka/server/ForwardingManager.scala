@@ -156,25 +156,4 @@ class ForwardingManagerImpl(
         request.getErrorResponse(Errors.UNKNOWN_SERVER_ERROR.exception)
     }
   }
-
-  /**
-   * Send a new request to the active controller, which only serves the inter-broker communication purpose.
-   * The main difference between this API and {@link #forwardRequest} is that it does not wrap the request in
-   * an EnvelopeRequest since it is not technically a `forwarding` request based off admin client RPC, but a request
-   * initiated by the broker itself. The current use case is auto topic creation when receiving metadata-related requests
-   * with permission to create non-existing topics.
-   *
-   * @param request request builder to be used for building new request
-   * @param responseCallback response callback handler
-   */
-  override def sendInterBrokerRequest(request: AbstractRequest.Builder[_ <: AbstractRequest],
-                                      responseCallback: AbstractResponse => Unit): Unit = {
-    channelManager.sendRequest(request, new ControllerRequestCompletionHandler() {
-      override def onTimeout(): Unit = {}
-
-      override def onComplete(response: ClientResponse): Unit = {
-        responseCallback(response.responseBody())
-      }
-    })
-  }
 }

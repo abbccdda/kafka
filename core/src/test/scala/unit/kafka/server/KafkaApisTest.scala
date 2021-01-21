@@ -90,6 +90,8 @@ class KafkaApisTest {
   private val txnCoordinator: TransactionCoordinator = EasyMock.createNiceMock(classOf[TransactionCoordinator])
   private val controller: KafkaController = EasyMock.createNiceMock(classOf[KafkaController])
   private val forwardingManager: ForwardingManager = EasyMock.createNiceMock(classOf[ForwardingManager])
+  private val autoTopicCreationManager: AutoTopicCreationManager = EasyMock.createNiceMock(classOf[AutoTopicCreationManager])
+
   private val hostAddress: Array[Byte] = InetAddress.getByName("192.168.1.1").getAddress
   private val kafkaPrincipalSerde = new KafkaPrincipalSerde {
     override def serialize(principal: KafkaPrincipal): Array[Byte] = Utils.utf8(principal.toString)
@@ -128,32 +130,14 @@ class KafkaApisTest {
     properties.put(KafkaConfig.InterBrokerProtocolVersionProp, interBrokerProtocolVersion.toString)
     properties.put(KafkaConfig.LogMessageFormatVersionProp, interBrokerProtocolVersion.toString)
 
-    val forwardingManagerOpt = if (enableForwarding)
-      Some(this.forwardingManager)
+    val (forwardingManagerOpt, autoTopicCreationManagerOpt) = if (enableForwarding)
+      (Some(this.forwardingManager), Some(this.autoTopicCreationManager))
     else
-      None
+      (None, None)
 
-    new KafkaApis(requestChannel,
-      replicaManager,
-      adminManager,
-      groupCoordinator,
-      txnCoordinator,
-      controller,
-      forwardingManagerOpt,
-      zkClient,
-      brokerId,
-      new KafkaConfig(properties),
-      metadataCache,
-      metrics,
-      authorizer,
-      quotas,
-      fetchManager,
-      brokerTopicStats,
-      clusterId,
-      time,
-      null,
-      brokerFeatures,
-      cache)
+    new KafkaApis(requestChannel, replicaManager, adminManager, groupCoordinator, txnCoordinator, controller,
+      forwardingManagerOpt, autoTopicCreationManagerOpt, zkClient, brokerId, new KafkaConfig(properties), metadataCache,
+      metrics, authorizer, quotas, fetchManager, brokerTopicStats, clusterId, time, null, brokerFeatures, cache)
   }
 
   @Test
@@ -957,37 +941,37 @@ class KafkaApisTest {
   @Test
   def testMetadataAutoTopicCreationForOffsetTopic(): Unit = {
     testMetadataAutoTopicCreation(Topic.GROUP_METADATA_TOPIC_NAME, enableForwarding = false,
-      expectedError = Errors.LEADER_NOT_AVAILABLE)
+      expectedError = Errors.UNKNOWN_TOPIC_OR_PARTITION)
   }
 
   @Test
   def testMetadataAutoTopicCreationForTxnTopic(): Unit = {
     testMetadataAutoTopicCreation(Topic.TRANSACTION_STATE_TOPIC_NAME, enableForwarding = false,
-      expectedError = Errors.LEADER_NOT_AVAILABLE)
+      expectedError = Errors.UNKNOWN_TOPIC_OR_PARTITION)
   }
 
   @Test
   def testMetadataAutoTopicCreationForNonInternalTopic(): Unit = {
     testMetadataAutoTopicCreation("topic", enableForwarding = false,
-      expectedError = Errors.LEADER_NOT_AVAILABLE)
+      expectedError = Errors.UNKNOWN_TOPIC_OR_PARTITION)
   }
 
   @Test
   def testMetadataForwardTopicCreationForOffsetTopic(): Unit = {
     testMetadataAutoTopicCreation(Topic.GROUP_METADATA_TOPIC_NAME, enableForwarding = true,
-      expectedError = Errors.LEADER_NOT_AVAILABLE)
+      expectedError = Errors.UNKNOWN_TOPIC_OR_PARTITION)
   }
 
   @Test
   def testMetadataForwardTopicCreationForTxnTopic(): Unit = {
     testMetadataAutoTopicCreation(Topic.TRANSACTION_STATE_TOPIC_NAME, enableForwarding = true,
-      expectedError = Errors.LEADER_NOT_AVAILABLE)
+      expectedError = Errors.UNKNOWN_TOPIC_OR_PARTITION)
   }
 
   @Test
   def testMetadataForwardTopicCreationForNonInternalTopic(): Unit = {
     testMetadataAutoTopicCreation("topic", enableForwarding = true,
-      expectedError = Errors.LEADER_NOT_AVAILABLE)
+      expectedError = Errors.UNKNOWN_TOPIC_OR_PARTITION)
   }
 
   @Test
@@ -1098,28 +1082,20 @@ class KafkaApisTest {
                                                     numBrokersNeeded: Int,
                                                     requestTimeout: Int,
                                                     request: RequestChannel.Request) = {
-    val topics = new CreateTopicsRequestData.CreatableTopicCollection(1)
     val topicToCreate = new CreateTopicsRequestData.CreatableTopic()
       .setName(topicName)
       .setNumPartitions(numBrokersNeeded)
       .setReplicationFactor(numBrokersNeeded.shortValue())
-    topics.add(topicToCreate)
 
     EasyMock.expect(clientControllerQuotaManager.newQuotaFor(
       EasyMock.eq(request), EasyMock.eq(6))).andReturn(UnboundedControllerMutationQuota)
 
     if (hasEnoughLiveBrokers) {
       if (enableForwarding) {
-        val createTopicsRequest = new CreateTopicsRequest.Builder(
-          new CreateTopicsRequestData()
-            .setTimeoutMs(requestTimeout)
-            .setTopics(topics)
-        )
-
-        EasyMock.expect(forwardingManager.sendInterBrokerRequest(
-          EasyMock.eq(createTopicsRequest),
-          anyObject[AbstractResponse => Unit]()
-        )).once()
+        EasyMock.expect(autoTopicCreationManager.createTopics(
+          EasyMock.eq(Set(topicToCreate)),
+          EasyMock.eq(UnboundedControllerMutationQuota)
+        ))
       } else {
         EasyMock.expect(adminManager.createTopics(
           EasyMock.eq(requestTimeout),
