@@ -91,18 +91,7 @@ class ForwardingManagerImpl(
     request: RequestChannel.Request,
     responseCallback: Option[AbstractResponse] => Unit
   ): Unit = {
-    val principalSerde = request.context.principalSerde.asScala.getOrElse(
-      throw new IllegalArgumentException(s"Cannot deserialize principal from request $request " +
-        "since there is no serde defined")
-    )
-    val serializedPrincipal = principalSerde.serialize(request.context.principal)
-    val forwardRequestBuffer = request.buffer.duplicate()
-    forwardRequestBuffer.flip()
-    val envelopeRequest = new EnvelopeRequest.Builder(
-      forwardRequestBuffer,
-      serializedPrincipal,
-      request.context.clientAddress.getAddress
-    )
+    val envelopeRequest: EnvelopeRequest.Builder = createEnvelopeRequest(request)
 
     class ForwardingResponseHandler extends ControllerRequestCompletionHandler {
       override def onComplete(clientResponse: ClientResponse): Unit = {
@@ -140,6 +129,22 @@ class ForwardingManagerImpl(
     }
 
     channelManager.sendRequest(envelopeRequest, new ForwardingResponseHandler)
+  }
+
+  private def createEnvelopeRequest(request: RequestChannel.Request) = {
+    val principalSerde = request.context.principalSerde.asScala.getOrElse(
+      throw new IllegalArgumentException(s"Cannot deserialize principal from request $request " +
+        "since there is no serde defined")
+    )
+    val serializedPrincipal = principalSerde.serialize(request.context.principal)
+    val forwardRequestBuffer = request.buffer.duplicate()
+    forwardRequestBuffer.flip()
+    val envelopeRequest = new EnvelopeRequest.Builder(
+      forwardRequestBuffer,
+      serializedPrincipal,
+      request.context.clientAddress.getAddress
+    )
+    envelopeRequest
   }
 
   override def controllerApiVersions: Option[NodeApiVersions] =

@@ -27,6 +27,7 @@ import java.util.{Collections, Optional, Properties}
 
 import kafka.admin.AdminUtils
 import kafka.api.{ApiVersion, ElectLeadersRequestOps, KAFKA_0_11_0_IV0, KAFKA_2_3_IV0}
+import kafka.cluster.Broker
 import kafka.common.OffsetAndMetadata
 import kafka.controller.{KafkaController, ReplicaAssignment}
 import kafka.coordinator.group._
@@ -1101,29 +1102,16 @@ class KafkaApis(val requestChannel: RequestChannel,
                                topics: Set[String],
                                listenerName: ListenerName,
                                errorUnavailableEndpoints: Boolean,
-                               errorUnavailableListeners: Boolean): (Seq[MetadataResponseTopic], Seq[MetadataResponseTopic]) = {
+                               errorUnavailableListeners: Boolean): (Seq[MetadataResponseTopic], Set[String]) = {
     val topicResponses = metadataCache.getTopicMetadata(topics, listenerName,
         errorUnavailableEndpoints, errorUnavailableListeners)
 
-    if (topics.isEmpty || topicResponses.size == topics.size) {
-      (topicResponses, Seq.empty[MetadataResponseTopic])
+    // A metadata request for all topics should never result in topic auto creation, but a topic may be deleted
+    // in between the creation of the topics parameter and topicResponses, so make sure to return None for this case.
+    if (isFetchAllMetadata || topics.isEmpty || topicResponses.size == topics.size) {
+      (topicResponses, Set.empty[String])
     } else {
-      val nonExistentTopics = topics.diff(topicResponses.map(_.name).toSet)
-      val responsesForNonExistentTopics = nonExistentTopics.flatMap { topic =>
-       if (isFetchAllMetadata) {
-          // A metadata request for all topics should never result in topic auto creation, but a topic may be deleted
-          // in between the creation of the topics parameter and topicResponses, so make sure to return None for this case.
-          None
-       } else {
-         Some(metadataResponseTopic(
-          if (!hasEnoughAliveBrokers(topic))
-            Errors.INVALID_REPLICATION_FACTOR
-          else
-            Errors.UNKNOWN_TOPIC_OR_PARTITION,
-          topic, isInternal(topic), util.Collections.emptyList()))
-        }
-      }
-      (topicResponses, responsesForNonExistentTopics.toSeq)
+      (topicResponses, topics.diff(topicResponses.map(_.name).toSet))
     }
   }
 
@@ -1171,28 +1159,20 @@ class KafkaApis(val requestChannel: RequestChannel,
     // In versions 5 and below, we returned LEADER_NOT_AVAILABLE if a matching listener was not found on the leader.
     // From version 6 onwards, we return LISTENER_NOT_FOUND to enable diagnosis of configuration errors.
     val errorUnavailableListeners = requestVersion >= 6
-    val (topicMetadata, nonExistTopicMetadata) =
+    val (topicMetadata, nonExistTopics) =
       if (authorizedTopics.isEmpty)
-        (Seq.empty[MetadataResponseTopic], Seq.empty[MetadataResponseTopic])
+        (Seq.empty[MetadataResponseTopic], Set.empty[String])
       else
         getTopicMetadata(metadataRequest.isAllTopics, authorizedTopics,
           request.context.listenerName, errorUnavailableEndpoints, errorUnavailableListeners)
 
-    nonExistTopicMetadata.foreach(metadata =>
-      try {
-        // Validate topic name and propagate error if failed
-        Topic.validate(metadata.name())
-      } catch {
-        case e: Exception =>
-          metadata.setErrorCode(Errors.forException(e).code)
-      }
-    )
-
-    if (nonExistTopicMetadata.nonEmpty && metadataRequest.allowAutoTopicCreation && config.autoCreateTopicsEnable) {
+    val nonExistTopicMetadata =
+    if (nonExistTopics.nonEmpty && metadataRequest.allowAutoTopicCreation && config.autoCreateTopicsEnable) {
       val controllerMutationQuota = quotas.controllerMutation.newQuotaFor(request, strictSinceVersion = 6)
       autoTopicCreationManager.createTopics(
-        nonExistTopicMetadata.map(metadata => getTopicConfigs(metadata.name())).toSet, controllerMutationQuota)
-    }
+        nonExistTopics, controllerMutationQuota)
+    } else
+      Seq.empty[MetadataResponseTopic]
 
     var clusterAuthorizedOperations = Int.MinValue // Default value in the schema
     if (requestVersion >= 8) {
@@ -1214,7 +1194,7 @@ class KafkaApis(val requestChannel: RequestChannel,
           }
         }
         setTopicAuthorizedOperations(topicMetadata)
-        setTopicAuthorizedOperations(nonExistTopicMetadata)
+        setTopicAuthorizedOperations(nonExistTopics)
       }
     }
 
@@ -1336,12 +1316,11 @@ class KafkaApis(val requestChannel: RequestChannel,
       val topicMetadata = metadataCache.getTopicMetadata(Set(internalTopicName), request.context.listenerName)
       def createFindCoordinatorResponse(error: Errors,
                                         node: Node,
-                                        requestThrottleMs: Int,
-                                        errorMessage: Option[String] = None): FindCoordinatorResponse = {
+                                        requestThrottleMs: Int): FindCoordinatorResponse = {
         new FindCoordinatorResponse(
           new FindCoordinatorResponseData()
             .setErrorCode(error.code)
-            .setErrorMessage(errorMessage.getOrElse(error.message))
+            .setErrorMessage(error.message())
             .setNodeId(node.id)
             .setHost(node.host)
             .setPort(node.port)
@@ -1351,8 +1330,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       if (topicMetadata.headOption.isEmpty) {
         if (hasEnoughAliveBrokers(internalTopicName)) {
           val controllerMutationQuota = quotas.controllerMutation.newQuotaFor(request, strictSinceVersion = 6)
-          autoTopicCreationManager.createTopics(
-            Seq(getTopicConfigs(internalTopicName)).toSet, controllerMutationQuota)
+          autoTopicCreationManager.createTopics(Seq(internalTopicName).toSet, controllerMutationQuota)
         }
         requestHelper.sendResponseMaybeThrottle(request, requestThrottleMs => createFindCoordinatorResponse(
           Errors.COORDINATOR_NOT_AVAILABLE, Node.noNode, requestThrottleMs))
@@ -1385,40 +1363,6 @@ class KafkaApis(val requestChannel: RequestChannel,
     }
   }
 
-  private def getTopicConfigs(topic: String): CreatableTopic = {
-    topic match {
-      case GROUP_METADATA_TOPIC_NAME =>
-        new CreatableTopic()
-          .setName(topic)
-          .setNumPartitions(config.offsetsTopicPartitions)
-          .setReplicationFactor(config.offsetsTopicReplicationFactor)
-          .setConfigs(convertToTopicConfigCollections(groupCoordinator.offsetsTopicConfigs))
-      case TRANSACTION_STATE_TOPIC_NAME =>
-        new CreatableTopic()
-          .setName(topic)
-          .setNumPartitions(config.transactionTopicPartitions)
-          .setReplicationFactor(config.transactionTopicReplicationFactor)
-          .setConfigs(convertToTopicConfigCollections(
-            txnCoordinator.transactionTopicConfigs))
-      case topicName =>
-        new CreatableTopic()
-          .setName(topicName)
-          .setNumPartitions(config.numPartitions)
-          .setReplicationFactor(config.defaultReplicationFactor.shortValue)
-    }
-  }
-
-  private def convertToTopicConfigCollections(config: Properties): CreateableTopicConfigCollection = {
-    val topicConfigs = new CreateableTopicConfigCollection()
-    config.forEach {
-      case (name, value) =>
-        topicConfigs.add(new CreateableTopicConfig()
-          .setName(name.toString)
-          .setValue(value.toString))
-    }
-    topicConfigs
-  }
-
   private def hasEnoughAliveBrokers(topic: String): Boolean = {
     if (topic == null)
       throw new IllegalArgumentException("topic must not be null")
@@ -1427,36 +1371,30 @@ class KafkaApis(val requestChannel: RequestChannel,
 
     topic match {
       case GROUP_METADATA_TOPIC_NAME =>
-        if (aliveBrokers.size < config.offsetsTopicReplicationFactor) {
-          error(s"Number of alive brokers '${aliveBrokers.size}' does not meet the required replication factor " +
-            s"'${config.offsetsTopicReplicationFactor}' for the offsets topic (configured via " +
-            s"'${KafkaConfig.OffsetsTopicReplicationFactorProp}'). This error can be ignored if the cluster is starting up " +
-            s"and not all brokers are up yet.")
-          false
-        } else {
-          true
-        }
+        checkEnoughLiveBrokers(aliveBrokers, config.offsetsTopicReplicationFactor.intValue(), topic, None)
       case TRANSACTION_STATE_TOPIC_NAME =>
-        if (aliveBrokers.size < config.transactionTopicReplicationFactor) {
-          error(s"Number of alive brokers '${aliveBrokers.size}' does not meet the required replication factor " +
-            s"'${config.transactionTopicReplicationFactor}' for the transactions state topic (configured via " +
-            s"'${KafkaConfig.TransactionsTopicReplicationFactorProp}'). This error can be ignored if the cluster is starting up " +
-            s"and not all brokers are up yet.")
-          false
-        } else {
-          true
-        }
+        checkEnoughLiveBrokers(aliveBrokers, config.transactionTopicReplicationFactor.intValue(), topic, None)
       case _ =>
-        if (aliveBrokers.size < config.defaultReplicationFactor) {
-          error(s"Number of alive brokers '${aliveBrokers.size}' does not meet the required replication factor " +
-            s"'${config.defaultReplicationFactor}' for the auto created topic " +
-            s"'$topic'. This error can be ignored if the cluster is starting up " +
-            s"and not all brokers are up yet.")
-          false
-        } else {
-          true
-        }
+        checkEnoughLiveBrokers(aliveBrokers, config.defaultReplicationFactor, topic, None)
     }
+  }
+
+  private def checkEnoughLiveBrokers(aliveBrokers: Seq[Broker],
+                                     replicationFactor: Int,
+                                     topicName: String,
+                                     configName: Option[String]): Boolean = {
+    if (aliveBrokers.size < replicationFactor) {
+      val configHint = configName match {
+        case Some(config) => s", whose replication factor is configured via $config"
+        case None => ""
+      }
+      error(s"Number of alive brokers '${aliveBrokers.size}' does not meet the required replication factor " +
+        s"'$replicationFactor' for auto creation of topic '$topicName'$configHint. " +
+        s"This error can be ignored if the cluster is starting up " +
+        s"and not all brokers are up yet.")
+      false
+    } else
+      true
   }
 
   def handleDescribeGroupRequest(request: RequestChannel.Request): Unit = {
