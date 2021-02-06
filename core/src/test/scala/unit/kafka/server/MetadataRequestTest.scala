@@ -163,16 +163,16 @@ class MetadataRequestTest extends AbstractMetadataRequestTest {
 
   @Test
   def testAutoCreateOfCollidingTopics(): Unit = {
-    val topic1 = "testAutoCreate_Topic"
-    val topic2 = "testAutoCreate.Topic"
+    val topic1 = "testAutoCreate.Topic"
+    val topic2 = "testAutoCreate_Topic"
     val response1 = sendMetadataRequest(new MetadataRequest.Builder(Seq(topic1, topic2).asJava, true).build)
     assertEquals(2, response1.topicMetadata.size)
     var topicMetadata1 = response1.topicMetadata.asScala.head
     val topicMetadata2 = response1.topicMetadata.asScala.toSeq(1)
-    assertEquals(Errors.UNKNOWN_TOPIC_OR_PARTITION, topicMetadata1.error)
+    assertEquals(Errors.LEADER_NOT_AVAILABLE, topicMetadata1.error)
     assertEquals(topic1, topicMetadata1.topic)
     // The topic creation will be delayed, and the name collision error will be swallowed.
-    assertEquals(Errors.UNKNOWN_TOPIC_OR_PARTITION, topicMetadata2.error)
+    assertEquals(Errors.INVALID_TOPIC_EXCEPTION, topicMetadata2.error)
     assertEquals(topic2, topicMetadata2.topic)
 
     TestUtils.waitUntilLeaderIsElectedOrChanged(zkClient, topic1, 0)
