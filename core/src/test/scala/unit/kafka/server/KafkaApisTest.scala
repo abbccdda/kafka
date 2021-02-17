@@ -893,7 +893,7 @@ class KafkaApisTest {
 
     val capturedResponse = expectNoThrottling(request)
 
-    verifyTopicCreation(topicName, true, true, request)
+    val capturedRequest = verifyTopicCreation(topicName, true, true, request)
 
     EasyMock.replay(replicaManager, clientRequestQuotaManager, requestChannel, authorizer,
       autoTopicCreationManager, forwardingManager, controller, clientControllerQuotaManager, groupCoordinator, txnCoordinator)
@@ -903,6 +903,8 @@ class KafkaApisTest {
 
     val response = capturedResponse.getValue.asInstanceOf[FindCoordinatorResponse]
     assertEquals(Errors.COORDINATOR_NOT_AVAILABLE, response.error())
+
+    assertTrue(capturedRequest.getValue.isEmpty)
 
     verify(authorizer, autoTopicCreationManager)
   }
@@ -994,7 +996,7 @@ class KafkaApisTest {
 
     val capturedResponse = expectNoThrottling(request)
 
-    verifyTopicCreation(topicName, enableAutoTopicCreation, isInternal, request)
+    val capturedRequest = verifyTopicCreation(topicName, enableAutoTopicCreation, isInternal, request)
 
     EasyMock.replay(replicaManager, clientRequestQuotaManager, requestChannel, authorizer,
       autoTopicCreationManager, forwardingManager, clientControllerQuotaManager, groupCoordinator, txnCoordinator)
@@ -1012,26 +1014,34 @@ class KafkaApisTest {
 
     assertEquals(expectedMetadataResponse, response.topicMetadata())
 
+    if (enableAutoTopicCreation) {
+      assertTrue(capturedRequest.getValue.isDefined)
+      assertEquals(request, capturedRequest.getValue.get)
+    }
+
     verify(authorizer, autoTopicCreationManager)
   }
 
   private def verifyTopicCreation(topicName: String,
                                   enableAutoTopicCreation: Boolean,
                                   isInternal: Boolean,
-                                  request: RequestChannel.Request) = {
+                                  request: RequestChannel.Request): Capture[Option[RequestChannel.Request]] = {
+    val capturedRequest = EasyMock.newCapture[Option[RequestChannel.Request]]()
     if (enableAutoTopicCreation) {
       EasyMock.expect(clientControllerQuotaManager.newPermissiveQuotaFor(EasyMock.eq(request)))
         .andReturn(UnboundedControllerMutationQuota)
 
       EasyMock.expect(autoTopicCreationManager.createTopics(
         EasyMock.eq(Set(topicName)),
-        EasyMock.eq(UnboundedControllerMutationQuota))).andReturn(
+        EasyMock.eq(UnboundedControllerMutationQuota),
+        EasyMock.capture(capturedRequest))).andReturn(
         Seq(new MetadataResponseTopic()
         .setErrorCode(Errors.UNKNOWN_TOPIC_OR_PARTITION.code())
         .setIsInternal(isInternal)
         .setName(topicName))
       ).once()
     }
+    capturedRequest
   }
 
   private def setupBrokerMetadata(hasEnoughLiveBrokers: Boolean, numBrokersNeeded: Int): Unit = {
