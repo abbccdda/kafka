@@ -150,14 +150,11 @@ class DynamicBrokerReconfigurationWithForwardingTest extends AbstractDynamicBrok
     verifyAuthenticationFailure(producerBuilder.keyStoreProps(sslProperties2).build())
     verifySslProduceConsume(sslProperties1, "alter-truststore-3")
 
-    logger.error("Updating security store file {}", sslProperties1.getProperty(SSL_TRUSTSTORE_LOCATION_CONFIG))
-
     // Update same truststore file to contain both certificates without changing any configs.
     // Clients should connect successfully with either keystore after admin client AlterConfigsRequest completes.
     Files.copy(Paths.get(combinedStoreProps.getProperty(SSL_TRUSTSTORE_LOCATION_CONFIG)),
       Paths.get(sslProperties1.getProperty(SSL_TRUSTSTORE_LOCATION_CONFIG)),
       StandardCopyOption.REPLACE_EXISTING)
-    logger.error("Updated security store file {}", sslProperties1.getProperty(SSL_TRUSTSTORE_LOCATION_CONFIG))
 
     TestUtils.incrementalAlterConfigs(servers, adminClients.head, oldTruststoreProps, perBrokerConfig = true).all.get()
     verifySslProduceConsume(sslProperties1, "alter-truststore-4")

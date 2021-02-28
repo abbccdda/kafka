@@ -85,6 +85,7 @@ public final class DefaultSslEngineFactory implements SslEngineFactory {
 
     private static final Logger log = LoggerFactory.getLogger(DefaultSslEngineFactory.class);
     public static final String PEM_TYPE = "PEM";
+    private static final long DEFAULT_SECURITY_STORE_REFRESH_INTERVAL_MS = 300_000L;
 
     private Map<String, ?> configs;
     private String protocol;
@@ -93,8 +94,8 @@ public final class DefaultSslEngineFactory implements SslEngineFactory {
     private String tmfAlgorithm;
     private SecurityStore keystore;
     private SecurityStore truststore;
-    private long keyStoreRefreshIntervalMs = Long.MAX_VALUE;
-    private long trustStoreRefreshIntervalMs = Long.MAX_VALUE;
+    private long keyStoreRefreshIntervalMs = DEFAULT_SECURITY_STORE_REFRESH_INTERVAL_MS;
+    private long trustStoreRefreshIntervalMs = DEFAULT_SECURITY_STORE_REFRESH_INTERVAL_MS;
     private final SecurityFileChangeListener securityFileChangeListener;
     private final Thread securityStoreRefreshThread;
 
@@ -325,21 +326,22 @@ public final class DefaultSslEngineFactory implements SslEngineFactory {
                 (Password) configs.get(SslConfigs.SSL_KEY_PASSWORD_CONFIG),
                 (Password) configs.get(SslConfigs.SSL_KEYSTORE_KEY_CONFIG),
                 (Password) configs.get(SslConfigs.SSL_KEYSTORE_CERTIFICATE_CHAIN_CONFIG));
-        this.keyStoreRefreshIntervalMs = (Long) configs.get(SslConfigs.SSL_KEYSTORE_LOCATION_REFRESH_INTERVAL_MS_CONFIG);
         if (keyStoreLocation != null)
             this.securityFileChangeListener.updateStoreKey(keystore, keyStoreLocation);
+        if (configs.containsKey(SslConfigs.SSL_KEYSTORE_LOCATION_REFRESH_INTERVAL_MS_CONFIG))
+            this.keyStoreRefreshIntervalMs = (Long) configs.get(SslConfigs.SSL_KEYSTORE_LOCATION_REFRESH_INTERVAL_MS_CONFIG);
 
         final String trustStoreLocation = (String) configs.get(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG);
         this.truststore = createTruststore((String) configs.get(SslConfigs.SSL_TRUSTSTORE_TYPE_CONFIG),
                 trustStoreLocation,
                 (Password) configs.get(SslConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG),
                 (Password) configs.get(SslConfigs.SSL_TRUSTSTORE_CERTIFICATES_CONFIG));
-        this.trustStoreRefreshIntervalMs = (Long) configs.get(SslConfigs.SSL_TRUSTSTORE_LOCATION_REFRESH_INTERVAL_MS_CONFIG);
         if (trustStoreLocation != null)
             this.securityFileChangeListener.updateStoreKey(truststore, trustStoreLocation);
+        if (configs.containsKey(SslConfigs.SSL_TRUSTSTORE_LOCATION_REFRESH_INTERVAL_MS_CONFIG))
+            this.trustStoreRefreshIntervalMs = (Long) configs.get(SslConfigs.SSL_TRUSTSTORE_LOCATION_REFRESH_INTERVAL_MS_CONFIG);
 
         this.sslContext.set(createSSLContext(keystore, truststore));
-//        this.securityFileChangeListener.setSSLContext(sslContext);
 
         securityStoreRefreshThread.start();
     }
